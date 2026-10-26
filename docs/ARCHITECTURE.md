@@ -2,7 +2,7 @@
 
 - **Status:** design, no code. Describes the planned v1 architecture of the engine as decided.
 - **verified-at:** 2026-10-26
-- **covers:** [0004](decisions/0004-installer-language-and-shape.md) (partial), [0007](decisions/0007-always-on-context-budget.md) (proposed), [0008](decisions/0008-onboarding-by-detection-and-base-profile.md), [0010](decisions/0010-engine-and-pack-separated.md), [0011](decisions/0011-mods-always-project-scoped.md), [0012](decisions/0012-rules-file-per-harness.md), [0013](decisions/0013-renderer-merges-by-key.md), [0016](decisions/0016-review-via-external-tracker.md), [0017](decisions/0017-pack-variants-as-layers.md), [0018](decisions/0018-install-modes-and-mandatory-backup.md), [0019](decisions/0019-v1-harness-targets.md), [0020](decisions/0020-v1-scope-engine-and-pack.md), [0021](decisions/0021-go-engine-orchestrates-rulesync.md), [0022](decisions/0022-pack-format-and-manifest.md), [0023](decisions/0023-flat-profiles-and-layer-merge-rules.md), [0024](decisions/0024-models-declared-per-harness-no-tiers.md), [0025](decisions/0025-settings-as-per-harness-passthrough.md), [0026](decisions/0026-json-cli-and-ui-after-v1.md)
+- **covers:** [0004](decisions/0004-installer-language-and-shape.md) (partial), [0007](decisions/0007-always-on-context-budget.md) (proposed), [0008](decisions/0008-onboarding-by-detection-and-base-profile.md), [0010](decisions/0010-engine-and-pack-separated.md), [0011](decisions/0011-mods-always-project-scoped.md), [0012](decisions/0012-rules-file-per-harness.md), [0013](decisions/0013-renderer-merges-by-key.md), [0016](decisions/0016-review-via-external-tracker.md), [0017](decisions/0017-pack-variants-as-layers.md), [0018](decisions/0018-install-modes-and-mandatory-backup.md), [0019](decisions/0019-v1-harness-targets.md), [0020](decisions/0020-v1-scope-engine-and-pack.md), [0021](decisions/0021-go-engine-orchestrates-rulesync.md), [0022](decisions/0022-pack-format-and-manifest.md), [0023](decisions/0023-flat-profiles-and-layer-merge-rules.md), [0024](decisions/0024-models-declared-per-harness-no-tiers.md), [0025](decisions/0025-settings-as-per-harness-passthrough.md), [0026](decisions/0026-json-cli-and-ui-after-v1.md), [0027](decisions/0027-loose-files-and-plugins-only-for-mods.md), [0028](decisions/0028-plan-centric-hexagonal-engine.md)
 
 This document is a map, not an atlas. The why lives in the [decision records](decisions/README.md) and the pack contract in [PACK-FORMAT.md](PACK-FORMAT.md). Anything not yet decided is marked as pending and points to [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md). Anything not stated by a source document is marked `(inferred)`.
 
@@ -45,13 +45,13 @@ flowchart TB
 
 ## 3. Planned code map
 
-There is no code. The only thing decided is the shape ([0004](decisions/0004-installer-language-and-shape.md), in force where 0020 does not replace it, 0010 to 0013, and 0021):
+There is no code yet. Decided so far: the shape ([0004](decisions/0004-installer-language-and-shape.md), in force where 0020 does not replace it, 0010 to 0013, and 0021):
 
 - **Separate engine and packs** ([0010](decisions/0010-engine-and-pack-separated.md)): the engine is an own, minimal Go binary that orchestrates a pinned rulesync binary for rendering ([0021](decisions/0021-go-engine-orchestrates-rulesync.md)); packs are YAML + Markdown, and nothing personal goes into Go.
 - **Pack source in the `.rulesync/` layout:** per-harness blocks in the frontmatter (`claudecode:`, `opencode:`, and for agy `antigravity-cli:` in subagents and `antigravity:` in rules) and a `dotai:` block with abstract capabilities, which dotai reads from the sources because rulesync strips it ([0021](decisions/0021-go-engine-orchestrates-rulesync.md), [HARNESS-NOTES](HARNESS-NOTES.md)).
 - **Rendering:** rulesync renders rules, commands, subagents, skills, MCP, hooks and permissions into a staging directory; dotai renders what rulesync does not cover (settings such as `statusLine` and `env`, plugins, runners) and applies everything with merge by key and the active install mode ([0021](decisions/0021-go-engine-orchestrates-rulesync.md)).
 - **Rules file per harness:** `CLAUDE.md` for Claude Code and `AGENTS.md` for agy and OpenCode, from the same source ([0012](decisions/0012-rules-file-per-harness.md)).
-- **Emission in Claude Code:** skills, commands, agents, hooks, MCP and mods in one plugin per pack; `permissions`, `env` and `statusLine` in settings, merged by key with an ownership record and without deleting foreign entries ([0013](decisions/0013-renderer-merges-by-key.md)).
+- **Emission in Claude Code:** skills, commands, agents, hooks and MCP as loose files; mods as project-scoped plugins under `.claude/skills/<mod>/` ([0027](decisions/0027-loose-files-and-plugins-only-for-mods.md)); `permissions`, `env` and `statusLine` in settings, merged by key with an ownership record and without deleting foreign entries ([0013](decisions/0013-renderer-merges-by-key.md)).
 - `dotai apply --harness claude|opencode|agy --profile <profile> [--project .]`; to use another pack, for example `--pack <source>` ([0010](decisions/0010-engine-and-pack-separated.md); exact form pending).
 - Every command offers `--json` output; a UI (local web page or terminal) comes after v1 as a thin layer over the same functions ([0026](decisions/0026-json-cli-and-ui-after-v1.md)).
 - `dotai doctor`: diffs the generated output against the source. It is planned to also measure the first-request budget and fail if it exceeds the cap the pack declares ([0007](decisions/0007-always-on-context-budget.md), proposed).
@@ -72,6 +72,26 @@ flowchart LR
   R3 --> O3["Minimal AGENTS.md"]
   CORE --> DOC["dotai doctor: diff against the source"]
 ```
+
+### Code structure
+
+Decided in [0028](decisions/0028-plan-centric-hexagonal-engine.md). Every command builds a plan (the exact file and key operations), then backs up its targets and executes it; `--dry-run`, `--json` and `doctor` read the same plan.
+
+```
+cmd/dotai/        flags only; calls app
+internal/
+  app/            use cases: install, apply, validate, doctor, restore
+  pack/           manifest, layers, dotai: blocks (no I/O, fs.FS)
+  merge/          layer merge rules, staging per scope (pure)
+  render/         settings, runners, tools, mod plugin.json
+  plan/           plan model, diff, JSON/JSONC key merge (pure)
+  backup/  state/ backups and restore; ownership record
+  harness/        Adapter port + claudecode, antigravity, opencode
+  rulesync/       pinned binary: download, checksum, run
+  platform/       filesystem, processes, env, OS paths
+```
+
+JSON and JSONC key edits use `tailscale/hujson` plus a small own edit layer in `plan`, which keeps comments, key order and line endings ([0028](decisions/0028-plan-centric-hexagonal-engine.md)).
 
 Pending:
 

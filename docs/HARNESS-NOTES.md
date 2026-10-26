@@ -8,7 +8,7 @@ Verified behavior of the v1 harnesses that the adapters rely on. Each fact names
 - **MCP:** a `mcpServers` block in `settings.json` is not loaded. MCP servers go in `.mcp.json` (project) or `~/.claude.json` (user).
 - **`PreToolUse` hook on `Agent`:** `tool_input` includes `model` only when the model sends it, so a hook can detect a missing model. Effort is not in `tool_input`; the session effort is the top-level `effort.level` field (also `$CLAUDE_EFFORT`). `updatedInput` can set `model` (checked with the `sonnet` alias) and must copy every original field. Effort cannot be set per launch ([0024](decisions/0024-models-declared-per-harness-no-tiers.md)).
 - **Settings:** `~/.claude/settings.json` and `.claude/settings.json`; the schema rejects unknown keys ([0025](decisions/0025-settings-as-per-harness-passthrough.md)).
-- **Plugins** cannot carry `CLAUDE.md`, the main `statusLine`, permissions or `env`.
+- **Plugins** cannot carry `CLAUDE.md`, the main `statusLine`, permissions or `env`. A mod is a plugin with a hooks module. Inside a plugin, agents become `<plugin>:<agent>` and MCP tools `mcp__plugin_<plugin>_<server>__<tool>`. A plugin under `.claude/skills/<name>/` with a `.claude-plugin/plugin.json` loads at project scope after workspace trust; installing from a marketplace with `--scope project` writes state under the user configuration directory (checked on 2.1.310, [0027](decisions/0027-loose-files-and-plugins-only-for-mods.md)).
 - **Isolation:** `CLAUDE_CONFIG_DIR` is partial ([0018](decisions/0018-install-modes-and-mandatory-backup.md)).
 - **Same-name items:** a user skill wins over a project skill; a project subagent wins over a user subagent ([0023](decisions/0023-flat-profiles-and-layer-merge-rules.md)).
 

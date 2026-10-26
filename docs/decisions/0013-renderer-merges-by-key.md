@@ -6,6 +6,8 @@ tags: [renderer, settings, plugins, doctor]
 
 # 0013 · The renderer merges by key and never rewrites files with foreign content
 
+> **Partially superseded by [0027](0027-loose-files-and-plugins-only-for-mods.md): content goes to Claude Code as loose files, and plugins carry only mods.** Still in force: merge by key, the ownership record, and `permissions`, `env` and `statusLine` in settings.
+
 ## Context
 
 A user's `~/.claude/settings.json` often already holds hooks from other tools (for example Orca's agent hooks), as well as permission lists, `enabledPlugins` and `extraKnownMarketplaces` (internal research on harness surfaces, not published, §1). Rewriting that file would break those tools.

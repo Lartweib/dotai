@@ -20,7 +20,7 @@ Records were renumbered on 2026-10-26, when the records about the reference pack
 | [0010](0010-engine-and-pack-separated.md) | Engine and pack separated from day one | accepted | 2026-10-23 |
 | [0011](0011-mods-always-project-scoped.md) | Mods always project-scoped | accepted | 2026-10-23 |
 | [0012](0012-rules-file-per-harness.md) | Rules file per harness: `CLAUDE.md` for Claude Code, `AGENTS.md` for agy and OpenCode | accepted | 2026-10-23 |
-| [0013](0013-renderer-merges-by-key.md) | The renderer merges by key and never rewrites files with foreign content | accepted | 2026-10-23 |
+| [0013](0013-renderer-merges-by-key.md) | The renderer merges by key and never rewrites files with foreign content (partially superseded by 0027) | accepted | 2026-10-23 |
 | [0014](0014-public-docs-in-english.md) | Public docs in English | accepted | 2026-10-23 |
 | [0015](0015-pack-in-its-own-repository.md) | The reference pack lives in its own repository | accepted | 2026-10-23 |
 | [0016](0016-review-via-external-tracker.md) | Review lives in external tools that the pack declares | accepted | 2026-10-24 |
@@ -34,6 +34,8 @@ Records were renumbered on 2026-10-26, when the records about the reference pack
 | [0024](0024-models-declared-per-harness-no-tiers.md) | Models declared per harness, without tiers | accepted | 2026-10-25 |
 | [0025](0025-settings-as-per-harness-passthrough.md) | Settings as per-harness blocks merged as-is | accepted | 2026-10-25 |
 | [0026](0026-json-cli-and-ui-after-v1.md) | Every command has `--json`; a UI comes after v1 | accepted | 2026-10-26 |
+| [0027](0027-loose-files-and-plugins-only-for-mods.md) | Claude Code content as loose files; plugins only for mods | accepted | 2026-10-26 |
+| [0028](0028-plan-centric-hexagonal-engine.md) | A plan-centric engine with a pure domain and ports | accepted | 2026-10-26 |
 
 ## Superseded (history only)
 
