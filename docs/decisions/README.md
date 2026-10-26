@@ -1,0 +1,49 @@
+# Decision log
+
+One file per decision (format based on MADR 4.0.0, see [template.md](template.md)). Only `accepted` decisions are binding; `proposed` is non-binding context; `superseded` is history only. An accepted record is not rewritten: it is replaced by a new one.
+
+> This index is maintained by hand for now. In the future `dotai doctor` will generate it.
+
+Records were renumbered on 2026-10-26, when the records about the reference pack's content moved to the pack repository.
+
+## In force
+
+| No. | Title | Status | Date |
+|---|---|---|---|
+| [0001](0001-own-configuration-engine.md) | Build an own configuration engine for AI coding harnesses | accepted | 2026-10-19 |
+| [0002](0002-personal-project-publishable.md) | Personal project, done well, publishable | accepted | 2026-10-19 |
+| [0003](0003-align-with-official-standards.md) | Align with official standards; do not reinvent (partially superseded by 0012) | accepted | 2026-10-19 |
+| [0004](0004-installer-language-and-shape.md) | Installer language and shape (partially superseded by 0006) | accepted | 2026-10-19 |
+| [0005](0005-working-name-dotai.md) | Working name: `dotai` | accepted | 2026-10-19 |
+| [0007](0007-always-on-context-budget.md) | Always-on context budget | proposed | 2026-10-20 |
+| [0008](0008-onboarding-by-detection-and-base-profile.md) | Onboarding by detection and base profile (partially superseded by 0023) | accepted | 2026-10-20 |
+| [0010](0010-engine-and-pack-separated.md) | Engine and pack separated from day one | accepted | 2026-10-23 |
+| [0011](0011-mods-always-project-scoped.md) | Mods always project-scoped | accepted | 2026-10-23 |
+| [0012](0012-rules-file-per-harness.md) | Rules file per harness: `CLAUDE.md` for Claude Code, `AGENTS.md` for agy and OpenCode | accepted | 2026-10-23 |
+| [0013](0013-renderer-merges-by-key.md) | The renderer merges by key and never rewrites files with foreign content | accepted | 2026-10-23 |
+| [0014](0014-public-docs-in-english.md) | Public docs in English | accepted | 2026-10-23 |
+| [0015](0015-pack-in-its-own-repository.md) | The reference pack lives in its own repository | accepted | 2026-10-23 |
+| [0016](0016-review-via-external-tracker.md) | Review lives in external tools that the pack declares | accepted | 2026-10-24 |
+| [0017](0017-pack-variants-as-layers.md) | Packs declare variants; the engine applies them as layers | accepted | 2026-10-24 |
+| [0018](0018-install-modes-and-mandatory-backup.md) | Install modes (isolated, replace, merge) with a mandatory backup | accepted | 2026-10-25 |
+| [0019](0019-v1-harness-targets.md) | v1 harness targets: Claude Code, agy and OpenCode | accepted | 2026-10-24 |
+| [0020](0020-v1-scope-engine-and-pack.md) | v1 scope of the engine | accepted | 2026-10-24 |
+| [0021](0021-go-engine-orchestrates-rulesync.md) | The Go engine orchestrates; a pinned rulesync renders | accepted | 2026-10-25 |
+| [0022](0022-pack-format-and-manifest.md) | Pack format: uniform layers and a `dotai.yaml` manifest (partially superseded by 0023 and 0024) | accepted | 2026-10-25 |
+| [0023](0023-flat-profiles-and-layer-merge-rules.md) | Flat, combinable profiles and explicit layer merge rules | accepted | 2026-10-25 |
+| [0024](0024-models-declared-per-harness-no-tiers.md) | Models declared per harness, without tiers | accepted | 2026-10-25 |
+| [0025](0025-settings-as-per-harness-passthrough.md) | Settings as per-harness blocks merged as-is | accepted | 2026-10-25 |
+| [0026](0026-json-cli-and-ui-after-v1.md) | Every command has `--json`; a UI comes after v1 | accepted | 2026-10-26 |
+
+## Superseded (history only)
+
+| No. | Title | Status | Superseded by |
+|---|---|---|---|
+| [0006](0006-five-layer-product-and-v1-order.md) | Five-layer product and v1 build order | superseded | [0020](0020-v1-scope-engine-and-pack.md) |
+| [0009](0009-own-go-engine-rulesync-schema.md) | Own minimal Go engine, using the rulesync schema | superseded | [0021](0021-go-engine-orchestrates-rulesync.md) |
+
+## See also
+
+- [OPEN-QUESTIONS.md](../OPEN-QUESTIONS.md): open questions that are not decisions yet.
+- [ARCHITECTURE.md](../ARCHITECTURE.md): the engine's planned architecture.
+- [PACK-FORMAT.md](../PACK-FORMAT.md): the pack contract.
