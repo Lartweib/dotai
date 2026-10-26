@@ -1,0 +1,8 @@
+# dotai runtime state (delegation jobs, results, logs)
+.dotai/
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
