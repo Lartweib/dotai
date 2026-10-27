@@ -1,0 +1,9 @@
+{
+  "schema": "dotai.cli/v1",
+  "command": "version",
+  "ok": false,
+  "error": {
+    "code": "usage",
+    "message": "unknown command \"extra\" for \"dotai version\""
+  }
+}

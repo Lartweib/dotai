@@ -78,8 +78,10 @@ flowchart LR
 Decided in [0028](decisions/0028-plan-centric-hexagonal-engine.md). Every command builds a plan (the exact file and key operations), then backs up its targets and executes it; `--dry-run`, `--json` and `doctor` read the same plan.
 
 ```
-cmd/dotai/        flags only; calls app
+cmd/dotai/        main only; calls cli.Run
 internal/
+  cli/            cobra commands: flags only; calls app
+    output/       versioned --json envelope (CLI-JSON.md)
   app/            use cases: install, apply, validate, doctor, restore
   pack/           manifest, layers, dotai: blocks (no I/O, fs.FS)
   merge/          layer merge rules, staging per scope (pure)

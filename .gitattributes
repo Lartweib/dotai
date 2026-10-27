@@ -11,3 +11,9 @@
 *.jpg binary
 *.gif binary
 *.ico binary
+
+# Go sources and golden files must be LF on every OS (gofmt and byte-exact goldens)
+*.go     text eol=lf
+go.mod   text eol=lf
+go.sum   text eol=lf
+*.golden text eol=lf

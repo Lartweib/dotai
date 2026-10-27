@@ -1,0 +1,13 @@
+{
+  "schema": "dotai.cli/v1",
+  "command": "version",
+  "ok": true,
+  "data": {
+    "version": "1.2.3",
+    "commit": "deadbeef",
+    "buildDate": "2026-10-27T10:00:00Z",
+    "goVersion": "go1.26.5",
+    "os": "linux",
+    "arch": "amd64"
+  }
+}
