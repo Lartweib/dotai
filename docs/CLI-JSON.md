@@ -31,10 +31,12 @@ Failure:
 | `schema` | Envelope version. A breaking change to the envelope gets a new value. |
 | `command` | Command path without the program name, for example `version`. `dotai` when no command was resolved. |
 | `ok` | `true` on success, `false` on failure. |
-| `data` | The command result. Present only when `ok` is `true`. Its shape is defined per command. |
+| `data` | The command result. Always present when `ok` is `true`, as an object: `{}` when the command has no result, never `null`. Absent when `ok` is `false`. Its shape is defined per command. |
 | `error` | `code` and `message`. Present only when `ok` is `false`. |
 
 Fields that are unknown, such as the commit of a local build, are empty strings, never omitted.
+
+Any `--json` or `--json=<value>` argument requests JSON output, so an invalid value such as `--json=garbage` is reported as a `usage` envelope.
 
 ## Error codes and exit codes
 
@@ -51,3 +53,4 @@ Without `--json`, results are plain text on stdout and errors go to stderr, with
 | Command | `data` |
 |---|---|
 | `version` | `version`, `commit`, `buildDate`, `goVersion`, `os`, `arch` |
+| help (`dotai --json`, `--help`, `dotai help [command]`) | `help`: the help text. `command` is the command whose help is shown. Exit code 0. |

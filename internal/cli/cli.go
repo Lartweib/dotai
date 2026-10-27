@@ -6,7 +6,6 @@ package cli
 import (
 	"fmt"
 	"io"
-	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -49,6 +48,21 @@ func Run(args []string, env Env) int {
 	root.SetErr(env.Stderr)
 	root.AddCommand(newVersionCmd(env, &jsonOut))
 
+	// In JSON mode help is a result like any other: one envelope whose data
+	// holds the help text.
+	textHelp := root.HelpFunc()
+	root.SetHelpFunc(func(cmd *cobra.Command, a []string) {
+		if !jsonOut {
+			textHelp(cmd, a)
+			return
+		}
+		var buf strings.Builder
+		root.SetOut(&buf)
+		textHelp(cmd, a)
+		root.SetOut(env.Stdout)
+		_ = output.Write(env.Stdout, output.Success(commandName(cmd), map[string]string{"help": buf.String()}))
+	})
+
 	cmd, err := root.ExecuteC()
 	if err == nil {
 		return ExitOK
@@ -58,8 +72,7 @@ func Run(args []string, env Env) int {
 	if !started {
 		code, exit = output.CodeUsage, ExitUsage
 	}
-	// Flag parsing may stop before --json is read, so look at the raw args.
-	if jsonOut || jsonRequested(args) {
+	if jsonRequested(root, args) {
 		_ = output.Write(env.Stdout, output.Failure(commandName(cmd), code, err.Error()))
 		return exit
 	}
@@ -97,19 +110,22 @@ func commandName(cmd *cobra.Command) string {
 	return strings.TrimPrefix(cmd.CommandPath(), cmd.Root().Name()+" ")
 }
 
-func jsonRequested(args []string) bool {
-	on := false
+// jsonRequested reports whether errors must be printed as an envelope. A
+// parsed --json flag decides; if parsing failed or stopped before reaching
+// it, any --json or --json=<value> argument counts as a request for JSON.
+func jsonRequested(root *cobra.Command, args []string) bool {
+	if f := root.PersistentFlags().Lookup("json"); f != nil && f.Changed {
+		return f.Value.String() == "true"
+	}
 	for _, a := range args {
-		switch {
-		case a == "--":
-			return on
-		case a == "--json":
-			on = true
-		case strings.HasPrefix(a, "--json="):
-			on, _ = strconv.ParseBool(strings.TrimPrefix(a, "--json="))
+		if a == "--" {
+			return false
+		}
+		if a == "--json" || strings.HasPrefix(a, "--json=") {
+			return true
 		}
 	}
-	return on
+	return false
 }
 
 func orUnknown(s string) string {

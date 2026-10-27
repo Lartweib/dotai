@@ -2,9 +2,11 @@ package output_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"flag"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/lartweib/dotai/internal/cli/output"
@@ -40,14 +42,51 @@ func TestWrite(t *testing.T) {
 	}
 }
 
-func TestEnvelopeSchema(t *testing.T) {
-	for _, e := range []output.Envelope{
-		output.Success("version", nil),
-		output.Failure("version", output.CodeInternal, "boom"),
-	} {
-		if e.Schema != "dotai.cli/v1" {
-			t.Errorf("Schema = %q, want dotai.cli/v1", e.Schema)
-		}
+func TestEnvelopeShape(t *testing.T) {
+	tests := []struct {
+		name     string
+		envelope output.Envelope
+		want     map[string]any
+	}{
+		{
+			name:     "success without data has an empty data object",
+			envelope: output.Success("version", nil),
+			want: map[string]any{
+				"schema": "dotai.cli/v1", "command": "version", "ok": true,
+				"data": map[string]any{},
+			},
+		},
+		{
+			name:     "success with data",
+			envelope: output.Success("version", map[string]string{"version": "1.2.3"}),
+			want: map[string]any{
+				"schema": "dotai.cli/v1", "command": "version", "ok": true,
+				"data": map[string]any{"version": "1.2.3"},
+			},
+		},
+		{
+			name:     "failure has error and no data",
+			envelope: output.Failure("version", output.CodeInternal, "boom"),
+			want: map[string]any{
+				"schema": "dotai.cli/v1", "command": "version", "ok": false,
+				"error": map[string]any{"code": "internal", "message": "boom"},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			if err := output.Write(&buf, tt.envelope); err != nil {
+				t.Fatalf("Write() error = %v", err)
+			}
+			var got map[string]any
+			if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+				t.Fatalf("invalid JSON %q: %v", buf.String(), err)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("shape = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 
