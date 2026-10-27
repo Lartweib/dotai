@@ -1,0 +1,79 @@
+{
+  "schema": "dotai.cli/v1",
+  "command": "validate",
+  "ok": false,
+  "data": {
+    "valid": false,
+    "pack": {
+      "name": "broken-pack",
+      "version": "1.0",
+      "engine": ">=0.1.0",
+      "rulesync": "^41.0.0",
+      "harnesses": [
+        "claudecode",
+        "vscode"
+      ],
+      "profiles": [],
+      "variants": [
+        "standalone"
+      ],
+      "defaultVariant": "",
+      "layers": [
+        {
+          "kind": "base",
+          "name": "base",
+          "path": "base",
+          "items": 1
+        }
+      ]
+    },
+    "diagnostics": [
+      {
+        "file": "dotai.yaml",
+        "line": 3,
+        "column": 10,
+        "code": "version-invalid",
+        "message": "version \"1.0\" is not a semantic version"
+      },
+      {
+        "file": "dotai.yaml",
+        "line": 5,
+        "column": 11,
+        "code": "rulesync-invalid",
+        "message": "rulesync \"^41.0.0\" must be an exact version such as 41.0.0"
+      },
+      {
+        "file": "dotai.yaml",
+        "line": 6,
+        "column": 25,
+        "code": "harness-unknown",
+        "message": "unknown harness \"vscode\", want one of [claudecode antigravity-cli opencode]"
+      },
+      {
+        "file": "dotai.yaml",
+        "line": 7,
+        "column": 1,
+        "code": "variant-default",
+        "message": "exactly one variant must set default: true, found 0"
+      },
+      {
+        "file": "dotai.yaml",
+        "line": 9,
+        "column": 11,
+        "code": "layer-missing",
+        "message": "variant standalone: directory \"variants/standalone\" does not exist"
+      },
+      {
+        "file": "base/.rulesync/rules/overview.md",
+        "line": 4,
+        "column": 14,
+        "code": "field-type",
+        "message": "dotai: \"overrides\" must be true or false"
+      }
+    ]
+  },
+  "error": {
+    "code": "invalid",
+    "message": "pack is invalid: 6 problem(s)"
+  }
+}

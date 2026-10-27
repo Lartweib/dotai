@@ -31,7 +31,7 @@ Failure:
 | `schema` | Envelope version. A breaking change to the envelope gets a new value. |
 | `command` | Command path without the program name, for example `version`. `dotai` when no command was resolved. |
 | `ok` | `true` on success, `false` on failure. |
-| `data` | The command result. Always present when `ok` is `true`, as an object: `{}` when the command has no result, never `null`. Absent when `ok` is `false`. Its shape is defined per command. |
+| `data` | The command result. Always present when `ok` is `true`, as an object: `{}` when the command has no result, never `null`. When `ok` is `false`, present only with the `invalid` error code, where it holds the result that explains the failure; absent otherwise. Its shape is defined per command. |
 | `error` | `code` and `message`. Present only when `ok` is `false`. |
 
 Fields that are unknown, such as the commit of a local build, are empty strings, never omitted.
@@ -45,6 +45,7 @@ Any `--json` or `--json=<value>` argument requests JSON output, so an invalid va
 | — | 0 | Success. |
 | `internal` | 1 | The command failed while running. |
 | `usage` | 2 | Unknown command, unexpected argument or invalid flag. |
+| `invalid` | 3 | The command read its input and rejected it, for example a pack with errors. `data` holds the result with the details. |
 
 Without `--json`, results are plain text on stdout and errors go to stderr, with the same exit codes.
 
@@ -53,4 +54,5 @@ Without `--json`, results are plain text on stdout and errors go to stderr, with
 | Command | `data` |
 |---|---|
 | `version` | `version`, `commit`, `buildDate`, `goVersion`, `os`, `arch` |
+| `validate [path]` | `valid`; `pack`: `name`, `version`, `engine`, `rulesync`, `harnesses`, `profiles`, `variants`, `defaultVariant`, `layers` (each `kind`, `name`, `path`, `items`), or `null` when the manifest cannot be read; `diagnostics`: each `file` (relative to the pack, `/`-separated), `line`, `column` (1-based, `0` when unknown), `code`, `message`. A pack with errors fails with `invalid` and carries the same `data`. A path that is not a directory fails with `internal`. |
 | help (`dotai --json`, `--help`, `dotai help [command]`) | `help`: the help text. `command` is the command whose help is shown. Exit code 0. |

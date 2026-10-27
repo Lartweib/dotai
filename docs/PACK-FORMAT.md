@@ -65,11 +65,12 @@ variants:
 | `name`, `version` | yes | Pack identity. |
 | `engine` | yes | Range of engine versions the pack supports. |
 | `rulesync` | yes | Exact rulesync version the pack was tested with. |
-| `harnesses` | yes | Targets, using rulesync target names. |
+| `harnesses` | yes | Targets, using rulesync target names: `claudecode`, `antigravity-cli`, `opencode`. |
+| `profiles.<name>.path`, `variants.<name>.path` | yes | Layer directory, relative to the pack root. |
 | `profiles.<name>.description` | yes | What the profile is for. Read by the onboarding agent. |
 | `profiles.<name>.hints` | no | Evidence for the onboarding agent. The engine never acts on them. |
-| `variants.<name>.default` | no | Variant used when nothing is chosen or detected. |
-| `variants.<name>.detect` | no | Mechanical rule that preselects the variant. |
+| `variants.<name>.default` | no | Variant used when nothing is chosen or detected. Exactly one variant sets it when the pack has variants. |
+| `variants.<name>.detect` | no | Mechanical rule that preselects the variant. `command`: preselect when that command is on `PATH`. |
 
 `base/` is implicit and always applied.
 

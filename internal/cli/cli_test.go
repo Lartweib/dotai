@@ -15,6 +15,10 @@ import (
 	"github.com/lartweib/dotai/internal/cli/output"
 )
 
+func testEnv(stdout, stderr *bytes.Buffer) cli.Env {
+	return cli.Env{Stdout: stdout, Stderr: stderr, Version: fixedVersion, Validate: app.Validate}
+}
+
 var update = flag.Bool("update", false, "rewrite golden files")
 
 func fixedVersion() app.VersionInfo {
@@ -43,11 +47,16 @@ func TestRun(t *testing.T) {
 		{name: "unknown command text", args: []string{"nope"}, wantCode: 2, wantStderr: true},
 		{name: "unexpected argument json", args: []string{"version", "extra", "--json"}, wantCode: 2, goldenOut: "unexpected-arg.json.golden"},
 		{name: "unknown flag json", args: []string{"version", "--bogus", "--json"}, wantCode: 2, goldenOut: "unknown-flag.json.golden"},
+		{name: "validate example text", args: []string{"validate", examplePack}, wantCode: 0, goldenOut: "validate-example.txt.golden"},
+		{name: "validate example json", args: []string{"validate", examplePack, "--json"}, wantCode: 0, goldenOut: "validate-example.json.golden"},
+		{name: "validate broken text", args: []string{"validate", brokenPack}, wantCode: 3, goldenOut: "validate-broken.txt.golden", wantStderr: true},
+		{name: "validate broken json", args: []string{"validate", brokenPack, "--json"}, wantCode: 3, goldenOut: "validate-broken.json.golden"},
+		{name: "validate two paths", args: []string{"validate", "a", "b"}, wantCode: 2, wantStderr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			code := cli.Run(tt.args, cli.Env{Stdout: &stdout, Stderr: &stderr, Version: fixedVersion})
+			code := cli.Run(tt.args, testEnv(&stdout, &stderr))
 
 			if code != tt.wantCode {
 				t.Errorf("exit code = %d, want %d", code, tt.wantCode)
@@ -61,6 +70,37 @@ func TestRun(t *testing.T) {
 				t.Errorf("stderr = %q, want non-empty: %v", stderr.String(), tt.wantStderr)
 			}
 		})
+	}
+}
+
+var (
+	examplePack = filepath.Join("..", "..", "examples", "minimal-pack")
+	brokenPack  = filepath.Join("testdata", "broken-pack")
+)
+
+func TestRunValidateDefaultsToCurrentDirectory(t *testing.T) {
+	var got string
+	env := cli.Env{
+		Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{},
+		Validate: func(dir string) (app.ValidateResult, error) {
+			got = dir
+			return app.ValidateResult{Valid: true, Pack: &app.PackSummary{}}, nil
+		},
+	}
+	if code := cli.Run([]string{"validate"}, env); code != cli.ExitOK || got != "." {
+		t.Errorf("exit code = %d, dir = %q, want 0 and \".\"", code, got)
+	}
+}
+
+func TestRunValidateMissingDirectory(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := cli.Run([]string{"validate", filepath.Join(t.TempDir(), "missing"), "--json"}, testEnv(&stdout, &stderr))
+
+	if code != cli.ExitInternal {
+		t.Errorf("exit code = %d, want %d", code, cli.ExitInternal)
+	}
+	if e := decodeOne(t, stdout.Bytes()); e.OK || e.Command != "validate" || e.Error == nil || e.Error.Code != output.CodeInternal {
+		t.Errorf("envelope = %+v, want internal error", e)
 	}
 }
 
