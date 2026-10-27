@@ -15,6 +15,7 @@ dotai is split into a Go **engine** and **packs** of content. A reference pack i
 - [Decision records](docs/decisions/README.md)
 - [Open questions](docs/OPEN-QUESTIONS.md)
 - [Harness notes](docs/HARNESS-NOTES.md)
+- [Roadmap](docs/ROADMAP.md)
 
 ## License
 
