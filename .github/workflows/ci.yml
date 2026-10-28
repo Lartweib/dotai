@@ -50,3 +50,13 @@ jobs:
         run: go test ./...
       - name: build
         run: go build ./cmd/dotai
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/rulesync-cache
+          key: rulesync-${{ runner.os }}-${{ hashFiles('internal/rulesync/rulesync.go') }}
+      # Stages the example pack with the real pinned rulesync binary.
+      - name: test with real rulesync
+        env:
+          DOTAI_E2E: "1"
+          DOTAI_CACHE_DIR: ${{ runner.temp }}/rulesync-cache
+        run: go test -count=1 -run TestStageWithRealRulesync ./internal/app/

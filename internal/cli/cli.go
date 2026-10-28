@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -29,7 +30,7 @@ type Env struct {
 	Stdout, Stderr io.Writer
 	Version        func() app.VersionInfo
 	Validate       func(dir string, sel app.Selection) (app.ValidateResult, error)
-	Stage          func(dir, out string, sel app.Selection, force bool) (app.StageResult, error)
+	Stage          func(ctx context.Context, cacheDir, dir, out string, sel app.Selection, force bool, progress app.Progress) (app.StageResult, error)
 	FetchRulesync  func(ctx context.Context, cacheDir, dir string, progress app.Progress) (app.RulesyncResult, error)
 }
 
@@ -164,7 +165,8 @@ func newStageCmd(env Env, jsonOut *bool) *cobra.Command {
 		Use:   "stage [path] --out <dir>",
 		Short: "Merge the layers of the pack in path and write one staging tree per scope",
 		Long: "Merge the layers of the pack in path (default: current directory) and write <dir>/user\n" +
-			"(base and variant) and <dir>/project (profiles). Without --variant, the default variant is used.",
+			"(base and variant) and <dir>/project (profiles). Without --variant, the default variant is used.\n" +
+			"The rulesync the pack pins is fetched as by rulesync fetch and writes each scope's harness files.",
 		// Checked with the arguments, so a missing --out is a usage error.
 		Args: func(cmd *cobra.Command, args []string) error {
 			if out == "" {
@@ -178,7 +180,13 @@ func newStageCmd(env Env, jsonOut *bool) *cobra.Command {
 	sel := selectionFlags(cmd)
 	format := formatFlag(cmd)
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
-		res, err := env.Stage(packDir(args), out, sel(cmd), force)
+		cache, err := cacheDir()
+		if err != nil {
+			return err
+		}
+		ctx, stop := interruptible(cmd)
+		defer stop()
+		res, err := env.Stage(ctx, cache, packDir(args), out, sel(cmd), force, downloadProgress(env, *jsonOut))
 		if err != nil {
 			return err
 		}
@@ -189,7 +197,7 @@ func newStageCmd(env Env, jsonOut *bool) *cobra.Command {
 			return output.Write(env.Stdout, output.Success(commandName(cmd), res))
 		}
 		for _, f := range res.Files {
-			if _, err := fmt.Fprintf(env.Stdout, "%s/%s  %s\n", f.Scope, f.Path, f.Layer); err != nil {
+			if _, err := fmt.Fprintf(env.Stdout, "%s/%s  %s\n", f.Scope, f.Path, cmp.Or(f.Layer, f.Generator)); err != nil {
 				return err
 			}
 		}

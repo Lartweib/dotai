@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/lartweib/dotai/internal/app"
 	"github.com/lartweib/dotai/internal/merge"
+	"github.com/lartweib/dotai/internal/rulesync"
 )
 
 var examplePack = filepath.Join("..", "..", "examples", "minimal-pack")
@@ -46,7 +48,7 @@ func writeFile(t *testing.T, name, data string) {
 
 func TestStageWritesEveryStagedFile(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "staging")
-	res, err := app.Stage(examplePack, out, app.Selection{Profiles: []string{"web"}}, false)
+	res, err := quiet(t).stage(examplePack, out, app.Selection{Profiles: []string{"web"}}, false)
 	if err != nil || len(res.Diagnostics) != 0 {
 		t.Fatalf("Stage() = %+v, %v", res, err)
 	}
@@ -73,16 +75,16 @@ func TestStageWritesEveryStagedFile(t *testing.T) {
 
 func TestStageForceReplacesAStagingDirectory(t *testing.T) {
 	out := t.TempDir()
-	if _, err := app.Stage(examplePack, out, app.Selection{}, false); err != nil {
+	if _, err := quiet(t).stage(examplePack, out, app.Selection{}, false); err != nil {
 		t.Fatal(err)
 	}
 	stale := filepath.Join(out, "user", "stale.md")
 	writeFile(t, stale, "stale")
 
-	if _, err := app.Stage(examplePack, out, app.Selection{}, false); err == nil || !strings.Contains(err.Error(), "--force") {
+	if _, err := quiet(t).stage(examplePack, out, app.Selection{}, false); err == nil || !strings.Contains(err.Error(), "--force") {
 		t.Errorf("Stage() error = %v, want a refusal that names --force", err)
 	}
-	if _, err := app.Stage(examplePack, out, app.Selection{}, true); err != nil {
+	if _, err := quiet(t).stage(examplePack, out, app.Selection{}, true); err != nil {
 		t.Fatalf("Stage(force) error = %v", err)
 	}
 	if _, err := os.Stat(stale); !errors.Is(err, os.ErrNotExist) {
@@ -94,7 +96,7 @@ func TestStageRefusesAForeignDirectoryEvenWithForce(t *testing.T) {
 	out := t.TempDir()
 	writeFile(t, filepath.Join(out, "keep.txt"), "keep")
 	for _, force := range []bool{false, true} {
-		if _, err := app.Stage(examplePack, out, app.Selection{}, force); err == nil {
+		if _, err := quiet(t).stage(examplePack, out, app.Selection{}, force); err == nil {
 			t.Errorf("Stage(force=%v) error = nil, want a refusal", force)
 		}
 	}
@@ -108,7 +110,7 @@ func TestStageRejectsOutInsideThePack(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "dotai.yaml"), "schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\nrulesync: 41.0.0\nharnesses: [opencode]\n")
 	writeFile(t, filepath.Join(dir, "base", ".rulesync", "rules", "r.md"), "# R\n")
 	for _, out := range []string{dir, filepath.Join(dir, "staging"), filepath.Join(dir, "base", "..", "x")} {
-		_, err := app.Stage(dir, out, app.Selection{}, true)
+		_, err := quiet(t).stage(dir, out, app.Selection{}, true)
 		var usage *app.UsageError
 		if !errors.As(err, &usage) {
 			t.Errorf("Stage(out=%s) error = %v, want a usage error", out, err)
@@ -121,7 +123,7 @@ func TestStageRejectsOutInsideThePack(t *testing.T) {
 
 func TestStageInvalidPackWritesNothing(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "staging")
-	res, err := app.Stage(examplePack, out, app.Selection{Variant: "nope"}, false)
+	res, err := quiet(t).stage(examplePack, out, app.Selection{Variant: "nope"}, false)
 	if err != nil {
 		t.Fatalf("Stage() error = %v", err)
 	}
@@ -139,7 +141,7 @@ func TestStageNeverWritesThroughLinks(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(out, "user")); err != nil {
 		t.Skipf("symbolic links not supported here: %v", err)
 	}
-	if _, err := app.Stage(examplePack, out, app.Selection{}, true); err != nil {
+	if _, err := quiet(t).stage(examplePack, out, app.Selection{}, true); err != nil {
 		t.Fatalf("Stage() error = %v", err)
 	}
 	if got := tree(t, outside); len(got) != 0 {
@@ -188,12 +190,12 @@ func TestStageFailureLeavesOutUntouched(t *testing.T) {
 		t.Run(fmt.Sprint(fs.method, fs.skip), func(t *testing.T) {
 			parent := t.TempDir()
 			out := filepath.Join(parent, "staging")
-			if _, err := app.Stage(examplePack, out, app.Selection{}, false); err != nil {
+			if _, err := quiet(t).stage(examplePack, out, app.Selection{}, false); err != nil {
 				t.Fatal(err)
 			}
 			before := tree(t, out)
 
-			_, err := app.StageWith(&fs, examplePack, out, app.Selection{Variant: "tmux"}, true)
+			_, err := quiet(t).stageWith(&fs, examplePack, out, app.Selection{Variant: "tmux"}, true)
 			if !errors.Is(err, errDisk) || !strings.Contains(err.Error(), out) {
 				t.Errorf("error = %v, want the failure and the --out path", err)
 			}
@@ -202,6 +204,178 @@ func TestStageFailureLeavesOutUntouched(t *testing.T) {
 			}
 			if entries, _ := os.ReadDir(parent); len(entries) != 1 {
 				t.Errorf("entries next to --out = %v, want the temporary directories removed", entries)
+			}
+		})
+	}
+}
+
+// fakeRulesync stands in for fetching and running rulesync. It records
+// its runs and, unless quiet, writes one CLAUDE.md per scope where rulesync
+// writes the root rule of claudecode.
+type fakeRulesync struct {
+	t                *testing.T
+	quiet            bool
+	fetchErr, runErr error
+	runs             []rulesyncRun
+}
+
+// rulesyncRun is one scope a fake rulesync rendered: its tree, whether it
+// was global, the targets, the version and what the tree held.
+type rulesyncRun struct {
+	dir     string
+	global  bool
+	targets []string
+	version string
+	tree    []string
+}
+
+func quiet(t *testing.T) *fakeRulesync { return &fakeRulesync{t: t, quiet: true} }
+
+func (f *fakeRulesync) fetch(_ context.Context, _, version string, _ app.Progress) (rulesync.Result, error) {
+	return rulesync.Result{Version: version}, f.fetchErr
+}
+
+func (f *fakeRulesync) run(_ context.Context, bin rulesync.Result, targets []string, jobs ...rulesync.Job) error {
+	for _, j := range jobs {
+		f.runs = append(f.runs, rulesyncRun{j.Dir, j.Global, targets, bin.Version, tree(f.t, j.Dir)})
+		if f.runErr != nil {
+			return f.runErr
+		}
+		name := "CLAUDE.md"
+		if j.Global {
+			name = filepath.Join(".claude", "CLAUDE.md")
+		}
+		if !f.quiet {
+			writeFile(f.t, filepath.Join(j.Dir, name), "# generated\n")
+		}
+	}
+	return nil
+}
+
+func (f *fakeRulesync) stage(dir, out string, sel app.Selection, force bool) (app.StageResult, error) {
+	return f.stageWith(app.OSStageFS{}, dir, out, sel, force)
+}
+
+func (f *fakeRulesync) stageWith(w app.StageFS, dir, out string, sel app.Selection, force bool) (app.StageResult, error) {
+	return app.StageWith(w, f.fetch, f.run, dir, out, sel, force)
+}
+
+func TestStageRunsRulesyncInEachScope(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "staging")
+	f := &fakeRulesync{t: t}
+	res, err := f.stage(examplePack, out, app.Selection{Profiles: []string{"web"}}, false)
+	if err != nil {
+		t.Fatalf("Stage() error = %v", err)
+	}
+	if len(f.runs) != 2 {
+		t.Fatalf("runs = %+v, want one per scope", f.runs)
+	}
+	harnesses := []string{"claudecode", "antigravity-cli", "opencode"}
+	for i, want := range []struct {
+		scope, generated string
+		global           bool
+		source           string
+	}{{app.ScopeUser, ".claude/CLAUDE.md", true, ".rulesync/rules/overview.md"}, {app.ScopeProject, "CLAUDE.md", false, ".rulesync/rules/web.md"}} {
+		r := f.runs[i]
+		if filepath.Base(r.dir) != want.scope || filepath.Dir(r.dir) == out || r.global != want.global || r.version != "41.0.0" ||
+			!reflect.DeepEqual(r.targets, harnesses) || !slices.Contains(r.tree, want.source) {
+			t.Errorf("run %d = %+v, want %s in a temporary tree before the swap, global %v, the pack's rulesync and harnesses", i, r, want.scope, want.global)
+		}
+		if _, err := os.Stat(filepath.Join(out, want.scope, filepath.FromSlash(want.generated))); err != nil {
+			t.Errorf("generated file missing: %v", err)
+		}
+		if !slices.ContainsFunc(res.Files, func(f app.StagedFile) bool {
+			return reflect.DeepEqual(f, app.StagedFile{Scope: want.scope, Path: want.generated, Generator: app.GeneratorRulesync})
+		}) {
+			t.Errorf("files = %+v, want %s/%s from rulesync", res.Files, want.scope, want.generated)
+		}
+	}
+}
+
+func TestStageRendersARelativeOutWithAbsolutePaths(t *testing.T) {
+	pack, err := filepath.Abs(examplePack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(t.TempDir())
+	f := &fakeRulesync{t: t}
+	if _, err := f.stage(pack, "staging", app.Selection{Profiles: []string{"web"}}, false); err != nil {
+		t.Fatalf("Stage() error = %v", err)
+	}
+	for _, r := range f.runs {
+		if !filepath.IsAbs(r.dir) {
+			t.Errorf("rulesync ran in %s, want an absolute directory", r.dir)
+		}
+	}
+	for _, name := range []string{"user/.claude/CLAUDE.md", "project/CLAUDE.md"} {
+		if _, err := os.Stat(filepath.Join("staging", filepath.FromSlash(name))); err != nil || len(f.runs) != 2 {
+			t.Errorf("%s not rendered after %d runs: %v", name, len(f.runs), err)
+		}
+	}
+}
+
+func TestStageRunsRulesyncOnlyWhereThereAreSources(t *testing.T) {
+	for _, tt := range []struct {
+		name, source string
+		sel          app.Selection
+		want         string
+	}{
+		{"user only", filepath.Join("base", ".rulesync", "rules", "r.md"), app.Selection{}, app.ScopeUser},
+		{"project only", filepath.Join("profiles", "p", ".rulesync", "rules", "r.md"), app.Selection{Profiles: []string{"p"}}, app.ScopeProject},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeFile(t, filepath.Join(dir, "dotai.yaml"), "schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\nrulesync: 41.0.0\nharnesses: [opencode]\nprofiles:\n  p:\n    path: profiles/p\n    description: P.\n")
+			writeFile(t, filepath.Join(dir, "base", "dotai", "settings.yaml"), "{}\n")
+			writeFile(t, filepath.Join(dir, "profiles", "p", "dotai", "settings.yaml"), "{}\n")
+			writeFile(t, filepath.Join(dir, tt.source), "# R\n")
+			f := quiet(t)
+			if res, err := f.stage(dir, filepath.Join(t.TempDir(), "s"), tt.sel, false); err != nil || len(res.Diagnostics) > 0 {
+				t.Fatalf("Stage() = %+v, %v", res, err)
+			}
+			if len(f.runs) != 1 || filepath.Base(f.runs[0].dir) != tt.want {
+				t.Errorf("runs = %+v, want only the %s scope", f.runs, tt.want)
+			}
+		})
+	}
+}
+
+func TestStageRulesyncFailureLeavesOutAsItWas(t *testing.T) {
+	errRulesync := errors.New("rulesync generate failed")
+	for _, tt := range []struct {
+		name   string
+		f      *fakeRulesync
+		before bool // an earlier staging is replaced with --force
+	}{
+		{"fetch", &fakeRulesync{t: t, fetchErr: errRulesync}, false},
+		{"run", &fakeRulesync{t: t, runErr: errRulesync}, false},
+		{"run while replacing", &fakeRulesync{t: t, runErr: errRulesync}, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			parent := t.TempDir()
+			out := filepath.Join(parent, "staging")
+			var before []string
+			if tt.before {
+				if _, err := (&fakeRulesync{t: t}).stage(examplePack, out, app.Selection{}, false); err != nil {
+					t.Fatal(err)
+				}
+				before = tree(t, out)
+			}
+			_, err := tt.f.stage(examplePack, out, app.Selection{}, tt.before)
+			if !errors.Is(err, errRulesync) {
+				t.Errorf("Stage() error = %v, want the rulesync failure", err)
+			}
+			want := 0
+			if tt.before {
+				want = 1
+			}
+			if entries, _ := os.ReadDir(parent); len(entries) != want {
+				t.Errorf("entries next to --out = %v, want only what was there", entries)
+			}
+			if tt.before {
+				if got := tree(t, out); !reflect.DeepEqual(got, before) || !slices.Contains(got, "user/.claude/CLAUDE.md") {
+					t.Errorf("tree = %v, want the earlier staging %v", got, before)
+				}
 			}
 		})
 	}

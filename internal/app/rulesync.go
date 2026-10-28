@@ -56,3 +56,10 @@ func fetchRulesync(ctx context.Context, fetch fetchFunc, cacheDir, dir string, p
 	res.Version, res.Asset, res.Path, res.SHA256, res.Cached = r.Version, r.Asset, r.Path, r.SHA256, r.Cached
 	return res, nil
 }
+
+// runFunc is the port that runs a verified rulesync over scope trees.
+type runFunc func(ctx context.Context, bin rulesync.Result, harnesses []string, jobs ...rulesync.Job) error
+
+func generate(ctx context.Context, bin rulesync.Result, harnesses []string, jobs ...rulesync.Job) error {
+	return rulesync.Run(ctx, rulesync.OSExec, bin, harnesses, jobs...)
+}

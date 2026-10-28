@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/lartweib/dotai/internal/app"
 	"github.com/lartweib/dotai/internal/cli/output"
 )
 
@@ -30,16 +32,9 @@ func newRulesyncCmd(env Env, jsonOut *bool) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		// SIGTERM is also delivered on Windows, for a closed console.
-		ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+		ctx, stop := interruptible(cmd)
 		defer stop()
-		var progress func(string, int64)
-		if !*jsonOut {
-			progress = func(version string, size int64) {
-				fmt.Fprintf(env.Stderr, "downloading rulesync %s%s...\n", version, megabytes(size))
-			}
-		}
-		res, err := env.FetchRulesync(ctx, cache, packDir(args), progress)
+		res, err := env.FetchRulesync(ctx, cache, packDir(args), downloadProgress(env, *jsonOut))
 		if err != nil {
 			return err
 		}
@@ -59,6 +54,23 @@ func newRulesyncCmd(env Env, jsonOut *bool) *cobra.Command {
 	}
 	cmd.AddCommand(fetch)
 	return cmd
+}
+
+// interruptible is the context of cmd, cancelled on an interrupt. SIGTERM
+// is also delivered on Windows, for a closed console.
+func interruptible(cmd *cobra.Command) (context.Context, context.CancelFunc) {
+	return signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+}
+
+// downloadProgress announces a rulesync download on stderr; it is nil for
+// JSON output.
+func downloadProgress(env Env, jsonOut bool) app.Progress {
+	if jsonOut {
+		return nil
+	}
+	return func(version string, size int64) {
+		fmt.Fprintf(env.Stderr, "downloading rulesync %s%s...\n", version, megabytes(size))
+	}
 }
 
 // cacheDir is DOTAI_CACHE_DIR when set, else dotai in the user cache
