@@ -89,18 +89,18 @@ func TestLoadValidPack(t *testing.T) {
 	for _, l := range p.Layers {
 		got = append(got, fmt.Sprintf("%s %s %s", l.Kind, l.Name, l.Path))
 		for _, it := range l.Items {
-			got = append(got, fmt.Sprintf("  %s %s %s %v %v", it.Kind, it.Name, it.Path, it.Dotai.Capabilities, it.Dotai.Overrides))
+			got = append(got, fmt.Sprintf("  %s %s %s %v %v root=%v", it.Kind, it.Name, it.Path, it.Dotai.Capabilities, it.Dotai.Overrides, it.Root))
 		}
 	}
 	want := []string{
 		"base base base",
-		"  rule overview base/.rulesync/rules/overview.md [] false",
-		"  skill commit base/.rulesync/skills/commit/SKILL.md [] false",
-		"  subagent reviewer base/.rulesync/subagents/review/reviewer.md [git] false",
+		"  rule overview base/.rulesync/rules/overview.md [] false root=true",
+		"  skill commit base/.rulesync/skills/commit/SKILL.md [] false root=false",
+		"  subagent reviewer base/.rulesync/subagents/review/reviewer.md [git] false root=false",
 		"profile web profiles/web",
-		"  command deploy profiles/web/.rulesync/commands/deploy.md [] false",
+		"  command deploy profiles/web/.rulesync/commands/deploy.md [] false root=false",
 		"variant standalone variants/standalone",
-		"  rule solo variants/standalone/.rulesync/rules/solo.md [] true",
+		"  rule solo variants/standalone/.rulesync/rules/solo.md [] true root=false",
 		"variant orca variants/orca",
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -400,6 +400,35 @@ func TestLoadLineEndingsBOMAndFences(t *testing.T) {
 	}
 	if solo := p.Layers[2].Items[0]; solo.Name != "solo" || !solo.Dotai.Overrides {
 		t.Errorf("item = %+v, want solo with overrides", solo)
+	}
+}
+
+func TestLoadLayerFiles(t *testing.T) {
+	fsys := validPack()
+	fsys["base/README.md"] = file("Outside the layer trees.")
+	fsys["base/dotai/tools/run.sh"] = file("echo run")
+
+	p, diags, err := pack.Load(fsys)
+	if err != nil || len(diags) != 0 {
+		t.Fatalf("Load() = %v, %v, want no diagnostics", diags, err)
+	}
+	var got []string
+	for _, f := range p.Layers[0].Files {
+		got = append(got, f.Path)
+	}
+	want := []string{
+		"base/.rulesync/rules/overview.md",
+		"base/.rulesync/skills/commit/SKILL.md",
+		"base/.rulesync/skills/commit/notes.md",
+		"base/.rulesync/subagents/review/reviewer.md",
+		"base/dotai/settings.yaml",
+		"base/dotai/tools/run.sh",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("files = %q\nwant %q", got, want)
+	}
+	if data := string(p.Layers[0].Files[5].Data); data != "echo run" {
+		t.Errorf("tools/run.sh = %q, want its content", data)
 	}
 }
 

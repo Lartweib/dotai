@@ -57,7 +57,7 @@ func readRegular(fsys fs.FS, name string) ([]byte, *Diagnostic, error) {
 		return nil, nil, fmt.Errorf("%s is a directory", name)
 	}
 	if code, msg := entryProblem(name, link, info.Mode(), false); code != "" {
-		d := newDiagnostic(name, 0, 0, code, "%s", msg)
+		d := NewDiagnostic(name, 0, 0, code, "%s", msg)
 		return nil, &d, nil
 	}
 	return readLimited(fsys, name)
@@ -75,7 +75,7 @@ func readLimited(fsys fs.FS, name string) ([]byte, *Diagnostic, error) {
 		return nil, nil, err
 	}
 	if len(data) > maxFileSize {
-		d := newDiagnostic(name, 0, 0, CodeFileTooLarge, "%q is larger than 1 MiB", name)
+		d := NewDiagnostic(name, 0, 0, CodeFileTooLarge, "%q is larger than 1 MiB", name)
 		return nil, &d, nil
 	}
 	return data, nil, nil
