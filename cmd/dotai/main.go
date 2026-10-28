@@ -10,7 +10,7 @@ import (
 
 func main() {
 	restore := cli.EnableANSI(os.Stdout)
-	code := cli.Run(os.Args[1:], cli.Env{Stdout: os.Stdout, Stderr: os.Stderr, Version: app.Version, Validate: app.Validate, Stage: app.Stage, FetchRulesync: app.FetchRulesync, Rulesync: app.NewRulesync})
+	code := cli.Run(os.Args[1:], cli.Env{Stdout: os.Stdout, Stderr: os.Stderr, Version: app.Version, Validate: app.Validate, Stage: app.Stage, FetchRulesync: app.FetchRulesync})
 	restore()
 	os.Exit(code)
 }

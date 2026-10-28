@@ -15,31 +15,10 @@ import (
 	"github.com/lartweib/dotai/internal/app"
 	"github.com/lartweib/dotai/internal/cli"
 	"github.com/lartweib/dotai/internal/cli/output"
-	"github.com/lartweib/dotai/internal/rulesync"
 )
 
 func testEnv(stdout, stderr *bytes.Buffer) cli.Env {
-	return cli.Env{Stdout: stdout, Stderr: stderr, Version: fixedVersion, Validate: app.Validate, Stage: app.Stage, Rulesync: fakeRulesync}
-}
-
-// fakeRulesync renders one root rule per scope, where rulesync writes the
-// claudecode one.
-func fakeRulesync(string, app.Progress) app.Rulesync {
-	return app.Rulesync{
-		Fetch: func(_ context.Context, version string) (rulesync.Result, error) {
-			return rulesync.Result{Version: version}, nil
-		},
-		Run: func(_ context.Context, _ rulesync.Result, dir string, global bool, _ []string) error {
-			name := "CLAUDE.md"
-			if global {
-				name = filepath.Join(".claude", "CLAUDE.md")
-			}
-			if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o755); err != nil {
-				return err
-			}
-			return os.WriteFile(filepath.Join(dir, name), []byte("# generated\n"), 0o644)
-		},
-	}
+	return cli.Env{Stdout: stdout, Stderr: stderr, Version: fixedVersion, Validate: app.Validate, Stage: app.Stage}
 }
 
 var update = flag.Bool("update", false, "rewrite golden files")
@@ -144,8 +123,7 @@ func TestRunSelectionFlags(t *testing.T) {
 					gotValidate = sel
 					return app.ValidateResult{Valid: true, Pack: &app.PackSummary{}}, nil
 				},
-				Rulesync: fakeRulesync,
-				Stage: func(_ context.Context, _ app.Rulesync, _, _ string, sel app.Selection, _ bool) (app.StageResult, error) {
+				Stage: func(_ context.Context, _, _, _ string, sel app.Selection, _ bool, _ app.Progress) (app.StageResult, error) {
 					gotStage = sel
 					return app.StageResult{}, nil
 				},
@@ -161,30 +139,52 @@ func TestRunSelectionFlags(t *testing.T) {
 }
 
 func TestRunStage(t *testing.T) {
+	t.Setenv("DOTAI_CACHE_DIR", "cache")
+	wantCache, err := filepath.Abs("cache")
+	if err != nil {
+		t.Fatal(err)
+	}
+	staged := app.StageResult{Files: []app.StagedFile{
+		{Scope: app.ScopeUser, Path: ".rulesync/rules/overview.md", Layer: "base"},
+		{Scope: app.ScopeProject, Path: ".rulesync/rules/web.md", Layer: "profiles/web"},
+		{Scope: app.ScopeUser, Path: ".claude/CLAUDE.md", Generator: app.GeneratorRulesync},
+	}, Diagnostics: []app.Diagnostic{}}
+	for _, tt := range []struct {
+		json         bool
+		wantProgress bool
+	}{{true, false}, {false, true}} {
+		var stdout, stderr bytes.Buffer
+		env := testEnv(&stdout, &stderr)
+		env.Stage = func(ctx context.Context, cacheDir, dir, out string, sel app.Selection, force bool, progress app.Progress) (app.StageResult, error) {
+			if ctx == nil || cacheDir != wantCache || dir != examplePack || out != "s" || !force || (progress != nil) != tt.wantProgress {
+				t.Errorf("Stage(%q, %q, %q, force %v, progress %v), want the cache, the pack, s, force and progress %v", cacheDir, dir, out, force, progress != nil, tt.wantProgress)
+			}
+			return staged, nil
+		}
+		args := []string{"stage", examplePack, "--out", "s", "--force"}
+		if tt.json {
+			args = append(args, "--json")
+		}
+		if code := cli.Run(args, env); code != cli.ExitOK || stderr.Len() != 0 {
+			t.Errorf("exit code = %d, stderr = %q, want 0 and empty", code, stderr.String())
+		}
+		if tt.json {
+			assertGolden(t, filepath.Join("testdata", "stage-example.json.golden"), stdout.Bytes())
+		} else if want := "user/.rulesync/rules/overview.md  base\nproject/.rulesync/rules/web.md  profiles/web\nuser/.claude/CLAUDE.md  rulesync\n"; stdout.String() != want {
+			t.Errorf("stdout = %q, want %q", stdout.String(), want)
+		}
+	}
+}
+
+func TestRunStageRefusesAnEarlierStaging(t *testing.T) {
 	out := t.TempDir()
+	if err := os.WriteFile(filepath.Join(out, app.StageMarker), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	var stdout, stderr bytes.Buffer
-	code := cli.Run([]string{"stage", examplePack, "--out", out, "--variant", "tmux", "--profile", "web", "--json"}, testEnv(&stdout, &stderr))
-
-	if code != cli.ExitOK || stderr.Len() != 0 {
-		t.Errorf("exit code = %d, stderr = %q, want 0 and empty", code, stderr.String())
-	}
-	assertGolden(t, filepath.Join("testdata", "stage-example.json.golden"), stdout.Bytes())
-	if _, err := os.Stat(filepath.Join(out, "user", ".rulesync", "subagents", "reviewer.md")); err != nil {
-		t.Errorf("staged file missing: %v", err)
-	}
-
-	stdout.Reset()
-	code = cli.Run([]string{"stage", examplePack, "--out", out}, testEnv(&stdout, &stderr))
+	code := cli.Run([]string{"stage", examplePack, "--out", out}, testEnv(&stdout, &stderr))
 	if code != cli.ExitInternal || !strings.Contains(stderr.String(), "use --force") {
-		t.Errorf("second run: exit code = %d, stderr = %q, want a refusal", code, stderr.String())
-	}
-
-	stdout.Reset()
-	stderr.Reset()
-	code = cli.Run([]string{"stage", examplePack, "--out", out, "--force"}, testEnv(&stdout, &stderr))
-	if code != cli.ExitOK || !strings.Contains(stdout.String(), "user/.rulesync/rules/overview.md  base\n") ||
-		!strings.Contains(stdout.String(), "user/.claude/CLAUDE.md  rulesync\n") {
-		t.Errorf("forced run: exit code = %d, stdout = %q", code, stdout.String())
+		t.Errorf("exit code = %d, stderr = %q, want a refusal", code, stderr.String())
 	}
 }
 

@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"cmp"
+	"context"
 	"os"
 	"path/filepath"
 	"slices"
@@ -22,7 +23,7 @@ func TestStageWithRealRulesync(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := filepath.Join(t.TempDir(), "staging")
-	if _, err := app.Stage(ctx, app.NewRulesync(cache, nil), examplePack, out, app.Selection{Profiles: []string{"web"}}, false); err != nil {
+	if _, err := app.Stage(context.Background(), cache, examplePack, out, app.Selection{Profiles: []string{"web"}}, false, nil); err != nil {
 		t.Fatalf("Stage() error = %v", err)
 	}
 	got := tree(t, out)

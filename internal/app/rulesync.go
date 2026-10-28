@@ -57,24 +57,9 @@ func fetchRulesync(ctx context.Context, fetch fetchFunc, cacheDir, dir string, p
 	return res, nil
 }
 
-// Rulesync is the port Stage renders harness output through. Fetch returns
-// the verified binary of a rulesync version. Run renders the .rulesync/ of
-// the scope tree in dir for harnesses, into dir; global selects the user
-// scope.
-type Rulesync struct {
-	Fetch func(ctx context.Context, version string) (rulesync.Result, error)
-	Run   func(ctx context.Context, bin rulesync.Result, dir string, global bool, harnesses []string) error
-}
+// runFunc is the port that runs a verified rulesync over scope trees.
+type runFunc func(ctx context.Context, bin rulesync.Result, harnesses []string, jobs ...rulesync.Job) error
 
-// NewRulesync is the Rulesync that fetches into cacheDir, an absolute path,
-// and runs the binary as a process. progress may be nil.
-func NewRulesync(cacheDir string, progress Progress) Rulesync {
-	return Rulesync{
-		Fetch: func(ctx context.Context, version string) (rulesync.Result, error) {
-			return download(ctx, cacheDir, version, progress)
-		},
-		Run: func(ctx context.Context, bin rulesync.Result, dir string, global bool, harnesses []string) error {
-			return rulesync.Run(ctx, rulesync.OSExec, bin, dir, global, harnesses)
-		},
-	}
+func generate(ctx context.Context, bin rulesync.Result, harnesses []string, jobs ...rulesync.Job) error {
+	return rulesync.Run(ctx, rulesync.OSExec, bin, harnesses, jobs...)
 }

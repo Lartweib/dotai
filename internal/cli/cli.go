@@ -30,9 +30,8 @@ type Env struct {
 	Stdout, Stderr io.Writer
 	Version        func() app.VersionInfo
 	Validate       func(dir string, sel app.Selection) (app.ValidateResult, error)
-	Stage          func(ctx context.Context, rs app.Rulesync, dir, out string, sel app.Selection, force bool) (app.StageResult, error)
+	Stage          func(ctx context.Context, cacheDir, dir, out string, sel app.Selection, force bool, progress app.Progress) (app.StageResult, error)
 	FetchRulesync  func(ctx context.Context, cacheDir, dir string, progress app.Progress) (app.RulesyncResult, error)
-	Rulesync       func(cacheDir string, progress app.Progress) app.Rulesync
 }
 
 // invalidError is a command outcome that rejects its input, such as a pack
@@ -187,7 +186,7 @@ func newStageCmd(env Env, jsonOut *bool) *cobra.Command {
 		}
 		ctx, stop := interruptible(cmd)
 		defer stop()
-		res, err := env.Stage(ctx, env.Rulesync(cache, downloadProgress(env, *jsonOut)), packDir(args), out, sel(cmd), force)
+		res, err := env.Stage(ctx, cache, packDir(args), out, sel(cmd), force, downloadProgress(env, *jsonOut))
 		if err != nil {
 			return err
 		}

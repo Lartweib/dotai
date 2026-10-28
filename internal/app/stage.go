@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/lartweib/dotai/internal/merge"
+	"github.com/lartweib/dotai/internal/rulesync"
 )
 
 // Staging scopes, also the directories under --out.
@@ -71,12 +72,16 @@ type stageFS interface {
 // the rulesync the pack pins runs over the .rulesync/ of each scope tree,
 // with that tree as its home directory, and writes the output of the
 // pack's harnesses into it: the user scope at the paths it has under the
-// home directory, the project scope at those of a project.
-func Stage(ctx context.Context, rs Rulesync, dir, out string, sel Selection, force bool) (StageResult, error) {
-	return stage(ctx, osStageFS{}, rs, dir, out, sel, force)
+// home directory, the project scope at those of a project. rulesync is
+// fetched into cacheDir as FetchRulesync does; progress may be nil.
+func Stage(ctx context.Context, cacheDir, dir, out string, sel Selection, force bool, progress Progress) (StageResult, error) {
+	return stage(ctx, osStageFS{}, download, generate, cacheDir, dir, out, sel, force, progress)
 }
 
-func stage(ctx context.Context, w stageFS, rs Rulesync, dir, out string, sel Selection, force bool) (StageResult, error) {
+// GeneratorRulesync is the Generator of the files rulesync renders.
+const GeneratorRulesync = "rulesync"
+
+func stage(ctx context.Context, w stageFS, fetch fetchFunc, run runFunc, cacheDir, dir, out string, sel Selection, force bool, progress Progress) (StageResult, error) {
 	if err := checkOut(dir, out); err != nil {
 		return StageResult{}, err
 	}
@@ -111,32 +116,47 @@ func stage(ctx context.Context, w stageFS, rs Rulesync, dir, out string, sel Sel
 			res.Files = append(res.Files, StagedFile{Scope: t.scope, Path: f.Path, Layer: f.Layer, Origins: f.Origins})
 		}
 	}
-	bin, err := rs.Fetch(ctx, p.Manifest.Rulesync)
+	bin, err := fetch(ctx, cacheDir, p.Manifest.Rulesync, progress)
 	if err != nil {
 		return StageResult{}, err
 	}
-	render := func(tmp string) error {
+	// render runs rulesync over the scopes that have sources and returns
+	// the files it added.
+	render := func(tmp string) ([]StagedFile, error) {
+		var scopes []string
+		var jobs []rulesync.Job
 		for _, scope := range []string{ScopeUser, ScopeProject} {
-			if !hasSources(files, scope) {
-				continue
+			if hasSources(files, scope) {
+				scopes = append(scopes, scope)
+				jobs = append(jobs, rulesync.Job{Dir: filepath.Join(tmp, scope), Global: scope == ScopeUser})
 			}
-			d := filepath.Join(tmp, scope)
-			if err := rs.Run(ctx, bin, d, scope == ScopeUser, p.Manifest.Harnesses); err != nil {
-				return fmt.Errorf("rendering the %s scope: %w", scope, err)
-			}
-			written, err := w.Files(d)
+		}
+		if len(jobs) == 0 {
+			return nil, nil
+		}
+		if err := run(ctx, bin, p.Manifest.Harnesses, jobs...); err != nil {
+			return nil, err
+		}
+		var rendered []StagedFile
+		for i, scope := range scopes {
+			names, err := w.Files(jobs[i].Dir)
 			if err != nil {
-				return err
+				return nil, err
 			}
-			for _, name := range written {
+			for _, name := range names {
 				if _, staged := files[path.Join(scope, name)]; !staged {
-					res.Files = append(res.Files, StagedFile{Scope: scope, Path: name, Generator: "rulesync"})
+					rendered = append(rendered, StagedFile{Scope: scope, Path: name, Generator: GeneratorRulesync})
 				}
 			}
 		}
-		return nil
+		return rendered, nil
 	}
-	return res, swap(w, out, replace, files, render)
+	rendered, err := swap(w, out, replace, files, render)
+	if err != nil {
+		return StageResult{}, err
+	}
+	res.Files = append(res.Files, rendered...)
+	return res, nil
 }
 
 // hasSources reports whether files give scope a .rulesync/ to render.
@@ -185,12 +205,13 @@ func checkTarget(w stageFS, out string, force bool) (replace bool, err error) {
 }
 
 // swap writes files into a temporary directory next to out, lets render
-// add to it, then moves it into place. An existing out is first moved aside and is put back if the
-// move fails. On failure out is unchanged and the temporary directory is
+// add to it and returns what render added, then moves the directory into
+// place. An existing out is first moved aside and is put back if the move
+// fails. On failure out is unchanged and the temporary directory is
 // removed.
-func swap(w stageFS, out string, replace bool, files map[string][]byte, render func(tmp string) error) (err error) {
-	failed := func(err error) error {
-		return fmt.Errorf("staging into %s failed, it was left as it was: %w", out, err)
+func swap(w stageFS, out string, replace bool, files map[string][]byte, render func(tmp string) ([]StagedFile, error)) (rendered []StagedFile, err error) {
+	failed := func(err error) ([]StagedFile, error) {
+		return nil, fmt.Errorf("staging into %s failed, it was left as it was: %w", out, err)
 	}
 	tmp, err := w.TempDir(out)
 	if err != nil {
@@ -206,14 +227,14 @@ func swap(w stageFS, out string, replace bool, files map[string][]byte, render f
 			return failed(err)
 		}
 	}
-	if err := render(tmp); err != nil {
+	if rendered, err = render(tmp); err != nil {
 		return failed(err)
 	}
 	if !replace {
 		if err := w.Rename(tmp, out); err != nil {
 			return failed(err)
 		}
-		return nil
+		return rendered, nil
 	}
 	old := tmp + ".old"
 	if err := w.Rename(out, old); err != nil {
@@ -223,9 +244,9 @@ func swap(w stageFS, out string, replace bool, files map[string][]byte, render f
 		return failed(errors.Join(err, w.Rename(old, out)))
 	}
 	if err := w.RemoveAll(old); err != nil {
-		return fmt.Errorf("staged into %s, but the previous staging at %s could not be removed: %w", out, old, err)
+		return nil, fmt.Errorf("staged into %s, but the previous staging at %s could not be removed: %w", out, old, err)
 	}
-	return nil
+	return rendered, nil
 }
 
 // osStageFS is the stageFS of the real file system.
@@ -240,8 +261,14 @@ func (osStageFS) List(dir string) ([]string, error) {
 	return names, err
 }
 
+// TempDir returns an absolute path, so that a relative --out still gives
+// rulesync an absolute home directory.
 func (osStageFS) TempDir(beside string) (string, error) {
-	parent := filepath.Dir(beside)
+	abs, err := filepath.Abs(beside)
+	if err != nil {
+		return "", err
+	}
+	parent := filepath.Dir(abs)
 	if err := os.MkdirAll(parent, 0o755); err != nil {
 		return "", err
 	}
