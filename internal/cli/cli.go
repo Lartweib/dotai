@@ -28,6 +28,7 @@ type Env struct {
 	Stdout, Stderr io.Writer
 	Version        func() app.VersionInfo
 	Validate       func(dir string, sel app.Selection) (app.ValidateResult, error)
+	Stage          func(dir, out string, sel app.Selection, force bool) (app.StageResult, error)
 }
 
 // invalidError is a command outcome that rejects its input, such as a pack
@@ -58,7 +59,7 @@ func Run(args []string, env Env) int {
 	root.SetArgs(args)
 	root.SetOut(env.Stdout)
 	root.SetErr(env.Stderr)
-	root.AddCommand(newVersionCmd(env, &jsonOut), newValidateCmd(env, &jsonOut))
+	root.AddCommand(newVersionCmd(env, &jsonOut), newValidateCmd(env, &jsonOut), newStageCmd(env, &jsonOut))
 
 	// In JSON mode help is a result like any other: one envelope whose data
 	// holds the help text.
@@ -147,6 +148,46 @@ func newValidateCmd(env Env, jsonOut *bool) *cobra.Command {
 		p := res.Pack
 		_, err = fmt.Fprintf(env.Stdout, "pack %s %s is valid: %d layer(s)\n", p.Name, p.Version, len(p.Layers))
 		return err
+	}
+	return cmd
+}
+
+func newStageCmd(env Env, jsonOut *bool) *cobra.Command {
+	var out string
+	var force bool
+	cmd := &cobra.Command{
+		Use:   "stage [path] --out <dir>",
+		Short: "Merge the layers of the pack in path and write one staging tree per scope",
+		Long: "Merge the layers of the pack in path (default: current directory) and write <dir>/user\n" +
+			"(base and variant) and <dir>/project (profiles). Without --variant, the default variant is used.",
+		// Checked with the arguments, so a missing --out is a usage error.
+		Args: func(cmd *cobra.Command, args []string) error {
+			if out == "" {
+				return errors.New(`required flag "out" not set`)
+			}
+			return cobra.MaximumNArgs(1)(cmd, args)
+		},
+	}
+	cmd.Flags().StringVar(&out, "out", "", "directory to write the staging trees to")
+	cmd.Flags().BoolVar(&force, "force", false, "write into a non-empty --out directory")
+	sel := selectionFlags(cmd)
+	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		res, err := env.Stage(packDir(args), out, sel(cmd), force)
+		if err != nil {
+			return err
+		}
+		if len(res.Diagnostics) > 0 {
+			return rejectPack(env, *jsonOut, res.Diagnostics, res)
+		}
+		if *jsonOut {
+			return output.Write(env.Stdout, output.Success(commandName(cmd), res))
+		}
+		for _, f := range res.Files {
+			if _, err := fmt.Fprintf(env.Stdout, "%s/%s  %s\n", f.Scope, f.Path, f.Layer); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 	return cmd
 }

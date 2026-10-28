@@ -17,7 +17,7 @@ import (
 )
 
 func testEnv(stdout, stderr *bytes.Buffer) cli.Env {
-	return cli.Env{Stdout: stdout, Stderr: stderr, Version: fixedVersion, Validate: app.Validate}
+	return cli.Env{Stdout: stdout, Stderr: stderr, Version: fixedVersion, Validate: app.Validate, Stage: app.Stage}
 }
 
 var update = flag.Bool("update", false, "rewrite golden files")
@@ -57,6 +57,7 @@ func TestRun(t *testing.T) {
 		{name: "validate merge rules text", args: []string{"validate", mergeBrokenPack}, wantCode: 3, goldenOut: "validate-merge-broken.txt.golden", wantStderr: true},
 		{name: "validate merge rules json", args: []string{"validate", mergeBrokenPack, "--json"}, wantCode: 3, goldenOut: "validate-merge-broken.json.golden"},
 		{name: "validate unknown profile", args: []string{"validate", examplePack, "--profile", "web,nope"}, wantCode: 3, goldenOut: "validate-unknown-profile.txt.golden", wantStderr: true},
+		{name: "stage without out", args: []string{"stage", examplePack, "--json"}, wantCode: 2, goldenOut: "stage-no-out.json.golden"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -110,18 +111,68 @@ func TestRunSelectionFlags(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(strings.Join(tt.args, " "), func(t *testing.T) {
-			var gotValidate app.Selection
+			var gotValidate, gotStage app.Selection
 			env := cli.Env{
 				Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{},
 				Validate: func(_ string, sel app.Selection) (app.ValidateResult, error) {
 					gotValidate = sel
 					return app.ValidateResult{Valid: true, Pack: &app.PackSummary{}}, nil
 				},
+				Stage: func(_, _ string, sel app.Selection, _ bool) (app.StageResult, error) {
+					gotStage = sel
+					return app.StageResult{}, nil
+				},
 			}
 			if code := cli.Run(append([]string{"validate"}, tt.args...), env); code != cli.ExitOK || !reflect.DeepEqual(gotValidate, tt.want) {
 				t.Errorf("validate: exit code = %d, selection = %#v, want %#v", code, gotValidate, tt.want)
 			}
+			if code := cli.Run(append([]string{"stage", "--out", "x"}, tt.args...), env); code != cli.ExitOK || !reflect.DeepEqual(gotStage, tt.want) {
+				t.Errorf("stage: exit code = %d, selection = %#v, want %#v", code, gotStage, tt.want)
+			}
 		})
+	}
+}
+
+func TestRunStage(t *testing.T) {
+	out := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	code := cli.Run([]string{"stage", examplePack, "--out", out, "--variant", "tmux", "--profile", "web", "--json"}, testEnv(&stdout, &stderr))
+
+	if code != cli.ExitOK || stderr.Len() != 0 {
+		t.Errorf("exit code = %d, stderr = %q, want 0 and empty", code, stderr.String())
+	}
+	assertGolden(t, filepath.Join("testdata", "stage-example.json.golden"), stdout.Bytes())
+	if _, err := os.Stat(filepath.Join(out, "user", ".rulesync", "subagents", "reviewer.md")); err != nil {
+		t.Errorf("staged file missing: %v", err)
+	}
+
+	stdout.Reset()
+	code = cli.Run([]string{"stage", examplePack, "--out", out}, testEnv(&stdout, &stderr))
+	if code != cli.ExitInternal || !strings.Contains(stderr.String(), "not empty") {
+		t.Errorf("second run: exit code = %d, stderr = %q, want a refusal", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = cli.Run([]string{"stage", examplePack, "--out", out, "--force"}, testEnv(&stdout, &stderr))
+	if code != cli.ExitOK || !strings.Contains(stdout.String(), "user/.rulesync/rules/overview.md  base") {
+		t.Errorf("forced run: exit code = %d, stdout = %q", code, stdout.String())
+	}
+}
+
+func TestRunStageInvalidPack(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "staging")
+	var stdout, stderr bytes.Buffer
+	code := cli.Run([]string{"stage", mergeBrokenPack, "--out", out, "--json"}, testEnv(&stdout, &stderr))
+
+	if code != cli.ExitInvalid {
+		t.Errorf("exit code = %d, want %d", code, cli.ExitInvalid)
+	}
+	if e := decodeOne(t, stdout.Bytes()); e.OK || e.Error == nil || e.Error.Code != output.CodeInvalid {
+		t.Errorf("envelope = %+v, want invalid", e)
+	}
+	if _, err := os.Stat(out); !os.IsNotExist(err) {
+		t.Errorf("out exists after an invalid stage: %v", err)
 	}
 }
 
