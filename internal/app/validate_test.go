@@ -56,6 +56,29 @@ func TestValidateFS(t *testing.T) {
 	})
 }
 
+func TestValidateDoesNotFollowSymlinksOnDisk(t *testing.T) {
+	dir := t.TempDir()
+	manifest := "schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\nrulesync: 41.0.0\nharnesses: [opencode]\n"
+	rules := filepath.Join(dir, "base", ".rulesync", "rules")
+	if err := os.MkdirAll(rules, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "dotai.yaml"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(dir, "dotai.yaml"), filepath.Join(rules, "link.md")); err != nil {
+		t.Skipf("symbolic links not supported here: %v", err)
+	}
+
+	res, err := app.Validate(dir)
+	if err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	if res.Valid || len(res.Diagnostics) != 1 || res.Diagnostics[0].Code != pack.CodeSymlinkNotAllowed {
+		t.Errorf("result = %+v, want one symlink-not-allowed diagnostic", res)
+	}
+}
+
 func TestValidateUnreadableManifestIsAnError(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.Mkdir(filepath.Join(dir, "dotai.yaml"), 0o755); err != nil {
