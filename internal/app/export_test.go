@@ -7,3 +7,8 @@ type OSStageFS = osStageFS
 func StageWith(w stageFS, dir, out string, sel Selection, force bool) (StageResult, error) {
 	return stage(w, dir, out, sel, force)
 }
+
+// FetchRulesyncWith is FetchRulesync downloading through fetch.
+func FetchRulesyncWith(fetch fetchFunc, dir string) (RulesyncResult, error) {
+	return fetchRulesync(fetch, dir)
+}

@@ -14,10 +14,11 @@ import (
 	"github.com/lartweib/dotai/internal/app"
 	"github.com/lartweib/dotai/internal/cli"
 	"github.com/lartweib/dotai/internal/cli/output"
+	"github.com/lartweib/dotai/internal/rulesync"
 )
 
 func testEnv(stdout, stderr *bytes.Buffer) cli.Env {
-	return cli.Env{Stdout: stdout, Stderr: stderr, Version: fixedVersion, Validate: app.Validate, Stage: app.Stage}
+	return cli.Env{Stdout: stdout, Stderr: stderr, Version: fixedVersion, Validate: app.Validate, Stage: app.Stage, FetchRulesync: fakeFetch}
 }
 
 var update = flag.Bool("update", false, "rewrite golden files")
@@ -62,6 +63,9 @@ func TestRun(t *testing.T) {
 		{name: "validate merge rules json", args: []string{"validate", mergeBrokenPack, "--json"}, wantCode: 3, goldenOut: "validate-merge-broken.json.golden"},
 		{name: "validate unknown profile", args: []string{"validate", examplePack, "--profile", "web,nope"}, wantCode: 3, goldenOut: "validate-unknown-profile.txt.golden"},
 		{name: "stage without out", args: []string{"stage", examplePack, "--json"}, wantCode: 2, goldenOut: "stage-no-out.json.golden"},
+		{name: "rulesync fetch text", args: []string{"rulesync", "fetch", examplePack}, wantCode: 0, goldenOut: "rulesync-fetch.txt.golden"},
+		{name: "rulesync fetch json", args: []string{"rulesync", "fetch", examplePack, "--json"}, wantCode: 0, goldenOut: "rulesync-fetch.json.golden"},
+		{name: "rulesync fetch broken pack", args: []string{"rulesync", "fetch", brokenPack}, wantCode: 3, goldenOut: "validate-broken.txt.golden"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -419,4 +423,21 @@ func assertGolden(t *testing.T, path string, got []byte) {
 	if !bytes.Equal(got, want) {
 		t.Errorf("output mismatch for %s\ngot:\n%s\nwant:\n%s", path, got, want)
 	}
+}
+
+// fakeFetch validates like app.FetchRulesync and reports a cached binary
+// without touching the network.
+func fakeFetch(dir string) (app.RulesyncResult, error) {
+	v, err := app.Validate(dir, app.Selection{})
+	if err != nil {
+		return app.RulesyncResult{}, err
+	}
+	res := app.RulesyncResult{Diagnostics: v.Diagnostics, Pack: v.Pack}
+	if v.Valid {
+		res.Result = rulesync.Result{
+			Version: v.Pack.Rulesync, Asset: "rulesync-linux-x64", Path: "cache/rulesync/41.0.0/rulesync-linux-x64",
+			SHA256: "6598756e1f57959645589de9c2ce7b686018eb754bf1c994e8137ea2fba80ed6", Cached: true,
+		}
+	}
+	return res, nil
 }
