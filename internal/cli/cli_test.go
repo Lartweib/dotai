@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -14,11 +15,10 @@ import (
 	"github.com/lartweib/dotai/internal/app"
 	"github.com/lartweib/dotai/internal/cli"
 	"github.com/lartweib/dotai/internal/cli/output"
-	"github.com/lartweib/dotai/internal/rulesync"
 )
 
 func testEnv(stdout, stderr *bytes.Buffer) cli.Env {
-	return cli.Env{Stdout: stdout, Stderr: stderr, Version: fixedVersion, Validate: app.Validate, Stage: app.Stage, FetchRulesync: fakeFetch}
+	return cli.Env{Stdout: stdout, Stderr: stderr, Version: fixedVersion, Validate: app.Validate, Stage: app.Stage}
 }
 
 var update = flag.Bool("update", false, "rewrite golden files")
@@ -63,9 +63,6 @@ func TestRun(t *testing.T) {
 		{name: "validate merge rules json", args: []string{"validate", mergeBrokenPack, "--json"}, wantCode: 3, goldenOut: "validate-merge-broken.json.golden"},
 		{name: "validate unknown profile", args: []string{"validate", examplePack, "--profile", "web,nope"}, wantCode: 3, goldenOut: "validate-unknown-profile.txt.golden"},
 		{name: "stage without out", args: []string{"stage", examplePack, "--json"}, wantCode: 2, goldenOut: "stage-no-out.json.golden"},
-		{name: "rulesync fetch text", args: []string{"rulesync", "fetch", examplePack}, wantCode: 0, goldenOut: "rulesync-fetch.txt.golden"},
-		{name: "rulesync fetch json", args: []string{"rulesync", "fetch", examplePack, "--json"}, wantCode: 0, goldenOut: "rulesync-fetch.json.golden"},
-		{name: "rulesync fetch broken pack", args: []string{"rulesync", "fetch", brokenPack}, wantCode: 3, goldenOut: "validate-broken.txt.golden"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -425,19 +422,57 @@ func assertGolden(t *testing.T, path string, got []byte) {
 	}
 }
 
-// fakeFetch validates like app.FetchRulesync and reports a cached binary
-// without touching the network.
-func fakeFetch(dir string) (app.RulesyncResult, error) {
-	v, err := app.Validate(dir, app.Selection{})
+func TestRunRulesyncFetch(t *testing.T) {
+	t.Setenv("DOTAI_CACHE_DIR", "cache")
+	wantCache, err := filepath.Abs("cache")
 	if err != nil {
-		return app.RulesyncResult{}, err
+		t.Fatal(err)
 	}
-	res := app.RulesyncResult{Diagnostics: v.Diagnostics, Pack: v.Pack}
-	if v.Valid {
-		res.Result = rulesync.Result{
-			Version: v.Pack.Rulesync, Asset: "rulesync-linux-x64", Path: "cache/rulesync/41.0.0/rulesync-linux-x64",
-			SHA256: "6598756e1f57959645589de9c2ce7b686018eb754bf1c994e8137ea2fba80ed6", Cached: true,
-		}
+	fetched := app.RulesyncResult{
+		Version: "41.0.0", Asset: "rulesync-linux-x64", Path: "cache/rulesync/41.0.0/rulesync-linux-x64",
+		SHA256: "6598756e1f57959645589de9c2ce7b686018eb754bf1c994e8137ea2fba80ed6", Diagnostics: []app.Diagnostic{},
 	}
-	return res, nil
+	invalid := app.RulesyncResult{
+		Diagnostics: []app.Diagnostic{{File: "dotai.yaml", Line: 5, Column: 11, Code: "rulesync-unsupported",
+			Message: "rulesync 40.0.0 is not supported by this engine", Hint: "pin one of: 41.0.0"}},
+		Pack: &app.PackSummary{Name: "p", Version: "1.0.0"},
+	}
+	tests := []struct {
+		name       string
+		args       []string
+		res        app.RulesyncResult
+		err        error
+		wantCode   int
+		golden     string
+		wantStderr string
+	}{
+		{name: "text", args: []string{"rulesync", "fetch", "p"}, res: fetched, golden: "rulesync-fetch.txt.golden",
+			wantStderr: "downloading rulesync 41.0.0 (106 MB)...\n"},
+		{name: "json", args: []string{"rulesync", "fetch", "p", "--json"}, res: fetched, golden: "rulesync-fetch.json.golden"},
+		{name: "invalid pack", args: []string{"rulesync", "fetch", "p", "--json"}, res: invalid, wantCode: cli.ExitInvalid,
+			golden: "rulesync-fetch-invalid.json.golden"},
+		{name: "failure", args: []string{"rulesync", "fetch", "p", "--json"}, err: errors.New("checksum mismatch for rulesync-linux-x64"),
+			wantCode: cli.ExitInternal, golden: "rulesync-fetch-failure.json.golden"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			env := testEnv(&stdout, &stderr)
+			env.FetchRulesync = func(ctx context.Context, cacheDir, dir string, progress app.Progress) (app.RulesyncResult, error) {
+				if ctx == nil || cacheDir != wantCache || dir != "p" {
+					t.Errorf("FetchRulesync(%v, %q, %q), want a context, %q and p", ctx, cacheDir, dir, wantCache)
+				}
+				if progress != nil {
+					progress("41.0.0", 105782784)
+				}
+				return tt.res, tt.err
+			}
+
+			code := cli.Run(tt.args, env)
+			if code != tt.wantCode || stderr.String() != tt.wantStderr {
+				t.Errorf("exit code = %d, stderr = %q, want %d and %q", code, stderr.String(), tt.wantCode, tt.wantStderr)
+			}
+			assertGolden(t, filepath.Join("testdata", tt.golden), stdout.Bytes())
+		})
+	}
 }

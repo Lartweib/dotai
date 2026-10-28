@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -29,7 +30,7 @@ type Env struct {
 	Version        func() app.VersionInfo
 	Validate       func(dir string, sel app.Selection) (app.ValidateResult, error)
 	Stage          func(dir, out string, sel app.Selection, force bool) (app.StageResult, error)
-	FetchRulesync  func(dir string) (app.RulesyncResult, error)
+	FetchRulesync  func(ctx context.Context, cacheDir, dir string, progress app.Progress) (app.RulesyncResult, error)
 }
 
 // invalidError is a command outcome that rejects its input, such as a pack

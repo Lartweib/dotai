@@ -9,26 +9,34 @@ import (
 // RulesyncResult is the outcome of fetching the rulesync a pack pins. The
 // fetch fields are empty when there are diagnostics.
 type RulesyncResult struct {
-	rulesync.Result
+	Version     string       `json:"version"`
+	Asset       string       `json:"asset"`
+	Path        string       `json:"path"`
+	SHA256      string       `json:"sha256"`
+	Cached      bool         `json:"cached"`
 	Diagnostics []Diagnostic `json:"diagnostics"`
 	Pack        *PackSummary `json:"-"` // names the pack in the text report; nil when the manifest cannot be read
 }
 
-// fetchFunc is the port that downloads a rulesync version.
-type fetchFunc func(ctx context.Context, version string) (rulesync.Result, error)
+// Progress is told the version and size in bytes (-1 when unknown) of a
+// download before it starts. It is never called for a cached binary.
+type Progress = func(version string, size int64)
+
+// fetchFunc is the port that puts a verified rulesync into cacheDir.
+type fetchFunc func(ctx context.Context, cacheDir, version string, progress Progress) (rulesync.Result, error)
 
 // FetchRulesync validates the pack in dir and fetches the rulesync binary
-// it pins into the dotai cache. A pack with problems gives diagnostics and
-// fetches nothing.
-func FetchRulesync(dir string) (RulesyncResult, error) {
-	cache, err := rulesync.CacheDir()
-	if err != nil {
-		return RulesyncResult{}, err
-	}
-	return fetchRulesync(rulesync.Fetcher{CacheDir: cache}.Fetch, dir)
+// it pins into cacheDir, an absolute path. A pack with problems gives
+// diagnostics and fetches nothing. progress may be nil.
+func FetchRulesync(ctx context.Context, cacheDir, dir string, progress Progress) (RulesyncResult, error) {
+	return fetchRulesync(ctx, download, cacheDir, dir, progress)
 }
 
-func fetchRulesync(fetch fetchFunc, dir string) (RulesyncResult, error) {
+func download(ctx context.Context, cacheDir, version string, progress Progress) (rulesync.Result, error) {
+	return rulesync.Fetcher{Progress: progress}.Fetch(ctx, cacheDir, version)
+}
+
+func fetchRulesync(ctx context.Context, fetch fetchFunc, cacheDir, dir string, progress Progress) (RulesyncResult, error) {
 	fsys, err := packFS(dir)
 	if err != nil {
 		return RulesyncResult{}, err
@@ -41,6 +49,10 @@ func fetchRulesync(fetch fetchFunc, dir string) (RulesyncResult, error) {
 	if !v.Valid {
 		return res, nil
 	}
-	res.Result, err = fetch(context.Background(), p.Manifest.Rulesync)
-	return res, err
+	r, err := fetch(ctx, cacheDir, p.Manifest.Rulesync, progress)
+	if err != nil {
+		return RulesyncResult{}, err
+	}
+	res.Version, res.Asset, res.Path, res.SHA256, res.Cached = r.Version, r.Asset, r.Path, r.SHA256, r.Cached
+	return res, nil
 }

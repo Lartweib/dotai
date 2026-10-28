@@ -1,5 +1,7 @@
 package app
 
+import "context"
+
 // OSStageFS is the real file system port, for fakes that wrap it.
 type OSStageFS = osStageFS
 
@@ -9,6 +11,6 @@ func StageWith(w stageFS, dir, out string, sel Selection, force bool) (StageResu
 }
 
 // FetchRulesyncWith is FetchRulesync downloading through fetch.
-func FetchRulesyncWith(fetch fetchFunc, dir string) (RulesyncResult, error) {
-	return fetchRulesync(fetch, dir)
+func FetchRulesyncWith(ctx context.Context, fetch fetchFunc, cacheDir, dir string) (RulesyncResult, error) {
+	return fetchRulesync(ctx, fetch, cacheDir, dir, nil)
 }

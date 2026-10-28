@@ -2,6 +2,10 @@ package cli
 
 import (
 	"fmt"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
@@ -22,7 +26,20 @@ func newRulesyncCmd(env Env, jsonOut *bool) *cobra.Command {
 	}
 	format := formatFlag(fetch)
 	fetch.RunE = func(cmd *cobra.Command, args []string) error {
-		res, err := env.FetchRulesync(packDir(args))
+		cache, err := cacheDir()
+		if err != nil {
+			return err
+		}
+		// SIGTERM is also delivered on Windows, for a closed console.
+		ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		var progress func(string, int64)
+		if !*jsonOut {
+			progress = func(version string, size int64) {
+				fmt.Fprintf(env.Stderr, "downloading rulesync %s%s...\n", version, megabytes(size))
+			}
+		}
+		res, err := env.FetchRulesync(ctx, cache, packDir(args), progress)
 		if err != nil {
 			return err
 		}
@@ -42,4 +59,26 @@ func newRulesyncCmd(env Env, jsonOut *bool) *cobra.Command {
 	}
 	cmd.AddCommand(fetch)
 	return cmd
+}
+
+// cacheDir is DOTAI_CACHE_DIR when set, else dotai in the user cache
+// directory, as an absolute path.
+func cacheDir() (string, error) {
+	d := os.Getenv("DOTAI_CACHE_DIR")
+	if d == "" {
+		u, err := os.UserCacheDir()
+		if err != nil {
+			return "", err
+		}
+		d = filepath.Join(u, "dotai")
+	}
+	return filepath.Abs(d)
+}
+
+// megabytes formats a download size as " (N MB)", or "" when unknown.
+func megabytes(size int64) string {
+	if size < 0 {
+		return ""
+	}
+	return fmt.Sprintf(" (%d MB)", (size+500_000)/1_000_000)
 }
