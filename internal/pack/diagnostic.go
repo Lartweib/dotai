@@ -16,8 +16,9 @@ type Diagnostic struct {
 	Message string `json:"message"`
 }
 
-// newDiagnostic is the only way diagnostics are built.
-func newDiagnostic(file string, line, col int, code, format string, args ...any) Diagnostic {
+// NewDiagnostic is the only way diagnostics are built, here and in the
+// merge stage.
+func NewDiagnostic(file string, line, col int, code, format string, args ...any) Diagnostic {
 	return Diagnostic{File: file, Line: line, Column: col, Code: code, Message: fmt.Sprintf(format, args...)}
 }
 

@@ -7,6 +7,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -52,6 +53,10 @@ func TestRun(t *testing.T) {
 		{name: "validate broken text", args: []string{"validate", brokenPack}, wantCode: 3, goldenOut: "validate-broken.txt.golden", wantStderr: true},
 		{name: "validate broken json", args: []string{"validate", brokenPack, "--json"}, wantCode: 3, goldenOut: "validate-broken.json.golden"},
 		{name: "validate two paths", args: []string{"validate", "a", "b"}, wantCode: 2, wantStderr: true},
+		{name: "validate example with a profile", args: []string{"validate", examplePack, "--variant", "tmux", "--profile", "web"}, wantCode: 0, goldenOut: "validate-example.txt.golden"},
+		{name: "validate merge rules text", args: []string{"validate", mergeBrokenPack}, wantCode: 3, goldenOut: "validate-merge-broken.txt.golden", wantStderr: true},
+		{name: "validate merge rules json", args: []string{"validate", mergeBrokenPack, "--json"}, wantCode: 3, goldenOut: "validate-merge-broken.json.golden"},
+		{name: "validate unknown profile", args: []string{"validate", examplePack, "--profile", "web,nope"}, wantCode: 3, goldenOut: "validate-unknown-profile.txt.golden", wantStderr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -74,21 +79,49 @@ func TestRun(t *testing.T) {
 }
 
 var (
-	examplePack = filepath.Join("..", "..", "examples", "minimal-pack")
-	brokenPack  = filepath.Join("testdata", "broken-pack")
+	examplePack     = filepath.Join("..", "..", "examples", "minimal-pack")
+	brokenPack      = filepath.Join("testdata", "broken-pack")
+	mergeBrokenPack = filepath.Join("testdata", "merge-broken-pack")
 )
 
 func TestRunValidateDefaultsToCurrentDirectory(t *testing.T) {
 	var got string
 	env := cli.Env{
 		Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{},
-		Validate: func(dir string) (app.ValidateResult, error) {
+		Validate: func(dir string, _ app.Selection) (app.ValidateResult, error) {
 			got = dir
 			return app.ValidateResult{Valid: true, Pack: &app.PackSummary{}}, nil
 		},
 	}
 	if code := cli.Run([]string{"validate"}, env); code != cli.ExitOK || got != "." {
 		t.Errorf("exit code = %d, dir = %q, want 0 and \".\"", code, got)
+	}
+}
+
+func TestRunSelectionFlags(t *testing.T) {
+	tests := []struct {
+		args []string
+		want app.Selection
+	}{
+		{args: nil, want: app.Selection{}},
+		{args: []string{"--variant", "tmux"}, want: app.Selection{Variant: "tmux"}},
+		{args: []string{"--profile", "web,docs", "--profile", "api"}, want: app.Selection{Profiles: []string{"web", "docs", "api"}}},
+		{args: []string{"--profile="}, want: app.Selection{Profiles: []string{}}},
+	}
+	for _, tt := range tests {
+		t.Run(strings.Join(tt.args, " "), func(t *testing.T) {
+			var gotValidate app.Selection
+			env := cli.Env{
+				Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{},
+				Validate: func(_ string, sel app.Selection) (app.ValidateResult, error) {
+					gotValidate = sel
+					return app.ValidateResult{Valid: true, Pack: &app.PackSummary{}}, nil
+				},
+			}
+			if code := cli.Run(append([]string{"validate"}, tt.args...), env); code != cli.ExitOK || !reflect.DeepEqual(gotValidate, tt.want) {
+				t.Errorf("validate: exit code = %d, selection = %#v, want %#v", code, gotValidate, tt.want)
+			}
+		})
 	}
 }
 

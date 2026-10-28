@@ -42,6 +42,7 @@ const (
 const (
 	baseDir     = "base"      // the implicit base layer
 	rulesyncDir = ".rulesync" // a layer's rulesync sources
+	dotaiDir    = "dotai"     // a layer's sources handled by dotai
 	fenceLines  = 1           // lines before the YAML of a frontmatter
 )
 
@@ -67,6 +68,22 @@ type Layer struct {
 	Name  string
 	Path  string
 	Items []Item // in lexical path order
+	Files []File // the files of .rulesync/ and dotai/, in lexical path order
+}
+
+// File is a file of a layer, with its content.
+type File struct {
+	Path string  // relative to the pack root
+	Rel  string  // relative to the layer
+	Item ItemRef // the item the file belongs to, zero when none
+	Data []byte
+}
+
+// ItemRef names an item. A skill's item is its whole directory, so every
+// file under skills/<name>/ belongs to it when the layer defines it.
+type ItemRef struct {
+	Kind ItemKind
+	Name string // the name derived from the path: file stem or skill directory
 }
 
 // ItemKind is the kind of a named rulesync source.
@@ -85,8 +102,12 @@ type Item struct {
 	Kind  ItemKind
 	Name  string
 	Path  string // relative to the pack root
+	Root  bool   // the frontmatter sets root: true
 	Dotai Dotai
 }
+
+// Ref returns the reference to it.
+func (it Item) Ref() ItemRef { return ItemRef{it.Kind, it.Name} }
 
 // Dotai is the dotai: frontmatter block of an item.
 type Dotai struct {
@@ -103,7 +124,7 @@ func Load(fsys fs.FS) (*Pack, []Diagnostic, error) {
 	src, d, err := readRegular(fsys, ManifestFile)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		return nil, []Diagnostic{newDiagnostic(ManifestFile, 0, 0, CodeManifestMissing, "the pack has no %s", ManifestFile)}, nil
+		return nil, []Diagnostic{NewDiagnostic(ManifestFile, 0, 0, CodeManifestMissing, "the pack has no %s", ManifestFile)}, nil
 	case err != nil:
 		return nil, nil, err
 	case d != nil:
@@ -137,7 +158,7 @@ func Load(fsys fs.FS) (*Pack, []Diagnostic, error) {
 		}
 	}
 	for _, l := range layers {
-		if l.Items, err = loadItems(fsys, &diags, l.Path); err != nil {
+		if err = loadLayer(fsys, &diags, &l); err != nil {
 			return nil, nil, err
 		}
 		p.Layers = append(p.Layers, l)
@@ -155,28 +176,27 @@ func checkBase(fsys fs.FS, diags *[]Diagnostic) (bool, error) {
 		return false, err
 	}
 	if code, msg := entryProblem(baseDir, link, info.Mode(), true); code != "" {
-		*diags = append(*diags, newDiagnostic(baseDir, 0, 0, code, "%s", msg))
+		*diags = append(*diags, NewDiagnostic(baseDir, 0, 0, code, "%s", msg))
 		return false, nil
 	}
 	return true, nil
 }
 
-// loadItems walks the layer at dir without following links. It reports
-// every link and non-regular file in the layer and reads the items of its
-// .rulesync/ tree.
-func loadItems(fsys fs.FS, diags *[]Diagnostic, dir string) ([]Item, error) {
-	var items []Item
-	err := fs.WalkDir(fsys, dir, func(p string, d fs.DirEntry, err error) error {
+// loadLayer walks the layer l without following links. It reports every
+// link and non-regular file in the layer, and reads the files of its
+// .rulesync/ and dotai/ trees, the items among them and the item each file
+// belongs to.
+func loadLayer(fsys fs.FS, diags *[]Diagnostic, l *Layer) error {
+	err := fs.WalkDir(fsys, l.Path, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
 		}
 		if code, msg := entryProblem(p, "", d.Type(), false); code != "" {
-			*diags = append(*diags, newDiagnostic(p, 0, 0, code, "%s", msg))
+			*diags = append(*diags, NewDiagnostic(p, 0, 0, code, "%s", msg))
 			return nil
 		}
-		rel, inRulesync := strings.CutPrefix(p, path.Join(dir, rulesyncDir)+"/")
-		kind, name, isItem := classify(rel)
-		if !inRulesync || !isItem {
+		rel, inRulesync := strings.CutPrefix(p, path.Join(l.Path, rulesyncDir)+"/")
+		if !inRulesync && !strings.HasPrefix(p, path.Join(l.Path, dotaiDir)+"/") {
 			return nil
 		}
 		src, problem, err := readLimited(fsys, p)
@@ -187,12 +207,28 @@ func loadItems(fsys fs.FS, diags *[]Diagnostic, dir string) ([]Item, error) {
 			*diags = append(*diags, *problem)
 			return nil
 		}
-		start := len(*diags)
-		items = append(items, Item{Kind: kind, Name: name, Path: p, Dotai: readDotai(reader{file: p, offset: fenceLines, diags: diags}, src)})
-		sortFrom(*diags, start)
+		f := File{Path: p, Rel: strings.TrimPrefix(p, l.Path+"/"), Data: src}
+		if parts := strings.Split(rel, "/"); inRulesync && len(parts) > 2 && parts[0] == "skills" {
+			f.Item = ItemRef{ItemSkill, parts[1]} // kept below only if the layer defines the skill
+		}
+		kind, name, isItem := classify(rel)
+		if inRulesync && isItem {
+			start := len(*diags)
+			it := Item{Kind: kind, Name: name, Path: p}
+			it.Root, it.Dotai = readFrontmatter(reader{file: p, offset: fenceLines, diags: diags}, src)
+			l.Items = append(l.Items, it)
+			sortFrom(*diags, start)
+			f.Item = it.Ref()
+		}
+		l.Files = append(l.Files, f)
 		return nil
 	})
-	return items, err
+	for i, f := range l.Files {
+		if f.Item != (ItemRef{}) && !slices.ContainsFunc(l.Items, func(it Item) bool { return it.Ref() == f.Item }) {
+			l.Files[i].Item = ItemRef{}
+		}
+	}
+	return err
 }
 
 // classify maps a path inside .rulesync/ to the item it defines.
@@ -212,30 +248,31 @@ func classify(rel string) (ItemKind, string, bool) {
 	return "", "", false
 }
 
-// readDotai reads the dotai: block from the frontmatter of a Markdown
-// source. A file without frontmatter has an empty block.
-func readDotai(r reader, src []byte) Dotai {
+// readFrontmatter reads the root flag and the dotai: block from the
+// frontmatter of a Markdown source. A file without frontmatter has neither.
+func readFrontmatter(r reader, src []byte) (root bool, dotai Dotai) {
 	lines := strings.Split(normalize(src), "\n")
 	if !isFence(lines[0]) {
-		return Dotai{}
+		return false, Dotai{}
 	}
 	end := slices.IndexFunc(lines[1:], isFence)
 	if end < 0 {
-		*r.diags = append(*r.diags, newDiagnostic(r.file, 1, 1, CodeFrontmatterInvalid, "frontmatter has no closing ---"))
-		return Dotai{}
+		*r.diags = append(*r.diags, NewDiagnostic(r.file, 1, 1, CodeFrontmatterInvalid, "frontmatter has no closing ---"))
+		return false, Dotai{}
 	}
 	fm, ok := r.parse(strings.Join(lines[1:end+1], "\n"), CodeFrontmatterInvalid)
 	if !ok || fm == nil {
-		return Dotai{}
+		return false, Dotai{}
 	}
 	o := r.object(nil, fm, "frontmatter")
+	root, _ = o.boolean("root")
 	if !o.has("dotai") {
-		return Dotai{}
+		return root, Dotai{}
 	}
 	b := r.object(o.keys["dotai"], o.vals["dotai"], "dotai", "capabilities", "overrides")
-	caps, _ := b.list("capabilities", false)
-	overrides, _ := b.boolean("overrides")
-	return Dotai{Capabilities: caps, Overrides: overrides}
+	dotai.Capabilities, _ = b.list("capabilities", false)
+	dotai.Overrides, _ = b.boolean("overrides")
+	return root, dotai
 }
 
 // isFence reports whether line opens or closes a frontmatter block.

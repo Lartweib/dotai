@@ -1,0 +1,155 @@
+{
+  "schema": "dotai.cli/v1",
+  "command": "validate",
+  "ok": false,
+  "data": {
+    "valid": false,
+    "pack": {
+      "name": "merge-broken-pack",
+      "version": "0.1.0",
+      "engine": ">=0.1.0",
+      "rulesync": "41.0.0",
+      "harnesses": [
+        "claudecode"
+      ],
+      "profiles": [
+        "web",
+        "docs"
+      ],
+      "variants": [
+        "standalone",
+        "tmux"
+      ],
+      "defaultVariant": "standalone",
+      "layers": [
+        {
+          "kind": "base",
+          "name": "base",
+          "path": "base",
+          "items": 5
+        },
+        {
+          "kind": "profile",
+          "name": "web",
+          "path": "profiles/web",
+          "items": 2
+        },
+        {
+          "kind": "profile",
+          "name": "docs",
+          "path": "profiles/docs",
+          "items": 2
+        },
+        {
+          "kind": "variant",
+          "name": "standalone",
+          "path": "variants/standalone",
+          "items": 2
+        },
+        {
+          "kind": "variant",
+          "name": "tmux",
+          "path": "variants/tmux",
+          "items": 3
+        }
+      ]
+    },
+    "diagnostics": [
+      {
+        "file": "base/.rulesync/rules/second.md",
+        "line": 1,
+        "column": 0,
+        "code": "root-rule-duplicate",
+        "message": "rule \"second\" is a second root rule; the first is at base/.rulesync/rules/overview.md:1"
+      },
+      {
+        "file": "base/.rulesync/subagents/team/helper.md",
+        "line": 1,
+        "column": 0,
+        "code": "name-duplicate",
+        "message": "subagent \"helper\" is defined twice in layer base, first at base/.rulesync/subagents/helper.md:1"
+      },
+      {
+        "file": "variants/standalone/.rulesync/commands/deploy.md",
+        "line": 1,
+        "column": 0,
+        "code": "override-undeclared",
+        "message": "command \"deploy\" is already defined at base/.rulesync/commands/deploy.md:1; declare dotai: {overrides: true} to replace it"
+      },
+      {
+        "file": "variants/standalone/.rulesync/rules/standalone.md",
+        "line": 1,
+        "column": 0,
+        "code": "root-rule-outside-base",
+        "message": "rule \"standalone\" is a root rule; only the base may provide the root rule"
+      },
+      {
+        "file": "variants/standalone/.rulesync/hooks.jsonc",
+        "line": 1,
+        "column": 0,
+        "code": "merge-pending",
+        "message": ".rulesync/hooks.jsonc is also provided at base/.rulesync/hooks.jsonc:1; merging its lists and values across layers lands in a later version of dotai"
+      },
+      {
+        "file": "variants/standalone/dotai/settings.yaml",
+        "line": 1,
+        "column": 0,
+        "code": "merge-pending",
+        "message": "dotai/settings.yaml is also provided at base/dotai/settings.yaml:1; merging its lists and values across layers lands in a later version of dotai"
+      },
+      {
+        "file": "variants/tmux/.rulesync/commands/release.md",
+        "line": 1,
+        "column": 0,
+        "code": "override-without-target",
+        "message": "command \"release\" declares dotai: {overrides: true} but no earlier layer of its scope defines it"
+      },
+      {
+        "file": "variants/tmux/.rulesync/rules/overview.md",
+        "line": 1,
+        "column": 0,
+        "code": "root-rule-override",
+        "message": "rule \"overview\" replaces the root rule at base/.rulesync/rules/overview.md:1; the root rule cannot be overridden"
+      },
+      {
+        "file": "variants/tmux/.rulesync/mcp.jsonc",
+        "line": 1,
+        "column": 0,
+        "code": "mcp-server-conflict",
+        "message": "MCP server \"git\" is already defined at base/.rulesync/mcp.jsonc:4; MCP servers cannot be overridden"
+      },
+      {
+        "file": "profiles/docs/.rulesync/skills/lint/SKILL.md",
+        "line": 1,
+        "column": 0,
+        "code": "override-without-target",
+        "message": "skill \"lint\" declares dotai: {overrides: true} but no earlier layer of its scope defines it"
+      },
+      {
+        "file": "profiles/web/.rulesync/skills/lint/SKILL.md",
+        "line": 1,
+        "column": 0,
+        "code": "profile-conflict",
+        "message": "skill \"lint\" is also defined by profile docs at profiles/docs/.rulesync/skills/lint/SKILL.md:1; profiles cannot override each other"
+      },
+      {
+        "file": "profiles/docs/.rulesync/commands/Release.md",
+        "line": 1,
+        "column": 0,
+        "code": "name-case-conflict",
+        "message": "command \"Release\" differs only by case from command \"release\" at variants/tmux/.rulesync/commands/release.md:1"
+      },
+      {
+        "file": "profiles/web/.rulesync/commands/deploy.md",
+        "line": 1,
+        "column": 0,
+        "code": "scope-conflict",
+        "message": "command \"deploy\" is also defined at user level at base/.rulesync/commands/deploy.md:1; overrides do not apply across scopes"
+      }
+    ]
+  },
+  "error": {
+    "code": "invalid",
+    "message": "pack is invalid: 13 problem(s)"
+  }
+}

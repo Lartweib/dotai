@@ -21,7 +21,7 @@ func (r reader) report(n *yaml.Node, code, format string, args ...any) {
 	if n != nil {
 		line, col = n.Line+r.offset, n.Column
 	}
-	*r.diags = append(*r.diags, newDiagnostic(r.file, line, col, code, format, args...))
+	*r.diags = append(*r.diags, NewDiagnostic(r.file, line, col, code, format, args...))
 }
 
 var yamlErr = regexp.MustCompile(`^yaml: (?:line (\d+): )?`)
@@ -36,7 +36,7 @@ func (r reader) parse(src string, code string) (root *yaml.Node, ok bool) {
 			line, _ = strconv.Atoi(m[1])
 			line += r.offset
 		}
-		*r.diags = append(*r.diags, newDiagnostic(r.file, line, 0, code, "%s", yamlErr.ReplaceAllString(err.Error(), "")))
+		*r.diags = append(*r.diags, NewDiagnostic(r.file, line, 0, code, "%s", yamlErr.ReplaceAllString(err.Error(), "")))
 		return nil, false
 	}
 	if len(doc.Content) == 0 {

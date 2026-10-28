@@ -5,8 +5,15 @@ import (
 	"io/fs"
 	"os"
 
+	"github.com/lartweib/dotai/internal/merge"
 	"github.com/lartweib/dotai/internal/pack"
 )
+
+// Diagnostic is one problem found in a pack.
+type Diagnostic = pack.Diagnostic
+
+// Selection names the variant and profiles a command works on.
+type Selection = merge.Selection
 
 // ValidateResult is the outcome of validating a pack.
 type ValidateResult struct {
@@ -36,26 +43,36 @@ type LayerSummary struct {
 	Items int    `json:"items"`
 }
 
-// Validate checks the pack in directory dir. The error is set only when dir
-// or the pack cannot be read; problems in the pack are diagnostics.
-func Validate(dir string) (ValidateResult, error) {
-	info, err := os.Stat(dir)
+// Validate checks the pack in directory dir for the layers sel names. The
+// error is set only when dir or the pack cannot be read; problems in the
+// pack are diagnostics.
+func Validate(dir string, sel Selection) (ValidateResult, error) {
+	fsys, err := packFS(dir)
 	if err != nil {
 		return ValidateResult{}, err
 	}
-	if !info.IsDir() {
-		return ValidateResult{}, fmt.Errorf("%s is not a directory", dir)
+	return ValidateFS(fsys, sel)
+}
+
+// packFS returns the pack in directory dir.
+func packFS(dir string) (fs.FS, error) {
+	info, err := os.Stat(dir)
+	if err != nil {
+		return nil, err
 	}
-	return ValidateFS(os.DirFS(dir))
+	if !info.IsDir() {
+		return nil, fmt.Errorf("%s is not a directory", dir)
+	}
+	return os.DirFS(dir), nil
 }
 
 // ValidateFS checks the pack whose root is fsys.
 //
 // Validation has two stages. Structural checks (pack.Load) come first. The
 // cross-layer merge rules of 0023 (duplicate names, overrides) run only on a
-// pack with no structural diagnostics, over p.Layers, and append their
-// diagnostics after the structural ones. The merge stage is not built yet.
-func ValidateFS(fsys fs.FS) (ValidateResult, error) {
+// pack with no structural diagnostics, over the layers sel names, and append
+// their diagnostics after the structural ones.
+func ValidateFS(fsys fs.FS, sel Selection) (ValidateResult, error) {
 	p, diags, err := pack.Load(fsys)
 	if err != nil {
 		return ValidateResult{}, err
@@ -83,5 +100,9 @@ func ValidateFS(fsys fs.FS) (ValidateResult, error) {
 		s.Layers = append(s.Layers, LayerSummary{Kind: string(l.Kind), Name: l.Name, Path: l.Path, Items: len(l.Items)})
 	}
 	res.Pack = s
+	if res.Valid {
+		res.Diagnostics = append(res.Diagnostics, merge.Check(p, sel)...)
+		res.Valid = len(res.Diagnostics) == 0
+	}
 	return res, nil
 }

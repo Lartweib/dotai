@@ -45,7 +45,7 @@
           "kind": "variant",
           "name": "tmux",
           "path": "variants/tmux",
-          "items": 1
+          "items": 2
         }
       ]
     },

@@ -4,15 +4,17 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"testing/fstest"
 
 	"github.com/lartweib/dotai/internal/app"
+	"github.com/lartweib/dotai/internal/merge"
 	"github.com/lartweib/dotai/internal/pack"
 )
 
 func TestValidateExamplePack(t *testing.T) {
-	res, err := app.Validate(filepath.Join("..", "..", "examples", "minimal-pack"))
+	res, err := app.Validate(filepath.Join("..", "..", "examples", "minimal-pack"), app.Selection{})
 	if err != nil {
 		t.Fatalf("Validate() error = %v", err)
 	}
@@ -31,7 +33,7 @@ func TestValidateFS(t *testing.T) {
 				"rulesync: 41.0.0\nharnesses: [opencode]\nvariants:\n  a: {path: variants/a, default: true}\n")},
 			"base/.rulesync/rules/r.md":       {Data: []byte("# R\n")},
 			"variants/a/.rulesync/rules/x.md": {Data: []byte("# X\n")},
-		})
+		}, app.Selection{})
 		want := app.ValidateResult{
 			Valid: true,
 			Pack: &app.PackSummary{
@@ -49,11 +51,55 @@ func TestValidateFS(t *testing.T) {
 		}
 	})
 	t.Run("missing manifest", func(t *testing.T) {
-		res, err := app.ValidateFS(fstest.MapFS{})
+		res, err := app.ValidateFS(fstest.MapFS{}, app.Selection{})
 		if err != nil || res.Valid || res.Pack != nil || len(res.Diagnostics) != 1 {
 			t.Errorf("result = %+v, want invalid without pack", res)
 		}
 	})
+}
+
+func TestValidateFSMergeRules(t *testing.T) {
+	const manifest = "schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\nrulesync: 41.0.0\n" +
+		"harnesses: [opencode]\nprofiles:\n  web: {path: profiles/web, description: Web.}\n"
+	conflict := fstest.MapFS{
+		"dotai.yaml":                        {Data: []byte(manifest)},
+		"base/.rulesync/rules/r.md":         {Data: []byte("# R\n")},
+		"profiles/web/.rulesync/rules/r.md": {Data: []byte("# R\n")},
+	}
+	tests := []struct {
+		name      string
+		fsys      fstest.MapFS
+		sel       app.Selection
+		wantCodes []string
+	}{
+		{name: "merge rules run over every layer", fsys: conflict, wantCodes: []string{merge.CodeScopeConflict}},
+		{name: "selection is checked", fsys: conflict, sel: app.Selection{Profiles: []string{"web", "api"}}, wantCodes: []string{merge.CodeLayerSelection}},
+		{name: "empty profile selection skips profiles", fsys: conflict, sel: app.Selection{Profiles: []string{}}},
+		{
+			name: "merge rules wait for structural checks",
+			fsys: fstest.MapFS{
+				"dotai.yaml":                        {Data: []byte(strings.Replace(manifest, "1.0.0", "1.0", 1))},
+				"base/.rulesync/rules/r.md":         {Data: []byte("# R\n")},
+				"profiles/web/.rulesync/rules/r.md": {Data: []byte("# R\n")},
+			},
+			wantCodes: []string{pack.CodeVersionInvalid},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res, err := app.ValidateFS(tt.fsys, tt.sel)
+			if err != nil {
+				t.Fatalf("ValidateFS() error = %v", err)
+			}
+			var codes []string
+			for _, d := range res.Diagnostics {
+				codes = append(codes, d.Code)
+			}
+			if !reflect.DeepEqual(codes, tt.wantCodes) || res.Valid != (len(tt.wantCodes) == 0) {
+				t.Errorf("valid = %v, codes = %v, want %v", res.Valid, codes, tt.wantCodes)
+			}
+		})
+	}
 }
 
 func TestValidateDoesNotFollowSymlinksOnDisk(t *testing.T) {
@@ -70,7 +116,7 @@ func TestValidateDoesNotFollowSymlinksOnDisk(t *testing.T) {
 		t.Skipf("symbolic links not supported here: %v", err)
 	}
 
-	res, err := app.Validate(dir)
+	res, err := app.Validate(dir, app.Selection{})
 	if err != nil {
 		t.Fatalf("Validate() error = %v", err)
 	}
@@ -84,7 +130,7 @@ func TestValidateUnreadableManifestIsAnError(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(dir, "dotai.yaml"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := app.Validate(dir); err == nil {
+	if _, err := app.Validate(dir, app.Selection{}); err == nil {
 		t.Error("Validate() error = nil, want error for a dotai.yaml directory")
 	}
 }
@@ -95,7 +141,7 @@ func TestValidateRejectsNonDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, dir := range []string{f, filepath.Join(t.TempDir(), "missing")} {
-		if _, err := app.Validate(dir); err == nil {
+		if _, err := app.Validate(dir, app.Selection{}); err == nil {
 			t.Errorf("Validate(%q) error = nil, want error", dir)
 		}
 	}
