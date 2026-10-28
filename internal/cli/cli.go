@@ -28,6 +28,7 @@ type Env struct {
 	Stdout, Stderr io.Writer
 	Version        func() app.VersionInfo
 	Validate       func(dir string, sel app.Selection) (app.ValidateResult, error)
+	Stage          func(dir, out string, sel app.Selection, force bool) (app.StageResult, error)
 }
 
 // invalidError is a command outcome that rejects its input, such as a pack
@@ -58,7 +59,7 @@ func Run(args []string, env Env) int {
 	root.SetArgs(args)
 	root.SetOut(env.Stdout)
 	root.SetErr(env.Stderr)
-	root.AddCommand(newVersionCmd(env, &jsonOut), newValidateCmd(env, &jsonOut))
+	root.AddCommand(newVersionCmd(env, &jsonOut), newValidateCmd(env, &jsonOut), newStageCmd(env, &jsonOut))
 
 	// In JSON mode help is a result like any other: one envelope whose data
 	// holds the help text.
@@ -82,8 +83,9 @@ func Run(args []string, env Env) int {
 
 	code, exit := output.CodeInternal, ExitInternal
 	var invalid *invalidError
+	var usage *app.UsageError
 	switch {
-	case !started:
+	case !started, errors.As(err, &usage):
 		code, exit = output.CodeUsage, ExitUsage
 	case errors.As(err, &invalid):
 		code, exit = output.CodeInvalid, ExitInvalid
@@ -95,6 +97,9 @@ func Run(args []string, env Env) int {
 		}
 		_ = output.Write(env.Stdout, e)
 		return exit
+	}
+	if invalid != nil {
+		return exit // the report on stdout already explains it
 	}
 	fmt.Fprintf(env.Stderr, "Error: %v\n", err)
 	if exit == ExitUsage {
@@ -130,13 +135,14 @@ func newValidateCmd(env Env, jsonOut *bool) *cobra.Command {
 		Args: cobra.MaximumNArgs(1),
 	}
 	sel := selectionFlags(cmd)
+	format := formatFlag(cmd)
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		res, err := env.Validate(packDir(args), sel(cmd))
 		if err != nil {
 			return err
 		}
 		if !res.Valid {
-			return rejectPack(env, *jsonOut, res.Diagnostics, res)
+			return rejectPack(env, *jsonOut, *format, res.Pack, res.Diagnostics, res)
 		}
 		if *jsonOut {
 			return output.Write(env.Stdout, output.Success(commandName(cmd), res))
@@ -144,9 +150,48 @@ func newValidateCmd(env Env, jsonOut *bool) *cobra.Command {
 		if res.Pack == nil {
 			return errors.New("validation returned no pack")
 		}
-		p := res.Pack
-		_, err = fmt.Fprintf(env.Stdout, "pack %s %s is valid: %d layer(s)\n", p.Name, p.Version, len(p.Layers))
-		return err
+		return writeValid(env.Stdout, res.Pack, useColor(env.Stdout))
+	}
+	return cmd
+}
+
+func newStageCmd(env Env, jsonOut *bool) *cobra.Command {
+	var out string
+	var force bool
+	cmd := &cobra.Command{
+		Use:   "stage [path] --out <dir>",
+		Short: "Merge the layers of the pack in path and write one staging tree per scope",
+		Long: "Merge the layers of the pack in path (default: current directory) and write <dir>/user\n" +
+			"(base and variant) and <dir>/project (profiles). Without --variant, the default variant is used.",
+		// Checked with the arguments, so a missing --out is a usage error.
+		Args: func(cmd *cobra.Command, args []string) error {
+			if out == "" {
+				return errors.New(`required flag "out" not set`)
+			}
+			return cobra.MaximumNArgs(1)(cmd, args)
+		},
+	}
+	cmd.Flags().StringVar(&out, "out", "", "directory to write the staging trees to")
+	cmd.Flags().BoolVar(&force, "force", false, "replace an earlier staging in --out")
+	sel := selectionFlags(cmd)
+	format := formatFlag(cmd)
+	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		res, err := env.Stage(packDir(args), out, sel(cmd), force)
+		if err != nil {
+			return err
+		}
+		if len(res.Diagnostics) > 0 {
+			return rejectPack(env, *jsonOut, *format, res.Pack, res.Diagnostics, res)
+		}
+		if *jsonOut {
+			return output.Write(env.Stdout, output.Success(commandName(cmd), res))
+		}
+		for _, f := range res.Files {
+			if _, err := fmt.Fprintf(env.Stdout, "%s/%s  %s\n", f.Scope, f.Path, f.Layer); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 	return cmd
 }
@@ -165,6 +210,14 @@ func selectionFlags(cmd *cobra.Command) func(*cobra.Command) app.Selection {
 	}
 }
 
+// formatFlag adds --format to cmd, for the diagnostics of a pack with
+// problems.
+func formatFlag(cmd *cobra.Command) *formatValue {
+	f := formatValue(formatPretty)
+	cmd.Flags().Var(&f, "format", "diagnostics format without --json: pretty or compact")
+	return &f
+}
+
 // packDir is the pack directory argument, the current directory by default.
 func packDir(args []string) string {
 	if len(args) == 1 {
@@ -173,12 +226,16 @@ func packDir(args []string) string {
 	return "."
 }
 
-// rejectPack prints the diagnostics of a pack with problems as text and
-// returns the invalid outcome that carries data.
-func rejectPack(env Env, jsonOut bool, diags []app.Diagnostic, data any) error {
+// rejectPack prints the diagnostics of a pack with problems as text in
+// format and returns the invalid outcome that carries data.
+func rejectPack(env Env, jsonOut bool, format formatValue, p *app.PackSummary, diags []app.Diagnostic, data any) error {
 	if !jsonOut {
-		for _, d := range diags {
-			fmt.Fprintln(env.Stdout, d)
+		subject := ""
+		if p != nil {
+			subject = p.Name + " " + p.Version
+		}
+		if err := writeReport(env.Stdout, subject, diags, format == formatCompact, useColor(env.Stdout)); err != nil {
+			return err
 		}
 	}
 	return &invalidError{msg: fmt.Sprintf("pack is invalid: %d problem(s)", len(diags)), data: data}

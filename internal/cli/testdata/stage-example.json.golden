@@ -1,0 +1,40 @@
+{
+  "schema": "dotai.cli/v1",
+  "command": "stage",
+  "ok": true,
+  "data": {
+    "files": [
+      {
+        "scope": "user",
+        "path": ".rulesync/rules/overview.md",
+        "layer": "base"
+      },
+      {
+        "scope": "user",
+        "path": ".rulesync/rules/tmux.md",
+        "layer": "variants/tmux"
+      },
+      {
+        "scope": "user",
+        "path": ".rulesync/skills/commit-message/SKILL.md",
+        "layer": "base"
+      },
+      {
+        "scope": "user",
+        "path": ".rulesync/subagents/reviewer.md",
+        "layer": "variants/tmux"
+      },
+      {
+        "scope": "user",
+        "path": "dotai/settings.yaml",
+        "layer": "base"
+      },
+      {
+        "scope": "project",
+        "path": ".rulesync/rules/web.md",
+        "layer": "profiles/web"
+      }
+    ],
+    "diagnostics": []
+  }
+}

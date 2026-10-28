@@ -1,0 +1,9 @@
+{
+  "schema": "dotai.cli/v1",
+  "command": "stage",
+  "ok": false,
+  "error": {
+    "code": "usage",
+    "message": "required flag \"out\" not set"
+  }
+}
