@@ -5,7 +5,6 @@ import (
 	"io/fs"
 	"os"
 	"slices"
-	"strings"
 
 	"github.com/lartweib/dotai/internal/merge"
 	"github.com/lartweib/dotai/internal/pack"
@@ -18,10 +17,6 @@ type Diagnostic = pack.Diagnostic
 // / Location is a place in a pack, such as the earlier definition a
 // diagnostic points at.
 type Location = pack.Location
-
-// CodeRulesyncUnsupported reports a rulesync version the engine has no
-// checksums for.
-const CodeRulesyncUnsupported = "rulesync-unsupported"
 
 // Selection names the variant and profiles a command works on.
 type Selection = merge.Selection
@@ -81,7 +76,8 @@ func packFS(dir string) (fs.FS, error) {
 //
 // Validation has two stages. Structural checks (pack.Load) come first. The
 // cross-layer merge rules of 0023 (duplicate names, overrides) run only on a
-// pack with no structural diagnostics, over the layers sel names, and append
+// pack with no structural diagnostics other than an unsupported rulesync
+// pin, over the layers sel names, and append
 // their diagnostics after the structural ones.
 func ValidateFS(fsys fs.FS, sel Selection) (ValidateResult, error) {
 	res, _, err := validate(fsys, sel)
@@ -91,17 +87,15 @@ func ValidateFS(fsys fs.FS, sel Selection) (ValidateResult, error) {
 // validate is ValidateFS that also returns the loaded pack, nil when the
 // manifest cannot be read.
 func validate(fsys fs.FS, sel Selection) (ValidateResult, *pack.Pack, error) {
-	p, diags, err := pack.Load(fsys)
+	p, diags, err := pack.LoadWith(fsys, rulesync.Versions())
 	if err != nil {
 		return ValidateResult{}, nil, err
 	}
-	res := ValidateResult{Diagnostics: append([]pack.Diagnostic{}, diags...)}
+	res := ValidateResult{Valid: len(diags) == 0, Diagnostics: append([]pack.Diagnostic{}, diags...)}
 	if p == nil {
 		return res, p, nil
 	}
 	m := p.Manifest
-	res.Diagnostics = append(res.Diagnostics, checkRulesync(m, diags)...)
-	res.Valid = len(res.Diagnostics) == 0
 	s := &PackSummary{
 		Name: m.Name, Version: m.Version, Engine: m.Engine, Rulesync: m.Rulesync,
 		Harnesses: append([]string{}, m.Harnesses...),
@@ -120,23 +114,11 @@ func validate(fsys fs.FS, sel Selection) (ValidateResult, *pack.Pack, error) {
 		s.Layers = append(s.Layers, LayerSummary{Kind: string(l.Kind), Name: l.Name, Path: l.Path, Items: len(l.Items)})
 	}
 	res.Pack = s
-	if res.Valid {
+	// An unsupported rulesync pin does not affect the layers, so the merge
+	// rules still run.
+	if !slices.ContainsFunc(diags, func(d pack.Diagnostic) bool { return d.Code != pack.CodeRulesyncUnsupported }) {
 		res.Diagnostics = append(res.Diagnostics, merge.Check(p, sel)...)
 		res.Valid = len(res.Diagnostics) == 0
 	}
 	return res, p, nil
-}
-
-// checkRulesync reports a pinned rulesync version whose checksums the
-// engine does not embed (0029). A version that is not exact is already
-// reported by pack.Load.
-func checkRulesync(m pack.Manifest, diags []pack.Diagnostic) []pack.Diagnostic {
-	invalid := slices.ContainsFunc(diags, func(d pack.Diagnostic) bool { return d.Code == pack.CodeRulesyncInvalid })
-	if m.Rulesync == "" || invalid || rulesync.Supported(m.Rulesync) {
-		return nil
-	}
-	at := m.RulesyncAt
-	return []pack.Diagnostic{pack.NewDiagnostic(at.File, at.Line, at.Column, CodeRulesyncUnsupported,
-		"rulesync %s is not supported by this engine", m.Rulesync).
-		WithHint("pin one of: %s", strings.Join(rulesync.Versions(), ", "))}
 }

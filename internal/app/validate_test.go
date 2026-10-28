@@ -76,6 +76,15 @@ func TestValidateFSMergeRules(t *testing.T) {
 		{name: "selection is checked", fsys: conflict, sel: app.Selection{Profiles: []string{"web", "api"}}, wantCodes: []string{merge.CodeLayerSelection}},
 		{name: "empty profile selection skips profiles", fsys: conflict, sel: app.Selection{Profiles: []string{}}},
 		{
+			name: "an unsupported rulesync does not stop the merge rules",
+			fsys: fstest.MapFS{
+				"dotai.yaml":                        {Data: []byte(strings.Replace(manifest, "41.0.0", "40.0.0", 1))},
+				"base/.rulesync/rules/r.md":         {Data: []byte("# R\n")},
+				"profiles/web/.rulesync/rules/r.md": {Data: []byte("# R\n")},
+			},
+			wantCodes: []string{pack.CodeRulesyncUnsupported, merge.CodeScopeConflict},
+		},
+		{
 			name: "merge rules wait for structural checks",
 			fsys: fstest.MapFS{
 				"dotai.yaml":                        {Data: []byte(strings.Replace(manifest, "1.0.0", "1.0", 1))},
@@ -154,7 +163,7 @@ func TestValidateFSRulesyncVersion(t *testing.T) {
 	}
 	t.Run("unsupported", func(t *testing.T) {
 		res, err := app.ValidateFS(manifest("40.0.0"), app.Selection{})
-		want := []pack.Diagnostic{pack.NewDiagnostic("dotai.yaml", 5, 11, app.CodeRulesyncUnsupported,
+		want := []pack.Diagnostic{pack.NewDiagnostic("dotai.yaml", 5, 11, pack.CodeRulesyncUnsupported,
 			"rulesync 40.0.0 is not supported by this engine").WithHint("pin one of: 41.0.0")}
 		if err != nil || res.Valid || !reflect.DeepEqual(res.Diagnostics, want) {
 			t.Errorf("result = %+v, %v\nwant diagnostics %+v", res, err, want)

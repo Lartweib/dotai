@@ -36,6 +36,9 @@ const (
 	CodeNotRegularFile     = "not-regular-file"
 	CodeFileTooLarge       = "file-too-large"
 	CodeLayerNotDirectory  = "layer-not-directory"
+
+	// A rulesync pin the engine cannot verify, reported only by LoadWith.
+	CodeRulesyncUnsupported = "rulesync-unsupported"
 )
 
 // Layer layout (docs/PACK-FORMAT.md).
@@ -119,8 +122,13 @@ type Dotai struct {
 // found. The pack is nil when the manifest cannot be used. The error is set
 // only when the pack cannot be read at all, for example a permission error
 // or a dotai.yaml that is a directory; then there is no pack and no
-// diagnostics. Symbolic links are never followed.
-func Load(fsys fs.FS) (*Pack, []Diagnostic, error) {
+// diagnostics. Symbolic links are never followed. The rulesync pin is not
+// checked against a list of supported versions; see LoadWith.
+func Load(fsys fs.FS) (*Pack, []Diagnostic, error) { return LoadWith(fsys, nil) }
+
+// LoadWith is Load that also reports a rulesync pin outside
+// rulesyncVersions, the versions the engine can verify (0029).
+func LoadWith(fsys fs.FS, rulesyncVersions []string) (*Pack, []Diagnostic, error) {
 	src, d, err := readRegular(fsys, ManifestFile)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
@@ -136,7 +144,7 @@ func Load(fsys fs.FS) (*Pack, []Diagnostic, error) {
 	if !ok {
 		return nil, diags, nil
 	}
-	p := &Pack{Manifest: decodeManifest(fsys, r, root)}
+	p := &Pack{Manifest: decodeManifest(fsys, r, root, rulesyncVersions)}
 	sortFrom(diags, 0)
 
 	var layers []Layer
