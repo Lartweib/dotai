@@ -6,7 +6,7 @@ tags: [pack, format, manifest, profiles, variants, rulesync]
 
 # 0022 · Pack format: uniform layers and a `dotai.yaml` manifest
 
-> **Partially superseded by [0023](0023-flat-profiles-and-layer-merge-rules.md)** (one staging tree per scope) **and [0024](0024-models-declared-per-harness-no-tiers.md)** (no `model_tier`). The rest is in force.
+> **Partially superseded by [0023](0023-flat-profiles-and-layer-merge-rules.md)** (one staging tree per scope), **[0024](0024-models-declared-per-harness-no-tiers.md)** (no `model_tier`) and **[0030](0030-tools-paths-and-project-config.md)** (no `dotai/runners/`). The rest is in force.
 
 ## Context
 

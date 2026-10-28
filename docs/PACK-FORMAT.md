@@ -26,7 +26,7 @@ Every layer has the same shape:
 |---|---|---|
 | `.rulesync/` | rulesync | `rules/*.md`, `commands/*.md`, `subagents/**/*.md`, `skills/<name>/SKILL.md`, `mcp.jsonc`, `hooks.jsonc`, `permissions.jsonc` |
 | `dotai/settings.yaml` | dotai | Settings rulesync does not cover: `statusLine`, `env`, model defaults |
-| `dotai/tools/`, `dotai/runners/` | dotai | Scripts and binaries the layer needs |
+| `dotai/tools/` | dotai | Scripts, binaries and config files the layer installs ([0030](decisions/0030-tools-paths-and-project-config.md)) |
 
 A layer may omit any of these paths. A pack contains no symbolic links, only regular files and directories, and every file the engine reads is at most 1 MiB.
 
@@ -97,6 +97,14 @@ For each scope:
 6. Render `dotai/` content for each harness.
 7. Apply the staging output to the harnesses with the active install mode and backup ([0018](decisions/0018-install-modes-and-mandatory-backup.md)).
 
+## Tools and project config
+
+Decided in [0030](decisions/0030-tools-paths-and-project-config.md).
+
+- `dotai/tools/` installs to `~/.dotai/tools/` at user scope and to `.dotai/tools/` at project scope. The same path in two layers of a scope is an error; a layer that adjusts another layer's tool config ships a file with a different name.
+- While staging, `${DOTAI_TOOLS}` and `${DOTAI_PROJECT_TOOLS}` become the absolute paths of those directories in every text file of the layers, skills and hooks included, before rulesync runs.
+- `.dotai/config.yaml` in a project belongs to the user and the pack; the engine never writes it. Tools find it by walking up from the current directory to the nearest `.dotai/`. The engine records the applied profiles in its own file in the same directory.
+
 ## Merge rules
 
 Layer order is base, variant, then profiles. Profiles are peers and have no order among themselves. Nothing is overwritten silently: every merge is a safe union, a declared override or an error ([0023](decisions/0023-flat-profiles-and-layer-merge-rules.md)).
@@ -145,7 +153,7 @@ There are no model tiers ([0024](decisions/0024-models-declared-per-harness-no-t
 
 ## Settings
 
-`dotai/settings.yaml` holds one block per harness, keyed by rulesync target name, merged as-is into that harness's settings file ([0025](decisions/0025-settings-as-per-harness-passthrough.md)). The engine does not interpret any setting; it only expands its own variables, such as `${DOTAI_TOOLS}`.
+`dotai/settings.yaml` holds one block per harness, keyed by rulesync target name, merged as-is into that harness's settings file ([0025](decisions/0025-settings-as-per-harness-passthrough.md)). The engine does not interpret any setting. A layer that replaces a value from an earlier layer declares it in a top-level `dotai:` block, for example `dotai: { overrides: [claudecode.statusLine] }` ([0030](decisions/0030-tools-paths-and-project-config.md)).
 
 ```yaml
 claudecode:

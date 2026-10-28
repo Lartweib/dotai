@@ -14,7 +14,7 @@ The scope is set by [0020](decisions/0020-v1-scope-engine-and-pack.md) and the c
 | 2 | `pack`: load the manifest, layers and `dotai:` blocks; add the example pack | `dotai validate examples/minimal-pack`; a broken manifest reports file and line |
 | 3 | `merge`: layer merge rules ([0023](decisions/0023-flat-profiles-and-layer-merge-rules.md)) and one staging tree per scope | `dotai validate` rejects duplicate names and undeclared overrides; `dotai stage --out <dir>` shows the merged tree |
 | 4 | `rulesync`: download the pinned binary, verify its checksum, cache it and run it into staging | `dotai stage` shows the real harness output (`CLAUDE.md`, `AGENTS.md`, agents) |
-| 5 | `render`: per-harness settings, variables such as `${DOTAI_TOOLS}`, runners and tools | Staging contains the Claude Code and agy `settings.json` |
+| 5 | `render`: per-harness settings, path variables such as `${DOTAI_TOOLS}`, and tools | Staging contains the Claude Code and agy `settings.json` |
 | 6 | JSON/JSONC edit layer over hujson | Golden tests show before and after: comments, key order and CRLF kept |
 | 7 | `plan` and the adapters as data | `dotai install --dry-run` prints the exact plan, readable or as `--json` |
 | 8 | `backup`, `state` and isolated execution for Claude Code | `dotai install --mode isolated`, then open Claude Code isolated with the pack; `dotai restore` puts everything back |
