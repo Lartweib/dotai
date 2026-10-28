@@ -147,6 +147,9 @@ func newValidateCmd(env Env, jsonOut *bool) *cobra.Command {
 			if *jsonOut {
 				return output.Write(env.Stdout, output.Success(commandName(cmd), res))
 			}
+			if res.Pack == nil {
+				return errors.New("validation returned no pack")
+			}
 			p := res.Pack
 			_, err = fmt.Fprintf(env.Stdout, "pack %s %s is valid: %d layer(s)\n", p.Name, p.Version, len(p.Layers))
 			return err

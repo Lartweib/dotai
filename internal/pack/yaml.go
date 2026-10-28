@@ -1,7 +1,6 @@
 package pack
 
 import (
-	"fmt"
 	"regexp"
 	"slices"
 	"strconv"
@@ -18,11 +17,11 @@ type reader struct {
 
 // report records a problem at node n; a nil n has no position.
 func (r reader) report(n *yaml.Node, code, format string, args ...any) {
-	d := Diagnostic{File: r.file, Code: code, Message: fmt.Sprintf(format, args...)}
+	line, col := 0, 0
 	if n != nil {
-		d.Line, d.Column = n.Line+r.offset, n.Column
+		line, col = n.Line+r.offset, n.Column
 	}
-	*r.diags = append(*r.diags, d)
+	*r.diags = append(*r.diags, newDiagnostic(r.file, line, col, code, format, args...))
 }
 
 var yamlErr = regexp.MustCompile(`^yaml: (?:line (\d+): )?`)
@@ -32,12 +31,12 @@ var yamlErr = regexp.MustCompile(`^yaml: (?:line (\d+): )?`)
 func (r reader) parse(src []byte, code string) (root *yaml.Node, ok bool) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(src, &doc); err != nil {
-		d := Diagnostic{File: r.file, Code: code, Message: yamlErr.ReplaceAllString(err.Error(), "")}
+		line := 0
 		if m := yamlErr.FindStringSubmatch(err.Error()); m != nil && m[1] != "" {
-			line, _ := strconv.Atoi(m[1])
-			d.Line = line + r.offset
+			line, _ = strconv.Atoi(m[1])
+			line += r.offset
 		}
-		*r.diags = append(*r.diags, d)
+		*r.diags = append(*r.diags, newDiagnostic(r.file, line, 0, code, "%s", yamlErr.ReplaceAllString(err.Error(), "")))
 		return nil, false
 	}
 	if len(doc.Content) == 0 {
@@ -84,6 +83,9 @@ func (r reader) object(owner, n *yaml.Node, what string, known ...string) object
 	}
 	return o
 }
+
+// has reports whether key is set.
+func (o object) has(key string) bool { return o.vals[key] != nil }
 
 func (o object) missing(key string, required bool) bool {
 	if o.vals[key] == nil {
@@ -137,16 +139,17 @@ func (o object) list(key string, required bool) ([]string, []*yaml.Node) {
 	return vals, nodes
 }
 
-// boolean returns the optional boolean at key.
-func (o object) boolean(key string) bool {
+// boolean returns the optional boolean at key. valid is false when key is
+// missing or its value is not a boolean, which is reported.
+func (o object) boolean(key string) (value, valid bool) {
 	if o.missing(key, false) {
-		return false
+		return false, false
 	}
 	n := o.vals[key]
 	if n.Kind != yaml.ScalarNode || n.Tag != "!!bool" {
 		o.r.report(n, CodeFieldType, "%s: %q must be true or false", o.what, key)
-		return false
+		return false, false
 	}
 	b, _ := strconv.ParseBool(n.Value)
-	return b
+	return b, true
 }

@@ -16,6 +16,11 @@ type Diagnostic struct {
 	Message string `json:"message"`
 }
 
+// newDiagnostic is the only way diagnostics are built.
+func newDiagnostic(file string, line, col int, code, format string, args ...any) Diagnostic {
+	return Diagnostic{File: file, Line: line, Column: col, Code: code, Message: fmt.Sprintf(format, args...)}
+}
+
 // String formats d as file:line:col: code: message, leaving out unknown
 // positions.
 func (d Diagnostic) String() string {

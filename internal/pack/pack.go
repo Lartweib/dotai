@@ -35,6 +35,13 @@ const (
 	CodeReadFailed         = "read-failed"
 )
 
+// Layer layout (docs/PACK-FORMAT.md).
+const (
+	baseDir     = "base"      // the implicit base layer
+	rulesyncDir = ".rulesync" // a layer's rulesync sources
+	fenceLines  = 1           // lines before the YAML of a frontmatter
+)
+
 // Pack is a loaded pack.
 type Pack struct {
 	Manifest Manifest
@@ -94,7 +101,7 @@ func Load(fsys fs.FS) (*Pack, []Diagnostic) {
 		if errors.Is(err, fs.ErrNotExist) {
 			code = CodeManifestMissing
 		}
-		return nil, append(diags, Diagnostic{File: ManifestFile, Code: code, Message: "cannot read the pack manifest: " + err.Error()})
+		return nil, append(diags, newDiagnostic(ManifestFile, 0, 0, code, "cannot read the pack manifest: %v", err))
 	}
 	r := reader{file: ManifestFile, diags: &diags}
 	root, ok := r.parse(src, CodeYAMLInvalid)
@@ -104,8 +111,8 @@ func Load(fsys fs.FS) (*Pack, []Diagnostic) {
 
 	p := &Pack{Manifest: decodeManifest(fsys, r, root)}
 	sortFrom(diags, 0)
-	if info, err := fs.Stat(fsys, "base"); err == nil && info.IsDir() {
-		p.Layers = append(p.Layers, loadLayer(fsys, &diags, LayerBase, "base", "base"))
+	if info, err := fs.Stat(fsys, baseDir); err == nil && info.IsDir() {
+		p.Layers = append(p.Layers, loadLayer(fsys, &diags, LayerBase, baseDir, baseDir))
 	}
 	for _, pr := range p.Manifest.Profiles {
 		if pr.Path != "" {
@@ -122,11 +129,11 @@ func Load(fsys fs.FS) (*Pack, []Diagnostic) {
 
 func loadLayer(fsys fs.FS, diags *[]Diagnostic, kind LayerKind, name, dir string) Layer {
 	l := Layer{Kind: kind, Name: name, Path: dir}
-	root := path.Join(dir, ".rulesync")
+	root := path.Join(dir, rulesyncDir)
 	_ = fs.WalkDir(fsys, root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			if !errors.Is(err, fs.ErrNotExist) {
-				*diags = append(*diags, Diagnostic{File: p, Code: CodeReadFailed, Message: err.Error()})
+				*diags = append(*diags, newDiagnostic(p, 0, 0, CodeReadFailed, "%v", err))
 			}
 			return nil
 		}
@@ -136,11 +143,11 @@ func loadLayer(fsys fs.FS, diags *[]Diagnostic, kind LayerKind, name, dir string
 		}
 		src, err := fs.ReadFile(fsys, p)
 		if err != nil {
-			*diags = append(*diags, Diagnostic{File: p, Code: CodeReadFailed, Message: err.Error()})
+			*diags = append(*diags, newDiagnostic(p, 0, 0, CodeReadFailed, "%v", err))
 			return nil
 		}
 		start := len(*diags)
-		l.Items = append(l.Items, Item{Kind: ik, Name: iname, Path: p, Dotai: readDotai(reader{file: p, offset: 1, diags: diags}, src)})
+		l.Items = append(l.Items, Item{Kind: ik, Name: iname, Path: p, Dotai: readDotai(reader{file: p, offset: fenceLines, diags: diags}, src)})
 		sortFrom(*diags, start)
 		return nil
 	})
@@ -173,7 +180,7 @@ func readDotai(r reader, src []byte) Dotai {
 	}
 	end := slices.IndexFunc(lines[1:], func(l string) bool { return strings.TrimRight(l, " \t") == "---" })
 	if end < 0 {
-		*r.diags = append(*r.diags, Diagnostic{File: r.file, Line: 1, Column: 1, Code: CodeFrontmatterInvalid, Message: "frontmatter has no closing ---"})
+		*r.diags = append(*r.diags, newDiagnostic(r.file, 1, 1, CodeFrontmatterInvalid, "frontmatter has no closing ---"))
 		return Dotai{}
 	}
 	fm, ok := r.parse([]byte(strings.Join(lines[1:end+1], "\n")), CodeFrontmatterInvalid)
@@ -186,5 +193,6 @@ func readDotai(r reader, src []byte) Dotai {
 	}
 	b := r.object(o.keys["dotai"], o.vals["dotai"], "dotai", "capabilities", "overrides")
 	caps, _ := b.list("capabilities", false)
-	return Dotai{Capabilities: caps, Overrides: b.boolean("overrides")}
+	overrides, _ := b.boolean("overrides")
+	return Dotai{Capabilities: caps, Overrides: overrides}
 }

@@ -51,67 +51,94 @@ type Detect struct {
 func decodeManifest(fsys fs.FS, r reader, root *yaml.Node) Manifest {
 	o := r.object(nil, root, ManifestFile,
 		"schema", "name", "version", "engine", "rulesync", "harnesses", "profiles", "variants")
+	m := decodeIdentity(r, o)
+	m.Harnesses = decodeHarnesses(r, o)
+	m.Profiles = decodeProfiles(fsys, r, o)
+	var declared int
+	m.Variants, declared = decodeVariants(fsys, r, o)
+	if len(m.Variants) > 0 && declared != 1 {
+		r.report(o.keys["variants"], CodeVariantDefault, "exactly one variant must set default: true, found %d", declared)
+	}
+	return m
+}
+
+// decodeIdentity reads the scalar fields: schema, identity and versions.
+func decodeIdentity(r reader, o object) Manifest {
 	var m Manifest
 	var n *yaml.Node
 	if m.Schema, n = o.str("schema", true); n != nil && m.Schema != SchemaV1 {
 		r.report(n, CodeSchemaUnknown, "unknown schema %q, want %q", m.Schema, SchemaV1)
 	}
 	m.Name, _ = o.str("name", true)
-	if m.Version, n = o.str("version", true); n != nil {
-		if _, err := semver.StrictNewVersion(m.Version); err != nil {
-			r.report(n, CodeVersionInvalid, "version %q is not a semantic version", m.Version)
-		}
+	if m.Version, n = o.str("version", true); n != nil && !isExactVersion(m.Version) {
+		r.report(n, CodeVersionInvalid, "version %q is not a semantic version", m.Version)
 	}
 	if m.Engine, n = o.str("engine", true); n != nil {
 		if _, err := semver.NewConstraint(m.Engine); err != nil {
-			r.report(n, CodeEngineInvalid, "engine %q is not a version range: %v", m.Engine, err)
+			r.report(n, CodeEngineInvalid, "engine %q is not a version range", m.Engine)
 		}
 	}
-	if m.Rulesync, n = o.str("rulesync", true); n != nil {
-		if _, err := semver.StrictNewVersion(m.Rulesync); err != nil {
-			r.report(n, CodeRulesyncInvalid, "rulesync %q must be an exact version such as 41.0.0", m.Rulesync)
-		}
+	if m.Rulesync, n = o.str("rulesync", true); n != nil && !isExactVersion(m.Rulesync) {
+		r.report(n, CodeRulesyncInvalid, "rulesync %q must be an exact version such as 41.0.0", m.Rulesync)
 	}
-	var nodes []*yaml.Node
-	m.Harnesses, nodes = o.list("harnesses", true)
-	for i, h := range m.Harnesses {
+	return m
+}
+
+func isExactVersion(v string) bool {
+	_, err := semver.StrictNewVersion(v)
+	return err == nil
+}
+
+func decodeHarnesses(r reader, o object) []string {
+	hs, nodes := o.list("harnesses", true)
+	for i, h := range hs {
 		if !slices.Contains(Harnesses, h) {
 			r.report(nodes[i], CodeHarnessUnknown, "unknown harness %q, want one of %v", h, Harnesses)
 		}
 	}
+	return hs
+}
 
-	if o.vals["profiles"] != nil {
-		ps := r.object(o.keys["profiles"], o.vals["profiles"], "profiles")
-		for _, name := range ps.order {
-			p := r.object(ps.keys[name], ps.vals[name], "profile "+name, "path", "description", "hints")
-			pr := Profile{Name: name, Path: layerPath(fsys, p)}
-			pr.Description, _ = p.str("description", true)
-			pr.Hints, _ = p.list("hints", false)
-			m.Profiles = append(m.Profiles, pr)
-		}
+func decodeProfiles(fsys fs.FS, r reader, o object) []Profile {
+	if !o.has("profiles") {
+		return nil
 	}
-	if o.vals["variants"] != nil {
-		vs := r.object(o.keys["variants"], o.vals["variants"], "variants")
-		defaults := 0
-		for _, name := range vs.order {
-			v := r.object(vs.keys[name], vs.vals[name], "variant "+name, "path", "default", "detect")
-			va := Variant{Name: name, Path: layerPath(fsys, v), Default: v.boolean("default")}
-			if v.vals["detect"] != nil {
-				d := r.object(v.keys["detect"], v.vals["detect"], "detect", "command")
-				va.Detect = &Detect{}
-				va.Detect.Command, _ = d.str("command", true)
-			}
-			// A default that is not a boolean was reported; count it as meant.
-			if dn := v.vals["default"]; va.Default || dn != nil && dn.Tag != "!!bool" {
-				defaults++
-			}
-			m.Variants = append(m.Variants, va)
-		}
-		if len(vs.order) > 0 && defaults != 1 {
-			r.report(o.keys["variants"], CodeVariantDefault, "exactly one variant must set default: true, found %d", defaults)
-		}
+	var out []Profile
+	ps := r.object(o.keys["profiles"], o.vals["profiles"], "profiles")
+	for _, name := range ps.order {
+		p := r.object(ps.keys[name], ps.vals[name], "profile "+name, "path", "description", "hints")
+		pr := Profile{Name: name, Path: layerPath(fsys, p)}
+		pr.Description, _ = p.str("description", true)
+		pr.Hints, _ = p.list("hints", false)
+		out = append(out, pr)
 	}
-	return m
+	return out
+}
+
+// decodeVariants returns the variants and how many of them declare a
+// default. A default with an invalid value is reported and still counts as
+// declared, so it does not also cause a variant-default diagnostic.
+func decodeVariants(fsys fs.FS, r reader, o object) (out []Variant, declared int) {
+	if !o.has("variants") {
+		return nil, 0
+	}
+	vs := r.object(o.keys["variants"], o.vals["variants"], "variants")
+	for _, name := range vs.order {
+		v := r.object(vs.keys[name], vs.vals[name], "variant "+name, "path", "default", "detect")
+		va := Variant{Name: name, Path: layerPath(fsys, v)}
+		var valid bool
+		va.Default, valid = v.boolean("default")
+		if va.Default || v.has("default") && !valid {
+			declared++
+		}
+		if v.has("detect") {
+			d := r.object(v.keys["detect"], v.vals["detect"], "detect", "command")
+			va.Detect = &Detect{}
+			va.Detect.Command, _ = d.str("command", true)
+		}
+		out = append(out, va)
+	}
+	return out, declared
 }
 
 // layerPath returns the declared path of a profile or variant, or "" when it
