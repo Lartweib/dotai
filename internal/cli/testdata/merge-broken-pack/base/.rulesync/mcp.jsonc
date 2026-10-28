@@ -1,0 +1,6 @@
+{
+  // shared servers
+  "mcpServers": {
+    "git": { "command": "git-mcp" },
+  },
+}

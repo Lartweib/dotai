@@ -16,6 +16,8 @@ type src struct {
 	kind            pack.ItemKind
 	name            string
 	overrides, root bool
+	owner           pack.ItemRef // for a file of an item that is not the item itself
+	data            string       // the path when empty
 }
 
 func rule(name string) src {
@@ -30,7 +32,11 @@ func skill(name string) src {
 func subagent(rel, name string) src {
 	return src{rel: ".rulesync/subagents/" + rel, kind: pack.ItemSubagent, name: name}
 }
-func plain(rel string) src  { return src{rel: rel} }
+func plain(rel string) src { return src{rel: rel} }
+func skillFile(skill, rel string) src {
+	return src{rel: ".rulesync/skills/" + skill + "/" + rel, owner: pack.ItemRef{Kind: pack.ItemSkill, Name: skill}}
+}
+func mcp(data string) src   { return src{rel: ".rulesync/mcp.jsonc", data: data} }
 func (s src) override() src { s.overrides = true; return s }
 func (s src) asRoot() src   { s.root = true; return s }
 
@@ -39,7 +45,15 @@ func layer(kind pack.LayerKind, name string, srcs ...src) pack.Layer {
 	l := pack.Layer{Kind: kind, Name: name, Path: dir}
 	for _, s := range srcs {
 		p := dir + "/" + s.rel
-		l.Files = append(l.Files, pack.File{Path: p, Data: []byte(p)})
+		data := s.data
+		if data == "" {
+			data = p
+		}
+		owner := s.owner
+		if s.kind != "" {
+			owner = pack.ItemRef{Kind: s.kind, Name: s.name}
+		}
+		l.Files = append(l.Files, pack.File{Path: p, Rel: s.rel, Item: owner, Data: []byte(data)})
 		if s.kind != "" {
 			l.Items = append(l.Items, pack.Item{Kind: s.kind, Name: s.name, Path: p, Root: s.root, Dotai: pack.Dotai{Overrides: s.overrides}})
 		}
@@ -74,6 +88,12 @@ func format(ds []pack.Diagnostic) []string {
 	return out
 }
 
+const (
+	baseMCP = "{\n  // shared servers\n  \"mcpServers\": {\n    \"git\": {\"command\": \"git-mcp\"},\n  },\n}\n"
+	webMCP  = `{"mcpServers": {"web": {"command": "web-mcp"}}}`
+	gitMCP  = `{"mcpServers": {"git": {"command": "other"}}}`
+)
+
 func TestCheck(t *testing.T) {
 	tests := []struct {
 		name string
@@ -103,12 +123,21 @@ func TestCheck(t *testing.T) {
 			want: []string{`variants/v/.rulesync/rules/style.md:1: override-undeclared: rule "style" is already defined at base/.rulesync/rules/style.md:1; declare dotai: {overrides: true} to replace it`},
 		},
 		{
+			name: "override without target",
+			pack: newPack(base(rule("x").override()), variant("v", rule("y").override()), profile("a", rule("z").override())),
+			want: []string{
+				`base/.rulesync/rules/x.md:1: override-without-target: rule "x" declares dotai: {overrides: true} but no earlier layer of its scope defines it`,
+				`variants/v/.rulesync/rules/y.md:1: override-without-target: rule "y" declares dotai: {overrides: true} but no earlier layer of its scope defines it`,
+				`profiles/a/.rulesync/rules/z.md:1: override-without-target: rule "z" declares dotai: {overrides: true} but no earlier layer of its scope defines it`,
+			},
+		},
+		{
 			name: "same name twice in one layer",
 			pack: newPack(base(subagent("a/helper.md", "helper"), subagent("b/helper.md", "helper").override())),
 			want: []string{`base/.rulesync/subagents/b/helper.md:1: name-duplicate: subagent "helper" is defined twice in layer base, first at base/.rulesync/subagents/a/helper.md:1`},
 		},
 		{
-			name: "duplicate in the base is reported once for every variant",
+			name: "duplicate in the base is reported once with several variants",
 			pack: newPack(base(command("x"), command("x")), variant("a"), variant("b")),
 			want: []string{`base/.rulesync/commands/x.md:1: name-duplicate: command "x" is defined twice in layer base, first at base/.rulesync/commands/x.md:1`},
 		},
@@ -118,14 +147,31 @@ func TestCheck(t *testing.T) {
 			want: []string{`profiles/b/.rulesync/skills/lint/SKILL.md:1: profile-conflict: skill "lint" is also defined by profile a at profiles/a/.rulesync/skills/lint/SKILL.md:1; profiles cannot override each other`},
 		},
 		{
-			name: "profile and base, even with overrides",
-			pack: newPack(base(command("deploy")), profile("a", command("deploy").override())),
-			want: []string{`profiles/a/.rulesync/commands/deploy.md:1: scope-conflict: command "deploy" is also defined at user level at base/.rulesync/commands/deploy.md:1; overrides do not apply across scopes`},
+			name: "two profiles in reverse selection order",
+			pack: newPack(profile("a", skill("lint")), profile("b", skill("lint"))),
+			sel:  merge.Selection{Profiles: []string{"b", "a"}},
+			want: []string{`profiles/b/.rulesync/skills/lint/SKILL.md:1: profile-conflict: skill "lint" is also defined by profile a at profiles/a/.rulesync/skills/lint/SKILL.md:1; profiles cannot override each other`},
 		},
 		{
-			name: "profile and variant",
-			pack: newPack(base(), variant("v", skill("seo")), profile("a", skill("seo"))),
-			want: []string{`profiles/a/.rulesync/skills/seo/SKILL.md:1: scope-conflict: skill "seo" is also defined at user level at variants/v/.rulesync/skills/seo/SKILL.md:1; overrides do not apply across scopes`},
+			name: "profile and base, even with overrides",
+			pack: newPack(base(command("deploy")), profile("a", command("deploy").override())),
+			want: []string{
+				`profiles/a/.rulesync/commands/deploy.md:1: override-without-target: command "deploy" declares dotai: {overrides: true} but no earlier layer of its scope defines it`,
+				`profiles/a/.rulesync/commands/deploy.md:1: scope-conflict: command "deploy" is also defined at user level at base/.rulesync/commands/deploy.md:1; overrides do not apply across scopes`,
+			},
+		},
+		{
+			name: "same name in several variants and a profile",
+			pack: newPack(base(), variant("a", skill("seo")), variant("b", skill("seo")), profile("p", skill("seo"))),
+			want: []string{`profiles/p/.rulesync/skills/seo/SKILL.md:1: scope-conflict: skill "seo" is also defined at user level at variants/a/.rulesync/skills/seo/SKILL.md:1; overrides do not apply across scopes`},
+		},
+		{
+			name: "chain of three layers across scopes",
+			pack: newPack(base(rule("x")), variant("v", rule("x").override()), profile("p", rule("x").override())),
+			want: []string{
+				`profiles/p/.rulesync/rules/x.md:1: override-without-target: rule "x" declares dotai: {overrides: true} but no earlier layer of its scope defines it`,
+				`profiles/p/.rulesync/rules/x.md:1: scope-conflict: rule "x" is also defined at user level at variants/v/.rulesync/rules/x.md:1; overrides do not apply across scopes`,
+			},
 		},
 		{
 			name: "root rule outside the base",
@@ -136,18 +182,61 @@ func TestCheck(t *testing.T) {
 			},
 		},
 		{
-			name: "same file path in two layers of a scope",
+			name: "two root rules in the base",
+			pack: newPack(base(rule("a").asRoot(), rule("b").asRoot())),
+			want: []string{`base/.rulesync/rules/b.md:1: root-rule-duplicate: rule "b" is a second root rule; the first is at base/.rulesync/rules/a.md:1`},
+		},
+		{
+			name: "override of the root rule",
+			pack: newPack(base(rule("overview").asRoot()), variant("v", rule("overview").override())),
+			want: []string{`variants/v/.rulesync/rules/overview.md:1: root-rule-override: rule "overview" replaces the root rule at base/.rulesync/rules/overview.md:1; the root rule cannot be overridden`},
+		},
+		{
+			name: "names that differ only by case",
+			pack: newPack(base(rule("style"), command("Deploy")), variant("v", rule("Style").override()), profile("a", command("deploy"))),
+			want: []string{
+				`variants/v/.rulesync/rules/Style.md:1: name-case-conflict: rule "Style" differs only by case from rule "style" at base/.rulesync/rules/style.md:1`,
+				`profiles/a/.rulesync/commands/deploy.md:1: name-case-conflict: command "deploy" differs only by case from command "Deploy" at base/.rulesync/commands/Deploy.md:1`,
+			},
+		},
+		{
+			name: "paths that differ only by case",
+			pack: newPack(base(plain("dotai/tools/run.sh")), variant("v", plain("dotai/tools/Run.sh"))),
+			want: []string{`variants/v/dotai/tools/Run.sh:1: name-case-conflict: dotai/tools/Run.sh differs only by case from dotai/tools/run.sh at base/dotai/tools/run.sh:1`},
+		},
+		{
+			name: "settings in two layers of a scope",
 			pack: newPack(base(plain("dotai/settings.yaml")), variant("v", plain("dotai/settings.yaml"))),
-			want: []string{`variants/v/dotai/settings.yaml:1: path-conflict: dotai/settings.yaml is also provided at base/dotai/settings.yaml:1; a file has one owner`},
+			want: []string{`variants/v/dotai/settings.yaml:1: settings-merge-pending: dotai/settings.yaml is also provided at base/dotai/settings.yaml:1; merging settings across layers lands in a later version of dotai`},
 		},
 		{
 			name: "same file path in two profiles",
-			pack: newPack(profile("a", plain(".rulesync/mcp.jsonc")), profile("b", plain(".rulesync/mcp.jsonc"))),
-			want: []string{`profiles/b/.rulesync/mcp.jsonc:1: path-conflict: .rulesync/mcp.jsonc is also provided at profiles/a/.rulesync/mcp.jsonc:1; a file has one owner`},
+			pack: newPack(profile("a", plain(".rulesync/hooks.jsonc")), profile("b", plain(".rulesync/hooks.jsonc"))),
+			want: []string{`profiles/b/.rulesync/hooks.jsonc:1: path-conflict: .rulesync/hooks.jsonc is also provided at profiles/a/.rulesync/hooks.jsonc:1; a file has one owner`},
 		},
 		{
 			name: "same file path in both scopes",
 			pack: newPack(base(plain("dotai/settings.yaml")), profile("a", plain("dotai/settings.yaml"))),
+		},
+		{
+			name: "MCP servers with distinct names merge",
+			pack: newPack(base(mcp(baseMCP)), variant("v", mcp(webMCP))),
+		},
+		{
+			name: "MCP server defined twice",
+			pack: newPack(base(mcp(baseMCP)), variant("v", mcp(gitMCP)), profile("a", mcp(gitMCP))),
+			want: []string{
+				`variants/v/.rulesync/mcp.jsonc:1: mcp-server-conflict: MCP server "git" is already defined at base/.rulesync/mcp.jsonc:4; MCP servers cannot be overridden`,
+				`profiles/a/.rulesync/mcp.jsonc:1: scope-conflict: MCP server "git" is also defined at user level at base/.rulesync/mcp.jsonc:4; overrides do not apply across scopes`,
+			},
+		},
+		{
+			name: "MCP file that cannot be read",
+			pack: newPack(base(mcp("{\"mcpServers\": [")), variant("v", mcp(`{"servers": {}}`))),
+			want: []string{
+				`base/.rulesync/mcp.jsonc: mcp-invalid: hujson: line 1, column 17: parsing value: unexpected EOF`,
+				`variants/v/.rulesync/mcp.jsonc: mcp-invalid: want an object with only an "mcpServers" object`,
+			},
 		},
 		{
 			name: "chosen variant only",
@@ -183,10 +272,12 @@ func TestCheck(t *testing.T) {
 	}
 }
 
+// files lists each staged file as "path layer" and checks that a file that
+// is not merged keeps its source content.
 func files(fs []merge.File) []string {
 	out := []string{}
 	for _, f := range fs {
-		if string(f.Data) != f.Layer+"/"+f.Path {
+		if f.Origins == nil && string(f.Data) != f.Layer+"/"+f.Path {
 			out = append(out, "bad data for "+f.Path)
 		}
 		out = append(out, f.Path+" "+f.Layer)
@@ -196,7 +287,7 @@ func files(fs []merge.File) []string {
 
 func TestStage(t *testing.T) {
 	p := newPack(
-		base(rule("overview").asRoot(), skill("commit"), plain(".rulesync/skills/commit/notes.md"), subagent("reviewer.md", "reviewer"), plain("dotai/settings.yaml"), plain("README.md")),
+		base(rule("overview").asRoot(), skill("commit"), skillFile("commit", "notes.md"), subagent("reviewer.md", "reviewer"), plain("dotai/settings.yaml"), plain("README.md")),
 		profile("web", rule("web"), plain("dotai/tools/lint.sh")),
 		profile("docs", command("publish")),
 		variant("standalone", rule("standalone")),
@@ -251,6 +342,22 @@ func TestStage(t *testing.T) {
 				t.Errorf("project =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(tt.project, "\n"))
 			}
 		})
+	}
+}
+
+func TestStageMergesMCPServers(t *testing.T) {
+	s, diags := merge.Stage(newPack(base(mcp(baseMCP)), variant("v", mcp(webMCP))), merge.Selection{})
+	if len(diags) != 0 || len(s.User) != 1 {
+		t.Fatalf("Stage() = %+v, %v, want one merged file", s, format(diags))
+	}
+	want := "{\n  \"mcpServers\": {\n    \"git\": {\n      \"command\": \"git-mcp\"\n    },\n" +
+		"    \"web\": {\n      \"command\": \"web-mcp\"\n    }\n  }\n}\n"
+	f := s.User[0]
+	if f.Path != ".rulesync/mcp.jsonc" || string(f.Data) != want {
+		t.Errorf("file = %s\n%s\nwant\n%s", f.Path, f.Data, want)
+	}
+	if origins := map[string]string{"git": "base", "web": "variants/v"}; !reflect.DeepEqual(f.Origins, origins) {
+		t.Errorf("origins = %v, want %v", f.Origins, origins)
 	}
 }
 

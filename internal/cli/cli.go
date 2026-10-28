@@ -175,7 +175,7 @@ func packDir(args []string) string {
 
 // rejectPack prints the diagnostics of a pack with problems as text and
 // returns the invalid outcome that carries data.
-func rejectPack[D fmt.Stringer](env Env, jsonOut bool, diags []D, data any) error {
+func rejectPack(env Env, jsonOut bool, diags []app.Diagnostic, data any) error {
 	if !jsonOut {
 		for _, d := range diags {
 			fmt.Fprintln(env.Stdout, d)

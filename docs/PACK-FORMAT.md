@@ -91,7 +91,7 @@ For each scope:
 
 1. Resolve the layers. User scope: `base` and the variant passed with `--variant`, detected, or default. Project scope: the profiles passed with `--profile`.
 2. Read the `dotai:` blocks from the sources.
-3. Run `dotai validate` over all layers, both scopes included. Structural checks (manifest, layer paths, file types, `dotai:` blocks) run first. The [merge rules](#merge-rules) run only when they found no errors, and their diagnostics come after the structural ones.
+3. Run `dotai validate` over all layers, both scopes included. Structural checks (manifest, layer paths, file types, `dotai:` blocks) run first. The [merge rules](#merge-rules) run only when they found no errors, and their diagnostics come after the structural ones. This version does not merge `dotai/settings.yaml` yet: the same file in two layers of a scope is reported as `settings-merge-pending` until settings merging lands.
 4. Merge the scope's layers into its own staging tree.
 5. Run the pinned rulesync over the staging `.rulesync/`, writing into staging.
 6. Render `dotai/` content for each harness.
@@ -106,7 +106,9 @@ Layer order is base, variant, then profiles. Profiles are peers and have no orde
 | Skills, subagents, commands, rules, MCP servers | Name | One name, one owner. A same name in two layers is an error, unless the later layer declares `dotai: { overrides: true }`. Two profiles can never override each other. |
 | Lists: permissions, hooks per event | Value | Union without duplicates. If an entry is both allowed and denied, deny wins. |
 | Single values: `statusLine`, an `env` variable, the default model | Key | A later layer may replace a value only if it declares the override. The same key in two profiles is an error. |
-| Root rule (root `CLAUDE.md` or `AGENTS.md`) | Unique | Only the base provides it. Profiles and variants add named, non-root rules. |
+| Root rule (root `CLAUDE.md` or `AGENTS.md`) | Unique | Only the base provides it, exactly once, and no layer overrides it. Profiles and variants add named, non-root rules. |
+
+The name of an item comes from its path, not from its frontmatter: the file stem for rules, commands and subagents (`rules/web.md` is `web`), the directory for skills (`skills/seo/SKILL.md` is `seo`), and the key under `mcpServers` in `.rulesync/mcp.jsonc` for MCP servers. Names that differ only by case are a conflict, and so are staged paths that differ only by case, because some file systems cannot hold both. `overrides: true` must replace an item of an earlier layer in the same scope; with nothing to replace it is an error. MCP servers have no override syntax, so a server name in two layers of a scope is always an error; the servers of every layer are merged into one `mcp.jsonc` per scope.
 
 The rules apply across scopes too, without overrides: an item in a profile with the same name as one in the base or the variant is always an error, because harnesses resolve that conflict differently ([0023](decisions/0023-flat-profiles-and-layer-merge-rules.md)).
 

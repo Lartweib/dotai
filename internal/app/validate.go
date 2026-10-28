@@ -9,6 +9,9 @@ import (
 	"github.com/lartweib/dotai/internal/pack"
 )
 
+// Diagnostic is one problem found in a pack.
+type Diagnostic = pack.Diagnostic
+
 // Selection names the variant and profiles a command works on.
 type Selection = merge.Selection
 
