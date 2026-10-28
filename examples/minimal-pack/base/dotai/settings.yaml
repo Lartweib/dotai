@@ -1,0 +1,4 @@
+claudecode:
+  model: sonnet
+opencode:
+  model: anthropic/claude-sonnet-4-5

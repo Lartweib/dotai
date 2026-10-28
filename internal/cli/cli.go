@@ -27,7 +27,7 @@ const (
 type Env struct {
 	Stdout, Stderr io.Writer
 	Version        func() app.VersionInfo
-	Validate       func(dir string) (app.ValidateResult, error)
+	Validate       func(dir string, sel app.Selection) (app.ValidateResult, error)
 }
 
 // invalidError is a command outcome that rejects its input, such as a pack
@@ -122,39 +122,66 @@ func newVersionCmd(env Env, jsonOut *bool) *cobra.Command {
 }
 
 func newValidateCmd(env Env, jsonOut *bool) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "validate [path]",
-		Short: "Check the structure of the pack in path (default: current directory)",
-		Args:  cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			dir := "."
-			if len(args) == 1 {
-				dir = args[0]
-			}
-			res, err := env.Validate(dir)
-			if err != nil {
-				return err
-			}
-			if !res.Valid {
-				invalid := &invalidError{msg: fmt.Sprintf("pack is invalid: %d problem(s)", len(res.Diagnostics)), data: res}
-				if !*jsonOut {
-					for _, d := range res.Diagnostics {
-						fmt.Fprintln(env.Stdout, d)
-					}
-				}
-				return invalid
-			}
-			if *jsonOut {
-				return output.Write(env.Stdout, output.Success(commandName(cmd), res))
-			}
-			if res.Pack == nil {
-				return errors.New("validation returned no pack")
-			}
-			p := res.Pack
-			_, err = fmt.Fprintf(env.Stdout, "pack %s %s is valid: %d layer(s)\n", p.Name, p.Version, len(p.Layers))
-			return err
-		},
+		Short: "Check the pack in path (default: current directory) and its merge rules",
+		Long: "Check the pack in path (default: current directory): its structure, then the merge rules.\n" +
+			"Without --variant, the base is checked with each variant; without --profile, all profiles are checked together.",
+		Args: cobra.MaximumNArgs(1),
 	}
+	sel := selectionFlags(cmd)
+	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		res, err := env.Validate(packDir(args), sel(cmd))
+		if err != nil {
+			return err
+		}
+		if !res.Valid {
+			return rejectPack(env, *jsonOut, res.Diagnostics, res)
+		}
+		if *jsonOut {
+			return output.Write(env.Stdout, output.Success(commandName(cmd), res))
+		}
+		if res.Pack == nil {
+			return errors.New("validation returned no pack")
+		}
+		p := res.Pack
+		_, err = fmt.Fprintf(env.Stdout, "pack %s %s is valid: %d layer(s)\n", p.Name, p.Version, len(p.Layers))
+		return err
+	}
+	return cmd
+}
+
+// selectionFlags adds --variant and --profile to cmd. The returned function
+// reads them; Profiles is nil when --profile is not given.
+func selectionFlags(cmd *cobra.Command) func(*cobra.Command) app.Selection {
+	var sel app.Selection
+	cmd.Flags().StringVar(&sel.Variant, "variant", "", "variant applied on top of the base")
+	cmd.Flags().StringSliceVar(&sel.Profiles, "profile", nil, "profiles to apply, comma-separated, in order")
+	return func(cmd *cobra.Command) app.Selection {
+		if !cmd.Flags().Changed("profile") {
+			sel.Profiles = nil
+		}
+		return sel
+	}
+}
+
+// packDir is the pack directory argument, the current directory by default.
+func packDir(args []string) string {
+	if len(args) == 1 {
+		return args[0]
+	}
+	return "."
+}
+
+// rejectPack prints the diagnostics of a pack with problems as text and
+// returns the invalid outcome that carries data.
+func rejectPack[D fmt.Stringer](env Env, jsonOut bool, diags []D, data any) error {
+	if !jsonOut {
+		for _, d := range diags {
+			fmt.Fprintln(env.Stdout, d)
+		}
+	}
+	return &invalidError{msg: fmt.Sprintf("pack is invalid: %d problem(s)", len(diags)), data: data}
 }
 
 // commandName is the command path without the program name; the root

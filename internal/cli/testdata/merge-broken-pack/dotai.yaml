@@ -1,0 +1,22 @@
+# Structurally valid; every file below breaks one merge rule.
+schema: dotai.pack/v1
+name: merge-broken-pack
+version: 0.1.0
+engine: ">=0.1.0"
+rulesync: 41.0.0
+harnesses: [claudecode]
+
+profiles:
+  web:
+    path: profiles/web
+    description: Web projects.
+  docs:
+    path: profiles/docs
+    description: Documentation sites.
+
+variants:
+  standalone:
+    path: variants/standalone
+    default: true
+  tmux:
+    path: variants/tmux
