@@ -525,3 +525,25 @@ func editManifest(old, new string) func(fstest.MapFS) {
 		f["dotai.yaml"] = file(strings.Replace(s, old, new, 1))
 	}
 }
+
+func TestLoadWithRulesyncVersions(t *testing.T) {
+	tests := []struct{ pin, want string }{
+		{pin: "41.0.0"},
+		{pin: "40.0.0", want: "dotai.yaml:5:11: rulesync-unsupported: rulesync 40.0.0 is not supported by this engine (fix: pin one of: 41.0.0, 42.0.0)"},
+		{pin: "latest", want: `dotai.yaml:5:11: rulesync-invalid: rulesync "latest" must be an exact version such as 41.0.0`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.pin, func(t *testing.T) {
+			fsys := validPack()
+			fsys["dotai.yaml"].Data = []byte(strings.Replace(manifest, "41.0.0", tt.pin, 1))
+			_, diags, err := pack.LoadWith(fsys, []string{"41.0.0", "42.0.0"})
+			var got []string
+			for _, d := range diags {
+				got = append(got, d.String())
+			}
+			if err != nil || strings.Join(got, "\n") != tt.want {
+				t.Errorf("diagnostics = %q, %v, want %q", got, err, tt.want)
+			}
+		})
+	}
+}

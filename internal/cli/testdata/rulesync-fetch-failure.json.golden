@@ -1,0 +1,9 @@
+{
+  "schema": "dotai.cli/v1",
+  "command": "rulesync fetch",
+  "ok": false,
+  "error": {
+    "code": "internal",
+    "message": "checksum mismatch for rulesync-linux-x64"
+  }
+}

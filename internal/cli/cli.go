@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -29,6 +30,7 @@ type Env struct {
 	Version        func() app.VersionInfo
 	Validate       func(dir string, sel app.Selection) (app.ValidateResult, error)
 	Stage          func(dir, out string, sel app.Selection, force bool) (app.StageResult, error)
+	FetchRulesync  func(ctx context.Context, cacheDir, dir string, progress app.Progress) (app.RulesyncResult, error)
 }
 
 // invalidError is a command outcome that rejects its input, such as a pack
@@ -59,7 +61,7 @@ func Run(args []string, env Env) int {
 	root.SetArgs(args)
 	root.SetOut(env.Stdout)
 	root.SetErr(env.Stderr)
-	root.AddCommand(newVersionCmd(env, &jsonOut), newValidateCmd(env, &jsonOut), newStageCmd(env, &jsonOut))
+	root.AddCommand(newVersionCmd(env, &jsonOut), newValidateCmd(env, &jsonOut), newStageCmd(env, &jsonOut), newRulesyncCmd(env, &jsonOut))
 
 	// In JSON mode help is a result like any other: one envelope whose data
 	// holds the help text.

@@ -1,0 +1,13 @@
+{
+  "schema": "dotai.cli/v1",
+  "command": "rulesync fetch",
+  "ok": true,
+  "data": {
+    "version": "41.0.0",
+    "asset": "rulesync-linux-x64",
+    "path": "cache/rulesync/41.0.0/rulesync-linux-x64",
+    "sha256": "6598756e1f57959645589de9c2ce7b686018eb754bf1c994e8137ea2fba80ed6",
+    "cached": false,
+    "diagnostics": []
+  }
+}

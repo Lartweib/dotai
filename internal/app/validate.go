@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"slices"
 
 	"github.com/lartweib/dotai/internal/merge"
 	"github.com/lartweib/dotai/internal/pack"
+	"github.com/lartweib/dotai/internal/rulesync"
 )
 
 // Diagnostic is one problem found in a pack.
@@ -74,7 +76,8 @@ func packFS(dir string) (fs.FS, error) {
 //
 // Validation has two stages. Structural checks (pack.Load) come first. The
 // cross-layer merge rules of 0023 (duplicate names, overrides) run only on a
-// pack with no structural diagnostics, over the layers sel names, and append
+// pack with no structural diagnostics other than an unsupported rulesync
+// pin, over the layers sel names, and append
 // their diagnostics after the structural ones.
 func ValidateFS(fsys fs.FS, sel Selection) (ValidateResult, error) {
 	res, _, err := validate(fsys, sel)
@@ -84,7 +87,7 @@ func ValidateFS(fsys fs.FS, sel Selection) (ValidateResult, error) {
 // validate is ValidateFS that also returns the loaded pack, nil when the
 // manifest cannot be read.
 func validate(fsys fs.FS, sel Selection) (ValidateResult, *pack.Pack, error) {
-	p, diags, err := pack.Load(fsys)
+	p, diags, err := pack.LoadWith(fsys, rulesync.Versions())
 	if err != nil {
 		return ValidateResult{}, nil, err
 	}
@@ -111,7 +114,9 @@ func validate(fsys fs.FS, sel Selection) (ValidateResult, *pack.Pack, error) {
 		s.Layers = append(s.Layers, LayerSummary{Kind: string(l.Kind), Name: l.Name, Path: l.Path, Items: len(l.Items)})
 	}
 	res.Pack = s
-	if res.Valid {
+	// An unsupported rulesync pin does not affect the layers, so the merge
+	// rules still run.
+	if !slices.ContainsFunc(diags, func(d pack.Diagnostic) bool { return d.Code != pack.CodeRulesyncUnsupported }) {
 		res.Diagnostics = append(res.Diagnostics, merge.Check(p, sel)...)
 		res.Valid = len(res.Diagnostics) == 0
 	}

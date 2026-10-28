@@ -76,6 +76,15 @@ func TestValidateFSMergeRules(t *testing.T) {
 		{name: "selection is checked", fsys: conflict, sel: app.Selection{Profiles: []string{"web", "api"}}, wantCodes: []string{merge.CodeLayerSelection}},
 		{name: "empty profile selection skips profiles", fsys: conflict, sel: app.Selection{Profiles: []string{}}},
 		{
+			name: "an unsupported rulesync does not stop the merge rules",
+			fsys: fstest.MapFS{
+				"dotai.yaml":                        {Data: []byte(strings.Replace(manifest, "41.0.0", "40.0.0", 1))},
+				"base/.rulesync/rules/r.md":         {Data: []byte("# R\n")},
+				"profiles/web/.rulesync/rules/r.md": {Data: []byte("# R\n")},
+			},
+			wantCodes: []string{pack.CodeRulesyncUnsupported, merge.CodeScopeConflict},
+		},
+		{
 			name: "merge rules wait for structural checks",
 			fsys: fstest.MapFS{
 				"dotai.yaml":                        {Data: []byte(strings.Replace(manifest, "1.0.0", "1.0", 1))},
@@ -145,4 +154,25 @@ func TestValidateRejectsNonDirectory(t *testing.T) {
 			t.Errorf("Validate(%q) error = nil, want error", dir)
 		}
 	}
+}
+
+func TestValidateFSRulesyncVersion(t *testing.T) {
+	manifest := func(v string) fstest.MapFS {
+		return fstest.MapFS{"dotai.yaml": {Data: []byte("schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\n" +
+			"rulesync: " + v + "\nharnesses: [opencode]\n")}}
+	}
+	t.Run("unsupported", func(t *testing.T) {
+		res, err := app.ValidateFS(manifest("40.0.0"), app.Selection{})
+		want := []pack.Diagnostic{pack.NewDiagnostic("dotai.yaml", 5, 11, pack.CodeRulesyncUnsupported,
+			"rulesync 40.0.0 is not supported by this engine").WithHint("pin one of: 41.0.0")}
+		if err != nil || res.Valid || !reflect.DeepEqual(res.Diagnostics, want) {
+			t.Errorf("result = %+v, %v\nwant diagnostics %+v", res, err, want)
+		}
+	})
+	t.Run("invalid is reported once", func(t *testing.T) {
+		res, _ := app.ValidateFS(manifest("latest"), app.Selection{})
+		if len(res.Diagnostics) != 1 || res.Diagnostics[0].Code != pack.CodeRulesyncInvalid {
+			t.Errorf("diagnostics = %+v, want only %s", res.Diagnostics, pack.CodeRulesyncInvalid)
+		}
+	})
 }

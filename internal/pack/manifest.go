@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"path"
 	"slices"
+	"strings"
 
 	"github.com/Masterminds/semver/v3"
 	"go.yaml.in/yaml/v3"
@@ -48,10 +49,10 @@ type Detect struct {
 	Command string // preselect when this command is on PATH
 }
 
-func decodeManifest(fsys fs.FS, r reader, root *yaml.Node) Manifest {
+func decodeManifest(fsys fs.FS, r reader, root *yaml.Node, rulesyncVersions []string) Manifest {
 	o := r.object(nil, root, ManifestFile,
 		"schema", "name", "version", "engine", "rulesync", "harnesses", "profiles", "variants")
-	m := decodeIdentity(r, o)
+	m := decodeIdentity(r, o, rulesyncVersions)
 	m.Harnesses = decodeHarnesses(r, o)
 	m.Profiles = decodeProfiles(fsys, r, o)
 	var declared int
@@ -62,8 +63,9 @@ func decodeManifest(fsys fs.FS, r reader, root *yaml.Node) Manifest {
 	return m
 }
 
-// decodeIdentity reads the scalar fields: schema, identity and versions.
-func decodeIdentity(r reader, o object) Manifest {
+// decodeIdentity reads the scalar fields: schema, identity and versions. A
+// rulesync pin outside rulesyncVersions is reported unless the list is nil.
+func decodeIdentity(r reader, o object, rulesyncVersions []string) Manifest {
 	var m Manifest
 	var n *yaml.Node
 	if m.Schema, n = o.str("schema", true); n != nil && m.Schema != SchemaV1 {
@@ -80,6 +82,10 @@ func decodeIdentity(r reader, o object) Manifest {
 	}
 	if m.Rulesync, n = o.str("rulesync", true); n != nil && !isExactVersion(m.Rulesync) {
 		r.report(n, CodeRulesyncInvalid, "rulesync %q must be an exact version such as 41.0.0", m.Rulesync)
+	} else if n != nil && rulesyncVersions != nil && !slices.Contains(rulesyncVersions, m.Rulesync) {
+		*r.diags = append(*r.diags, NewDiagnostic(r.file, n.Line+r.offset, n.Column, CodeRulesyncUnsupported,
+			"rulesync %s is not supported by this engine", m.Rulesync).
+			WithHint("pin one of: %s", strings.Join(rulesyncVersions, ", ")))
 	}
 	return m
 }
