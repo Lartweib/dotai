@@ -146,3 +146,24 @@ func TestValidateRejectsNonDirectory(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateFSRulesyncVersion(t *testing.T) {
+	manifest := func(v string) fstest.MapFS {
+		return fstest.MapFS{"dotai.yaml": {Data: []byte("schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\n" +
+			"rulesync: " + v + "\nharnesses: [opencode]\n")}}
+	}
+	t.Run("unsupported", func(t *testing.T) {
+		res, err := app.ValidateFS(manifest("40.0.0"), app.Selection{})
+		want := []pack.Diagnostic{pack.NewDiagnostic("dotai.yaml", 5, 11, app.CodeRulesyncUnsupported,
+			"rulesync 40.0.0 is not supported by this engine").WithHint("pin one of: 41.0.0")}
+		if err != nil || res.Valid || !reflect.DeepEqual(res.Diagnostics, want) {
+			t.Errorf("result = %+v, %v\nwant diagnostics %+v", res, err, want)
+		}
+	})
+	t.Run("invalid is reported once", func(t *testing.T) {
+		res, _ := app.ValidateFS(manifest("latest"), app.Selection{})
+		if len(res.Diagnostics) != 1 || res.Diagnostics[0].Code != pack.CodeRulesyncInvalid {
+			t.Errorf("diagnostics = %+v, want only %s", res.Diagnostics, pack.CodeRulesyncInvalid)
+		}
+	})
+}

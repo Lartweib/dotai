@@ -28,6 +28,8 @@ type Manifest struct {
 	Harnesses []string
 	Profiles  []Profile // in declaration order
 	Variants  []Variant // in declaration order
+
+	RulesyncAt Location // where rulesync is set, for the version check in app
 }
 
 // Profile is a project-level layer.
@@ -78,7 +80,10 @@ func decodeIdentity(r reader, o object) Manifest {
 			r.report(n, CodeEngineInvalid, "engine %q is not a version range", m.Engine)
 		}
 	}
-	if m.Rulesync, n = o.str("rulesync", true); n != nil && !isExactVersion(m.Rulesync) {
+	if m.Rulesync, n = o.str("rulesync", true); n != nil {
+		m.RulesyncAt = Location{File: ManifestFile, Line: n.Line, Column: n.Column}
+	}
+	if n != nil && !isExactVersion(m.Rulesync) {
 		r.report(n, CodeRulesyncInvalid, "rulesync %q must be an exact version such as 41.0.0", m.Rulesync)
 	}
 	return m
