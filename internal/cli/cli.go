@@ -83,8 +83,9 @@ func Run(args []string, env Env) int {
 
 	code, exit := output.CodeInternal, ExitInternal
 	var invalid *invalidError
+	var usage *app.UsageError
 	switch {
-	case !started:
+	case !started, errors.As(err, &usage):
 		code, exit = output.CodeUsage, ExitUsage
 	case errors.As(err, &invalid):
 		code, exit = output.CodeInvalid, ExitInvalid
@@ -169,7 +170,7 @@ func newStageCmd(env Env, jsonOut *bool) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&out, "out", "", "directory to write the staging trees to")
-	cmd.Flags().BoolVar(&force, "force", false, "write into a non-empty --out directory")
+	cmd.Flags().BoolVar(&force, "force", false, "replace an earlier staging in --out")
 	sel := selectionFlags(cmd)
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		res, err := env.Stage(packDir(args), out, sel(cmd), force)

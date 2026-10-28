@@ -148,7 +148,7 @@ func TestRunStage(t *testing.T) {
 
 	stdout.Reset()
 	code = cli.Run([]string{"stage", examplePack, "--out", out}, testEnv(&stdout, &stderr))
-	if code != cli.ExitInternal || !strings.Contains(stderr.String(), "not empty") {
+	if code != cli.ExitInternal || !strings.Contains(stderr.String(), "use --force") {
 		t.Errorf("second run: exit code = %d, stderr = %q, want a refusal", code, stderr.String())
 	}
 
@@ -157,6 +157,18 @@ func TestRunStage(t *testing.T) {
 	code = cli.Run([]string{"stage", examplePack, "--out", out, "--force"}, testEnv(&stdout, &stderr))
 	if code != cli.ExitOK || !strings.Contains(stdout.String(), "user/.rulesync/rules/overview.md  base") {
 		t.Errorf("forced run: exit code = %d, stdout = %q", code, stdout.String())
+	}
+}
+
+func TestRunStageOutInsidePack(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := cli.Run([]string{"stage", examplePack, "--out", filepath.Join(examplePack, "staging"), "--json"}, testEnv(&stdout, &stderr))
+
+	if code != cli.ExitUsage {
+		t.Errorf("exit code = %d, want %d", code, cli.ExitUsage)
+	}
+	if e := decodeOne(t, stdout.Bytes()); e.OK || e.Error == nil || e.Error.Code != output.CodeUsage || !strings.Contains(e.Error.Message, "inside the pack") {
+		t.Errorf("envelope = %+v, want a usage error", e)
 	}
 }
 

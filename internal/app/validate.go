@@ -73,13 +73,20 @@ func packFS(dir string) (fs.FS, error) {
 // pack with no structural diagnostics, over the layers sel names, and append
 // their diagnostics after the structural ones.
 func ValidateFS(fsys fs.FS, sel Selection) (ValidateResult, error) {
+	res, _, err := validate(fsys, sel)
+	return res, err
+}
+
+// validate is ValidateFS that also returns the loaded pack, nil when the
+// manifest cannot be read.
+func validate(fsys fs.FS, sel Selection) (ValidateResult, *pack.Pack, error) {
 	p, diags, err := pack.Load(fsys)
 	if err != nil {
-		return ValidateResult{}, err
+		return ValidateResult{}, nil, err
 	}
 	res := ValidateResult{Valid: len(diags) == 0, Diagnostics: append([]pack.Diagnostic{}, diags...)}
 	if p == nil {
-		return res, nil
+		return res, p, nil
 	}
 	m := p.Manifest
 	s := &PackSummary{
@@ -104,5 +111,5 @@ func ValidateFS(fsys fs.FS, sel Selection) (ValidateResult, error) {
 		res.Diagnostics = append(res.Diagnostics, merge.Check(p, sel)...)
 		res.Valid = len(res.Diagnostics) == 0
 	}
-	return res, nil
+	return res, p, nil
 }
