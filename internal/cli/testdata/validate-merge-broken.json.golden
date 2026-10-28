@@ -84,11 +84,18 @@
         "message": "rule \"standalone\" is a root rule; only the base may provide the root rule"
       },
       {
+        "file": "variants/standalone/.rulesync/hooks.jsonc",
+        "line": 1,
+        "column": 0,
+        "code": "merge-pending",
+        "message": ".rulesync/hooks.jsonc is also provided at base/.rulesync/hooks.jsonc:1; merging its lists and values across layers lands in a later version of dotai"
+      },
+      {
         "file": "variants/standalone/dotai/settings.yaml",
         "line": 1,
         "column": 0,
-        "code": "settings-merge-pending",
-        "message": "dotai/settings.yaml is also provided at base/dotai/settings.yaml:1; merging settings across layers lands in a later version of dotai"
+        "code": "merge-pending",
+        "message": "dotai/settings.yaml is also provided at base/dotai/settings.yaml:1; merging its lists and values across layers lands in a later version of dotai"
       },
       {
         "file": "variants/tmux/.rulesync/commands/release.md",
@@ -117,13 +124,6 @@
         "column": 0,
         "code": "override-without-target",
         "message": "skill \"lint\" declares dotai: {overrides: true} but no earlier layer of its scope defines it"
-      },
-      {
-        "file": "profiles/web/.rulesync/commands/deploy.md",
-        "line": 1,
-        "column": 0,
-        "code": "override-without-target",
-        "message": "command \"deploy\" declares dotai: {overrides: true} but no earlier layer of its scope defines it"
       },
       {
         "file": "profiles/web/.rulesync/skills/lint/SKILL.md",

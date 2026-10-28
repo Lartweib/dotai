@@ -2,12 +2,12 @@ base/.rulesync/rules/second.md:1: root-rule-duplicate: rule "second" is a second
 base/.rulesync/subagents/team/helper.md:1: name-duplicate: subagent "helper" is defined twice in layer base, first at base/.rulesync/subagents/helper.md:1
 variants/standalone/.rulesync/commands/deploy.md:1: override-undeclared: command "deploy" is already defined at base/.rulesync/commands/deploy.md:1; declare dotai: {overrides: true} to replace it
 variants/standalone/.rulesync/rules/standalone.md:1: root-rule-outside-base: rule "standalone" is a root rule; only the base may provide the root rule
-variants/standalone/dotai/settings.yaml:1: settings-merge-pending: dotai/settings.yaml is also provided at base/dotai/settings.yaml:1; merging settings across layers lands in a later version of dotai
+variants/standalone/.rulesync/hooks.jsonc:1: merge-pending: .rulesync/hooks.jsonc is also provided at base/.rulesync/hooks.jsonc:1; merging its lists and values across layers lands in a later version of dotai
+variants/standalone/dotai/settings.yaml:1: merge-pending: dotai/settings.yaml is also provided at base/dotai/settings.yaml:1; merging its lists and values across layers lands in a later version of dotai
 variants/tmux/.rulesync/commands/release.md:1: override-without-target: command "release" declares dotai: {overrides: true} but no earlier layer of its scope defines it
 variants/tmux/.rulesync/rules/overview.md:1: root-rule-override: rule "overview" replaces the root rule at base/.rulesync/rules/overview.md:1; the root rule cannot be overridden
 variants/tmux/.rulesync/mcp.jsonc:1: mcp-server-conflict: MCP server "git" is already defined at base/.rulesync/mcp.jsonc:4; MCP servers cannot be overridden
 profiles/docs/.rulesync/skills/lint/SKILL.md:1: override-without-target: skill "lint" declares dotai: {overrides: true} but no earlier layer of its scope defines it
-profiles/web/.rulesync/commands/deploy.md:1: override-without-target: command "deploy" declares dotai: {overrides: true} but no earlier layer of its scope defines it
 profiles/web/.rulesync/skills/lint/SKILL.md:1: profile-conflict: skill "lint" is also defined by profile docs at profiles/docs/.rulesync/skills/lint/SKILL.md:1; profiles cannot override each other
 profiles/docs/.rulesync/commands/Release.md:1: name-case-conflict: command "Release" differs only by case from command "release" at variants/tmux/.rulesync/commands/release.md:1
 profiles/web/.rulesync/commands/deploy.md:1: scope-conflict: command "deploy" is also defined at user level at base/.rulesync/commands/deploy.md:1; overrides do not apply across scopes

@@ -156,7 +156,6 @@ func TestCheck(t *testing.T) {
 			name: "profile and base, even with overrides",
 			pack: newPack(base(command("deploy")), profile("a", command("deploy").override())),
 			want: []string{
-				`profiles/a/.rulesync/commands/deploy.md:1: override-without-target: command "deploy" declares dotai: {overrides: true} but no earlier layer of its scope defines it`,
 				`profiles/a/.rulesync/commands/deploy.md:1: scope-conflict: command "deploy" is also defined at user level at base/.rulesync/commands/deploy.md:1; overrides do not apply across scopes`,
 			},
 		},
@@ -169,7 +168,6 @@ func TestCheck(t *testing.T) {
 			name: "chain of three layers across scopes",
 			pack: newPack(base(rule("x")), variant("v", rule("x").override()), profile("p", rule("x").override())),
 			want: []string{
-				`profiles/p/.rulesync/rules/x.md:1: override-without-target: rule "x" declares dotai: {overrides: true} but no earlier layer of its scope defines it`,
 				`profiles/p/.rulesync/rules/x.md:1: scope-conflict: rule "x" is also defined at user level at variants/v/.rulesync/rules/x.md:1; overrides do not apply across scopes`,
 			},
 		},
@@ -207,12 +205,20 @@ func TestCheck(t *testing.T) {
 		{
 			name: "settings in two layers of a scope",
 			pack: newPack(base(plain("dotai/settings.yaml")), variant("v", plain("dotai/settings.yaml"))),
-			want: []string{`variants/v/dotai/settings.yaml:1: settings-merge-pending: dotai/settings.yaml is also provided at base/dotai/settings.yaml:1; merging settings across layers lands in a later version of dotai`},
+			want: []string{`variants/v/dotai/settings.yaml:1: merge-pending: dotai/settings.yaml is also provided at base/dotai/settings.yaml:1; merging its lists and values across layers lands in a later version of dotai`},
+		},
+		{
+			name: "hooks and permissions in two profiles",
+			pack: newPack(profile("a", plain(".rulesync/hooks.jsonc"), plain(".rulesync/permissions.jsonc")), profile("b", plain(".rulesync/hooks.jsonc"), plain(".rulesync/permissions.jsonc"))),
+			want: []string{
+				`profiles/b/.rulesync/hooks.jsonc:1: merge-pending: .rulesync/hooks.jsonc is also provided at profiles/a/.rulesync/hooks.jsonc:1; merging its lists and values across layers lands in a later version of dotai`,
+				`profiles/b/.rulesync/permissions.jsonc:1: merge-pending: .rulesync/permissions.jsonc is also provided at profiles/a/.rulesync/permissions.jsonc:1; merging its lists and values across layers lands in a later version of dotai`,
+			},
 		},
 		{
 			name: "same file path in two profiles",
-			pack: newPack(profile("a", plain(".rulesync/hooks.jsonc")), profile("b", plain(".rulesync/hooks.jsonc"))),
-			want: []string{`profiles/b/.rulesync/hooks.jsonc:1: path-conflict: .rulesync/hooks.jsonc is also provided at profiles/a/.rulesync/hooks.jsonc:1; a file has one owner`},
+			pack: newPack(profile("a", plain("dotai/tools/lint.sh")), profile("b", plain("dotai/tools/lint.sh"))),
+			want: []string{`profiles/b/dotai/tools/lint.sh:1: path-conflict: dotai/tools/lint.sh is also provided at profiles/a/dotai/tools/lint.sh:1; a file has one owner`},
 		},
 		{
 			name: "same file path in both scopes",

@@ -91,7 +91,7 @@ For each scope:
 
 1. Resolve the layers. User scope: `base` and the variant passed with `--variant`, detected, or default. Project scope: the profiles passed with `--profile`.
 2. Read the `dotai:` blocks from the sources.
-3. Run `dotai validate` over all layers, both scopes included. Structural checks (manifest, layer paths, file types, `dotai:` blocks) run first. The [merge rules](#merge-rules) run only when they found no errors, and their diagnostics come after the structural ones. This version does not merge `dotai/settings.yaml` yet: the same file in two layers of a scope is reported as `settings-merge-pending` until settings merging lands.
+3. Run `dotai validate` over all layers, both scopes included. Structural checks (manifest, layer paths, file types, `dotai:` blocks) run first. The [merge rules](#merge-rules) run only when they found no errors, and their diagnostics come after the structural ones. This version does not merge lists and values yet: `dotai/settings.yaml`, `.rulesync/hooks.jsonc` or `.rulesync/permissions.jsonc` in two layers of a scope is reported as `merge-pending` until their merging lands.
 4. Merge the scope's layers into its own staging tree.
 5. Run the pinned rulesync over the staging `.rulesync/`, writing into staging.
 6. Render `dotai/` content for each harness.

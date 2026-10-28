@@ -8,10 +8,10 @@
 // Not covered yet:
 //   - A variant's detect rule. The user scope uses the variant in the
 //     Selection, or the pack's default.
-//   - Merging the content of other files. dotai/settings.yaml in two layers
-//     of a scope is reported as settings-merge-pending until settings merge
-//     lands with the render step (roadmap PR 5); any other repeated path is
-//     an error.
+//   - Merging lists and values: dotai/settings.yaml, hooks.jsonc and
+//     permissions.jsonc in two layers of a scope are reported as
+//     merge-pending until their content merge lands (roadmap PR 5); any
+//     other repeated path is an error.
 package merge
 
 import (
@@ -44,15 +44,18 @@ const (
 	CodeServerConflict        = "mcp-server-conflict"
 	CodeMCPInvalid            = "mcp-invalid"
 	CodePathConflict          = "path-conflict"
-	CodeSettingsMergePending  = "settings-merge-pending"
+	CodeMergePending          = "merge-pending"
 )
 
 const (
-	mcpFile      = ".rulesync/mcp.jsonc"
-	settingsFile = "dotai/settings.yaml"
-	mcpServer    = "mcp-server" // the kind of an MCP server in a scope's names
-	fileLine     = 1            // an item or a file is located at the start of its file
+	mcpFile   = ".rulesync/mcp.jsonc"
+	mcpServer = "mcp-server" // the kind of an MCP server in a scope's names
+	fileLine  = 1            // an item or a file is located at the start of its file
 )
+
+// pendingMerge holds the files whose lists and values will be merged
+// across layers; until then one owner per scope is allowed.
+var pendingMerge = []string{"dotai/settings.yaml", ".rulesync/hooks.jsonc", ".rulesync/permissions.jsonc"}
 
 // Selection names the layers to merge.
 type Selection struct {
@@ -95,7 +98,8 @@ func Check(p *pack.Pack, sel Selection) []pack.Diagnostic {
 		users = append(users, u)
 	}
 	project := newScope(profiles...)
-	return slices.Concat(diags, project.diags, crossScope(users, project))
+	cross := crossScope(users, project)
+	return slices.Concat(diags, withoutShadowed(project.diags, cross), cross)
 }
 
 // Stage merges the base and the selected or default variant into the user
@@ -108,7 +112,8 @@ func Stage(p *pack.Pack, sel Selection) (Staging, []pack.Diagnostic) {
 	}
 	user := newScope(append(layersOf(p, pack.LayerBase), variants...)...)
 	project := newScope(profiles...)
-	if diags = slices.Concat(user.diags, project.diags, crossScope([]*scope{user}, project)); len(diags) > 0 {
+	cross := crossScope([]*scope{user}, project)
+	if diags = slices.Concat(user.diags, withoutShadowed(project.diags, cross), cross); len(diags) > 0 {
 		return Staging{}, diags
 	}
 	return Staging{User: user.tree(), Project: project.tree()}, nil
@@ -310,13 +315,14 @@ func (s *scope) checkRoot(l pack.Layer, it pack.Item) {
 	}
 }
 
-// claimPath gives any other file one owner by path. Settings follow the
-// same rule until their content merge lands, with their own code.
+// claimPath gives any other file one owner by path. The files of
+// pendingMerge follow the same rule until their content merge lands, with
+// their own code.
 func (s *scope) claimPath(l pack.Layer, f pack.File) {
 	prev, taken := s.files[f.Rel]
 	switch {
-	case taken && f.Rel == settingsFile:
-		s.report(f.Path, fileLine, CodeSettingsMergePending, "%s is also provided at %s; merging settings across layers lands in a later version of dotai", f.Rel, where(prev.src, fileLine))
+	case taken && slices.Contains(pendingMerge, f.Rel):
+		s.report(f.Path, fileLine, CodeMergePending, "%s is also provided at %s; merging its lists and values across layers lands in a later version of dotai", f.Rel, where(prev.src, fileLine))
 	case taken:
 		s.report(f.Path, fileLine, CodePathConflict, "%s is also provided at %s; a file has one owner", f.Rel, where(prev.src, fileLine))
 	default:
@@ -425,4 +431,13 @@ func crossScope(users []*scope, project *scope) []pack.Diagnostic {
 		}
 	}
 	return diags
+}
+
+// withoutShadowed drops an override-without-target of a project item that
+// cross already reports for clashing with a user item: one diagnostic per
+// problem.
+func withoutShadowed(project, cross []pack.Diagnostic) []pack.Diagnostic {
+	return slices.DeleteFunc(slices.Clone(project), func(d pack.Diagnostic) bool {
+		return d.Code == CodeOverrideWithoutTarget && slices.ContainsFunc(cross, func(c pack.Diagnostic) bool { return c.File == d.File })
+	})
 }
