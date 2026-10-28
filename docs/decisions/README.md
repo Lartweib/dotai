@@ -29,7 +29,7 @@ Records were renumbered on 2026-10-26, when the records about the reference pack
 | [0019](0019-v1-harness-targets.md) | v1 harness targets: Claude Code, agy and OpenCode | accepted | 2026-10-24 |
 | [0020](0020-v1-scope-engine-and-pack.md) | v1 scope of the engine | accepted | 2026-10-24 |
 | [0021](0021-go-engine-orchestrates-rulesync.md) | The Go engine orchestrates; a pinned rulesync renders | accepted | 2026-10-25 |
-| [0022](0022-pack-format-and-manifest.md) | Pack format: uniform layers and a `dotai.yaml` manifest (partially superseded by 0023 and 0024) | accepted | 2026-10-25 |
+| [0022](0022-pack-format-and-manifest.md) | Pack format: uniform layers and a `dotai.yaml` manifest (partially superseded by 0023, 0024 and 0030) | accepted | 2026-10-25 |
 | [0023](0023-flat-profiles-and-layer-merge-rules.md) | Flat, combinable profiles and explicit layer merge rules | accepted | 2026-10-25 |
 | [0024](0024-models-declared-per-harness-no-tiers.md) | Models declared per harness, without tiers | accepted | 2026-10-25 |
 | [0025](0025-settings-as-per-harness-passthrough.md) | Settings as per-harness blocks merged as-is | accepted | 2026-10-25 |
@@ -37,6 +37,7 @@ Records were renumbered on 2026-10-26, when the records about the reference pack
 | [0027](0027-loose-files-and-plugins-only-for-mods.md) | Claude Code content as loose files; plugins only for mods | accepted | 2026-10-26 |
 | [0028](0028-plan-centric-hexagonal-engine.md) | A plan-centric engine with a pure domain and ports (partially superseded by 0029) | accepted | 2026-10-26 |
 | [0029](0029-rulesync-checksums-embedded-in-the-engine.md) | rulesync checksums are embedded in the engine | accepted | 2026-10-28 |
+| [0030](0030-tools-paths-and-project-config.md) | Tool paths, one tools directory, settings overrides and project config | accepted | 2026-10-28 |
 
 ## Superseded (history only)
 

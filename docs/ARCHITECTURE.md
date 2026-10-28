@@ -49,7 +49,7 @@ There is no code yet. Decided so far: the shape ([0004](decisions/0004-installer
 
 - **Separate engine and packs** ([0010](decisions/0010-engine-and-pack-separated.md)): the engine is an own, minimal Go binary that orchestrates a pinned rulesync binary for rendering ([0021](decisions/0021-go-engine-orchestrates-rulesync.md)); packs are YAML + Markdown, and nothing personal goes into Go.
 - **Pack source in the `.rulesync/` layout:** per-harness blocks in the frontmatter (`claudecode:`, `opencode:`, and for agy `antigravity-cli:` in subagents and `antigravity:` in rules) and a `dotai:` block with abstract capabilities, which dotai reads from the sources because rulesync strips it ([0021](decisions/0021-go-engine-orchestrates-rulesync.md), [HARNESS-NOTES](HARNESS-NOTES.md)).
-- **Rendering:** rulesync renders rules, commands, subagents, skills, MCP, hooks and permissions into a staging directory; dotai renders what rulesync does not cover (settings such as `statusLine` and `env`, plugins, runners) and applies everything with merge by key and the active install mode ([0021](decisions/0021-go-engine-orchestrates-rulesync.md)).
+- **Rendering:** rulesync renders rules, commands, subagents, skills, MCP, hooks and permissions into a staging directory; dotai renders what rulesync does not cover (settings such as `statusLine` and `env`, plugins, tools and their path variables, [0030](decisions/0030-tools-paths-and-project-config.md)) and applies everything with merge by key and the active install mode ([0021](decisions/0021-go-engine-orchestrates-rulesync.md)).
 - **Rules file per harness:** `CLAUDE.md` for Claude Code and `AGENTS.md` for agy and OpenCode, from the same source ([0012](decisions/0012-rules-file-per-harness.md)).
 - **Emission in Claude Code:** skills, commands, agents, hooks and MCP as loose files; mods as project-scoped plugins under `.claude/skills/<mod>/` ([0027](decisions/0027-loose-files-and-plugins-only-for-mods.md)); `permissions`, `env` and `statusLine` in settings, merged by key with an ownership record and without deleting foreign entries ([0013](decisions/0013-renderer-merges-by-key.md)).
 - `dotai apply --harness claude|opencode|agy --profile <profile> [--project .]`; to use another pack, for example `--pack <source>` ([0010](decisions/0010-engine-and-pack-separated.md); exact form pending).
@@ -85,7 +85,7 @@ internal/
   app/            use cases: install, apply, validate, doctor, restore
   pack/           manifest, layers, dotai: blocks (no I/O, fs.FS)
   merge/          layer merge rules, staging per scope (pure)
-  render/         settings, runners, tools, mod plugin.json
+  render/         settings, tools, path variables, mod plugin.json
   plan/           plan model, diff, JSON/JSONC key merge (pure)
   backup/  state/ backups and restore; ownership record
   harness/        Adapter port + claudecode, antigravity, opencode
