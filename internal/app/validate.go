@@ -12,6 +12,10 @@ import (
 // Diagnostic is one problem found in a pack.
 type Diagnostic = pack.Diagnostic
 
+// / Location is a place in a pack, such as the earlier definition a
+// diagnostic points at.
+type Location = pack.Location
+
 // Selection names the variant and profiles a command works on.
 type Selection = merge.Selection
 

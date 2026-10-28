@@ -50,13 +50,17 @@ func TestRun(t *testing.T) {
 		{name: "unknown flag json", args: []string{"version", "--bogus", "--json"}, wantCode: 2, goldenOut: "unknown-flag.json.golden"},
 		{name: "validate example text", args: []string{"validate", examplePack}, wantCode: 0, goldenOut: "validate-example.txt.golden"},
 		{name: "validate example json", args: []string{"validate", examplePack, "--json"}, wantCode: 0, goldenOut: "validate-example.json.golden"},
-		{name: "validate broken text", args: []string{"validate", brokenPack}, wantCode: 3, goldenOut: "validate-broken.txt.golden", wantStderr: true},
+		{name: "validate broken text", args: []string{"validate", brokenPack}, wantCode: 3, goldenOut: "validate-broken.txt.golden"},
 		{name: "validate broken json", args: []string{"validate", brokenPack, "--json"}, wantCode: 3, goldenOut: "validate-broken.json.golden"},
 		{name: "validate two paths", args: []string{"validate", "a", "b"}, wantCode: 2, wantStderr: true},
 		{name: "validate example with a profile", args: []string{"validate", examplePack, "--variant", "tmux", "--profile", "web"}, wantCode: 0, goldenOut: "validate-example.txt.golden"},
-		{name: "validate merge rules text", args: []string{"validate", mergeBrokenPack}, wantCode: 3, goldenOut: "validate-merge-broken.txt.golden", wantStderr: true},
+		{name: "validate merge rules text", args: []string{"validate", mergeBrokenPack}, wantCode: 3, goldenOut: "validate-merge-broken.txt.golden"},
+		{name: "validate merge rules compact", args: []string{"validate", mergeBrokenPack, "--format=compact"}, wantCode: 3, goldenOut: "validate-merge-broken.compact.golden"},
+		{name: "validate json ignores the format", args: []string{"validate", mergeBrokenPack, "--json", "--format=compact"}, wantCode: 3, goldenOut: "validate-merge-broken.json.golden"},
+		{name: "validate unknown format", args: []string{"validate", examplePack, "--format=fancy"}, wantCode: 2, wantStderr: true},
+		{name: "validate unknown format json", args: []string{"validate", examplePack, "--json", "--format=fancy"}, wantCode: 2, goldenOut: "validate-unknown-format.json.golden"},
 		{name: "validate merge rules json", args: []string{"validate", mergeBrokenPack, "--json"}, wantCode: 3, goldenOut: "validate-merge-broken.json.golden"},
-		{name: "validate unknown profile", args: []string{"validate", examplePack, "--profile", "web,nope"}, wantCode: 3, goldenOut: "validate-unknown-profile.txt.golden", wantStderr: true},
+		{name: "validate unknown profile", args: []string{"validate", examplePack, "--profile", "web,nope"}, wantCode: 3, goldenOut: "validate-unknown-profile.txt.golden"},
 		{name: "stage without out", args: []string{"stage", examplePack, "--json"}, wantCode: 2, goldenOut: "stage-no-out.json.golden"},
 	}
 	for _, tt := range tests {
@@ -185,6 +189,60 @@ func TestRunStageInvalidPack(t *testing.T) {
 	}
 	if _, err := os.Stat(out); !os.IsNotExist(err) {
 		t.Errorf("out exists after an invalid stage: %v", err)
+	}
+}
+
+func TestRunStageReportHeader(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := cli.Run([]string{"stage", mergeBrokenPack, "--out", filepath.Join(t.TempDir(), "s")}, testEnv(&stdout, &stderr))
+
+	if code != cli.ExitInvalid || !strings.HasPrefix(stdout.String(), "✗ merge-broken-pack 0.1.0 · ") {
+		t.Errorf("exit code = %d, stdout = %q, want %d and the pack in the header", code, stdout.String(), cli.ExitInvalid)
+	}
+}
+
+// TestRunTextHasNoColor runs with a real file as stdout, which is not a
+// terminal, so the report must stay plain even without NO_COLOR.
+func TestRunTextHasNoColor(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	f, err := os.Create(filepath.Join(t.TempDir(), "out.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	env := testEnv(nil, &bytes.Buffer{})
+	env.Stdout = f
+	if code := cli.Run([]string{"validate", mergeBrokenPack}, env); code != cli.ExitInvalid {
+		t.Fatalf("exit code = %d, want %d", code, cli.ExitInvalid)
+	}
+	out, err := os.ReadFile(f.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) == 0 || bytes.Contains(out, []byte("\x1b[")) {
+		t.Errorf("stdout = %q, want a report without ANSI escape codes", out)
+	}
+}
+
+func TestEnableANSIOnAFileIsANoOp(t *testing.T) {
+	f, err := os.Create(filepath.Join(t.TempDir(), "out.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	cli.EnableANSI(f)()
+}
+
+func TestRunStageCompactDiagnostics(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := cli.Run([]string{"stage", mergeBrokenPack, "--out", filepath.Join(t.TempDir(), "s"), "--format", "compact"}, testEnv(&stdout, &stderr))
+
+	if code != cli.ExitInvalid || stderr.Len() != 0 {
+		t.Errorf("exit code = %d, stderr = %q, want %d and empty", code, stderr.String(), cli.ExitInvalid)
+	}
+	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	if len(lines) < 2 || lines[0] != "base/.rulesync/rules/second.md: root-rule-duplicate: second root rule (first: base/.rulesync/rules/overview.md)" {
+		t.Errorf("stdout = %q, want one compact line per diagnostic", stdout.String())
 	}
 }
 

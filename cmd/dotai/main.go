@@ -9,5 +9,8 @@ import (
 )
 
 func main() {
-	os.Exit(cli.Run(os.Args[1:], cli.Env{Stdout: os.Stdout, Stderr: os.Stderr, Version: app.Version, Validate: app.Validate, Stage: app.Stage}))
+	restore := cli.EnableANSI(os.Stdout)
+	code := cli.Run(os.Args[1:], cli.Env{Stdout: os.Stdout, Stderr: os.Stderr, Version: app.Version, Validate: app.Validate, Stage: app.Stage})
+	restore()
+	os.Exit(code)
 }

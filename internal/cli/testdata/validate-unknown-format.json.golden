@@ -1,0 +1,9 @@
+{
+  "schema": "dotai.cli/v1",
+  "command": "validate",
+  "ok": false,
+  "error": {
+    "code": "usage",
+    "message": "invalid argument \"fancy\" for \"--format\" flag: want pretty or compact"
+  }
+}
