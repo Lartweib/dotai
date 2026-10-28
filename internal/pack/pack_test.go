@@ -407,6 +407,7 @@ func TestLoadLayerFiles(t *testing.T) {
 	fsys := validPack()
 	fsys["base/README.md"] = file("Outside the layer trees.")
 	fsys["base/dotai/tools/run.sh"] = file("echo run")
+	fsys["base/.rulesync/skills/orphan/notes.md"] = file("A skill directory without SKILL.md.")
 
 	p, diags, err := pack.Load(fsys)
 	if err != nil || len(diags) != 0 {
@@ -414,20 +415,21 @@ func TestLoadLayerFiles(t *testing.T) {
 	}
 	var got []string
 	for _, f := range p.Layers[0].Files {
-		got = append(got, f.Path)
+		got = append(got, fmt.Sprintf("%s %s %s/%s", f.Path, f.Rel, f.Item.Kind, f.Item.Name))
 	}
 	want := []string{
-		"base/.rulesync/rules/overview.md",
-		"base/.rulesync/skills/commit/SKILL.md",
-		"base/.rulesync/skills/commit/notes.md",
-		"base/.rulesync/subagents/review/reviewer.md",
-		"base/dotai/settings.yaml",
-		"base/dotai/tools/run.sh",
+		"base/.rulesync/rules/overview.md .rulesync/rules/overview.md rule/overview",
+		"base/.rulesync/skills/commit/SKILL.md .rulesync/skills/commit/SKILL.md skill/commit",
+		"base/.rulesync/skills/commit/notes.md .rulesync/skills/commit/notes.md skill/commit",
+		"base/.rulesync/skills/orphan/notes.md .rulesync/skills/orphan/notes.md /",
+		"base/.rulesync/subagents/review/reviewer.md .rulesync/subagents/review/reviewer.md subagent/reviewer",
+		"base/dotai/settings.yaml dotai/settings.yaml /",
+		"base/dotai/tools/run.sh dotai/tools/run.sh /",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("files = %q\nwant %q", got, want)
 	}
-	if data := string(p.Layers[0].Files[5].Data); data != "echo run" {
+	if data := string(p.Layers[0].Files[6].Data); data != "echo run" {
 		t.Errorf("tools/run.sh = %q, want its content", data)
 	}
 }

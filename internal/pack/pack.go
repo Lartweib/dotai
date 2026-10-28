@@ -73,8 +73,17 @@ type Layer struct {
 
 // File is a file of a layer, with its content.
 type File struct {
-	Path string // relative to the pack root
+	Path string  // relative to the pack root
+	Rel  string  // relative to the layer
+	Item ItemRef // the item the file belongs to, zero when none
 	Data []byte
+}
+
+// ItemRef names an item. A skill's item is its whole directory, so every
+// file under skills/<name>/ belongs to it when the layer defines it.
+type ItemRef struct {
+	Kind ItemKind
+	Name string // the name derived from the path: file stem or skill directory
 }
 
 // ItemKind is the kind of a named rulesync source.
@@ -96,6 +105,9 @@ type Item struct {
 	Root  bool   // the frontmatter sets root: true
 	Dotai Dotai
 }
+
+// Ref returns the reference to it.
+func (it Item) Ref() ItemRef { return ItemRef{it.Kind, it.Name} }
 
 // Dotai is the dotai: frontmatter block of an item.
 type Dotai struct {
@@ -172,9 +184,10 @@ func checkBase(fsys fs.FS, diags *[]Diagnostic) (bool, error) {
 
 // loadLayer walks the layer l without following links. It reports every
 // link and non-regular file in the layer, and reads the files of its
-// .rulesync/ and dotai/ trees and the items among them.
+// .rulesync/ and dotai/ trees, the items among them and the item each file
+// belongs to.
 func loadLayer(fsys fs.FS, diags *[]Diagnostic, l *Layer) error {
-	return fs.WalkDir(fsys, l.Path, func(p string, d fs.DirEntry, err error) error {
+	err := fs.WalkDir(fsys, l.Path, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
 		}
@@ -194,18 +207,28 @@ func loadLayer(fsys fs.FS, diags *[]Diagnostic, l *Layer) error {
 			*diags = append(*diags, *problem)
 			return nil
 		}
-		l.Files = append(l.Files, File{Path: p, Data: src})
-		kind, name, isItem := classify(rel)
-		if !inRulesync || !isItem {
-			return nil
+		f := File{Path: p, Rel: strings.TrimPrefix(p, l.Path+"/"), Data: src}
+		if parts := strings.Split(rel, "/"); inRulesync && len(parts) > 2 && parts[0] == "skills" {
+			f.Item = ItemRef{ItemSkill, parts[1]} // kept below only if the layer defines the skill
 		}
-		start := len(*diags)
-		it := Item{Kind: kind, Name: name, Path: p}
-		it.Root, it.Dotai = readFrontmatter(reader{file: p, offset: fenceLines, diags: diags}, src)
-		l.Items = append(l.Items, it)
-		sortFrom(*diags, start)
+		kind, name, isItem := classify(rel)
+		if inRulesync && isItem {
+			start := len(*diags)
+			it := Item{Kind: kind, Name: name, Path: p}
+			it.Root, it.Dotai = readFrontmatter(reader{file: p, offset: fenceLines, diags: diags}, src)
+			l.Items = append(l.Items, it)
+			sortFrom(*diags, start)
+			f.Item = it.Ref()
+		}
+		l.Files = append(l.Files, f)
 		return nil
 	})
+	for i, f := range l.Files {
+		if f.Item != (ItemRef{}) && !slices.ContainsFunc(l.Items, func(it Item) bool { return it.Ref() == f.Item }) {
+			l.Files[i].Item = ItemRef{}
+		}
+	}
+	return err
 }
 
 // classify maps a path inside .rulesync/ to the item it defines.
