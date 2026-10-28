@@ -83,6 +83,10 @@ func TestRun(t *testing.T) {
 			want[i].env = append(want[i].env, "HOMEDRIVE="+vol, "HOMEPATH="+home[len(vol):])
 		}
 		calls[i].env = slicesWithout(calls[i].env, "PATHEXT=", "SystemRoot=", "windir=", "ComSpec=", "SystemDrive=", "TZ=", "LANG=")
+		// Other LC_* variables come from the machine running the test.
+		calls[i].env = slices.DeleteFunc(calls[i].env, func(kv string) bool {
+			return strings.HasPrefix(kv, "LC_") && !strings.HasPrefix(kv, "LC_ALL=")
+		})
 		slices.Sort(calls[i].env)
 		slices.Sort(want[i].env)
 		if _, err := os.Stat(tmp); !errors.Is(err, os.ErrNotExist) {
