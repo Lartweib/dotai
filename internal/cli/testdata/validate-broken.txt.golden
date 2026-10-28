@@ -1,6 +1,11 @@
-dotai.yaml:3:10: version-invalid: version "1.0" is not a semantic version
-dotai.yaml:5:11: rulesync-invalid: rulesync "^41.0.0" must be an exact version such as 41.0.0
-dotai.yaml:6:25: harness-unknown: unknown harness "vscode", want one of [claudecode antigravity-cli opencode]
-dotai.yaml:7:1: variant-default: exactly one variant must set default: true, found 0
-dotai.yaml:9:11: layer-missing: variant standalone: directory "variants/standalone" does not exist
-base/.rulesync/rules/overview.md:4:14: field-type: dotai: "overrides" must be true or false
+✗ broken-pack 1.0 · 6 problems in 2 files
+
+dotai.yaml
+  3:10  version-invalid   version "1.0" is not a semantic version
+  5:11  rulesync-invalid  rulesync "^41.0.0" must be an exact version such as 41.0.0
+  6:25  harness-unknown   unknown harness "vscode", want one of [claudecode antigravity-cli opencode]
+  7:1   variant-default   exactly one variant must set default: true, found 0
+  9:11  layer-missing     variant standalone: directory "variants/standalone" does not exist
+
+base/.rulesync/rules/overview.md
+  4:14  field-type        dotai: "overrides" must be true or false

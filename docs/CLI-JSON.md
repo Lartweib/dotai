@@ -47,7 +47,12 @@ Any `--json` or `--json=<value>` argument requests JSON output, so an invalid va
 | `usage` | 2 | Unknown command, unexpected argument or invalid flag. |
 | `invalid` | 3 | The command read its input and rejected it, for example a pack with errors. `data` holds the result with the details. |
 
-Without `--json`, results are plain text on stdout and errors go to stderr, with the same exit codes.
+Without `--json`, results are plain text on stdout and errors go to stderr, with the same exit codes. The diagnostics of a pack with errors are the result of `validate` and `stage`, so they go to stdout and nothing is printed to stderr; the exit code is still 3. `--format` chooses how they look and is ignored with `--json`:
+
+- `pretty` (default): a summary header (`✗ <pack> <version> · 13 problems in 11 files`), then the diagnostics grouped by file in the order above, each with its `line:column` when it has one, its code and message, and the `first:` (related) and `fix:` (hint) lines.
+- `compact`: one line per diagnostic, `file[:line[:column]]: code: message`, followed by ` (first: file[:line])` and ` (fix: hint)` when present, so editors can jump to the location.
+
+A whole-file diagnostic (`line` `0`) prints no position in either format.
 
 ## Commands
 

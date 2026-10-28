@@ -1,1 +1,5 @@
-dotai.yaml: layer-selection: unknown profile "nope" (fix: use one of [web])
+✗ minimal-pack 0.1.0 · 1 problem in 1 file
+
+dotai.yaml
+  layer-selection  unknown profile "nope"
+                   fix:   use one of [web]
