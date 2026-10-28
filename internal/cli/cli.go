@@ -142,11 +142,7 @@ func newValidateCmd(env Env, jsonOut *bool) *cobra.Command {
 			return err
 		}
 		if !res.Valid {
-			subject := ""
-			if res.Pack != nil {
-				subject = res.Pack.Name + " " + res.Pack.Version
-			}
-			return rejectPack(env, *jsonOut, *format, subject, res.Diagnostics, res)
+			return rejectPack(env, *jsonOut, *format, res.Pack, res.Diagnostics, res)
 		}
 		if *jsonOut {
 			return output.Write(env.Stdout, output.Success(commandName(cmd), res))
@@ -185,7 +181,7 @@ func newStageCmd(env Env, jsonOut *bool) *cobra.Command {
 			return err
 		}
 		if len(res.Diagnostics) > 0 {
-			return rejectPack(env, *jsonOut, *format, "", res.Diagnostics, res)
+			return rejectPack(env, *jsonOut, *format, res.Pack, res.Diagnostics, res)
 		}
 		if *jsonOut {
 			return output.Write(env.Stdout, output.Success(commandName(cmd), res))
@@ -232,8 +228,12 @@ func packDir(args []string) string {
 
 // rejectPack prints the diagnostics of a pack with problems as text in
 // format and returns the invalid outcome that carries data.
-func rejectPack(env Env, jsonOut bool, format formatValue, subject string, diags []app.Diagnostic, data any) error {
+func rejectPack(env Env, jsonOut bool, format formatValue, p *app.PackSummary, diags []app.Diagnostic, data any) error {
 	if !jsonOut {
+		subject := ""
+		if p != nil {
+			subject = p.Name + " " + p.Version
+		}
 		if err := writeReport(env.Stdout, subject, diags, format == formatCompact, useColor(env.Stdout)); err != nil {
 			return err
 		}

@@ -4,5 +4,7 @@ package cli
 
 import "os"
 
-// enableANSI reports true: terminals outside Windows show ANSI colors.
-func enableANSI(*os.File) bool { return true }
+// EnableANSI does nothing: terminals outside Windows show ANSI colors.
+func EnableANSI(*os.File) (restore func()) { return func() {} }
+
+func ansiEnabled(*os.File) bool { return true }

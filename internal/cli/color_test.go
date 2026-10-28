@@ -16,16 +16,19 @@ func TestUseColor(t *testing.T) {
 		w        io.Writer
 		terminal bool
 		noColor  string
+		termName string
 		want     bool
 	}{
 		{name: "terminal", w: os.Stdout, terminal: true, want: true},
 		{name: "terminal with NO_COLOR", w: os.Stdout, terminal: true, noColor: "1", want: false},
+		{name: "dumb terminal", w: os.Stdout, terminal: true, termName: "dumb", want: false},
 		{name: "file that is not a terminal", w: os.Stdout, terminal: false, want: false},
 		{name: "not a file", w: &bytes.Buffer{}, terminal: true, want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("NO_COLOR", tt.noColor)
+			t.Setenv("TERM", tt.termName)
 			old := isTerminal
 			isTerminal = func(*os.File) bool { return tt.terminal }
 			t.Cleanup(func() { isTerminal = old })

@@ -28,6 +28,7 @@ const StageMarker = ".dotai-stage"
 type StageResult struct {
 	Files       []StagedFile `json:"files"`
 	Diagnostics []Diagnostic `json:"diagnostics"`
+	Pack        *PackSummary `json:"-"` // names the pack in the text report; nil when the manifest cannot be read
 }
 
 // StagedFile is one written file: its scope, its path inside the scope's
@@ -78,7 +79,7 @@ func stage(w stageFS, dir, out string, sel Selection, force bool) (StageResult, 
 	if err != nil {
 		return StageResult{}, err
 	}
-	res := StageResult{Files: []StagedFile{}, Diagnostics: v.Diagnostics}
+	res := StageResult{Files: []StagedFile{}, Diagnostics: v.Diagnostics, Pack: v.Pack}
 	if !v.Valid {
 		return res, nil
 	}

@@ -58,6 +58,7 @@ func TestRun(t *testing.T) {
 		{name: "validate merge rules compact", args: []string{"validate", mergeBrokenPack, "--format=compact"}, wantCode: 3, goldenOut: "validate-merge-broken.compact.golden"},
 		{name: "validate json ignores the format", args: []string{"validate", mergeBrokenPack, "--json", "--format=compact"}, wantCode: 3, goldenOut: "validate-merge-broken.json.golden"},
 		{name: "validate unknown format", args: []string{"validate", examplePack, "--format=fancy"}, wantCode: 2, wantStderr: true},
+		{name: "validate unknown format json", args: []string{"validate", examplePack, "--json", "--format=fancy"}, wantCode: 2, goldenOut: "validate-unknown-format.json.golden"},
 		{name: "validate merge rules json", args: []string{"validate", mergeBrokenPack, "--json"}, wantCode: 3, goldenOut: "validate-merge-broken.json.golden"},
 		{name: "validate unknown profile", args: []string{"validate", examplePack, "--profile", "web,nope"}, wantCode: 3, goldenOut: "validate-unknown-profile.txt.golden"},
 		{name: "stage without out", args: []string{"stage", examplePack, "--json"}, wantCode: 2, goldenOut: "stage-no-out.json.golden"},
@@ -189,6 +190,47 @@ func TestRunStageInvalidPack(t *testing.T) {
 	if _, err := os.Stat(out); !os.IsNotExist(err) {
 		t.Errorf("out exists after an invalid stage: %v", err)
 	}
+}
+
+func TestRunStageReportHeader(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := cli.Run([]string{"stage", mergeBrokenPack, "--out", filepath.Join(t.TempDir(), "s")}, testEnv(&stdout, &stderr))
+
+	if code != cli.ExitInvalid || !strings.HasPrefix(stdout.String(), "✗ merge-broken-pack 0.1.0 · ") {
+		t.Errorf("exit code = %d, stdout = %q, want %d and the pack in the header", code, stdout.String(), cli.ExitInvalid)
+	}
+}
+
+// TestRunTextHasNoColor runs with a real file as stdout, which is not a
+// terminal, so the report must stay plain even without NO_COLOR.
+func TestRunTextHasNoColor(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	f, err := os.Create(filepath.Join(t.TempDir(), "out.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	env := testEnv(nil, &bytes.Buffer{})
+	env.Stdout = f
+	if code := cli.Run([]string{"validate", mergeBrokenPack}, env); code != cli.ExitInvalid {
+		t.Fatalf("exit code = %d, want %d", code, cli.ExitInvalid)
+	}
+	out, err := os.ReadFile(f.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) == 0 || bytes.Contains(out, []byte("\x1b[")) {
+		t.Errorf("stdout = %q, want a report without ANSI escape codes", out)
+	}
+}
+
+func TestEnableANSIOnAFileIsANoOp(t *testing.T) {
+	f, err := os.Create(filepath.Join(t.TempDir(), "out.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	cli.EnableANSI(f)()
 }
 
 func TestRunStageCompactDiagnostics(t *testing.T) {
