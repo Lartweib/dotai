@@ -33,7 +33,7 @@ A pack can only pin a rulesync version the engine knows; `dotai validate` report
 - Good: a release that is compromised or re-uploaded after a version was embedded cannot run on a user's machine; the trust anchor is the engine binary the user installed.
 - Bad or accepted cost: each new rulesync version needs an engine release, and a pack cannot move ahead of the engine.
 - Accepted: the first embedding trusts the release as it is at that moment. The procedure above detects a corrupt or inconsistent release, not one that was already compromised when it was hashed.
-- Pending: the cached binary must be verified again right before it is executed, since the cache is writable by the user; this lands with the command that runs rulesync.
+- The cached binary is verified again right before it is executed, since the cache is writable by the user; `dotai stage` does this each time it runs rulesync.
 
 ## Evidence
 
