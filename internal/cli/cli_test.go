@@ -15,10 +15,31 @@ import (
 	"github.com/lartweib/dotai/internal/app"
 	"github.com/lartweib/dotai/internal/cli"
 	"github.com/lartweib/dotai/internal/cli/output"
+	"github.com/lartweib/dotai/internal/rulesync"
 )
 
 func testEnv(stdout, stderr *bytes.Buffer) cli.Env {
-	return cli.Env{Stdout: stdout, Stderr: stderr, Version: fixedVersion, Validate: app.Validate, Stage: app.Stage}
+	return cli.Env{Stdout: stdout, Stderr: stderr, Version: fixedVersion, Validate: app.Validate, Stage: app.Stage, Rulesync: fakeRulesync}
+}
+
+// fakeRulesync renders one root rule per scope, where rulesync writes the
+// claudecode one.
+func fakeRulesync(string, app.Progress) app.Rulesync {
+	return app.Rulesync{
+		Fetch: func(_ context.Context, version string) (rulesync.Result, error) {
+			return rulesync.Result{Version: version}, nil
+		},
+		Run: func(_ context.Context, _ rulesync.Result, dir string, global bool, _ []string) error {
+			name := "CLAUDE.md"
+			if global {
+				name = filepath.Join(".claude", "CLAUDE.md")
+			}
+			if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o755); err != nil {
+				return err
+			}
+			return os.WriteFile(filepath.Join(dir, name), []byte("# generated\n"), 0o644)
+		},
+	}
 }
 
 var update = flag.Bool("update", false, "rewrite golden files")
@@ -123,7 +144,8 @@ func TestRunSelectionFlags(t *testing.T) {
 					gotValidate = sel
 					return app.ValidateResult{Valid: true, Pack: &app.PackSummary{}}, nil
 				},
-				Stage: func(_, _ string, sel app.Selection, _ bool) (app.StageResult, error) {
+				Rulesync: fakeRulesync,
+				Stage: func(_ context.Context, _ app.Rulesync, _, _ string, sel app.Selection, _ bool) (app.StageResult, error) {
 					gotStage = sel
 					return app.StageResult{}, nil
 				},
@@ -160,7 +182,8 @@ func TestRunStage(t *testing.T) {
 	stdout.Reset()
 	stderr.Reset()
 	code = cli.Run([]string{"stage", examplePack, "--out", out, "--force"}, testEnv(&stdout, &stderr))
-	if code != cli.ExitOK || !strings.Contains(stdout.String(), "user/.rulesync/rules/overview.md  base") {
+	if code != cli.ExitOK || !strings.Contains(stdout.String(), "user/.rulesync/rules/overview.md  base\n") ||
+		!strings.Contains(stdout.String(), "user/.claude/CLAUDE.md  rulesync\n") {
 		t.Errorf("forced run: exit code = %d, stdout = %q", code, stdout.String())
 	}
 }

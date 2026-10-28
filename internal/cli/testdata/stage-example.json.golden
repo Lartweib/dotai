@@ -33,6 +33,18 @@
         "scope": "project",
         "path": ".rulesync/rules/web.md",
         "layer": "profiles/web"
+      },
+      {
+        "scope": "user",
+        "path": ".claude/CLAUDE.md",
+        "layer": "",
+        "generator": "rulesync"
+      },
+      {
+        "scope": "project",
+        "path": "CLAUDE.md",
+        "layer": "",
+        "generator": "rulesync"
       }
     ],
     "diagnostics": []
