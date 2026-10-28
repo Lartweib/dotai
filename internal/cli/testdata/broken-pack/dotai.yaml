@@ -1,0 +1,9 @@
+schema: dotai.pack/v1
+name: broken-pack
+version: 1.0
+engine: ">=0.1.0"
+rulesync: "^41.0.0"
+harnesses: [claudecode, vscode]
+variants:
+  standalone:
+    path: variants/standalone

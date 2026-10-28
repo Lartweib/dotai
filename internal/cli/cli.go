@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -19,13 +20,24 @@ const (
 	ExitOK       = 0
 	ExitInternal = 1 // the command failed while running
 	ExitUsage    = 2 // invalid command, argument or flag
+	ExitInvalid  = 3 // the input was read and is not valid
 )
 
 // Env holds the streams and use cases a run depends on.
 type Env struct {
 	Stdout, Stderr io.Writer
 	Version        func() app.VersionInfo
+	Validate       func(dir string) (app.ValidateResult, error)
 }
+
+// invalidError is a command outcome that rejects its input, such as a pack
+// with errors. data is the result that explains why.
+type invalidError struct {
+	msg  string
+	data any
+}
+
+func (e *invalidError) Error() string { return e.msg }
 
 // Run executes dotai with args (without the program name) and returns the
 // process exit code.
@@ -46,7 +58,7 @@ func Run(args []string, env Env) int {
 	root.SetArgs(args)
 	root.SetOut(env.Stdout)
 	root.SetErr(env.Stderr)
-	root.AddCommand(newVersionCmd(env, &jsonOut))
+	root.AddCommand(newVersionCmd(env, &jsonOut), newValidateCmd(env, &jsonOut))
 
 	// In JSON mode help is a result like any other: one envelope whose data
 	// holds the help text.
@@ -69,11 +81,19 @@ func Run(args []string, env Env) int {
 	}
 
 	code, exit := output.CodeInternal, ExitInternal
-	if !started {
+	var invalid *invalidError
+	switch {
+	case !started:
 		code, exit = output.CodeUsage, ExitUsage
+	case errors.As(err, &invalid):
+		code, exit = output.CodeInvalid, ExitInvalid
 	}
 	if jsonRequested(root, args) {
-		_ = output.Write(env.Stdout, output.Failure(commandName(cmd), code, err.Error()))
+		e := output.Failure(commandName(cmd), code, err.Error())
+		if invalid != nil {
+			e = output.Invalid(commandName(cmd), err.Error(), invalid.data)
+		}
+		_ = output.Write(env.Stdout, e)
 		return exit
 	}
 	fmt.Fprintf(env.Stderr, "Error: %v\n", err)
@@ -96,6 +116,42 @@ func newVersionCmd(env Env, jsonOut *bool) *cobra.Command {
 			_, err := fmt.Fprintf(env.Stdout,
 				"dotai %s\ncommit:   %s\nbuilt:    %s\ngo:       %s\nplatform: %s/%s\n",
 				v.Version, orUnknown(v.Commit), orUnknown(v.BuildDate), v.GoVersion, v.OS, v.Arch)
+			return err
+		},
+	}
+}
+
+func newValidateCmd(env Env, jsonOut *bool) *cobra.Command {
+	return &cobra.Command{
+		Use:   "validate [path]",
+		Short: "Check the structure of the pack in path (default: current directory)",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dir := "."
+			if len(args) == 1 {
+				dir = args[0]
+			}
+			res, err := env.Validate(dir)
+			if err != nil {
+				return err
+			}
+			if !res.Valid {
+				invalid := &invalidError{msg: fmt.Sprintf("pack is invalid: %d problem(s)", len(res.Diagnostics)), data: res}
+				if !*jsonOut {
+					for _, d := range res.Diagnostics {
+						fmt.Fprintln(env.Stdout, d)
+					}
+				}
+				return invalid
+			}
+			if *jsonOut {
+				return output.Write(env.Stdout, output.Success(commandName(cmd), res))
+			}
+			if res.Pack == nil {
+				return errors.New("validation returned no pack")
+			}
+			p := res.Pack
+			_, err = fmt.Fprintf(env.Stdout, "pack %s %s is valid: %d layer(s)\n", p.Name, p.Version, len(p.Layers))
 			return err
 		},
 	}

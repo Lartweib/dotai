@@ -1,0 +1,54 @@
+{
+  "schema": "dotai.cli/v1",
+  "command": "validate",
+  "ok": true,
+  "data": {
+    "valid": true,
+    "pack": {
+      "name": "minimal-pack",
+      "version": "0.1.0",
+      "engine": ">=0.1.0",
+      "rulesync": "41.0.0",
+      "harnesses": [
+        "claudecode",
+        "antigravity-cli",
+        "opencode"
+      ],
+      "profiles": [
+        "web"
+      ],
+      "variants": [
+        "standalone",
+        "tmux"
+      ],
+      "defaultVariant": "standalone",
+      "layers": [
+        {
+          "kind": "base",
+          "name": "base",
+          "path": "base",
+          "items": 3
+        },
+        {
+          "kind": "profile",
+          "name": "web",
+          "path": "profiles/web",
+          "items": 1
+        },
+        {
+          "kind": "variant",
+          "name": "standalone",
+          "path": "variants/standalone",
+          "items": 1
+        },
+        {
+          "kind": "variant",
+          "name": "tmux",
+          "path": "variants/tmux",
+          "items": 1
+        }
+      ]
+    },
+    "diagnostics": []
+  }
+}
