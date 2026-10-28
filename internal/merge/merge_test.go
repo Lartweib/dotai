@@ -120,105 +120,105 @@ func TestCheck(t *testing.T) {
 		{
 			name: "undeclared override",
 			pack: newPack(base(rule("style")), variant("v", rule("style"))),
-			want: []string{`variants/v/.rulesync/rules/style.md:1: override-undeclared: rule "style" is already defined at base/.rulesync/rules/style.md:1; declare dotai: {overrides: true} to replace it`},
+			want: []string{`variants/v/.rulesync/rules/style.md: override-undeclared: rule "style" already exists in base (first: base/.rulesync/rules/style.md) (fix: add dotai: {overrides: true} to replace it)`},
 		},
 		{
 			name: "override without target",
 			pack: newPack(base(rule("x").override()), variant("v", rule("y").override()), profile("a", rule("z").override())),
 			want: []string{
-				`base/.rulesync/rules/x.md:1: override-without-target: rule "x" declares dotai: {overrides: true} but no earlier layer of its scope defines it`,
-				`variants/v/.rulesync/rules/y.md:1: override-without-target: rule "y" declares dotai: {overrides: true} but no earlier layer of its scope defines it`,
-				`profiles/a/.rulesync/rules/z.md:1: override-without-target: rule "z" declares dotai: {overrides: true} but no earlier layer of its scope defines it`,
+				`base/.rulesync/rules/x.md: override-without-target: rule "x" has nothing to override (fix: remove dotai: {overrides: true}; no earlier layer of its scope defines it)`,
+				`variants/v/.rulesync/rules/y.md: override-without-target: rule "y" has nothing to override (fix: remove dotai: {overrides: true}; no earlier layer of its scope defines it)`,
+				`profiles/a/.rulesync/rules/z.md: override-without-target: rule "z" has nothing to override (fix: remove dotai: {overrides: true}; no earlier layer of its scope defines it)`,
 			},
 		},
 		{
 			name: "same name twice in one layer",
 			pack: newPack(base(subagent("a/helper.md", "helper"), subagent("b/helper.md", "helper").override())),
-			want: []string{`base/.rulesync/subagents/b/helper.md:1: name-duplicate: subagent "helper" is defined twice in layer base, first at base/.rulesync/subagents/a/helper.md:1`},
+			want: []string{`base/.rulesync/subagents/b/helper.md: name-duplicate: subagent "helper" is defined twice in layer base (first: base/.rulesync/subagents/a/helper.md)`},
 		},
 		{
 			name: "duplicate in the base is reported once with several variants",
 			pack: newPack(base(command("x"), command("x")), variant("a"), variant("b")),
-			want: []string{`base/.rulesync/commands/x.md:1: name-duplicate: command "x" is defined twice in layer base, first at base/.rulesync/commands/x.md:1`},
+			want: []string{`base/.rulesync/commands/x.md: name-duplicate: command "x" is defined twice in layer base (first: base/.rulesync/commands/x.md)`},
 		},
 		{
 			name: "two profiles, even with overrides",
 			pack: newPack(profile("a", skill("lint")), profile("b", skill("lint").override())),
-			want: []string{`profiles/b/.rulesync/skills/lint/SKILL.md:1: profile-conflict: skill "lint" is also defined by profile a at profiles/a/.rulesync/skills/lint/SKILL.md:1; profiles cannot override each other`},
+			want: []string{`profiles/b/.rulesync/skills/lint/SKILL.md: profile-conflict: skill "lint" is also defined by profile a (first: profiles/a/.rulesync/skills/lint/SKILL.md) (fix: rename one of them; profiles cannot override each other)`},
 		},
 		{
 			name: "two profiles in reverse selection order",
 			pack: newPack(profile("a", skill("lint")), profile("b", skill("lint"))),
 			sel:  merge.Selection{Profiles: []string{"b", "a"}},
-			want: []string{`profiles/b/.rulesync/skills/lint/SKILL.md:1: profile-conflict: skill "lint" is also defined by profile a at profiles/a/.rulesync/skills/lint/SKILL.md:1; profiles cannot override each other`},
+			want: []string{`profiles/b/.rulesync/skills/lint/SKILL.md: profile-conflict: skill "lint" is also defined by profile a (first: profiles/a/.rulesync/skills/lint/SKILL.md) (fix: rename one of them; profiles cannot override each other)`},
 		},
 		{
 			name: "profile and base, even with overrides",
 			pack: newPack(base(command("deploy")), profile("a", command("deploy").override())),
 			want: []string{
-				`profiles/a/.rulesync/commands/deploy.md:1: scope-conflict: command "deploy" is also defined at user level at base/.rulesync/commands/deploy.md:1; overrides do not apply across scopes`,
+				`profiles/a/.rulesync/commands/deploy.md: scope-conflict: command "deploy" is also defined at user level (first: base/.rulesync/commands/deploy.md) (fix: rename it; overrides do not apply across scopes)`,
 			},
 		},
 		{
 			name: "same name in several variants and a profile",
 			pack: newPack(base(), variant("a", skill("seo")), variant("b", skill("seo")), profile("p", skill("seo"))),
-			want: []string{`profiles/p/.rulesync/skills/seo/SKILL.md:1: scope-conflict: skill "seo" is also defined at user level at variants/a/.rulesync/skills/seo/SKILL.md:1; overrides do not apply across scopes`},
+			want: []string{`profiles/p/.rulesync/skills/seo/SKILL.md: scope-conflict: skill "seo" is also defined at user level (first: variants/a/.rulesync/skills/seo/SKILL.md) (fix: rename it; overrides do not apply across scopes)`},
 		},
 		{
 			name: "chain of three layers across scopes",
 			pack: newPack(base(rule("x")), variant("v", rule("x").override()), profile("p", rule("x").override())),
 			want: []string{
-				`profiles/p/.rulesync/rules/x.md:1: scope-conflict: rule "x" is also defined at user level at variants/v/.rulesync/rules/x.md:1; overrides do not apply across scopes`,
+				`profiles/p/.rulesync/rules/x.md: scope-conflict: rule "x" is also defined at user level (first: variants/v/.rulesync/rules/x.md) (fix: rename it; overrides do not apply across scopes)`,
 			},
 		},
 		{
 			name: "root rule outside the base",
 			pack: newPack(base(), variant("v", rule("main").asRoot()), profile("a", rule("app").asRoot())),
 			want: []string{
-				`variants/v/.rulesync/rules/main.md:1: root-rule-outside-base: rule "main" is a root rule; only the base may provide the root rule`,
-				`profiles/a/.rulesync/rules/app.md:1: root-rule-outside-base: rule "app" is a root rule; only the base may provide the root rule`,
+				`variants/v/.rulesync/rules/main.md: root-rule-outside-base: rule "main" is a root rule outside the base (fix: remove root: true; only the base may provide the root rule)`,
+				`profiles/a/.rulesync/rules/app.md: root-rule-outside-base: rule "app" is a root rule outside the base (fix: remove root: true; only the base may provide the root rule)`,
 			},
 		},
 		{
 			name: "two root rules in the base",
 			pack: newPack(base(rule("a").asRoot(), rule("b").asRoot())),
-			want: []string{`base/.rulesync/rules/b.md:1: root-rule-duplicate: rule "b" is a second root rule; the first is at base/.rulesync/rules/a.md:1`},
+			want: []string{`base/.rulesync/rules/b.md: root-rule-duplicate: second root rule (first: base/.rulesync/rules/a.md)`},
 		},
 		{
 			name: "override of the root rule",
 			pack: newPack(base(rule("overview").asRoot()), variant("v", rule("overview").override())),
-			want: []string{`variants/v/.rulesync/rules/overview.md:1: root-rule-override: rule "overview" replaces the root rule at base/.rulesync/rules/overview.md:1; the root rule cannot be overridden`},
+			want: []string{`variants/v/.rulesync/rules/overview.md: root-rule-override: rule "overview" replaces the root rule (first: base/.rulesync/rules/overview.md) (fix: rename it; the root rule cannot be overridden)`},
 		},
 		{
 			name: "names that differ only by case",
 			pack: newPack(base(rule("style"), command("Deploy")), variant("v", rule("Style").override()), profile("a", command("deploy"))),
 			want: []string{
-				`variants/v/.rulesync/rules/Style.md:1: name-case-conflict: rule "Style" differs only by case from rule "style" at base/.rulesync/rules/style.md:1`,
-				`profiles/a/.rulesync/commands/deploy.md:1: name-case-conflict: command "deploy" differs only by case from command "Deploy" at base/.rulesync/commands/Deploy.md:1`,
+				`variants/v/.rulesync/rules/Style.md: name-case-conflict: rule "Style" differs only by case from rule "style" (first: base/.rulesync/rules/style.md)`,
+				`profiles/a/.rulesync/commands/deploy.md: name-case-conflict: command "deploy" differs only by case from command "Deploy" (first: base/.rulesync/commands/Deploy.md)`,
 			},
 		},
 		{
 			name: "paths that differ only by case",
 			pack: newPack(base(plain("dotai/tools/run.sh")), variant("v", plain("dotai/tools/Run.sh"))),
-			want: []string{`variants/v/dotai/tools/Run.sh:1: name-case-conflict: dotai/tools/Run.sh differs only by case from dotai/tools/run.sh at base/dotai/tools/run.sh:1`},
+			want: []string{`variants/v/dotai/tools/Run.sh: name-case-conflict: dotai/tools/Run.sh differs only by case from dotai/tools/run.sh (first: base/dotai/tools/run.sh)`},
 		},
 		{
 			name: "settings in two layers of a scope",
 			pack: newPack(base(plain("dotai/settings.yaml")), variant("v", plain("dotai/settings.yaml"))),
-			want: []string{`variants/v/dotai/settings.yaml:1: merge-pending: dotai/settings.yaml is also provided at base/dotai/settings.yaml:1; merging its lists and values across layers lands in a later version of dotai`},
+			want: []string{`variants/v/dotai/settings.yaml: merge-pending: dotai/settings.yaml is also provided by base (first: base/dotai/settings.yaml) (fix: keep it in one layer; merging lists and values across layers lands in a later version of dotai)`},
 		},
 		{
 			name: "hooks and permissions in two profiles",
 			pack: newPack(profile("a", plain(".rulesync/hooks.jsonc"), plain(".rulesync/permissions.jsonc")), profile("b", plain(".rulesync/hooks.jsonc"), plain(".rulesync/permissions.jsonc"))),
 			want: []string{
-				`profiles/b/.rulesync/hooks.jsonc:1: merge-pending: .rulesync/hooks.jsonc is also provided at profiles/a/.rulesync/hooks.jsonc:1; merging its lists and values across layers lands in a later version of dotai`,
-				`profiles/b/.rulesync/permissions.jsonc:1: merge-pending: .rulesync/permissions.jsonc is also provided at profiles/a/.rulesync/permissions.jsonc:1; merging its lists and values across layers lands in a later version of dotai`,
+				`profiles/b/.rulesync/hooks.jsonc: merge-pending: .rulesync/hooks.jsonc is also provided by profiles/a (first: profiles/a/.rulesync/hooks.jsonc) (fix: keep it in one layer; merging lists and values across layers lands in a later version of dotai)`,
+				`profiles/b/.rulesync/permissions.jsonc: merge-pending: .rulesync/permissions.jsonc is also provided by profiles/a (first: profiles/a/.rulesync/permissions.jsonc) (fix: keep it in one layer; merging lists and values across layers lands in a later version of dotai)`,
 			},
 		},
 		{
 			name: "same file path in two profiles",
 			pack: newPack(profile("a", plain("dotai/tools/lint.sh")), profile("b", plain("dotai/tools/lint.sh"))),
-			want: []string{`profiles/b/dotai/tools/lint.sh:1: path-conflict: dotai/tools/lint.sh is also provided at profiles/a/dotai/tools/lint.sh:1; a file has one owner`},
+			want: []string{`profiles/b/dotai/tools/lint.sh: path-conflict: dotai/tools/lint.sh is also provided by profiles/a (first: profiles/a/dotai/tools/lint.sh) (fix: keep it in one layer; a file has one owner)`},
 		},
 		{
 			name: "same file path in both scopes",
@@ -232,8 +232,8 @@ func TestCheck(t *testing.T) {
 			name: "MCP server defined twice",
 			pack: newPack(base(mcp(baseMCP)), variant("v", mcp(gitMCP)), profile("a", mcp(gitMCP))),
 			want: []string{
-				`variants/v/.rulesync/mcp.jsonc:1: mcp-server-conflict: MCP server "git" is already defined at base/.rulesync/mcp.jsonc:4; MCP servers cannot be overridden`,
-				`profiles/a/.rulesync/mcp.jsonc:1: scope-conflict: MCP server "git" is also defined at user level at base/.rulesync/mcp.jsonc:4; overrides do not apply across scopes`,
+				`variants/v/.rulesync/mcp.jsonc:1: mcp-server-conflict: MCP server "git" already exists in base (first: base/.rulesync/mcp.jsonc:4) (fix: rename it; MCP servers cannot be overridden)`,
+				`profiles/a/.rulesync/mcp.jsonc:1: scope-conflict: MCP server "git" is also defined at user level (first: base/.rulesync/mcp.jsonc:4) (fix: rename it; overrides do not apply across scopes)`,
 			},
 		},
 		{
@@ -259,8 +259,8 @@ func TestCheck(t *testing.T) {
 			pack: newPack(base(), variant("v"), profile("a")),
 			sel:  merge.Selection{Variant: "x", Profiles: []string{"a", "b", "a"}},
 			want: []string{
-				`dotai.yaml: layer-selection: unknown variant "x", want one of [v]`,
-				`dotai.yaml: layer-selection: unknown profile "b", want one of [a]`,
+				`dotai.yaml: layer-selection: unknown variant "x" (fix: use one of [v])`,
+				`dotai.yaml: layer-selection: unknown profile "b" (fix: use one of [a])`,
 				`dotai.yaml: layer-selection: profile "a" is selected twice`,
 			},
 		},

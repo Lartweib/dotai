@@ -499,6 +499,9 @@ func TestDiagnosticString(t *testing.T) {
 		{pack.Diagnostic{File: "dotai.yaml", Line: 3, Column: 10, Code: "version-invalid", Message: "bad"}, "dotai.yaml:3:10: version-invalid: bad"},
 		{pack.Diagnostic{File: "dotai.yaml", Line: 2, Code: "yaml-invalid", Message: "bad"}, "dotai.yaml:2: yaml-invalid: bad"},
 		{pack.Diagnostic{File: "dotai.yaml", Code: "manifest-missing", Message: "bad"}, "dotai.yaml: manifest-missing: bad"},
+		{pack.Diagnostic{File: "a.md", Code: "name-duplicate", Message: "bad", Related: &pack.Location{File: "b.md"}}, "a.md: name-duplicate: bad (first: b.md)"},
+		{pack.Diagnostic{File: "a.md", Code: "mcp-server-conflict", Message: "bad", Related: &pack.Location{File: "b.json", Line: 4, Column: 2}, Hint: "rename it"}, "a.md: mcp-server-conflict: bad (first: b.json:4:2) (fix: rename it)"},
+		{pack.Diagnostic{File: "a.md", Code: "layer-selection", Message: "bad", Hint: "use one of [a]"}, "a.md: layer-selection: bad (fix: use one of [a])"},
 	}
 	for _, tt := range tests {
 		if got := tt.d.String(); got != tt.want {

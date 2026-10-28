@@ -50,7 +50,7 @@ const (
 const (
 	mcpFile   = ".rulesync/mcp.jsonc"
 	mcpServer = "mcp-server" // the kind of an MCP server in a scope's names
-	fileLine  = 1            // an item or a file is located at the start of its file
+	fileLine  = 0            // a problem with an item or a file concerns the whole file
 )
 
 // pendingMerge holds the files whose lists and values will be merged
@@ -163,7 +163,7 @@ func pick(p *pack.Pack, kind pack.LayerKind, names []string) ([]pack.Layer, []pa
 			for _, l := range declared {
 				want = append(want, l.Name)
 			}
-			diags = append(diags, pack.NewDiagnostic(pack.ManifestFile, 0, 0, CodeLayerSelection, "unknown %s %q, want one of %v", kind, n, want))
+			diags = append(diags, pack.NewDiagnostic(pack.ManifestFile, 0, 0, CodeLayerSelection, "unknown %s %q", kind, n).WithHint("use one of %v", want))
 		case slices.Contains(names[:i], n):
 			diags = append(diags, pack.NewDiagnostic(pack.ManifestFile, 0, 0, CodeLayerSelection, "%s %q is selected twice", kind, n))
 		default:
@@ -193,9 +193,10 @@ type owner struct {
 	item       pack.Item // zero for an MCP server
 }
 
-func (o owner) at() string { return where(o.file, o.line) }
-
-func where(file string, line int) string { return fmt.Sprintf("%s:%d", file, line) }
+// clash reports a problem of o with prev, the earlier owner of its name.
+func (o owner) clash(prev owner, code, format string, args ...any) pack.Diagnostic {
+	return pack.NewDiagnostic(o.file, o.line, 0, code, format, args...).WithRelated(prev.file, prev.line)
+}
 
 func key(kind, name string) string { return kind + "/" + strings.ToLower(name) }
 
@@ -209,7 +210,7 @@ type staged struct {
 // scope is the merge state of one scope's layers, applied in order.
 type scope struct {
 	names   map[string]owner           // by key
-	root    string                     // location of the root rule
+	root    string                     // file of the root rule
 	files   map[string]staged          // by path in the tree
 	lower   map[string]string          // lower-case path to path
 	servers map[string]json.RawMessage // MCP server definitions by name
@@ -232,9 +233,7 @@ func (s *scope) with(l pack.Layer) *scope {
 	return c
 }
 
-func (s *scope) report(file string, line int, code, format string, args ...any) {
-	s.diags = append(s.diags, pack.NewDiagnostic(file, line, 0, code, format, args...))
-}
+func (s *scope) report(d pack.Diagnostic) { s.diags = append(s.diags, d) }
 
 // add merges layer l: its items first, then its files. A file of an item
 // enters the tree only when its layer owns the item.
@@ -263,27 +262,32 @@ func (s *scope) add(l pack.Layer) {
 // owns the name.
 func (s *scope) claim(o owner) bool {
 	prev, taken := s.names[o.key]
-	reject := func(code, format string, args ...any) bool {
-		s.report(o.file, o.line, code, format, args...)
+	reject := func(d pack.Diagnostic) bool {
+		s.report(d)
 		return false
 	}
 	switch {
 	case !taken:
 		if o.item.Dotai.Overrides {
-			s.report(o.file, o.line, CodeOverrideWithoutTarget, "%s declares dotai: {overrides: true} but no earlier layer of its scope defines it", o.what)
+			s.report(pack.NewDiagnostic(o.file, o.line, 0, CodeOverrideWithoutTarget, "%s has nothing to override", o.what).
+				WithHint("remove dotai: {overrides: true}; no earlier layer of its scope defines it"))
 		}
 	case prev.name != o.name:
-		return reject(CodeNameCaseConflict, "%s differs only by case from %s at %s", o.what, prev.what, prev.at())
+		return reject(o.clash(prev, CodeNameCaseConflict, "%s differs only by case from %s", o.what, prev.what))
 	case prev.layer.Path == o.layer.Path:
-		return reject(CodeNameDuplicate, "%s is defined twice in layer %s, first at %s", o.what, o.layer.Path, prev.at())
+		return reject(o.clash(prev, CodeNameDuplicate, "%s is defined twice in layer %s", o.what, o.layer.Path))
 	case prev.item.Root:
-		return reject(CodeRootRuleOverride, "%s replaces the root rule at %s; the root rule cannot be overridden", o.what, prev.at())
+		return reject(o.clash(prev, CodeRootRuleOverride, "%s replaces the root rule", o.what).
+			WithHint("rename it; the root rule cannot be overridden"))
 	case prev.layer.Kind == pack.LayerProfile && o.layer.Kind == pack.LayerProfile:
-		return reject(CodeProfileConflict, "%s is also defined by profile %s at %s; profiles cannot override each other", o.what, prev.layer.Name, prev.at())
+		return reject(o.clash(prev, CodeProfileConflict, "%s is also defined by profile %s", o.what, prev.layer.Name).
+			WithHint("rename one of them; profiles cannot override each other"))
 	case o.item.Kind == "":
-		return reject(CodeServerConflict, "%s is already defined at %s; MCP servers cannot be overridden", o.what, prev.at())
+		return reject(o.clash(prev, CodeServerConflict, "%s already exists in %s", o.what, prev.layer.Path).
+			WithHint("rename it; MCP servers cannot be overridden"))
 	case !o.item.Dotai.Overrides:
-		return reject(CodeOverrideUndeclared, "%s is already defined at %s; declare dotai: {overrides: true} to replace it", o.what, prev.at())
+		return reject(o.clash(prev, CodeOverrideUndeclared, "%s already exists in %s", o.what, prev.layer.Path).
+			WithHint("add dotai: {overrides: true} to replace it"))
 	default:
 		s.drop(prev)
 	}
@@ -307,11 +311,12 @@ func (s *scope) checkRoot(l pack.Layer, it pack.Item) {
 	switch {
 	case it.Kind != pack.ItemRule || !it.Root:
 	case l.Kind != pack.LayerBase:
-		s.report(it.Path, fileLine, CodeRootRule, "rule %q is a root rule; only the base may provide the root rule", it.Name)
+		s.report(pack.NewDiagnostic(it.Path, fileLine, 0, CodeRootRule, "rule %q is a root rule outside the base", it.Name).
+			WithHint("remove root: true; only the base may provide the root rule"))
 	case s.root != "":
-		s.report(it.Path, fileLine, CodeRootRuleDuplicate, "rule %q is a second root rule; the first is at %s", it.Name, s.root)
+		s.report(pack.NewDiagnostic(it.Path, fileLine, 0, CodeRootRuleDuplicate, "second root rule").WithRelated(s.root, fileLine))
 	default:
-		s.root = where(it.Path, fileLine)
+		s.root = it.Path
 	}
 }
 
@@ -322,9 +327,11 @@ func (s *scope) claimPath(l pack.Layer, f pack.File) {
 	prev, taken := s.files[f.Rel]
 	switch {
 	case taken && slices.Contains(pendingMerge, f.Rel):
-		s.report(f.Path, fileLine, CodeMergePending, "%s is also provided at %s; merging its lists and values across layers lands in a later version of dotai", f.Rel, where(prev.src, fileLine))
+		s.report(pack.NewDiagnostic(f.Path, fileLine, 0, CodeMergePending, "%s is also provided by %s", f.Rel, prev.Layer).WithRelated(prev.src, fileLine).
+			WithHint("keep it in one layer; merging lists and values across layers lands in a later version of dotai"))
 	case taken:
-		s.report(f.Path, fileLine, CodePathConflict, "%s is also provided at %s; a file has one owner", f.Rel, where(prev.src, fileLine))
+		s.report(pack.NewDiagnostic(f.Path, fileLine, 0, CodePathConflict, "%s is also provided by %s", f.Rel, prev.Layer).WithRelated(prev.src, fileLine).
+			WithHint("keep it in one layer; a file has one owner"))
 	default:
 		s.put(staged{File{Path: f.Rel, Layer: l.Path, Data: f.Data}, f.Path, f.Item})
 	}
@@ -333,7 +340,7 @@ func (s *scope) claimPath(l pack.Layer, f pack.File) {
 // put adds f to the tree unless a path that differs only by case is there.
 func (s *scope) put(f staged) {
 	if other, ok := s.lower[strings.ToLower(f.Path)]; ok && other != f.Path {
-		s.report(f.src, fileLine, CodeNameCaseConflict, "%s differs only by case from %s at %s", f.Path, other, where(s.files[other].src, fileLine))
+		s.report(pack.NewDiagnostic(f.src, fileLine, 0, CodeNameCaseConflict, "%s differs only by case from %s", f.Path, other).WithRelated(s.files[other].src, fileLine))
 		return
 	}
 	s.files[f.Path] = f
@@ -345,7 +352,7 @@ func (s *scope) put(f staged) {
 func (s *scope) mergeMCP(l pack.Layer, f pack.File) {
 	servers, err := readMCP(f.Data)
 	if err != nil {
-		s.report(f.Path, 0, CodeMCPInvalid, "%v", err)
+		s.report(pack.NewDiagnostic(f.Path, fileLine, 0, CodeMCPInvalid, "%v", err))
 		return
 	}
 	for _, sv := range servers {
@@ -423,9 +430,10 @@ func crossScope(users []*scope, project *scope) []pack.Diagnostic {
 				continue
 			}
 			if prev.name != o.name {
-				diags = append(diags, pack.NewDiagnostic(o.file, o.line, 0, CodeNameCaseConflict, "%s differs only by case from %s at %s", o.what, prev.what, prev.at()))
+				diags = append(diags, o.clash(prev, CodeNameCaseConflict, "%s differs only by case from %s", o.what, prev.what))
 			} else {
-				diags = append(diags, pack.NewDiagnostic(o.file, o.line, 0, CodeScopeConflict, "%s is also defined at user level at %s; overrides do not apply across scopes", o.what, prev.at()))
+				diags = append(diags, o.clash(prev, CodeScopeConflict, "%s is also defined at user level", o.what).
+					WithHint("rename it; overrides do not apply across scopes"))
 			}
 			break
 		}
