@@ -35,7 +35,7 @@ Records were renumbered on 2026-10-26, when the records about the reference pack
 | [0025](0025-settings-as-per-harness-passthrough.md) | Settings as per-harness blocks merged as-is | accepted | 2026-10-25 |
 | [0026](0026-json-cli-and-ui-after-v1.md) | Every command has `--json`; a UI comes after v1 | accepted | 2026-10-26 |
 | [0027](0027-loose-files-and-plugins-only-for-mods.md) | Claude Code content as loose files; plugins only for mods | accepted | 2026-10-26 |
-| [0028](0028-plan-centric-hexagonal-engine.md) | A plan-centric engine with a pure domain and ports | accepted | 2026-10-26 |
+| [0028](0028-plan-centric-hexagonal-engine.md) | A plan-centric engine with a pure domain and ports (partially superseded by 0029) | accepted | 2026-10-26 |
 | [0029](0029-rulesync-checksums-embedded-in-the-engine.md) | rulesync checksums are embedded in the engine | accepted | 2026-10-28 |
 
 ## Superseded (history only)

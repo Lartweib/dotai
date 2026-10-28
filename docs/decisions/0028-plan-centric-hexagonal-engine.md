@@ -6,6 +6,8 @@ tags: [engine, go, architecture, testing]
 
 # 0028 · A plan-centric engine with a pure domain and ports
 
+> **Partially superseded by [0029](0029-rulesync-checksums-embedded-in-the-engine.md): rulesync checksums are embedded in the engine;** the `rulesync` package does not trust a `SHA256SUMS` file fetched at runtime. Everything else is still in force.
+
 ## Context
 
 The engine's v1 behavior is decided ([0020](0020-v1-scope-engine-and-pack.md), [0021](0021-go-engine-orchestrates-rulesync.md), [PACK-FORMAT](../PACK-FORMAT.md)), but not the shape of its code. Several features need the same thing: an exact list of what a command will change before it changes it.
