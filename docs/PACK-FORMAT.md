@@ -28,7 +28,7 @@ Every layer has the same shape:
 | `dotai/settings.yaml` | dotai | Settings rulesync does not cover: `statusLine`, `env`, model defaults |
 | `dotai/tools/`, `dotai/runners/` | dotai | Scripts and binaries the layer needs |
 
-A layer may omit any of these paths.
+A layer may omit any of these paths. A pack contains no symbolic links, only regular files and directories, and every file the engine reads is at most 1 MiB.
 
 ## Manifest
 
@@ -91,7 +91,7 @@ For each scope:
 
 1. Resolve the layers. User scope: `base` and the variant passed with `--variant`, detected, or default. Project scope: the profiles passed with `--profile`.
 2. Read the `dotai:` blocks from the sources.
-3. Run `dotai validate` over all layers, both scopes included (see [Merge rules](#merge-rules)).
+3. Run `dotai validate` over all layers, both scopes included. Structural checks (manifest, layer paths, file types, `dotai:` blocks) run first. The [merge rules](#merge-rules) run only when they found no errors, and their diagnostics come after the structural ones.
 4. Merge the scope's layers into its own staging tree.
 5. Run the pinned rulesync over the staging `.rulesync/`, writing into staging.
 6. Render `dotai/` content for each harness.
