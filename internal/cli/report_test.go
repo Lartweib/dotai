@@ -54,7 +54,7 @@ func TestWriteReport(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var b strings.Builder
-			if err := writeReport(&b, tt.subject, tt.diags, tt.compact); err != nil {
+			if err := writeReport(&b, tt.subject, tt.diags, tt.compact, false); err != nil {
 				t.Fatal(err)
 			}
 			if b.String() != tt.want {

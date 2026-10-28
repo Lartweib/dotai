@@ -29,8 +29,9 @@ func (f *formatValue) Set(s string) error {
 }
 
 // writeReport prints diags, compact or grouped by file in the order files
-// first appear. subject, such as the pack name and version, may be empty.
-func writeReport(w io.Writer, subject string, diags []app.Diagnostic, compact bool) error {
+// first appear, colored when color is true. subject, such as the pack name
+// and version, may be empty.
+func writeReport(w io.Writer, subject string, diags []app.Diagnostic, compact, color bool) error {
 	var b strings.Builder
 	if compact {
 		for _, d := range diags {
@@ -51,9 +52,9 @@ func writeReport(w io.Writer, subject string, diags []app.Diagnostic, compact bo
 		codeW = max(codeW, len(d.Code))
 	}
 
-	fmt.Fprintf(&b, "✗ %s%s in %s\n", prefix(subject), plural(len(diags), "problem"), plural(len(files), "file"))
+	fmt.Fprintf(&b, "%s %s%s in %s\n", paint(color, styleRed, "✗"), prefix(subject), plural(len(diags), "problem"), plural(len(files), "file"))
 	for _, f := range files {
-		fmt.Fprintf(&b, "\n%s\n", f)
+		fmt.Fprintf(&b, "\n%s\n", paint(color, styleBold, f))
 		posW := 0 // positions take a column only in files that have them
 		for _, d := range byFile[f] {
 			if p := position(d); p != "" {
@@ -62,12 +63,13 @@ func writeReport(w io.Writer, subject string, diags []app.Diagnostic, compact bo
 		}
 		indent := strings.Repeat(" ", 2+posW+codeW+2)
 		for _, d := range byFile[f] {
-			fmt.Fprintf(&b, "  %-*s%-*s  %s\n", posW, position(d), codeW, d.Code, d.Message)
+			code := paint(color, styleRed, d.Code) + strings.Repeat(" ", codeW-len(d.Code))
+			fmt.Fprintf(&b, "  %-*s%s  %s\n", posW, position(d), code, d.Message)
 			if d.Related != nil {
-				fmt.Fprintf(&b, "%sfirst: %s\n", indent, d.Related)
+				fmt.Fprintf(&b, "%s%s\n", indent, paint(color, styleDim, "first: "+d.Related.String()))
 			}
 			if d.Hint != "" {
-				fmt.Fprintf(&b, "%sfix:   %s\n", indent, d.Hint)
+				fmt.Fprintf(&b, "%s%s\n", indent, paint(color, styleDim, "fix:   "+d.Hint))
 			}
 		}
 	}
@@ -76,8 +78,8 @@ func writeReport(w io.Writer, subject string, diags []app.Diagnostic, compact bo
 }
 
 // writeValid prints the success line of validate.
-func writeValid(w io.Writer, p *app.PackSummary) error {
-	_, err := fmt.Fprintf(w, "✓ %s %s is valid · %s\n", p.Name, p.Version, plural(len(p.Layers), "layer"))
+func writeValid(w io.Writer, p *app.PackSummary, color bool) error {
+	_, err := fmt.Fprintf(w, "%s %s %s is valid · %s\n", paint(color, styleGreen, "✓"), p.Name, p.Version, plural(len(p.Layers), "layer"))
 	return err
 }
 

@@ -154,7 +154,7 @@ func newValidateCmd(env Env, jsonOut *bool) *cobra.Command {
 		if res.Pack == nil {
 			return errors.New("validation returned no pack")
 		}
-		return writeValid(env.Stdout, res.Pack)
+		return writeValid(env.Stdout, res.Pack, useColor(env.Stdout))
 	}
 	return cmd
 }
@@ -234,7 +234,7 @@ func packDir(args []string) string {
 // format and returns the invalid outcome that carries data.
 func rejectPack(env Env, jsonOut bool, format formatValue, subject string, diags []app.Diagnostic, data any) error {
 	if !jsonOut {
-		if err := writeReport(env.Stdout, subject, diags, format == formatCompact); err != nil {
+		if err := writeReport(env.Stdout, subject, diags, format == formatCompact, useColor(env.Stdout)); err != nil {
 			return err
 		}
 	}

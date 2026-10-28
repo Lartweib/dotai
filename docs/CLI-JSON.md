@@ -52,7 +52,7 @@ Without `--json`, results are plain text on stdout and errors go to stderr, with
 - `pretty` (default): a summary header (`✗ <pack> <version> · 13 problems in 11 files`), then the diagnostics grouped by file in the order above, each with its `line:column` when it has one, its code and message, and the `first:` (related) and `fix:` (hint) lines.
 - `compact`: one line per diagnostic, `file[:line[:column]]: code: message`, followed by ` (first: file[:line])` and ` (fix: hint)` when present, so editors can jump to the location.
 
-A whole-file diagnostic (`line` `0`) prints no position in either format.
+A whole-file diagnostic (`line` `0`) prints no position in either format. Text output is colored only when stdout is a terminal that supports ANSI colors and `NO_COLOR` is unset or empty; `--json` output is never colored.
 
 ## Commands
 
