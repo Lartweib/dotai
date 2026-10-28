@@ -92,6 +92,22 @@ func TestRunValidateDefaultsToCurrentDirectory(t *testing.T) {
 	}
 }
 
+func TestRunValidateUnreadableManifest(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "dotai.yaml"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := cli.Run([]string{"validate", dir, "--json"}, testEnv(&stdout, &stderr))
+
+	if code != cli.ExitInternal {
+		t.Errorf("exit code = %d, want %d", code, cli.ExitInternal)
+	}
+	if e := decodeOne(t, stdout.Bytes()); e.OK || e.Error == nil || e.Error.Code != output.CodeInternal {
+		t.Errorf("envelope = %+v, want internal error", e)
+	}
+}
+
 func TestRunValidateMissingDirectory(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := cli.Run([]string{"validate", filepath.Join(t.TempDir(), "missing"), "--json"}, testEnv(&stdout, &stderr))

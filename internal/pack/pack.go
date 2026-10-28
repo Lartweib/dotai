@@ -32,7 +32,10 @@ const (
 	CodeLayerMissing       = "layer-missing"
 	CodeVariantDefault     = "variant-default"
 	CodeFrontmatterInvalid = "frontmatter-invalid"
-	CodeReadFailed         = "read-failed"
+	CodeSymlinkNotAllowed  = "symlink-not-allowed"
+	CodeNotRegularFile     = "not-regular-file"
+	CodeFileTooLarge       = "file-too-large"
+	CodeLayerNotDirectory  = "layer-not-directory"
 )
 
 // Layer layout (docs/PACK-FORMAT.md).
@@ -92,66 +95,104 @@ type Dotai struct {
 }
 
 // Load reads the pack in fsys and returns it with every structural problem
-// found. The pack is nil only when the manifest cannot be read or parsed.
-func Load(fsys fs.FS) (*Pack, []Diagnostic) {
+// found. The pack is nil when the manifest cannot be used. The error is set
+// only when the pack cannot be read at all, for example a permission error
+// or a dotai.yaml that is a directory; then there is no pack and no
+// diagnostics. Symbolic links are never followed.
+func Load(fsys fs.FS) (*Pack, []Diagnostic, error) {
+	src, d, err := readRegular(fsys, ManifestFile)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return nil, []Diagnostic{newDiagnostic(ManifestFile, 0, 0, CodeManifestMissing, "the pack has no %s", ManifestFile)}, nil
+	case err != nil:
+		return nil, nil, err
+	case d != nil:
+		return nil, []Diagnostic{*d}, nil
+	}
 	var diags []Diagnostic
-	src, err := fs.ReadFile(fsys, ManifestFile)
-	if err != nil {
-		code := CodeReadFailed
-		if errors.Is(err, fs.ErrNotExist) {
-			code = CodeManifestMissing
-		}
-		return nil, append(diags, newDiagnostic(ManifestFile, 0, 0, code, "cannot read the pack manifest: %v", err))
-	}
 	r := reader{file: ManifestFile, diags: &diags}
-	root, ok := r.parse(src, CodeYAMLInvalid)
+	root, ok := r.parse(normalize(src), CodeYAMLInvalid)
 	if !ok {
-		return nil, diags
+		return nil, diags, nil
 	}
-
 	p := &Pack{Manifest: decodeManifest(fsys, r, root)}
 	sortFrom(diags, 0)
-	if info, err := fs.Stat(fsys, baseDir); err == nil && info.IsDir() {
-		p.Layers = append(p.Layers, loadLayer(fsys, &diags, LayerBase, baseDir, baseDir))
+
+	var layers []Layer
+	hasBase, err := checkBase(fsys, &diags)
+	if err != nil {
+		return nil, nil, err
+	}
+	if hasBase {
+		layers = append(layers, Layer{Kind: LayerBase, Name: baseDir, Path: baseDir})
 	}
 	for _, pr := range p.Manifest.Profiles {
 		if pr.Path != "" {
-			p.Layers = append(p.Layers, loadLayer(fsys, &diags, LayerProfile, pr.Name, pr.Path))
+			layers = append(layers, Layer{Kind: LayerProfile, Name: pr.Name, Path: pr.Path})
 		}
 	}
 	for _, v := range p.Manifest.Variants {
 		if v.Path != "" {
-			p.Layers = append(p.Layers, loadLayer(fsys, &diags, LayerVariant, v.Name, v.Path))
+			layers = append(layers, Layer{Kind: LayerVariant, Name: v.Name, Path: v.Path})
 		}
 	}
-	return p, diags
+	for _, l := range layers {
+		if l.Items, err = loadItems(fsys, &diags, l.Path); err != nil {
+			return nil, nil, err
+		}
+		p.Layers = append(p.Layers, l)
+	}
+	return p, diags, nil
 }
 
-func loadLayer(fsys fs.FS, diags *[]Diagnostic, kind LayerKind, name, dir string) Layer {
-	l := Layer{Kind: kind, Name: name, Path: dir}
-	root := path.Join(dir, rulesyncDir)
-	_ = fs.WalkDir(fsys, root, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			if !errors.Is(err, fs.ErrNotExist) {
-				*diags = append(*diags, newDiagnostic(p, 0, 0, CodeReadFailed, "%v", err))
-			}
+// checkBase reports whether the optional base layer exists and is usable.
+func checkBase(fsys fs.FS, diags *[]Diagnostic) (bool, error) {
+	info, link, err := lstat(fsys, baseDir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if code, msg := entryProblem(baseDir, link, info.Mode(), true); code != "" {
+		*diags = append(*diags, newDiagnostic(baseDir, 0, 0, code, "%s", msg))
+		return false, nil
+	}
+	return true, nil
+}
+
+// loadItems walks the layer at dir without following links. It reports
+// every link and non-regular file in the layer and reads the items of its
+// .rulesync/ tree.
+func loadItems(fsys fs.FS, diags *[]Diagnostic, dir string) ([]Item, error) {
+	var items []Item
+	err := fs.WalkDir(fsys, dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		if code, msg := entryProblem(p, "", d.Type(), false); code != "" {
+			*diags = append(*diags, newDiagnostic(p, 0, 0, code, "%s", msg))
 			return nil
 		}
-		ik, iname, ok := classify(strings.TrimPrefix(p, root+"/"))
-		if d.IsDir() || !ok {
+		rel, inRulesync := strings.CutPrefix(p, path.Join(dir, rulesyncDir)+"/")
+		kind, name, isItem := classify(rel)
+		if !inRulesync || !isItem {
 			return nil
 		}
-		src, err := fs.ReadFile(fsys, p)
+		src, problem, err := readLimited(fsys, p)
 		if err != nil {
-			*diags = append(*diags, newDiagnostic(p, 0, 0, CodeReadFailed, "%v", err))
+			return err
+		}
+		if problem != nil {
+			*diags = append(*diags, *problem)
 			return nil
 		}
 		start := len(*diags)
-		l.Items = append(l.Items, Item{Kind: ik, Name: iname, Path: p, Dotai: readDotai(reader{file: p, offset: fenceLines, diags: diags}, src)})
+		items = append(items, Item{Kind: kind, Name: name, Path: p, Dotai: readDotai(reader{file: p, offset: fenceLines, diags: diags}, src)})
 		sortFrom(*diags, start)
 		return nil
 	})
-	return l
+	return items, err
 }
 
 // classify maps a path inside .rulesync/ to the item it defines.
@@ -174,21 +215,21 @@ func classify(rel string) (ItemKind, string, bool) {
 // readDotai reads the dotai: block from the frontmatter of a Markdown
 // source. A file without frontmatter has an empty block.
 func readDotai(r reader, src []byte) Dotai {
-	lines := strings.Split(strings.ReplaceAll(strings.TrimPrefix(string(src), "\uFEFF"), "\r\n", "\n"), "\n")
-	if lines[0] != "---" {
+	lines := strings.Split(normalize(src), "\n")
+	if !isFence(lines[0]) {
 		return Dotai{}
 	}
-	end := slices.IndexFunc(lines[1:], func(l string) bool { return strings.TrimRight(l, " \t") == "---" })
+	end := slices.IndexFunc(lines[1:], isFence)
 	if end < 0 {
 		*r.diags = append(*r.diags, newDiagnostic(r.file, 1, 1, CodeFrontmatterInvalid, "frontmatter has no closing ---"))
 		return Dotai{}
 	}
-	fm, ok := r.parse([]byte(strings.Join(lines[1:end+1], "\n")), CodeFrontmatterInvalid)
+	fm, ok := r.parse(strings.Join(lines[1:end+1], "\n"), CodeFrontmatterInvalid)
 	if !ok || fm == nil {
 		return Dotai{}
 	}
 	o := r.object(nil, fm, "frontmatter")
-	if o.vals["dotai"] == nil {
+	if !o.has("dotai") {
 		return Dotai{}
 	}
 	b := r.object(o.keys["dotai"], o.vals["dotai"], "dotai", "capabilities", "overrides")
@@ -196,3 +237,6 @@ func readDotai(r reader, src []byte) Dotai {
 	overrides, _ := b.boolean("overrides")
 	return Dotai{Capabilities: caps, Overrides: overrides}
 }
+
+// isFence reports whether line opens or closes a frontmatter block.
+func isFence(line string) bool { return strings.TrimRight(line, " \t") == "---" }

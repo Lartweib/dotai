@@ -28,9 +28,9 @@ var yamlErr = regexp.MustCompile(`^yaml: (?:line (\d+): )?`)
 
 // parse decodes src and returns its root node, nil when src is empty. A
 // syntax error is reported with code and its line, and ok is false.
-func (r reader) parse(src []byte, code string) (root *yaml.Node, ok bool) {
+func (r reader) parse(src string, code string) (root *yaml.Node, ok bool) {
 	var doc yaml.Node
-	if err := yaml.Unmarshal(src, &doc); err != nil {
+	if err := yaml.Unmarshal([]byte(src), &doc); err != nil {
 		line := 0
 		if m := yamlErr.FindStringSubmatch(err.Error()); m != nil && m[1] != "" {
 			line, _ = strconv.Atoi(m[1])
@@ -84,13 +84,22 @@ func (r reader) object(owner, n *yaml.Node, what string, known ...string) object
 	return o
 }
 
-// has reports whether key is set.
-func (o object) has(key string) bool { return o.vals[key] != nil }
+// has reports whether key is set to a value other than null.
+func (o object) has(key string) bool { return o.vals[key] != nil && o.vals[key].Tag != "!!null" }
 
+// missing reports whether key is absent or null. A required key is
+// reported: when absent at the owner, when null at its value, like an
+// empty one.
 func (o object) missing(key string, required bool) bool {
-	if o.vals[key] == nil {
+	switch n := o.vals[key]; {
+	case n == nil:
 		if required && !o.bad {
 			o.r.report(o.owner, CodeFieldRequired, "%s: missing required field %q", o.what, key)
+		}
+		return true
+	case n.Tag == "!!null":
+		if required {
+			o.r.report(n, CodeFieldRequired, "%s: %q must not be empty", o.what, key)
 		}
 		return true
 	}

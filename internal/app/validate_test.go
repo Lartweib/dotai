@@ -26,7 +26,7 @@ func TestValidateExamplePack(t *testing.T) {
 
 func TestValidateFS(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
-		res := app.ValidateFS(fstest.MapFS{
+		res, err := app.ValidateFS(fstest.MapFS{
 			"dotai.yaml": {Data: []byte("schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\n" +
 				"rulesync: 41.0.0\nharnesses: [opencode]\nvariants:\n  a: {path: variants/a, default: true}\n")},
 			"base/.rulesync/rules/r.md":       {Data: []byte("# R\n")},
@@ -44,16 +44,26 @@ func TestValidateFS(t *testing.T) {
 			},
 			Diagnostics: []pack.Diagnostic{},
 		}
-		if !reflect.DeepEqual(res, want) {
+		if err != nil || !reflect.DeepEqual(res, want) {
 			t.Errorf("result = %+v\nwant %+v", res, want)
 		}
 	})
 	t.Run("missing manifest", func(t *testing.T) {
-		res := app.ValidateFS(fstest.MapFS{})
-		if res.Valid || res.Pack != nil || len(res.Diagnostics) != 1 {
+		res, err := app.ValidateFS(fstest.MapFS{})
+		if err != nil || res.Valid || res.Pack != nil || len(res.Diagnostics) != 1 {
 			t.Errorf("result = %+v, want invalid without pack", res)
 		}
 	})
+}
+
+func TestValidateUnreadableManifestIsAnError(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "dotai.yaml"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.Validate(dir); err == nil {
+		t.Error("Validate() error = nil, want error for a dotai.yaml directory")
+	}
 }
 
 func TestValidateRejectsNonDirectory(t *testing.T) {

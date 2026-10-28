@@ -153,8 +153,13 @@ func layerPath(fsys fs.FS, o object) string {
 		o.r.report(n, CodeLayerPathInvalid, "%s: path %q must be relative and inside the pack", o.what, p)
 		return ""
 	}
-	if info, err := fs.Stat(fsys, clean); err != nil || !info.IsDir() {
+	info, link, err := lstat(fsys, clean)
+	if err != nil {
 		o.r.report(n, CodeLayerMissing, "%s: directory %q does not exist", o.what, p)
+		return ""
+	}
+	if code, msg := entryProblem(clean, link, info.Mode(), true); code != "" {
+		o.r.report(n, code, "%s: %s", o.what, msg)
 		return ""
 	}
 	return clean

@@ -37,7 +37,7 @@ type LayerSummary struct {
 }
 
 // Validate checks the pack in directory dir. The error is set only when dir
-// cannot be used; problems in the pack are diagnostics in the result.
+// or the pack cannot be read; problems in the pack are diagnostics.
 func Validate(dir string) (ValidateResult, error) {
 	info, err := os.Stat(dir)
 	if err != nil {
@@ -46,17 +46,23 @@ func Validate(dir string) (ValidateResult, error) {
 	if !info.IsDir() {
 		return ValidateResult{}, fmt.Errorf("%s is not a directory", dir)
 	}
-	return ValidateFS(os.DirFS(dir)), nil
+	return ValidateFS(os.DirFS(dir))
 }
 
 // ValidateFS checks the pack whose root is fsys.
-func ValidateFS(fsys fs.FS) ValidateResult {
-	p, diags := pack.Load(fsys)
-	// Cross-layer rules (0023: duplicate names, overrides) will add their
-	// diagnostics here, from the merge step over p.Layers.
+//
+// Validation has two stages. Structural checks (pack.Load) come first. The
+// cross-layer merge rules of 0023 (duplicate names, overrides) run only on a
+// pack with no structural diagnostics, over p.Layers, and append their
+// diagnostics after the structural ones. The merge stage is not built yet.
+func ValidateFS(fsys fs.FS) (ValidateResult, error) {
+	p, diags, err := pack.Load(fsys)
+	if err != nil {
+		return ValidateResult{}, err
+	}
 	res := ValidateResult{Valid: len(diags) == 0, Diagnostics: append([]pack.Diagnostic{}, diags...)}
 	if p == nil {
-		return res
+		return res, nil
 	}
 	m := p.Manifest
 	s := &PackSummary{
@@ -77,5 +83,5 @@ func ValidateFS(fsys fs.FS) ValidateResult {
 		s.Layers = append(s.Layers, LayerSummary{Kind: string(l.Kind), Name: l.Name, Path: l.Path, Items: len(l.Items)})
 	}
 	res.Pack = s
-	return res
+	return res, nil
 }
