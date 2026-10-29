@@ -80,6 +80,7 @@ type File struct {
 	Rel  string  // relative to the layer
 	Item ItemRef // the item the file belongs to, zero when none
 	Data []byte
+	Exec bool // any execute bit is set; never on a file system without them, such as Windows
 }
 
 // ItemRef names an item. A skill's item is its whole directory, so every
@@ -215,7 +216,11 @@ func loadLayer(fsys fs.FS, diags *[]Diagnostic, l *Layer) error {
 			*diags = append(*diags, *problem)
 			return nil
 		}
-		f := File{Path: p, Rel: strings.TrimPrefix(p, l.Path+"/"), Data: src}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		f := File{Path: p, Rel: strings.TrimPrefix(p, l.Path+"/"), Data: src, Exec: info.Mode()&0o111 != 0}
 		if parts := strings.Split(rel, "/"); inRulesync && len(parts) > 2 && parts[0] == "skills" {
 			f.Item = ItemRef{ItemSkill, parts[1]} // kept below only if the layer defines the skill
 		}

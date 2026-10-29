@@ -200,7 +200,7 @@ func TestCheck(t *testing.T) {
 		{
 			name: "paths that differ only by case",
 			pack: newPack(base(plain("dotai/tools/run.sh")), variant("v", plain("dotai/tools/Run.sh"))),
-			want: []string{`variants/v/dotai/tools/Run.sh: name-case-conflict: dotai/tools/Run.sh differs only by case from dotai/tools/run.sh (first: base/dotai/tools/run.sh)`},
+			want: []string{`variants/v/dotai/tools/Run.sh: name-case-conflict: .dotai/tools/Run.sh differs only by case from .dotai/tools/run.sh (first: base/dotai/tools/run.sh)`},
 		},
 		{
 			name: "settings in two layers of a scope",
@@ -217,8 +217,20 @@ func TestCheck(t *testing.T) {
 		},
 		{
 			name: "same file path in two profiles",
-			pack: newPack(profile("a", plain("dotai/tools/lint.sh")), profile("b", plain("dotai/tools/lint.sh"))),
-			want: []string{`profiles/b/dotai/tools/lint.sh: path-conflict: dotai/tools/lint.sh is also provided by profiles/a (first: profiles/a/dotai/tools/lint.sh) (fix: keep it in one layer; a file has one owner)`},
+			pack: newPack(profile("a", plain("dotai/notes.md")), profile("b", plain("dotai/notes.md"))),
+			want: []string{`profiles/b/dotai/notes.md: path-conflict: dotai/notes.md is also provided by profiles/a (first: profiles/a/dotai/notes.md) (fix: keep it in one layer; a file has one owner)`},
+		},
+		{
+			name: "same tool in two layers of a scope",
+			pack: newPack(base(plain("dotai/tools/lint.sh")), variant("v", plain("dotai/tools/lint.sh")), profile("a", plain("dotai/tools/lint.sh")), profile("b", plain("dotai/tools/lint.sh"))),
+			want: []string{
+				`variants/v/dotai/tools/lint.sh: tool-conflict: tool lint.sh is also provided by base (first: base/dotai/tools/lint.sh) (fix: rename it; a tool has one owner, and a layer that adjusts another layer's tool ships a file with a different name)`,
+				`profiles/b/dotai/tools/lint.sh: tool-conflict: tool lint.sh is also provided by profiles/a (first: profiles/a/dotai/tools/lint.sh) (fix: rename it; a tool has one owner, and a layer that adjusts another layer's tool ships a file with a different name)`,
+			},
+		},
+		{
+			name: "same tool in two variants, which are never applied together",
+			pack: newPack(base(), variant("a", plain("dotai/tools/lint.sh")), variant("b", plain("dotai/tools/lint.sh"))),
 		},
 		{
 			name: "same file path in both scopes",
@@ -283,7 +295,7 @@ func TestCheck(t *testing.T) {
 func files(fs []merge.File) []string {
 	out := []string{}
 	for _, f := range fs {
-		if f.Origins == nil && string(f.Data) != f.Layer+"/"+f.Path {
+		if f.Origins == nil && string(f.Data) != f.Layer+"/"+strings.Replace(f.Path, ".dotai/tools/", "dotai/tools/", 1) {
 			out = append(out, "bad data for "+f.Path)
 		}
 		out = append(out, f.Path+" "+f.Layer)
@@ -329,9 +341,9 @@ func TestStage(t *testing.T) {
 				"dotai/settings.yaml base",
 			},
 			project: []string{
+				".dotai/tools/lint.sh profiles/web",
 				".rulesync/commands/publish.md profiles/docs",
 				".rulesync/rules/web.md profiles/web",
-				"dotai/tools/lint.sh profiles/web",
 			},
 		},
 	}

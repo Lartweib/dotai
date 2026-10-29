@@ -406,7 +406,7 @@ func TestLoadLineEndingsBOMAndFences(t *testing.T) {
 func TestLoadLayerFiles(t *testing.T) {
 	fsys := validPack()
 	fsys["base/README.md"] = file("Outside the layer trees.")
-	fsys["base/dotai/tools/run.sh"] = file("echo run")
+	fsys["base/dotai/tools/run.sh"] = &fstest.MapFile{Data: []byte("echo run"), Mode: 0o755}
 	fsys["base/.rulesync/skills/orphan/notes.md"] = file("A skill directory without SKILL.md.")
 
 	p, diags, err := pack.Load(fsys)
@@ -415,16 +415,16 @@ func TestLoadLayerFiles(t *testing.T) {
 	}
 	var got []string
 	for _, f := range p.Layers[0].Files {
-		got = append(got, fmt.Sprintf("%s %s %s/%s", f.Path, f.Rel, f.Item.Kind, f.Item.Name))
+		got = append(got, fmt.Sprintf("%s %s %s/%s exec=%v", f.Path, f.Rel, f.Item.Kind, f.Item.Name, f.Exec))
 	}
 	want := []string{
-		"base/.rulesync/rules/overview.md .rulesync/rules/overview.md rule/overview",
-		"base/.rulesync/skills/commit/SKILL.md .rulesync/skills/commit/SKILL.md skill/commit",
-		"base/.rulesync/skills/commit/notes.md .rulesync/skills/commit/notes.md skill/commit",
-		"base/.rulesync/skills/orphan/notes.md .rulesync/skills/orphan/notes.md /",
-		"base/.rulesync/subagents/review/reviewer.md .rulesync/subagents/review/reviewer.md subagent/reviewer",
-		"base/dotai/settings.yaml dotai/settings.yaml /",
-		"base/dotai/tools/run.sh dotai/tools/run.sh /",
+		"base/.rulesync/rules/overview.md .rulesync/rules/overview.md rule/overview exec=false",
+		"base/.rulesync/skills/commit/SKILL.md .rulesync/skills/commit/SKILL.md skill/commit exec=false",
+		"base/.rulesync/skills/commit/notes.md .rulesync/skills/commit/notes.md skill/commit exec=false",
+		"base/.rulesync/skills/orphan/notes.md .rulesync/skills/orphan/notes.md / exec=false",
+		"base/.rulesync/subagents/review/reviewer.md .rulesync/subagents/review/reviewer.md subagent/reviewer exec=false",
+		"base/dotai/settings.yaml dotai/settings.yaml / exec=false",
+		"base/dotai/tools/run.sh dotai/tools/run.sh / exec=true",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("files = %q\nwant %q", got, want)
