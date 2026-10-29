@@ -278,13 +278,13 @@ func (d *Document) delete(path []string) {
 	if i+1 < n {
 		next = &obj.Members[i+1].Name.BeforeExtra
 	}
-	// Keep the comment that ends the line before the key, and what follows
-	// the key's own line.
-	keep, _ := cutLine(gone.Name.BeforeExtra)
+	// What stays of the text before the key, then what follows the key's
+	// own line, without the key's same-line comment.
 	_, rest := cutLine(*next)
-	merged := append(keep, rest...)
-	if i == 0 && !bytes.ContainsRune(*next, '\n') {
-		merged = slices.Clone(gone.Name.BeforeExtra) // one-line object
+	merged := append(keptBefore(gone.Name.BeforeExtra), rest...)
+	if i == 0 && len(lineBreaks(*next)) == 0 && !hasComment(*next) {
+		// A first key on one line: keep the spacing after the brace.
+		merged = slices.Clone(gone.Name.BeforeExtra)
 	}
 	if i == n-1 && i > 0 {
 		// The previous member becomes the last one: it takes the deleted
@@ -439,6 +439,20 @@ func lineBreaks(x []byte) []int {
 		}
 	}
 	return out
+}
+
+// keptBefore returns what stays of x, the text before a deleted key: the
+// comment that ends the previous line, and every line up to the last blank
+// one. The own-line comments right above the key go with it.
+func keptBefore(x hujson.Extra) hujson.Extra {
+	breaks := lineBreaks(x)
+	for j := len(breaks) - 1; j > 0; j-- {
+		if len(bytes.TrimSpace(x[breaks[j-1]+1:breaks[j]])) == 0 {
+			return slices.Clone(bytes.TrimSuffix(x[:breaks[j]], []byte("\r")))
+		}
+	}
+	head, _ := cutLine(x)
+	return head
 }
 
 // cutLine splits x at its first line break outside a block comment. head is
