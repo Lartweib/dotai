@@ -93,33 +93,72 @@ func TestDecodeRefusesAnotherSchema(t *testing.T) {
 	}
 }
 
-// TestPrune checks retention: the last keep backups stay, and so does the
-// oldest, which holds what was there before the first install. Names that
-// are not backups are never pruned.
-func TestPrune(t *testing.T) {
-	ids := func(from, to int) []string {
-		var out []string
-		for i := from; i <= to; i++ {
-			out = append(out, backup.ID(at.Add(time.Duration(i)*time.Minute), backup.OperationInstall))
-		}
-		return out
+// entries are complete backups taken a minute apart from minute from to
+// minute to.
+func entries(from, to int) []backup.Entry {
+	var out []backup.Entry
+	for i := from; i <= to; i++ {
+		t := at.Add(time.Duration(i) * time.Minute)
+		out = append(out, backup.Entry{ID: backup.ID(t, backup.OperationInstall), CreatedAt: t, Complete: true})
 	}
+	return out
+}
+
+func ids(es []backup.Entry) []string {
+	var out []string
+	for _, e := range es {
+		out = append(out, e.ID)
+	}
+	return out
+}
+
+// TestPrune checks retention: the last keep complete backups stay, and so
+// does the oldest, which holds what was there before the first install,
+// ordered by the time each manifest records. Incomplete backups go, except
+// a protected one, and protected backups always stay.
+func TestPrune(t *testing.T) {
+	all := entries(1, 13)
+	incomplete := backup.Entry{ID: backup.ID(at, backup.OperationInstall)}
 	tests := []struct {
-		name  string
-		names []string
-		want  []string
+		name    string
+		entries []backup.Entry
+		protect []string
+		want    []string
 	}{
-		{name: "none", names: nil, want: nil},
-		{name: "fewer than keep", names: ids(1, 5), want: nil},
-		{name: "keep plus the first", names: ids(1, 11), want: nil},
-		{name: "two too many", names: ids(1, 13), want: ids(2, 3)},
-		{name: "unsorted with strangers", names: append([]string{"notes", ".tmp"}, append(ids(7, 13), ids(1, 6)...)...), want: ids(2, 3)},
+		{name: "none"},
+		{name: "fewer than keep", entries: entries(1, 5)},
+		{name: "keep plus the first", entries: entries(1, 11)},
+		{name: "two too many", entries: all, want: ids(all[1:3])},
+		{name: "unsorted", entries: append(entries(7, 13), entries(1, 6)...), want: ids(all[1:3])},
+		{name: "protected", entries: all, protect: []string{all[1].ID}, want: ids(all[2:3])},
+		{name: "incomplete", entries: append(entries(1, 3), incomplete), want: []string{incomplete.ID}},
+		{name: "incomplete and protected", entries: append(entries(1, 3), incomplete), protect: []string{incomplete.ID}},
+		{name: "incomplete does not count", entries: append(entries(1, 11), incomplete), want: []string{incomplete.ID}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := backup.Prune(tt.names, 10); !reflect.DeepEqual(got, tt.want) {
+			if got := backup.Prune(tt.entries, 10, tt.protect...); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("Prune() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestPruneWithAClockThatWentBack checks that the order is the recorded
+// time, and that the backup just taken is never pruned even when the clock
+// put it before every other one.
+func TestPruneWithAClockThatWentBack(t *testing.T) {
+	all := entries(1, 12)
+	back := backup.Entry{ID: backup.ID(at, backup.OperationInstall), CreatedAt: at, Complete: true} // the newest, taken after the clock went back
+	got := backup.Prune(append(all, back), 10, back.ID)
+	// back is now the oldest, so it is the protected first one, and the
+	// one recorded as taken first is pruned with the next ones.
+	if want := ids(all[:2]); !reflect.DeepEqual(got, want) {
+		t.Errorf("Prune() = %v, want %v", got, want)
+	}
+	// The same time on two backups orders them by id.
+	same := []backup.Entry{{ID: "20261029T131500.000Z_install", CreatedAt: at, Complete: true}, {ID: "20261029T131500.001Z_install", CreatedAt: at, Complete: true}}
+	if got := backup.Prune(same, 0); !reflect.DeepEqual(got, []string{"20261029T131500.001Z_install"}) {
+		t.Errorf("Prune() = %v, want the second id pruned", got)
 	}
 }

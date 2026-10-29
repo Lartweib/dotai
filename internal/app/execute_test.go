@@ -604,3 +604,44 @@ func TestInstallCleansTheHomeDirectory(t *testing.T) {
 		t.Errorf("home = %q, state %q, root %q, want them under %s", m.Home, res.State, res.Root, home)
 	}
 }
+
+// TestInstallPrunesByTheRecordedTime checks retention with a clock that
+// went back: the backup just taken stays, and so do incomplete backups'
+// neighbours, while an incomplete backup left by an install that stopped
+// is deleted.
+func TestInstallPrunesByTheRecordedTime(t *testing.T) {
+	home, _ := installHome(t)
+	d := newClockFS()
+	var ids []string
+	for i := range 12 {
+		if i > 0 {
+			if err := os.Remove(at(home, ".dotai/tools/hello.sh")); err != nil {
+				t.Fatal(err)
+			}
+		}
+		res, err := quiet(t).install(d, examplePack, home)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, res.Backup.ID)
+	}
+	incomplete := at(home, ".dotai/backups/20261029T095900.000Z_install")
+	if err := os.MkdirAll(filepath.Join(incomplete, "files"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	d.now = time.Date(2026, 10, 29, 9, 0, 0, 0, time.UTC) // the clock goes back
+	if err := os.Remove(at(home, ".dotai/tools/hello.sh")); err != nil {
+		t.Fatal(err)
+	}
+	res, err := quiet(t).install(d, examplePack, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The new backup is now the oldest by its recorded time, so it is the
+	// protected first one; the ten latest stay, the two oldest go.
+	want := slices.Concat([]string{res.Backup.ID}, ids[2:])
+	slices.Sort(want)
+	if got := backups(t, home); !reflect.DeepEqual(got, want) {
+		t.Errorf("backups = %v, want %v", got, want)
+	}
+}

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/lartweib/dotai/internal/plan"
@@ -160,19 +161,48 @@ func Decode(data []byte) (Manifest, error) {
 	return m, nil
 }
 
-// Prune gives the backups of names to delete so that only the last keep
-// remain, besides the oldest, which holds what was there before the first
-// write and is never deleted. Names that are not backup ids are ignored.
-func Prune(names []string, keep int) []string {
-	var ids []string
-	for _, n := range names {
-		if _, ok := ParseID(n); ok {
-			ids = append(ids, n)
+// Entry is a backup directory found on disk: its id, the time its
+// manifest records and whether it has a manifest at all. A backup without
+// one is incomplete: it was being taken when its install stopped.
+type Entry struct {
+	ID        string
+	CreatedAt time.Time
+	Complete  bool
+}
+
+// Prune gives the ids of entries to delete, sorted, so that only the last
+// keep complete backups remain, besides the oldest complete one, which
+// holds what was there before the first write and is never deleted. They
+// are ordered by the time their manifests record, then by id, so that a
+// clock that went back does not reorder them by name. Incomplete backups
+// are deleted and do not count. A backup in protect, such as the one just
+// taken or the one the install state names, is never deleted.
+func Prune(entries []Entry, keep int, protect ...string) []string {
+	var complete []Entry
+	var out []string
+	for _, e := range entries {
+		switch {
+		case slices.Contains(protect, e.ID):
+		case !e.Complete:
+			out = append(out, e.ID)
+		}
+		if e.Complete {
+			complete = append(complete, e)
 		}
 	}
-	slices.Sort(ids) // ids sort in time order
-	if len(ids) <= keep+1 {
-		return nil
+	slices.SortFunc(complete, func(a, b Entry) int {
+		if c := a.CreatedAt.Compare(b.CreatedAt); c != 0 {
+			return c
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
+	if len(complete) > keep+1 {
+		for _, e := range complete[1 : len(complete)-keep] {
+			if !slices.Contains(protect, e.ID) {
+				out = append(out, e.ID)
+			}
+		}
 	}
-	return slices.Clone(ids[1 : len(ids)-keep])
+	slices.Sort(out)
+	return out
 }

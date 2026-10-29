@@ -208,7 +208,7 @@ func (r runner) run() (*BackupRef, string, error) {
 	if err != nil {
 		return nil, "", &InstallError{Cause: err, Rollback: r.rollback(ref.Path, done), Backup: ref.Path}
 	}
-	if err := r.prune(); err != nil {
+	if err := r.prune(ref.ID); err != nil {
 		return nil, "", fmt.Errorf("installed, with the backup %s and the state %s, but older backups could not be pruned: %w", ref.Path, statePath, err)
 	}
 	return ref, statePath, nil
@@ -418,15 +418,36 @@ func (r runner) writeState(name string, s state.State) error {
 	return r.d.WriteAtomic(name, data, false)
 }
 
-// prune removes the backups retention does not keep.
-func (r runner) prune() error {
+// prune removes the backups retention does not keep, never the backups in
+// protect. A backup whose manifest cannot be read or decoded is left
+// alone; one without a manifest is incomplete.
+func (r runner) prune(protect ...string) error {
 	root := filepath.Join(r.home, dotaiDir, backupsDir)
 	names, err := r.d.List(root)
 	if err != nil {
 		return err
 	}
+	var entries []backup.Entry
+	for _, name := range names {
+		if _, ok := backup.ParseID(name); !ok {
+			continue
+		}
+		data, err := r.d.ReadFile(filepath.Join(root, name), backup.ManifestName)
+		if errors.Is(err, fs.ErrNotExist) {
+			entries = append(entries, backup.Entry{ID: name})
+			continue
+		}
+		if err != nil {
+			continue
+		}
+		m, err := backup.Decode(data)
+		if err != nil {
+			continue
+		}
+		entries = append(entries, backup.Entry{ID: name, CreatedAt: m.CreatedAt, Complete: true})
+	}
 	var errs []error
-	for _, id := range backup.Prune(names, keepBackups) {
+	for _, id := range backup.Prune(entries, keepBackups, protect...) {
 		errs = append(errs, r.d.RemoveAll(filepath.Join(root, id)))
 	}
 	return errors.Join(errs...)
