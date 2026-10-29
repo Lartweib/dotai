@@ -1,0 +1,2 @@
+{"op": "set", "path": ["first"], "value": 1}
+{"op": "set", "path": ["empty"], "value": {}}

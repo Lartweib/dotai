@@ -1,0 +1,3 @@
+{"op": "set", "path": ["b", "c"], "value": "new"}
+{"op": "set", "path": ["b", "d", "e"], "value": true}
+{"op": "set", "path": ["a"], "value": {"x": 1}}

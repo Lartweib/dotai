@@ -1,0 +1,3 @@
+{"op": "delete", "path": ["last"]}
+{"op": "delete", "path": ["missing"]}
+{"op": "delete", "path": ["first", "through", "a", "number"]}

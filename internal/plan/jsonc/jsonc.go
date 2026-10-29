@@ -13,7 +13,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/tailscale/hujson"
 )
@@ -118,3 +120,195 @@ func lineIndent(x hujson.Extra) (string, bool) {
 	}
 	return string(x[i+1:]), true
 }
+
+// Set sets the value at path to value, which must be valid JSON. An existing
+// key keeps its position and comments; a new key goes at the end of its
+// object, and missing objects on the way are created.
+func (d *Document) Set(path []string, value []byte) error {
+	if len(path) == 0 {
+		return errors.New("empty path")
+	}
+	if !json.Valid(value) {
+		return fmt.Errorf("value for %q is not valid JSON", path)
+	}
+	if d.root == nil {
+		d.root = &hujson.Value{Value: &hujson.Object{}, AfterExtra: hujson.Extra(d.eol)}
+	}
+	parent := d.root
+	for i, key := range path {
+		obj, ok := parent.Value.(*hujson.Object)
+		if !ok {
+			return fmt.Errorf("%q is not an object", path[:i])
+		}
+		j, v := member(parent, key)
+		if v == nil {
+			d.appendTo(parent, i+1, &key, nest(path[i+1:], value))
+			return nil
+		}
+		if i < len(path)-1 {
+			parent = v
+			continue
+		}
+		old := standard(*v)
+		if canonical(old) == canonical(value) {
+			return nil
+		}
+		// Spread the new value over lines unless the old one was a
+		// non-empty array or object written on one line.
+		_, literal := v.Value.(hujson.Literal)
+		spread := literal || len(old) <= 2 || bytes.ContainsRune(hujson.Value{Value: v.Value}.Pack(), '\n')
+		ind, own := lineIndent(obj.Members[j].Name.BeforeExtra)
+		v.Value = d.render(value, ind, own && spread)
+	}
+	return nil
+}
+
+// Delete removes the key at path with its same-line comment and the own-line
+// comments right above it. A missing key is not an error.
+func (d *Document) Delete(path []string) error {
+	if len(path) == 0 {
+		return errors.New("empty path")
+	}
+	parent := d.lookup(path[:len(path)-1])
+	if parent == nil {
+		return nil
+	}
+	i, _ := member(parent, path[len(path)-1])
+	if i < 0 {
+		return nil
+	}
+	obj := parent.Value.(*hujson.Object)
+	n, gone := len(obj.Members), obj.Members[i]
+	next := &obj.AfterExtra
+	if i+1 < n {
+		next = &obj.Members[i+1].Name.BeforeExtra
+	}
+	// Keep the comment that ends the line before the key, and what follows
+	// the key's own line.
+	keep, _ := cutLine(gone.Name.BeforeExtra)
+	_, rest := cutLine(*next)
+	merged := append(keep, rest...)
+	if i == 0 && !bytes.ContainsRune(*next, '\n') {
+		merged = slices.Clone(gone.Name.BeforeExtra) // one-line object
+	}
+	if i == n-1 && i > 0 && gone.Value.AfterExtra == nil {
+		// The previous member becomes the last one: drop its comma.
+		prev := &obj.Members[i-1].Value
+		merged = append(slices.Clone(prev.AfterExtra), merged...)
+		prev.AfterExtra = nil
+	}
+	if n == 1 && !hasComment(merged) {
+		merged = nil
+	}
+	*next = merged
+	obj.Members = slices.Delete(obj.Members, i, i+1)
+	return nil
+}
+
+// appendTo appends value to the object or array c, whose items sit at depth.
+// name is the new member's key, or nil for an array element. The new item
+// follows the style of the last one: on its own line with the same indent,
+// or inline. An empty container is spread over lines.
+func (d *Document) appendTo(c *hujson.Value, depth int, name *string, value []byte) {
+	var tail *hujson.Extra
+	var last *hujson.Value
+	var ind string
+	var own bool
+	switch x := c.Value.(type) {
+	case *hujson.Object:
+		tail = &x.AfterExtra
+		if n := len(x.Members); n > 0 {
+			last = &x.Members[n-1].Value
+			ind, own = lineIndent(x.Members[n-1].Name.BeforeExtra)
+		}
+	case *hujson.Array:
+		tail = &x.AfterExtra
+		if n := len(x.Elements); n > 0 {
+			last = &x.Elements[n-1]
+			ind, own = lineIndent(last.BeforeExtra)
+		}
+	}
+	// A comment on the last item's line stays on that line.
+	head, rest := cutLine(*tail)
+	if last == nil {
+		ind, own = strings.Repeat(d.indent, depth), true
+		if !hasComment(rest) {
+			rest = hujson.Extra(d.eol + strings.Repeat(d.indent, depth-1))
+		}
+	}
+	before := append(head, ' ')
+	if own {
+		before = append(head, d.eol+ind...)
+	}
+	item := hujson.Value{Value: d.render(value, ind, own)}
+	if last != nil && last.AfterExtra != nil {
+		item.AfterExtra = hujson.Extra{} // keep the trailing comma
+	} else if last != nil {
+		last.AfterExtra = hujson.Extra{} // add the separating comma
+	}
+	switch x := c.Value.(type) {
+	case *hujson.Object:
+		item.BeforeExtra = hujson.Extra(" ")
+		x.Members = append(x.Members, hujson.ObjectMember{
+			Name:  hujson.Value{BeforeExtra: before, Value: hujson.String(*name)},
+			Value: item,
+		})
+	case *hujson.Array:
+		item.BeforeExtra = before
+		x.Elements = append(x.Elements, item)
+	}
+	*tail = rest
+}
+
+// render turns valid JSON into a value: compact, or spread over lines with
+// prefix as the indent of its first line.
+func (d *Document) render(value []byte, prefix string, spread bool) hujson.ValueTrimmed {
+	var b bytes.Buffer
+	if spread {
+		_ = json.Indent(&b, value, prefix, d.indent)
+	} else {
+		_ = json.Compact(&b, value)
+	}
+	v, _ := hujson.Parse(bytes.ReplaceAll(b.Bytes(), []byte("\n"), []byte(d.eol)))
+	return v.Value
+}
+
+// nest wraps value in one object per key, outermost first.
+func nest(keys []string, value []byte) []byte {
+	for i := len(keys) - 1; i >= 0; i-- {
+		k, _ := json.Marshal(keys[i])
+		value = slices.Concat([]byte("{"), k, []byte(":"), value, []byte("}"))
+	}
+	return value
+}
+
+// canonical returns valid JSON in a form where equal values are equal
+// strings: compact, with object keys sorted.
+func canonical(b []byte) string {
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.UseNumber()
+	var x any
+	_ = dec.Decode(&x)
+	out, _ := json.Marshal(x)
+	return string(out)
+}
+
+// cutLine splits x at its first line break. head is the text before it when
+// that holds a comment, and rest starts at the line break. Without a line
+// break, head is nil and rest is x. Both are copies.
+func cutLine(x hujson.Extra) (head, rest hujson.Extra) {
+	i := bytes.IndexByte(x, '\n')
+	if i < 0 {
+		return nil, slices.Clone(x)
+	}
+	if i > 0 && x[i-1] == '\r' {
+		i--
+	}
+	if hasComment(x[:i]) {
+		head = slices.Clone(x[:i])
+	}
+	return head, slices.Clone(x[i:])
+}
+
+// hasComment reports whether the whitespace and comments in x hold a comment.
+func hasComment(x []byte) bool { return bytes.IndexByte(x, '/') >= 0 }

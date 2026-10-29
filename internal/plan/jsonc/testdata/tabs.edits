@@ -1,0 +1,2 @@
+{"op": "set", "path": ["nested", "extra"], "value": {"list": [1, 2]}}
+{"op": "set", "path": ["added"], "value": ["a"]}
