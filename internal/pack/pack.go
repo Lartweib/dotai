@@ -36,6 +36,10 @@ const (
 	CodeNotRegularFile     = "not-regular-file"
 	CodeFileTooLarge       = "file-too-large"
 	CodeLayerNotDirectory  = "layer-not-directory"
+	CodeSettingsValue      = "settings-value-invalid"
+	CodeSettingsScope      = "settings-scope"
+	CodeOverridePath       = "override-path-invalid"
+	CodeOverrideKeyUnset   = "override-key-unset"
 
 	// A rulesync pin the engine cannot verify, reported only by LoadWith.
 	CodeRulesyncUnsupported = "rulesync-unsupported"
@@ -67,11 +71,12 @@ const (
 
 // Layer is one directory of the pack with the uniform layer shape.
 type Layer struct {
-	Kind  LayerKind
-	Name  string
-	Path  string
-	Items []Item // in lexical path order
-	Files []File // the files of .rulesync/ and dotai/, in lexical path order
+	Kind     LayerKind
+	Name     string
+	Path     string
+	Items    []Item    // in lexical path order
+	Files    []File    // the files of .rulesync/ and dotai/, in lexical path order
+	Settings *Settings // dotai/settings.yaml, nil when absent or not valid YAML
 }
 
 // File is a file of a layer, with its content.
@@ -167,7 +172,7 @@ func LoadWith(fsys fs.FS, rulesyncVersions []string) (*Pack, []Diagnostic, error
 		}
 	}
 	for _, l := range layers {
-		if err = loadLayer(fsys, &diags, &l); err != nil {
+		if err = loadLayer(fsys, &diags, &l, p.Manifest.Harnesses); err != nil {
 			return nil, nil, err
 		}
 		p.Layers = append(p.Layers, l)
@@ -193,9 +198,9 @@ func checkBase(fsys fs.FS, diags *[]Diagnostic) (bool, error) {
 
 // loadLayer walks the layer l without following links. It reports every
 // link and non-regular file in the layer, and reads the files of its
-// .rulesync/ and dotai/ trees, the items among them and the item each file
-// belongs to.
-func loadLayer(fsys fs.FS, diags *[]Diagnostic, l *Layer) error {
+// .rulesync/ and dotai/ trees, the items among them, the item each file
+// belongs to and the settings, checked against the manifest's harnesses.
+func loadLayer(fsys fs.FS, diags *[]Diagnostic, l *Layer, harnesses []string) error {
 	err := fs.WalkDir(fsys, l.Path, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
@@ -232,6 +237,11 @@ func loadLayer(fsys fs.FS, diags *[]Diagnostic, l *Layer) error {
 			l.Items = append(l.Items, it)
 			sortFrom(*diags, start)
 			f.Item = it.Ref()
+		}
+		if f.Rel == settingsFile {
+			start := len(*diags)
+			l.Settings = readSettings(reader{file: p, diags: diags}, src, l.Kind, harnesses)
+			sortFrom(*diags, start)
 		}
 		l.Files = append(l.Files, f)
 		return nil

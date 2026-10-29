@@ -1,9 +1,12 @@
 package pack
 
 import (
+	"errors"
+	"io"
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -27,10 +30,22 @@ func (r reader) report(n *yaml.Node, code, format string, args ...any) {
 var yamlErr = regexp.MustCompile(`^yaml: (?:line (\d+): )?`)
 
 // parse decodes src and returns its root node, nil when src is empty. A
-// syntax error is reported with code and its line, and ok is false.
+// syntax error or a second document is reported with code and its line,
+// and ok is false.
 func (r reader) parse(src string, code string) (root *yaml.Node, ok bool) {
-	var doc yaml.Node
-	if err := yaml.Unmarshal([]byte(src), &doc); err != nil {
+	var doc, next yaml.Node
+	dec := yaml.NewDecoder(strings.NewReader(src))
+	err := dec.Decode(&doc)
+	if err == nil {
+		if err = dec.Decode(&next); err == nil {
+			r.report(&next, code, "only one YAML document is allowed")
+			return nil, false
+		}
+	}
+	if errors.Is(err, io.EOF) {
+		err = nil
+	}
+	if err != nil {
 		line := 0
 		if m := yamlErr.FindStringSubmatch(err.Error()); m != nil && m[1] != "" {
 			line, _ = strconv.Atoi(m[1])

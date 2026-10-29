@@ -159,6 +159,11 @@ func TestLoadDiagnostics(t *testing.T) {
 			want:   []string{"dotai.yaml:1:1: field-type: dotai.yaml must be a mapping"},
 		},
 		{
+			name:   "manifest with two documents",
+			mutate: setManifest(manifest + "---\nname: other\n"),
+			want:   []string{"dotai.yaml:19:1: yaml-invalid: only one YAML document is allowed"},
+		},
+		{
 			name:   "unknown schema",
 			mutate: editManifest("dotai.pack/v1", "dotai.pack/v9"),
 			want:   []string{`dotai.yaml:1:9: schema-unknown: unknown schema "dotai.pack/v9", want "dotai.pack/v1"`},
