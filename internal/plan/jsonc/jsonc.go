@@ -271,6 +271,10 @@ func (d *Document) appendTo(c *hujson.Value, depth int, name *string, value []by
 			rest = hujson.Extra(d.eol + strings.Repeat(d.indent, depth-1))
 		}
 	}
+	if !own && bytes.Contains(head, []byte("//")) {
+		// A line comment runs to the end of the line: break after it.
+		ind, own = strings.Repeat(d.indent, depth), true
+	}
 	before := append(head, ' ')
 	if own {
 		before = append(head, d.eol+ind...)
@@ -329,14 +333,32 @@ func canonical(b []byte) string {
 	return string(out)
 }
 
-// cutLine splits x at its first line break. head is the text before it when
-// that holds a comment, and rest starts at the line break. Without a line
-// break, head is nil and rest is x. Both are copies.
+// lineBreaks returns the offsets of the line breaks in x, the whitespace and
+// comments between two tokens, that are not inside a block comment.
+func lineBreaks(x []byte) []int {
+	var out []int
+	for i := 0; i < len(x); i++ {
+		switch {
+		case bytes.HasPrefix(x[i:], []byte("//")):
+			i += bytes.IndexByte(x[i:], '\n') - 1 // the next turn sees the '\n'
+		case bytes.HasPrefix(x[i:], []byte("/*")):
+			i += bytes.Index(x[i+2:], []byte("*/")) + 3
+		case x[i] == '\n':
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
+// cutLine splits x at its first line break outside a block comment. head is
+// the text before it when that holds a comment, and rest starts at the line
+// break. Without a line break, head is nil and rest is x. Both are copies.
 func cutLine(x hujson.Extra) (head, rest hujson.Extra) {
-	i := bytes.IndexByte(x, '\n')
-	if i < 0 {
+	breaks := lineBreaks(x)
+	if len(breaks) == 0 {
 		return nil, slices.Clone(x)
 	}
+	i := breaks[0]
 	if i > 0 && x[i-1] == '\r' {
 		i--
 	}

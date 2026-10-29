@@ -183,3 +183,61 @@ func TestGet(t *testing.T) {
 		}
 	}
 }
+
+func set(path []string, value string) func(*jsonc.Document) error {
+	return func(d *jsonc.Document) error { return d.Set(path, []byte(value)) }
+}
+
+func del(path []string) func(*jsonc.Document) error {
+	return func(d *jsonc.Document) error { return d.Delete(path) }
+}
+
+func union(path []string, elems ...string) func(*jsonc.Document) error {
+	return func(d *jsonc.Document) error {
+		raw := make([][]byte, len(elems))
+		for i, e := range elems {
+			raw[i] = []byte(e)
+		}
+		return d.Union(path, raw...)
+	}
+}
+
+// TestEdits covers layouts too small or odd for a golden file.
+func TestEdits(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		edit func(*jsonc.Document) error
+		want string
+	}{
+		{"append after a line comment on an inline object",
+			"{\"a\": 1 // c\n}", set([]string{"b"}, `2`),
+			"{\"a\": 1, // c\n  \"b\": 2\n}"},
+		{"append after a line comment on an inline array",
+			"{\"allow\": [\"x\", \"y\" // c\n]}", union([]string{"allow"}, `"z"`),
+			"{\"allow\": [\"x\", \"y\", // c\n    \"z\"\n]}"},
+		{"delete before a multi-line block comment",
+			"{\n  \"a\": 1, /* x\n y */\n  \"b\": 2\n}\n", del([]string{"a"}),
+			"{\n  \"b\": 2\n}\n"},
+		{"delete after a multi-line header comment",
+			"{ /* hdr\n x */\n  \"a\": 1,\n  \"b\": 2\n}", del([]string{"a"}),
+			"{ /* hdr\n x */\n  \"b\": 2\n}"},
+		{"append after a multi-line block comment",
+			"{\n  \"a\": 1 /* x\n y */\n}\n", set([]string{"b"}, `2`),
+			"{\n  \"a\": 1, /* x\n y */\n  \"b\": 2\n}\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			doc, err := jsonc.Parse([]byte(tt.src))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := tt.edit(doc); err != nil {
+				t.Fatal(err)
+			}
+			if got := string(doc.Bytes()); got != tt.want {
+				t.Errorf("got:\n%q\nwant:\n%q", got, tt.want)
+			}
+		})
+	}
+}
