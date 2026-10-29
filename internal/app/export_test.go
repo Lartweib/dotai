@@ -50,3 +50,8 @@ var (
 	Transient  = transient
 	NarrowMode = narrowMode
 )
+
+// RestoreWith is Restore through d.
+func RestoreWith(ctx context.Context, d executeFS, home, id string, overwrite func(RestoreResult) (bool, error)) (RestoreResult, error) {
+	return restore(ctx, d, home, id, overwrite)
+}

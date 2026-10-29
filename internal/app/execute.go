@@ -223,9 +223,8 @@ type applied struct {
 // run locks, backs up, journals, executes, writes the state and prunes
 // the backups, and fills res with the backup, the state path and the
 // warnings.
-func (r runner) run(res *InstallResult) (err error) {
-	dotai := filepath.Join(r.home, dotaiDir)
-	statePath := filepath.Join(dotai, stateFile)
+func (r runner) run(res *InstallResult) error {
+	statePath := filepath.Join(r.home, dotaiDir, stateFile)
 	var writes []plan.Op
 	for _, op := range r.p.ops {
 		if op.Action != plan.Unchanged {
@@ -238,21 +237,14 @@ func (r runner) run(res *InstallResult) (err error) {
 		res.State = statePath
 		return nil
 	}
+	return r.locked(&res.Warnings, func() error { return r.write(res, writes, next) })
+}
 
-	unlock, err := r.lock()
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if uErr := unlock(); uErr != nil {
-			w := fmt.Sprintf("the lock %s could not be removed: %v; remove it before the next install", filepath.Join(dotai, lockFile), uErr)
-			if err != nil {
-				err = errors.Join(err, errors.New(w))
-			} else {
-				res.Warnings = append(res.Warnings, w)
-			}
-		}
-	}()
+// write carries out writes under the lock, as run describes, towards the
+// state next.
+func (r runner) write(res *InstallResult, writes []plan.Op, next state.State) error {
+	statePath := filepath.Join(r.home, dotaiDir, stateFile)
+	prev := r.p.prev
 	if err := r.recheckState(statePath); err != nil {
 		return err
 	}
@@ -322,6 +314,27 @@ func settledBackup(s state.State) string {
 		}
 	}
 	return s.Backup
+}
+
+// locked runs f holding ~/.dotai/lock. A lock that cannot be removed
+// afterwards is added to warnings when f worked, and to its error when it
+// did not.
+func (r runner) locked(warnings *[]string, f func() error) (err error) {
+	unlock, err := r.lock()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if uErr := unlock(); uErr != nil {
+			w := fmt.Sprintf("the lock %s could not be removed: %v; remove it before dotai runs again", filepath.Join(r.home, dotaiDir, lockFile), uErr)
+			if err != nil {
+				err = errors.Join(err, errors.New(w))
+			} else {
+				*warnings = append(*warnings, w)
+			}
+		}
+	}()
+	return f()
 }
 
 // lock takes ~/.dotai/lock, creating ~/.dotai when it is missing.
@@ -543,7 +556,7 @@ func (r runner) apply(op plan.Op) (applied, error) {
 		return a, err
 	}
 	if h := sha256.Sum256(data); hex.EncodeToString(h[:]) != op.After {
-		return a, fmt.Errorf("the staged %s changed after the plan was made", op.Source)
+		return a, fmt.Errorf("%s changed after the plan was made", filepath.Join(r.p.tree, filepath.FromSlash(op.Source)))
 	}
 	return a, r.d.WriteIn(root, name, data, perm(op.Exec))
 }
