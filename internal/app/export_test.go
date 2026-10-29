@@ -30,6 +30,6 @@ type OSInstallFS = osInstallFS
 
 // PlanInstallWith is PlanInstall reading the disk through d, fetching
 // through fetch and running rulesync through run.
-func PlanInstallWith(d installFS, fetch fetchFunc, run runFunc, dir, variant, home string) (InstallPlan, error) {
-	return planInstall(context.Background(), d, fetch, run, "cache", dir, variant, home, nil)
+func PlanInstallWith(ctx context.Context, d installFS, fetch fetchFunc, run runFunc, dir, variant, home string) (InstallPlan, error) {
+	return planInstall(ctx, d, fetch, run, "cache", dir, variant, home, nil)
 }
