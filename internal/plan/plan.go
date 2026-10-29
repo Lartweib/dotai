@@ -109,7 +109,7 @@ func (e *UnmappedError) Error() string {
 // tools directory, and rulesync's sources are skipped. Any other file is
 // an UnmappedError, so that nothing staged is dropped silently. A path
 // Windows cannot store is an error on every OS, and so are two files with
-// one target and a harness given twice.
+// one target, a harness given twice and a harness without isolation.
 func Build(in Input) (Plan, error) {
 	if !filepath.IsAbs(in.Home) {
 		return Plan{}, fmt.Errorf("home directory %q is not absolute", in.Home)
@@ -118,6 +118,9 @@ func Build(in Input) (Plan, error) {
 	for _, a := range in.Adapters {
 		if seen[a.ID] {
 			return Plan{}, fmt.Errorf("harness %q is given twice", a.ID)
+		}
+		if a.Isolation.Level == harness.None {
+			return Plan{}, fmt.Errorf("harness %q does not offer the isolated mode (decision 0018)", a.ID)
 		}
 		seen[a.ID] = true
 	}
@@ -181,16 +184,22 @@ var reserved = []string{"CON", "PRN", "AUX", "NUL",
 	"COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
 	"LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"}
 
+// forbidden are the characters Windows refuses in a file name, besides
+// the control characters and the separators.
+const forbidden = `:<>"|?*`
+
 // checkPath rejects a staged path that is not a slash path inside the
 // tree, or that Windows cannot store: a backslash, which separates there,
-// or a segment with a colon or a device name.
+// or a segment with a control character such as NUL, a character in
+// forbidden or a device name.
 func checkPath(name string) error {
 	if !fs.ValidPath(name) || name == "." || strings.Contains(name, `\`) {
 		return fmt.Errorf("staged path %q is not a slash path inside the tree", name)
 	}
 	for seg := range strings.SplitSeq(name, "/") {
 		base, _, _ := strings.Cut(seg, ".")
-		if strings.Contains(seg, ":") || slices.Contains(reserved, strings.ToUpper(base)) {
+		control := strings.ContainsFunc(seg, func(r rune) bool { return r < 0x20 })
+		if control || strings.ContainsAny(seg, forbidden) || slices.Contains(reserved, strings.ToUpper(base)) {
 			return fmt.Errorf("staged path %q: %q is not a valid file name on Windows", name, seg)
 		}
 	}

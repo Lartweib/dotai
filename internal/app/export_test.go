@@ -24,3 +24,12 @@ var ExpandPaths = expandPaths
 
 // EncodeSettings is the settings file of one harness.
 var EncodeSettings = encodeSettings
+
+// OSInstallFS is the real file system port of PlanInstall.
+type OSInstallFS = osInstallFS
+
+// PlanInstallWith is PlanInstall reading the disk through d, fetching
+// through fetch and running rulesync through run.
+func PlanInstallWith(ctx context.Context, d installFS, fetch fetchFunc, run runFunc, dir, variant, home string) (InstallPlan, error) {
+	return planInstall(ctx, d, fetch, run, "cache", dir, variant, home, nil)
+}

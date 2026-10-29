@@ -6,7 +6,7 @@ One source of rules, agents, skills, hooks, MCP servers and settings, rendered i
 
 dotai is split into a Go **engine** and **packs** of content. A reference pack is kept in its own repository; you can point the same binary at your own pack instead. See [0010](docs/decisions/0010-engine-and-pack-separated.md) and [0015](docs/decisions/0015-pack-in-its-own-repository.md).
 
-**Status:** early development. `dotai validate`, `dotai stage` and `dotai rulesync fetch` exist; installing into harnesses does not yet.
+**Status:** early development. `dotai validate`, `dotai stage`, `dotai rulesync fetch` and `dotai install --dry-run`, which prints the plan of an isolated install, exist; installing into harnesses does not yet.
 
 ## Docs
 
