@@ -6,6 +6,8 @@ tags: [engine, install, isolation, harnesses]
 
 # 0031 · Isolated installs live under `~/.dotai/isolated/`
 
+> **Partially superseded by [0034](0034-replace-mode-in-v1.md): isolated is no longer the only mode in v1;** the replace mode is part of v1 too. Everything else is still in force.
+
 ## Context
 
 [0018](0018-install-modes-and-mandatory-backup.md) decides that the isolated mode installs a pack "into a separate configuration directory per harness", and names each harness's relocation mechanism, but not where those directories are. The plan ([0028](0028-plan-centric-hexagonal-engine.md)) needs an absolute target for every staged file before anything is written. The user-scope staging tree holds each harness's output at the path it has under the home directory (`.claude/`, `.gemini/`, `.config/opencode/`) and the tools at `.dotai/tools/` ([CLI-JSON](../CLI-JSON.md), `stage`). Isolated is the only mode in v1.

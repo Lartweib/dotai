@@ -8,7 +8,7 @@ tags: [product, scope, roadmap, v1, install]
 
 ## Context
 
-[0018](0018-install-modes-and-mandatory-backup.md) defines three install modes. Replace backs up, removes the files the harness owns and applies the pack, working on an allowlist of owned paths declared by each adapter. [0020](0020-v1-scope-engine-and-pack.md) put the replace mode after v1, and the [roadmap](../ROADMAP.md) followed it.
+[0018](0018-install-modes-and-mandatory-backup.md) defines three install modes. Replace backs up, removes the files the harness owns and applies the pack, working on an allowlist of owned paths declared by each adapter. [0020](0020-v1-scope-engine-and-pack.md) put the replace mode after v1, [0031](0031-isolated-install-root.md) states that isolated is the only mode in v1, and the [roadmap](../ROADMAP.md) followed them.
 
 The maintainer's motivation for dotai is to replace an existing configuration with a clean one built for their own use. With isolated as the only v1 mode, v1 can install a pack next to the current setup but never for real.
 
@@ -24,7 +24,7 @@ The replace mode is part of v1, for the three v1 harnesses ([0019](0019-v1-harne
 - **Isolated stays.** Isolated remains the way to try a pack first, next to the current configuration.
 - **The way back.** `dotai restore` undoes a replace like any other install: it brings back the user's original configuration from the backup.
 
-This supersedes only the part of 0020 that puts the replace mode after v1. Everything else in 0020 is still in force.
+This supersedes only the part of 0020 that puts the replace mode after v1, and the sentence of 0031 that makes isolated the only mode in v1. Everything else in 0020 and 0031 is still in force.
 
 ## Considered options
 
@@ -34,7 +34,7 @@ This supersedes only the part of 0020 that puts the replace mode after v1. Every
 
 ## Consequences
 
-- Partially supersedes [0020](0020-v1-scope-engine-and-pack.md): replace moves from "after v1" into v1.
+- Partially supersedes [0020](0020-v1-scope-engine-and-pack.md): replace moves from "after v1" into v1. Partially supersedes [0031](0031-isolated-install-root.md): isolated is no longer the only v1 mode.
 - Good: v1 can install a pack over the real configuration, and go back to it with `dotai restore`.
 - Accepted cost: each adapter carries an allowlist of owned paths in the real configuration directory, and a wrong entry could remove a user's file. The backup and restore limit the damage, not the mistake.
 - Pending: the allowlist of each adapter; how dotai checks that the harness is closed; the checks of [0033](0033-restore-from-the-install-history.md), which accept only targets inside an isolated directory or the tools directory, extended to the allowlist.
