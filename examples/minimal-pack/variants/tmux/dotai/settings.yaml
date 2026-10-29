@@ -1,0 +1,6 @@
+claudecode:
+  model: opus
+  env:
+    DOTAI_TERMINAL: tmux
+dotai:
+  overrides: [claudecode.model]

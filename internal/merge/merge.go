@@ -5,15 +5,17 @@
 // rule row), claimPath (every other file) and crossScope (the cross-scope
 // paragraph). claimPath also places a layer's tools at their install path,
 // .dotai/tools/, and reports a tool in two layers of a scope as
-// tool-conflict (decision 0030).
+// tool-conflict (decision 0030). mergeSettings applies the Single values
+// row to dotai/settings.yaml within a scope; a user setting and a project
+// setting never clash, because they go to different files.
 //
 // Not covered yet:
 //   - A variant's detect rule. The user scope uses the variant in the
 //     Selection, or the pack's default.
-//   - Merging lists and values: dotai/settings.yaml, hooks.jsonc and
-//     permissions.jsonc in two layers of a scope are reported as
-//     merge-pending until their content merge lands (roadmap PR 5); any
-//     other repeated path is a path-conflict, or a tool-conflict for a tool.
+//   - Merging lists: hooks.jsonc and permissions.jsonc in two layers of a
+//     scope are reported as merge-pending until their content merge lands
+//     (roadmap PR 5); any other repeated path is a path-conflict, or a
+//     tool-conflict for a tool.
 package merge
 
 import (
@@ -63,9 +65,9 @@ const (
 	ToolsDir    = ".dotai/tools"
 )
 
-// pendingMerge holds the files whose lists and values will be merged
-// across layers; until then one owner per scope is allowed.
-var pendingMerge = []string{"dotai/settings.yaml", ".rulesync/hooks.jsonc", ".rulesync/permissions.jsonc"}
+// pendingMerge holds the files whose lists will be merged across layers;
+// until then one owner per scope is allowed.
+var pendingMerge = []string{".rulesync/hooks.jsonc", ".rulesync/permissions.jsonc"}
 
 // Selection names the layers to merge.
 type Selection struct {
@@ -82,10 +84,13 @@ type File struct {
 	Exec    bool // the source is executable
 }
 
-// Staging holds the merged tree of each scope, in path order.
+// Staging holds the merged tree of each scope, in path order, and the
+// merged settings of each scope by harness.
 type Staging struct {
-	User    []File // base and variant
-	Project []File // profiles
+	User            []File // base and variant
+	Project         []File // profiles
+	UserSettings    map[string][]Setting
+	ProjectSettings map[string][]Setting
 }
 
 // Check runs the merge rules over the layers sel names, both scopes
@@ -127,7 +132,7 @@ func Stage(p *pack.Pack, sel Selection) (Staging, []pack.Diagnostic) {
 	if diags = slices.Concat(user.diags, withoutShadowed(project.diags, cross), cross); len(diags) > 0 {
 		return Staging{}, diags
 	}
-	return Staging{User: user.tree(), Project: project.tree()}, nil
+	return Staging{User: user.tree(), Project: project.tree(), UserSettings: user.mergedSettings(), ProjectSettings: project.mergedSettings()}, nil
 }
 
 // resolve returns the variant and profile layers sel names. With all, an
@@ -220,16 +225,18 @@ type staged struct {
 
 // scope is the merge state of one scope's layers, applied in order.
 type scope struct {
-	names   map[string]owner           // by key
-	root    string                     // file of the root rule
-	files   map[string]staged          // by path in the tree
-	lower   map[string]string          // lower-case path to path
-	servers map[string]json.RawMessage // MCP server definitions by name
-	diags   []pack.Diagnostic
+	names    map[string]owner           // by key
+	root     string                     // file of the root rule
+	files    map[string]staged          // by path in the tree
+	lower    map[string]string          // lower-case path to path
+	servers  map[string]json.RawMessage // MCP server definitions by name
+	settings map[string]setting         // by identity
+	seq      int                        // the next setting's place in the order
+	diags    []pack.Diagnostic
 }
 
 func newScope(layers ...pack.Layer) *scope {
-	s := &scope{names: map[string]owner{}, files: map[string]staged{}, lower: map[string]string{}, servers: map[string]json.RawMessage{}}
+	s := &scope{names: map[string]owner{}, files: map[string]staged{}, lower: map[string]string{}, servers: map[string]json.RawMessage{}, settings: map[string]setting{}}
 	for _, l := range layers {
 		s.add(l)
 	}
@@ -239,15 +246,16 @@ func newScope(layers ...pack.Layer) *scope {
 // with returns a copy of s with l merged on top. The copy reports only the
 // diagnostics l causes.
 func (s *scope) with(l pack.Layer) *scope {
-	c := &scope{names: maps.Clone(s.names), root: s.root, files: maps.Clone(s.files), lower: maps.Clone(s.lower), servers: maps.Clone(s.servers)}
+	c := &scope{names: maps.Clone(s.names), root: s.root, files: maps.Clone(s.files), lower: maps.Clone(s.lower), servers: maps.Clone(s.servers),
+		settings: maps.Clone(s.settings), seq: s.seq}
 	c.add(l)
 	return c
 }
 
 func (s *scope) report(d pack.Diagnostic) { s.diags = append(s.diags, d) }
 
-// add merges layer l: its items first, then its files. A file of an item
-// enters the tree only when its layer owns the item.
+// add merges layer l: its items first, then its files, then its settings.
+// A file of an item enters the tree only when its layer owns the item.
 func (s *scope) add(l pack.Layer) {
 	for _, it := range l.Items {
 		s.checkRoot(l, it)
@@ -261,9 +269,13 @@ func (s *scope) add(l pack.Layer) {
 			}
 		case f.Rel == mcpFile:
 			s.mergeMCP(l, f)
+		case f.Rel == settingsFile: // merged from l.Settings below
 		default:
 			s.claimPath(l, f)
 		}
+	}
+	if l.Settings != nil {
+		s.mergeSettings(l)
 	}
 }
 
@@ -347,7 +359,7 @@ func (s *scope) claimPath(l pack.Layer, f pack.File) {
 			WithHint("rename it; a tool has one owner, and a layer that adjusts another layer's tool ships a file with a different name"))
 	case taken && slices.Contains(pendingMerge, f.Rel):
 		s.report(pack.NewDiagnostic(f.Path, fileLine, 0, CodeMergePending, "%s is also provided by %s", f.Rel, prev.Layer).WithRelated(prev.src, fileLine).
-			WithHint("keep it in one layer; merging lists and values across layers lands in a later version of dotai"))
+			WithHint("keep it in one layer; merging lists across layers lands in a later version of dotai"))
 	case taken:
 		s.report(pack.NewDiagnostic(f.Path, fileLine, 0, CodePathConflict, "%s is also provided by %s", f.Rel, prev.Layer).WithRelated(prev.src, fileLine).
 			WithHint("keep it in one layer; a file has one owner"))

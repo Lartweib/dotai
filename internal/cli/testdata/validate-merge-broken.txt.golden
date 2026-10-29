@@ -20,12 +20,12 @@ variants/standalone/.rulesync/rules/standalone.md
 variants/standalone/.rulesync/hooks.jsonc
   merge-pending            .rulesync/hooks.jsonc is also provided by base
                            first: base/.rulesync/hooks.jsonc
-                           fix:   keep it in one layer; merging lists and values across layers lands in a later version of dotai
+                           fix:   keep it in one layer; merging lists across layers lands in a later version of dotai
 
 variants/standalone/dotai/settings.yaml
-  merge-pending            dotai/settings.yaml is also provided by base
-                           first: base/dotai/settings.yaml
-                           fix:   keep it in one layer; merging lists and values across layers lands in a later version of dotai
+  2:3  override-undeclared      setting claudecode.model already exists in base
+                                first: base/dotai/settings.yaml:2
+                                fix:   add claudecode.model to dotai.overrides to replace it
 
 variants/tmux/.rulesync/commands/release.md
   override-without-target  command "release" has nothing to override
