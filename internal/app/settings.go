@@ -6,11 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
+	"slices"
 
 	"github.com/tailscale/hujson"
 	"go.yaml.in/yaml/v3"
 
 	"github.com/lartweib/dotai/internal/merge"
+	"github.com/lartweib/dotai/internal/pack"
 )
 
 // Generators of the settings files, in StagedFile.Generator.
@@ -19,9 +22,25 @@ const (
 	GeneratorRulesyncDotai = "rulesync+dotai" // rulesync's file with the keys of dotai/settings.yaml appended
 )
 
-// ErrSettingsConflict is a top-level key that both rulesync and
-// dotai/settings.yaml write to one settings file.
-var ErrSettingsConflict = errors.New("settings-conflict")
+// CodeSettingsConflict is the diagnostic of a SettingsConflict.
+const CodeSettingsConflict = "settings-conflict"
+
+// SettingsConflict is a top-level key that both rulesync and the
+// dotai/settings.yaml of Layer write to one settings file. Harness and
+// File, the file in the scope tree, are set by renderSettings.
+type SettingsConflict struct {
+	Harness, Key, Layer, File string
+}
+
+func (e *SettingsConflict) Error() string {
+	return fmt.Sprintf("key %q is written by both rulesync and %s/dotai/settings.yaml", e.Key, e.Layer)
+}
+
+// diagnostic reports the conflict at the settings.yaml that sets the key.
+func (e *SettingsConflict) diagnostic() Diagnostic {
+	return pack.NewDiagnostic(e.Layer+"/dotai/settings.yaml", 0, 0, CodeSettingsConflict, "setting %s.%s is also written by rulesync to %s", e.Harness, e.Key, e.File).
+		WithHint("remove %s from this file, or the rulesync source that writes it from the pack", e.Key)
+}
 
 // settingsFiles is where each harness keeps its settings in a scope's
 // staging tree (decision 0025). A missing scope has no settings file.
@@ -52,6 +71,9 @@ func renderSettings(w stageFS, dir, scope string, harnesses []string, settings m
 			return nil, err
 		}
 		data, err := encodeSettings(existing, settings[h], tools)
+		if c, ok := errors.AsType[*SettingsConflict](err); ok {
+			c.Harness, c.File = h, scope+"/"+name
+		}
 		if err != nil {
 			return nil, fmt.Errorf("%s/%s: %w", scope, name, err)
 		}
@@ -99,7 +121,11 @@ func encodeSettings(existing []byte, settings []merge.Setting, tools ToolPaths) 
 	}
 	for _, s := range settings {
 		if written[s.Key] {
-			return nil, fmt.Errorf("%w: key %q is written by both rulesync and dotai/settings.yaml", ErrSettingsConflict, s.Key)
+			layer := s.Layer
+			if layer == "" { // a merged env: the layer of its first variable
+				layer = slices.Min(slices.Collect(maps.Values(s.Origins)))
+			}
+			return nil, &SettingsConflict{Key: s.Key, Layer: layer}
 		}
 		comma(&b)
 		if err := encodeJSON(&b, s.Key); err != nil {

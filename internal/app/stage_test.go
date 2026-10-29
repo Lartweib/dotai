@@ -425,13 +425,23 @@ func TestStageRendersSettingsAfterRulesync(t *testing.T) {
 
 func TestStageSettingsConflictWritesNothing(t *testing.T) {
 	parent := t.TempDir()
-	f := &fakeRulesync{t: t, quiet: true, settings: `{"model": "haiku"}`}
-	_, err := f.stage(examplePack, filepath.Join(parent, "staging"), app.Selection{}, false)
-	if !errors.Is(err, app.ErrSettingsConflict) || !strings.Contains(err.Error(), "user/.claude/settings.json") {
-		t.Errorf("Stage() error = %v, want a settings conflict in user/.claude/settings.json", err)
+	out := filepath.Join(parent, "staging")
+	if _, err := quiet(t).stage(examplePack, out, app.Selection{}, false); err != nil {
+		t.Fatal(err)
 	}
-	if entries, _ := os.ReadDir(parent); len(entries) != 0 {
-		t.Errorf("entries next to --out = %v, want none", entries)
+	before := tree(t, out)
+	f := &fakeRulesync{t: t, quiet: true, settings: `{"model": "haiku"}`}
+	res, err := f.stage(examplePack, out, app.Selection{}, true)
+	want := app.Diagnostic{File: "base/dotai/settings.yaml", Code: app.CodeSettingsConflict}
+	if err != nil || len(res.Diagnostics) != 1 || len(res.Files) != 0 || res.Diagnostics[0].File != want.File || res.Diagnostics[0].Code != want.Code ||
+		!strings.Contains(res.Diagnostics[0].Message, "user/.claude/settings.json") {
+		t.Errorf("Stage() = %+v, %v, want one diagnostic at %s about user/.claude/settings.json", res, err, want.File)
+	}
+	if got := tree(t, out); !reflect.DeepEqual(got, before) {
+		t.Errorf("tree = %v, want %v", got, before)
+	}
+	if entries, _ := os.ReadDir(parent); len(entries) != 1 {
+		t.Errorf("entries next to --out = %v, want only --out", entries)
 	}
 }
 

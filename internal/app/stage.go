@@ -79,8 +79,9 @@ type stageFS interface {
 // variables of every staged text file become the paths in tools before
 // rulesync runs. After rulesync, the merged settings of each scope are
 // written into each harness's settings file, after the keys rulesync wrote
-// there; a key written by both is an ErrSettingsConflict. rulesync is
-// fetched into cacheDir as FetchRulesync does; progress may be nil.
+// there; a key written by both is a settings-conflict diagnostic, and
+// nothing is written. rulesync is fetched into cacheDir as FetchRulesync
+// does; progress may be nil.
 func Stage(ctx context.Context, cacheDir, dir, out string, sel Selection, tools ToolPaths, force bool, progress Progress) (StageResult, error) {
 	return stage(ctx, osStageFS{}, download, generate, cacheDir, dir, out, sel, tools, force, progress)
 }
@@ -179,6 +180,10 @@ func stage(ctx context.Context, w stageFS, fetch fetchFunc, run runFunc, cacheDi
 		return rendered, nil
 	}
 	rendered, err := swap(w, out, replace, files, render)
+	if c, ok := errors.AsType[*SettingsConflict](err); ok {
+		res.Files, res.Diagnostics = []StagedFile{}, []Diagnostic{c.diagnostic()}
+		return res, nil
+	}
 	if err != nil {
 		return StageResult{}, err
 	}

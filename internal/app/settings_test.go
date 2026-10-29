@@ -71,10 +71,12 @@ func TestEncodeSettingsFails(t *testing.T) {
 		tools                    app.ToolPaths
 		want                     error
 		wantText                 string
+		conflict                 string // the key of a settings conflict
 	}{
-		{"a key rulesync also wrote", `{"$schema": "s", "hooks": {}}`, "model: m\nhooks: {}", app.ToolPaths{}, app.ErrSettingsConflict, `"hooks"`},
-		{"a rulesync file that is not an object", `[]`, "model: m", app.ToolPaths{}, nil, "not a JSON object"},
-		{"a path variable without its directory", "", "s: ${DOTAI_TOOLS}", app.ToolPaths{UserErr: errHome}, errHome, "${DOTAI_TOOLS}"},
+		{"a key rulesync also wrote", `{"$schema": "s", "hooks": {}}`, "model: m\nhooks: {}", app.ToolPaths{}, nil, `"hooks"`, "hooks"},
+		{"an escaped key rulesync also wrote", `{"model": "x"}`, "model: m", app.ToolPaths{}, nil, `"model"`, "model"},
+		{"a rulesync file that is not an object", `[]`, "model: m", app.ToolPaths{}, nil, "not a JSON object", ""},
+		{"a path variable without its directory", "", "s: ${DOTAI_TOOLS}", app.ToolPaths{UserErr: errHome}, errHome, "${DOTAI_TOOLS}", ""},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			var existing []byte
@@ -84,6 +86,10 @@ func TestEncodeSettingsFails(t *testing.T) {
 			got, err := app.EncodeSettings(existing, settings(t, tt.settings), tt.tools)
 			if err == nil || got != nil || tt.want != nil && !errors.Is(err, tt.want) || !strings.Contains(err.Error(), tt.wantText) {
 				t.Errorf("EncodeSettings() = %q, %v, want an error with %v and %s", got, err, tt.want, tt.wantText)
+			}
+			var c *app.SettingsConflict
+			if errors.As(err, &c) != (tt.conflict != "") || c != nil && (c.Key != tt.conflict || c.Layer != "base") {
+				t.Errorf("conflict = %+v, want key %q from base", c, tt.conflict)
 			}
 		})
 	}

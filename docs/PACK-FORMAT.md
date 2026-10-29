@@ -174,4 +174,4 @@ opencode:
 | `antigravity-cli` | `~/.gemini/antigravity-cli/settings.json` | none: profiles cannot carry agy settings |
 | `opencode` | `~/.config/opencode/opencode.jsonc` | `opencode.jsonc` |
 
-The merged settings are written after rulesync, which writes some of these files itself when the pack has hooks, permissions or MCP: `$schema`, `hooks` and `permissions` for Claude Code, `permissions` for agy, and `permissions`, `instructions` and `mcp` for OpenCode. dotai keeps rulesync's keys and appends its own; a top-level key written by both is a `settings-conflict` error, and nothing is staged.
+The merged settings are written after rulesync, which writes some of these files itself when the pack has hooks, permissions or MCP: `$schema`, `hooks` and `permissions` for Claude Code, `permissions` for agy, and `permissions`, `instructions` and `mcp` for OpenCode. dotai keeps rulesync's keys and appends its own; a top-level key written by both is a `settings-conflict` diagnostic, and nothing is staged.
