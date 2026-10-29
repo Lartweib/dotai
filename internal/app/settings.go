@@ -94,14 +94,14 @@ func renderSettings(w stageFS, dir, scope string, harnesses []string, settings m
 }
 
 // encodeSettings returns the settings file made of the top-level keys of
-// existing, a JSON or JSONC object or nil, followed by settings: JSON with
+// existing, a JSON or JSONC object or empty, followed by settings: JSON with
 // 2-space indentation and a final newline. The path variables of string
 // values are expanded before they are encoded.
 func encodeSettings(existing []byte, settings []merge.Setting, tools ToolPaths) ([]byte, error) {
 	var b bytes.Buffer
 	b.WriteByte('{')
 	written := map[string]bool{}
-	if existing != nil {
+	if len(bytes.TrimSpace(existing)) > 0 {
 		v, err := hujson.Parse(existing)
 		if err != nil {
 			return nil, err

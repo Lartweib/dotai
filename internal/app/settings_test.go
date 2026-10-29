@@ -32,10 +32,11 @@ func TestEncodeSettings(t *testing.T) {
 		name, rulesync, settings, want string
 	}{
 		{"keeps the key order", "", "z: 1\na: 2\nm: {y: 1, b: [2, 1]}", "{\n  \"z\": 1,\n  \"a\": 2,\n  \"m\": {\n    \"y\": 1,\n    \"b\": [\n      2,\n      1\n    ]\n  }\n}\n"},
-		{"gives each scalar its JSON type", "", "i: 0x1F\nf: 1.50\nb: true\ns: '42'\nd: 2026-10-29\ne: []", `{"i":31,"f":1.5,"b":true,"s":"42","d":"2026-10-29","e":[]}`},
-		{"escapes no HTML", "", `s: "<a> & \"b\"\\c"`, `{"s":"<a> & \"b\"\\c"}`},
-		{"expands the path variables in strings", "", "${DOTAI_TOOLS}: [\"${DOTAI_TOOLS}/x\", \"${DOTAI_PROJECT_TOOLS}\"]", `{"${DOTAI_TOOLS}":["C:/home/.dotai/tools/x","p/.dotai/tools"]}`},
-		{"appends to the keys rulesync wrote", "// generated\n{\"hooks\": {\"a\": [1]}, \"$schema\": \"s\",}", "model: opus", `{"hooks":{"a":[1]},"$schema":"s","model":"opus"}`},
+		{"gives each scalar its JSON type", "", "i: 0x1F\nf: 1.50\nb: true\ns: '42'\nd: 2026-10-29\ne: []\nm: {}", "{\n  \"i\": 31,\n  \"f\": 1.5,\n  \"b\": true,\n  \"s\": \"42\",\n  \"d\": \"2026-10-29\",\n  \"e\": [],\n  \"m\": {}\n}\n"},
+		{"escapes no HTML", "", `s: "<a> & \"b\"\\c\t\u2028"`, "{\n  \"s\": " + `"<a> & \"b\"\\c\t\u2028"` + "\n}\n"},
+		{"expands the path variables in strings", "", "${DOTAI_TOOLS}: [\"${DOTAI_TOOLS}/x\", \"${DOTAI_PROJECT_TOOLS}\"]", "{\n  \"${DOTAI_TOOLS}\": [\n    \"C:/home/.dotai/tools/x\",\n    \"p/.dotai/tools\"\n  ]\n}\n"},
+		{"appends to the keys rulesync wrote", "// generated\n{\"hooks\": {\"a\": [1]}, \"$schema\": \"s\",}", "model: opus", "{\n  \"hooks\": {\n    \"a\": [\n      1\n    ]\n  },\n  \"$schema\": \"s\",\n  \"model\": \"opus\"\n}\n"},
+		{"takes an empty rulesync file as no keys", " \n", "model: opus", "{\n  \"model\": \"opus\"\n}\n"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			var existing []byte
@@ -43,25 +44,11 @@ func TestEncodeSettings(t *testing.T) {
 				existing = []byte(tt.rulesync)
 			}
 			got, err := app.EncodeSettings(existing, settings(t, tt.settings), tools)
-			want := tt.want
-			if !strings.Contains(want, "\n") {
-				want = indent(t, want)
-			}
-			if err != nil || string(got) != want {
-				t.Errorf("EncodeSettings() = %q, %v, want %q", got, err, want)
+			if err != nil || string(got) != tt.want {
+				t.Errorf("EncodeSettings() = %q, %v, want %q", got, err, tt.want)
 			}
 		})
 	}
-}
-
-// indent writes compact JSON as EncodeSettings does.
-func indent(t *testing.T, compact string) string {
-	t.Helper()
-	got, err := app.EncodeSettings([]byte(compact), nil, app.ToolPaths{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(got)
 }
 
 func TestEncodeSettingsFails(t *testing.T) {
