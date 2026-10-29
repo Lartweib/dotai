@@ -89,32 +89,45 @@ func TestBuildMapsEachHarness(t *testing.T) {
 func TestBuildActions(t *testing.T) {
 	home := t.TempDir()
 	target := under(home, ".dotai/isolated/claude/CLAUDE.md")
+	const hash = "new:.claude/CLAUDE.md"
 	tests := []struct {
-		name   string
-		disk   map[string]string
-		action plan.Action
-		before string
+		name       string
+		exec       bool // the staged file is executable
+		disk       map[string]plan.Current
+		ignoreExec bool
+		action     plan.Action
+		before     string
+		beforeExec bool
 	}{
-		{"missing", nil, plan.Create, ""},
-		{"other content", map[string]string{target: "old"}, plan.Replace, "old"},
-		{"same content", map[string]string{target: "new:.claude/CLAUDE.md"}, plan.Unchanged, "new:.claude/CLAUDE.md"},
-		{"another file only", map[string]string{under(home, ".claude/CLAUDE.md"): "old"}, plan.Create, ""},
+		{name: "missing", action: plan.Create},
+		{name: "another file only", disk: map[string]plan.Current{under(home, ".claude/CLAUDE.md"): {Hash: "old"}}, action: plan.Create},
+		{name: "other content", disk: map[string]plan.Current{target: {Hash: "old"}}, action: plan.Replace, before: "old"},
+		{name: "same content", disk: map[string]plan.Current{target: {Hash: hash}}, action: plan.Unchanged, before: hash},
+		{name: "same content and exec", exec: true, disk: map[string]plan.Current{target: {Hash: hash, Exec: true}}, action: plan.Unchanged, before: hash, beforeExec: true},
+		{name: "target gained exec", disk: map[string]plan.Current{target: {Hash: hash, Exec: true}}, action: plan.Replace, before: hash, beforeExec: true},
+		{name: "target lost exec", exec: true, disk: map[string]plan.Current{target: {Hash: hash}}, action: plan.Replace, before: hash},
+		{name: "exec ignored", exec: true, disk: map[string]plan.Current{target: {Hash: hash}}, ignoreExec: true, action: plan.Unchanged, before: hash},
+		{name: "exec ignored, other content", disk: map[string]plan.Current{target: {Hash: "old", Exec: true}}, ignoreExec: true, action: plan.Replace, before: "old", beforeExec: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := plan.Build(plan.Input{Home: home, Adapters: adapters(t, "claudecode"), Files: staged(".claude/CLAUDE.md"), Disk: tt.disk})
+			files := []plan.File{{Path: ".claude/CLAUDE.md", Hash: hash, Exec: tt.exec}}
+			got, err := plan.Build(plan.Input{Home: home, Adapters: adapters(t, "claudecode"), Files: files, Disk: tt.disk, IgnoreExec: tt.ignoreExec})
 			if err != nil {
 				t.Fatalf("Build() error = %v", err)
 			}
-			if len(got.Ops) != 1 || got.Ops[0].Action != tt.action || got.Ops[0].Before != tt.before || got.Ops[0].After != "new:.claude/CLAUDE.md" {
-				t.Errorf("Build() = %+v, want one %s with Before %q", got.Ops, tt.action, tt.before)
+			want := plan.Op{Action: tt.action, Scope: plan.ScopeUser, Harness: "claudecode", Source: ".claude/CLAUDE.md", Target: target,
+				Exec: tt.exec, Before: tt.before, BeforeExec: tt.beforeExec, After: hash}
+			if len(got.Ops) != 1 || got.Ops[0] != want {
+				t.Errorf("Build() = %+v, want [%+v]", got.Ops, want)
 			}
 		})
 	}
 }
 
-// TestBuildExampleTree checks that every file the example pack stages is
-// planned, except rulesync's sources, in target order.
+// TestBuildExampleTree checks the target of every file the example pack
+// stages, except rulesync's sources, and that the plan does not depend on
+// the order of its input.
 func TestBuildExampleTree(t *testing.T) {
 	home := t.TempDir()
 	files := staged(exampleTree...)
@@ -122,11 +135,40 @@ func TestBuildExampleTree(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build() error = %v", err)
 	}
-	if len(got.Ops) != len(exampleTree)-4 {
-		t.Errorf("Build() has %d ops, want one per file outside .rulesync/ (%d)", len(got.Ops), len(exampleTree)-4)
+	want := []string{
+		".dotai/isolated/claude/CLAUDE.md",
+		".dotai/isolated/claude/agents/reviewer.md",
+		".dotai/isolated/claude/rules/standalone.md",
+		".dotai/isolated/claude/settings.json",
+		".dotai/isolated/claude/skills/commit-message/SKILL.md",
+		".dotai/isolated/gemini/GEMINI.md",
+		".dotai/isolated/gemini/antigravity-cli/settings.json",
+		".dotai/isolated/gemini/antigravity-cli/skills/commit-message/SKILL.md",
+		".dotai/isolated/gemini/config/agents/reviewer.md",
+		".dotai/isolated/gemini/config/rules/standalone.md",
+		".dotai/isolated/opencode/config/opencode/AGENTS.md",
+		".dotai/isolated/opencode/config/opencode/agents/reviewer.md",
+		".dotai/isolated/opencode/config/opencode/memories/standalone.md",
+		".dotai/isolated/opencode/config/opencode/opencode.jsonc",
+		".dotai/isolated/opencode/config/opencode/skills/commit-message/SKILL.md",
+		".dotai/tools/hello.sh",
+	}
+	var targets []string
+	for _, op := range got.Ops {
+		rel, err := filepath.Rel(home, op.Target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		targets = append(targets, filepath.ToSlash(rel))
+	}
+	if !reflect.DeepEqual(targets, want) {
+		t.Errorf("targets = %q, want %q", targets, want)
 	}
 	if !slices.IsSortedFunc(got.Ops, func(a, b plan.Op) int { return strings.Compare(a.Target, b.Target) }) {
 		t.Errorf("ops are not in target order: %+v", got.Ops)
+	}
+	if len(slices.Compact(slices.Clone(targets))) != len(targets) {
+		t.Errorf("targets are not unique: %q", targets)
 	}
 	ids := slices.Clone(pack.Harnesses)
 	slices.Reverse(ids)
@@ -134,6 +176,30 @@ func TestBuildExampleTree(t *testing.T) {
 	again, err := plan.Build(plan.Input{Home: home, Adapters: adapters(t, ids...), Files: files})
 	if err != nil || !reflect.DeepEqual(again, got) {
 		t.Errorf("Build() of the same input in another order = %+v, %v, want %+v", again, err, got)
+	}
+}
+
+// TestLocate checks that Locate gives the target Build plans, so that a
+// Disk keyed by it is found.
+func TestLocate(t *testing.T) {
+	home := t.TempDir()
+	all := adapters(t, pack.Harnesses...)
+	for _, source := range exampleTree {
+		if strings.HasPrefix(source, ".rulesync/") {
+			continue
+		}
+		h, target, ok := plan.Locate(home, all, source)
+		if !ok {
+			t.Errorf("Locate(%q) found no target", source)
+			continue
+		}
+		got, err := plan.Build(plan.Input{Home: home, Adapters: all, Files: staged(source), Disk: map[string]plan.Current{target: {Hash: "new:" + source}}})
+		if err != nil || len(got.Ops) != 1 || got.Ops[0].Target != target || got.Ops[0].Harness != h || got.Ops[0].Action != plan.Unchanged {
+			t.Errorf("Build() of %s = %+v, %v, want one unchanged op at %s for %q", source, got.Ops, err, target, h)
+		}
+	}
+	if _, _, ok := plan.Locate(home, all, "notes.md"); ok {
+		t.Error("Locate(notes.md) found a target")
 	}
 }
 
@@ -173,6 +239,8 @@ func TestBuildUnmapped(t *testing.T) {
 	}
 }
 
+// TestBuildRejectsBadInput checks the start of each error; the rest names
+// a target under a temporary directory.
 func TestBuildRejectsBadInput(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -183,11 +251,46 @@ func TestBuildRejectsBadInput(t *testing.T) {
 		{"path outside the tree", plan.Input{Home: t.TempDir(), Files: staged(".dotai/tools/../../x")}, `staged path ".dotai/tools/../../x" is not a slash path inside the tree`},
 		{"absolute path", plan.Input{Home: t.TempDir(), Files: staged("/etc/x")}, `staged path "/etc/x" is not a slash path inside the tree`},
 		{"backslash", plan.Input{Home: t.TempDir(), Files: staged(`.dotai/tools/..\..\x`)}, `staged path ".dotai/tools/..\\..\\x" is not a slash path inside the tree`},
+		{"duplicate path", plan.Input{Home: t.TempDir(), Files: staged(".dotai/tools/a", ".dotai/tools/a")}, `staged files .dotai/tools/a and .dotai/tools/a install to the same target `},
+		{"duplicate harness", plan.Input{Home: t.TempDir(), Adapters: slices.Concat(adapters(t, "claudecode"), adapters(t, "claudecode"))}, `harness "claudecode" is given twice`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if _, err := plan.Build(tt.input); err == nil || err.Error() != tt.want {
-				t.Errorf("Build() error = %v, want %q", err, tt.want)
+			if _, err := plan.Build(tt.input); err == nil || !strings.HasPrefix(err.Error(), tt.want) {
+				t.Errorf("Build() error = %v, want it to start with %q", err, tt.want)
+			}
+		})
+	}
+}
+
+// TestBuildRejectsWindowsNames checks that a path Windows cannot store is
+// rejected on every OS, so that a pack installs the same everywhere.
+func TestBuildRejectsWindowsNames(t *testing.T) {
+	tests := []struct {
+		path string
+		ok   bool
+	}{
+		{".dotai/tools/a:b", false},
+		{".dotai/tools/CON", false},
+		{".dotai/tools/con.txt", false},
+		{".dotai/tools/Aux.md", false},
+		{".dotai/tools/nul", false},
+		{".dotai/tools/prn/x.sh", false},
+		{".dotai/tools/COM1.log", false},
+		{".dotai/tools/lpt9", false},
+		{".dotai/tools/console.md", true},
+		{".dotai/tools/conf.d/a", true},
+		{".dotai/tools/COM10", true},
+		{".dotai/tools/lpt", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			_, err := plan.Build(plan.Input{Home: t.TempDir(), Files: staged(tt.path)})
+			if tt.ok != (err == nil) {
+				t.Errorf("Build() error = %v, want ok %v", err, tt.ok)
+			}
+			if want := "is not a valid file name on Windows"; err != nil && !strings.Contains(err.Error(), want) {
+				t.Errorf("Build() error = %v, want it to contain %q", err, want)
 			}
 		})
 	}
