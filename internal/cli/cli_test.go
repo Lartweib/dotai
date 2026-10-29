@@ -191,6 +191,8 @@ func TestRunStageWithoutAHomeDirectory(t *testing.T) {
 	t.Setenv("HOME", "")
 	t.Setenv("USERPROFILE", "")
 	t.Setenv("home", "") // Plan 9
+	// The rulesync cache falls back to a directory under HOME on Unix.
+	t.Setenv("DOTAI_CACHE_DIR", t.TempDir())
 	var stdout, stderr bytes.Buffer
 	env := testEnv(&stdout, &stderr)
 	called := false
