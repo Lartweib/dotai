@@ -60,11 +60,17 @@ type Current struct {
 
 // Owned is a target the previous install wrote, as its ownership record
 // holds it: the harness it was installed for, "" for a tool, and the
-// SHA-256 in hex and exec bit it was written with.
+// SHA-256 in hex and exec bit it was written with. An install that stopped
+// before it finished leaves targets in two possible states: Also lists
+// other contents that are dotai's too, such as what that install was
+// writing, and Foreign the contents that mean the target is still the
+// file dotai found there and never owned.
 type Owned struct {
 	Harness string
 	Hash    string
 	Exec    bool
+	Also    []Current
+	Foreign []Current
 }
 
 // Input is what Build plans from. Disk holds the current state of each
@@ -84,9 +90,11 @@ type Input struct {
 	IgnoreExec bool
 }
 
-// Plan is the list of operations, in target order.
+// Plan is the list of operations, in target order, and the targets of
+// Input.Owned that exist and are dotai's, with their current state.
 type Plan struct {
-	Ops []Op
+	Ops   []Op
+	Owned map[string]Current
 }
 
 // Op is one file operation. Harness is empty for a tool, which is not
@@ -140,8 +148,10 @@ func (e *EditedError) Error() string {
 // A target in Owned that no staged file installs is removed when it still
 // exists; one that is missing needs nothing. An owned target outside the
 // isolated root and the tools directory is an error, and so is an owned
-// target that exists with another hash or exec bit than Owned records: an
-// EditedError, so that nothing the user changed is overwritten or removed.
+// target that exists with a hash or exec bit that is neither what Owned
+// records nor in its Also or Foreign: an EditedError, so that nothing the
+// user changed is overwritten or removed. A target in its Foreign is not
+// dotai's: it is neither removed nor in Plan.Owned.
 func Build(in Input) (Plan, error) {
 	if !filepath.IsAbs(in.Home) {
 		return Plan{}, fmt.Errorf("home directory %q is not absolute", in.Home)
@@ -198,10 +208,18 @@ func Build(in Input) (Plan, error) {
 		if !ok {
 			continue
 		}
-		if cur.Hash != o.Hash || !in.IgnoreExec && cur.Exec != o.Exec {
+		mine := in.same(cur, Current{Hash: o.Hash, Exec: o.Exec}) || slices.ContainsFunc(o.Also, func(c Current) bool { return in.same(cur, c) })
+		if !mine && slices.ContainsFunc(o.Foreign, func(c Current) bool { return in.same(cur, c) }) {
+			continue
+		}
+		if !mine {
 			edited = append(edited, target)
 			continue
 		}
+		if p.Owned == nil {
+			p.Owned = map[string]Current{}
+		}
+		p.Owned[target] = cur
 		if _, staged := sources[target]; !staged {
 			p.Ops = append(p.Ops, Op{Action: Remove, Scope: ScopeUser, Harness: o.Harness, Target: target, Before: cur.Hash, BeforeExec: cur.Exec})
 		}
@@ -230,6 +248,12 @@ func Locate(home string, adapters []harness.Adapter, source string) (h, target s
 		}
 	}
 	return "", "", false
+}
+
+// same reports whether a and b have the same content and exec bit, unless
+// the exec bit is ignored.
+func (in Input) same(a, b Current) bool {
+	return a.Hash == b.Hash && (in.IgnoreExec || a.Exec == b.Exec)
 }
 
 // installed reports whether target is a path inside the isolated root or

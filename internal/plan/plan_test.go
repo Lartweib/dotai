@@ -408,3 +408,41 @@ func TestBuildRefusesOwnedTargetsOutsideDotai(t *testing.T) {
 		})
 	}
 }
+
+// TestBuildResolvesAnInterruptedInstall checks the ownership of the
+// targets an install that stopped midway was writing: a content in Also is
+// dotai's as much as Hash, and a content in Foreign means the file is not
+// dotai's, so it is neither an edit nor removed. Plan.Owned gives every
+// target dotai owns on disk.
+func TestBuildResolvesAnInterruptedInstall(t *testing.T) {
+	home := t.TempDir()
+	written := under(home, ".dotai/isolated/claude/agents/a.md") // replaced before the stop
+	pending := under(home, ".dotai/isolated/claude/agents/b.md") // not replaced yet
+	foreign := under(home, ".dotai/isolated/claude/agents/c.md") // a file dotai never owned, not replaced yet
+	edited := under(home, ".dotai/isolated/claude/agents/d.md")
+	owned := map[string]plan.Owned{
+		written: {Harness: "claudecode", Hash: "a0", Also: []plan.Current{{Hash: "a1"}}},
+		pending: {Harness: "claudecode", Hash: "b0", Also: []plan.Current{{Hash: "b1"}}},
+		foreign: {Harness: "claudecode", Hash: "c1", Foreign: []plan.Current{{Hash: "c0"}}},
+	}
+	disk := map[string]plan.Current{written: {Hash: "a1"}, pending: {Hash: "b0"}, foreign: {Hash: "c0"}}
+	got, err := plan.Build(plan.Input{Home: home, Adapters: adapters(t, "claudecode"), Owned: owned, Disk: disk})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	want := []plan.Op{
+		{Action: plan.Remove, Scope: plan.ScopeUser, Harness: "claudecode", Target: written, Before: "a1"},
+		{Action: plan.Remove, Scope: plan.ScopeUser, Harness: "claudecode", Target: pending, Before: "b0"},
+	}
+	if !reflect.DeepEqual(got.Ops, want) {
+		t.Errorf("Build() = %+v, want %+v", got.Ops, want)
+	}
+	if want := map[string]plan.Current{written: {Hash: "a1"}, pending: {Hash: "b0"}}; !reflect.DeepEqual(got.Owned, want) {
+		t.Errorf("Owned = %+v, want %+v", got.Owned, want)
+	}
+	owned[edited] = plan.Owned{Hash: "d0", Also: []plan.Current{{Hash: "d1"}}, Foreign: []plan.Current{{Hash: "d2"}}}
+	disk[edited] = plan.Current{Hash: "dx"}
+	if _, err := plan.Build(plan.Input{Home: home, Owned: owned, Disk: disk}); !errors.As(err, new(*plan.EditedError)) {
+		t.Errorf("Build() error = %v, want the edited target", err)
+	}
+}
