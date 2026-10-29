@@ -271,6 +271,14 @@ func TestBuildRejectsWindowsNames(t *testing.T) {
 		ok   bool
 	}{
 		{".dotai/tools/a:b", false},
+		{".dotai/tools/a\x00b", false},
+		{".dotai/tools/a\x1fb", false},
+		{".dotai/tools/a<b", false},
+		{".dotai/tools/a>b", false},
+		{`.dotai/tools/a"b`, false},
+		{".dotai/tools/a|b", false},
+		{".dotai/tools/a?b", false},
+		{".dotai/tools/a*b", false},
 		{".dotai/tools/CON", false},
 		{".dotai/tools/con.txt", false},
 		{".dotai/tools/Aux.md", false},
@@ -293,5 +301,16 @@ func TestBuildRejectsWindowsNames(t *testing.T) {
 				t.Errorf("Build() error = %v, want it to contain %q", err, want)
 			}
 		})
+	}
+}
+
+// TestBuildRefusesAHarnessWithoutIsolation checks decision 0018: a harness
+// whose isolation level is none does not offer the isolated mode.
+func TestBuildRefusesAHarnessWithoutIsolation(t *testing.T) {
+	a := adapters(t, "claudecode")
+	a[0].Isolation.Level = harness.None
+	_, err := plan.Build(plan.Input{Home: t.TempDir(), Adapters: a, Files: staged(".claude/CLAUDE.md")})
+	if want := `harness "claudecode" does not offer the isolated mode`; err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("Build() error = %v, want it to contain %q", err, want)
 	}
 }
