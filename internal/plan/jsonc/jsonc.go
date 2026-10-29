@@ -289,8 +289,18 @@ func (d *Document) delete(path []string) {
 	}
 	// What stays of the text before the key, then what follows the key's
 	// own line, without the key's same-line comment.
+	keep := keptBefore(gone.Name.BeforeExtra)
 	_, rest := cutLine(*next)
-	merged := append(keptBefore(gone.Name.BeforeExtra), rest...)
+	if endsInLineComment(keep) && len(lineBreaks(*next)) == 0 {
+		// The kept line comment would swallow what follows: break the line,
+		// indented for the next key or for the closing brace.
+		ind, own := lineIndent(gone.Name.BeforeExtra)
+		if !own || i == n-1 {
+			ind = strings.Repeat(d.indent, len(path)-1)
+		}
+		rest = append(hujson.Extra(d.eol+ind), bytes.TrimLeft(rest, " \t")...)
+	}
+	merged := append(keep, rest...)
 	if i == 0 && len(lineBreaks(*next)) == 0 && !hasComment(*next) {
 		// A first key on one line: keep the spacing after the brace.
 		merged = slices.Clone(gone.Name.BeforeExtra)
@@ -387,7 +397,7 @@ func (d *Document) newItem(tail *hujson.Extra, last *hujson.Value, lastBefore hu
 			rest = hujson.Extra(d.eol + strings.Repeat(d.indent, depth-1))
 		}
 	}
-	if !own && bytes.Contains(head, []byte("//")) {
+	if !own && endsInLineComment(head) {
 		// A line comment runs to the end of the line: break after it.
 		ind, own = strings.Repeat(d.indent, depth), true
 	}
@@ -481,6 +491,28 @@ func keptBefore(x hujson.Extra) hujson.Extra {
 	}
 	head, _ := cutLine(x)
 	return head
+}
+
+// endsInLineComment reports whether x ends inside a line comment, so that
+// anything written after it needs a line break first.
+func endsInLineComment(x []byte) bool {
+	for i := 0; i < len(x); i++ {
+		switch {
+		case bytes.HasPrefix(x[i:], []byte("//")):
+			end := bytes.IndexByte(x[i:], '\n')
+			if end < 0 {
+				return true
+			}
+			i += end
+		case bytes.HasPrefix(x[i:], []byte("/*")):
+			end := bytes.Index(x[i+2:], []byte("*/"))
+			if end < 0 {
+				return false
+			}
+			i += end + 3
+		}
+	}
+	return false
 }
 
 // cutLine splits x at its first line break outside a block comment. head is
