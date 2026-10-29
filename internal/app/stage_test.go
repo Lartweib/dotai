@@ -434,3 +434,27 @@ func TestStageSettingsConflictWritesNothing(t *testing.T) {
 		t.Errorf("entries next to --out = %v, want none", entries)
 	}
 }
+
+func TestStageRendersSettingsWithoutOtherFiles(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "dotai.yaml"), "schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\nrulesync: 41.0.0\nharnesses: [opencode]\nprofiles:\n  p:\n    path: profiles/p\n    description: P.\n")
+	writeFile(t, filepath.Join(dir, "base", "dotai", "settings.yaml"), "opencode: {model: a}\n")
+	writeFile(t, filepath.Join(dir, "profiles", "p", "dotai", "settings.yaml"), "opencode: {model: b}\n")
+	out := filepath.Join(t.TempDir(), "s")
+	f := quiet(t)
+	res, err := f.stage(dir, out, app.Selection{Profiles: []string{"p"}}, false)
+	if err != nil || len(f.runs) != 0 {
+		t.Fatalf("Stage() = %+v, %v after %d runs, want no rulesync run", res, err, len(f.runs))
+	}
+	for _, want := range []app.StagedFile{
+		{Scope: app.ScopeUser, Path: ".config/opencode/opencode.jsonc", Origins: map[string]string{"model": "base"}, Generator: app.GeneratorDotai},
+		{Scope: app.ScopeProject, Path: "opencode.jsonc", Origins: map[string]string{"model": "profiles/p"}, Generator: app.GeneratorDotai},
+	} {
+		if !slices.ContainsFunc(res.Files, func(f app.StagedFile) bool { return reflect.DeepEqual(f, want) }) {
+			t.Errorf("files = %+v, want %+v", res.Files, want)
+		}
+		if _, err := os.Stat(filepath.Join(out, want.Scope, filepath.FromSlash(want.Path))); err != nil {
+			t.Errorf("settings file missing: %v", err)
+		}
+	}
+}

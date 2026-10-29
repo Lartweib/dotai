@@ -309,8 +309,11 @@ func (osStageFS) TempDir(beside string) (string, error) {
 }
 
 // WriteFile writes through os.Root, which refuses any path or link that
-// leads outside dir.
+// leads outside dir. dir is created when it is missing.
 func (osStageFS) WriteFile(dir, name string, data []byte, perm fs.FileMode) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
 	root, err := os.OpenRoot(dir)
 	if err != nil {
 		return err
