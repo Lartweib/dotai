@@ -27,7 +27,7 @@ Records were renumbered on 2026-10-26, when the records about the reference pack
 | [0017](0017-pack-variants-as-layers.md) | Packs declare variants; the engine applies them as layers | accepted | 2026-10-24 |
 | [0018](0018-install-modes-and-mandatory-backup.md) | Install modes (isolated, replace, merge) with a mandatory backup | accepted | 2026-10-25 |
 | [0019](0019-v1-harness-targets.md) | v1 harness targets: Claude Code, agy and OpenCode | accepted | 2026-10-24 |
-| [0020](0020-v1-scope-engine-and-pack.md) | v1 scope of the engine | accepted | 2026-10-24 |
+| [0020](0020-v1-scope-engine-and-pack.md) | v1 scope of the engine (partially superseded by 0034) | accepted | 2026-10-24 |
 | [0021](0021-go-engine-orchestrates-rulesync.md) | The Go engine orchestrates; a pinned rulesync renders | accepted | 2026-10-25 |
 | [0022](0022-pack-format-and-manifest.md) | Pack format: uniform layers and a `dotai.yaml` manifest (partially superseded by 0023, 0024 and 0030) | accepted | 2026-10-25 |
 | [0023](0023-flat-profiles-and-layer-merge-rules.md) | Flat, combinable profiles and explicit layer merge rules | accepted | 2026-10-25 |
@@ -41,6 +41,7 @@ Records were renumbered on 2026-10-26, when the records about the reference pack
 | [0031](0031-isolated-install-root.md) | Isolated installs live under `~/.dotai/isolated/` | accepted | 2026-10-29 |
 | [0032](0032-install-state-backup-and-isolated-launch.md) | Install state, backup layout and the isolated launch command | accepted | 2026-10-29 |
 | [0033](0033-restore-from-the-install-history.md) | Restore follows the install history kept in the backups | accepted | 2026-10-30 |
+| [0034](0034-replace-mode-in-v1.md) | The replace install mode is part of v1 | accepted | 2026-10-30 |
 
 ## Superseded (history only)
 

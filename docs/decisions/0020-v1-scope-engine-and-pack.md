@@ -7,6 +7,8 @@ supersedes: 0006
 
 # 0020 · v1 scope of the engine
 
+> **Partially superseded by [0034](0034-replace-mode-in-v1.md): the replace mode is part of v1.** Still in force: the rest of the engine v1 scope, and stack detection during onboarding after v1.
+
 ## Context
 
 [0006](0006-five-layer-product-and-v1-order.md) defined five product layers (global base, delegation, global panel, onboarding with profiles, agy-hub parity) and built them in that order. Since then the engine and the packs were separated ([0010](0010-engine-and-pack-separated.md)), review left the engine ([0016](0016-review-via-external-tracker.md)), and variants ([0017](0017-pack-variants-as-layers.md)) and install modes ([0018](0018-install-modes-and-mandatory-backup.md)) appeared. Most of the five layers are pack content, not engine features.
