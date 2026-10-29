@@ -51,3 +51,5 @@ The sources record no other option for the state and backup layout, which follow
 
 - [0018](0018-install-modes-and-mandatory-backup.md), [0028](0028-plan-centric-hexagonal-engine.md), [0031](0031-isolated-install-root.md).
 - [CLI-JSON](../CLI-JSON.md): the formats of `state.json` and the backup manifest.
+
+Update 2026-10-30: `dotai restore` is decided by [0033](0033-restore-from-the-install-history.md). Each install backup now also keeps the install state it started from (`state.json` and `priorState` in the manifest), restore marks the backups it undoes as `restored`, and a restore takes a `<timestamp>_restore` backup of its own. An install that settles a journal records, as the state it started from, the backup of the interrupted install when that journal is an install's.

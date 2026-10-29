@@ -40,6 +40,7 @@ Records were renumbered on 2026-10-26, when the records about the reference pack
 | [0030](0030-tools-paths-and-project-config.md) | Tool paths, one tools directory, settings overrides and project config | accepted | 2026-10-28 |
 | [0031](0031-isolated-install-root.md) | Isolated installs live under `~/.dotai/isolated/` | accepted | 2026-10-29 |
 | [0032](0032-install-state-backup-and-isolated-launch.md) | Install state, backup layout and the isolated launch command | accepted | 2026-10-29 |
+| [0033](0033-restore-from-the-install-history.md) | Restore follows the install history kept in the backups | accepted | 2026-10-30 |
 
 ## Superseded (history only)
 
