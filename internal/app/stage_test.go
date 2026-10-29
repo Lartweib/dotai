@@ -54,6 +54,8 @@ func TestStageWritesEveryStagedFile(t *testing.T) {
 	if err != nil || len(res.Diagnostics) != 0 {
 		t.Fatalf("Stage() = %+v, %v", res, err)
 	}
+	// The relative tools paths read the same on every platform.
+	expand := strings.NewReplacer("${DOTAI_TOOLS}", "home/.dotai/tools", "${DOTAI_PROJECT_TOOLS}", "project/.dotai/tools")
 	want := []string{app.StageMarker}
 	for _, f := range res.Files {
 		want = append(want, f.Scope+"/"+f.Path)
@@ -63,9 +65,12 @@ func TestStageWritesEveryStagedFile(t *testing.T) {
 		}
 		rel := strings.Replace(f.Path, ".dotai/tools/", "dotai/tools/", 1)
 		src, err := os.ReadFile(filepath.Join(examplePack, filepath.FromSlash(f.Layer), filepath.FromSlash(rel)))
-		if err != nil || !reflect.DeepEqual(data, app.ExpandPaths(src, fr.tools)) {
-			t.Errorf("%s/%s does not match its source in %s: %v", f.Scope, f.Path, f.Layer, err)
+		if err != nil || string(data) != expand.Replace(string(src)) || strings.Contains(string(data), "${DOTAI_") {
+			t.Errorf("%s/%s does not match its source in %s with the tools paths: %v", f.Scope, f.Path, f.Layer, err)
 		}
+	}
+	if data, _ := os.ReadFile(filepath.Join(out, "user", ".rulesync", "rules", "overview.md")); !strings.Contains(string(data), "home/.dotai/tools/hello.sh") {
+		t.Errorf("overview.md = %q, want the tools path", data)
 	}
 	slices.Sort(want)
 	if got := tree(t, out); len(want) < 2 || !reflect.DeepEqual(got, want) {

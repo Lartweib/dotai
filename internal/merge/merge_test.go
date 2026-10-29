@@ -16,6 +16,7 @@ type src struct {
 	kind            pack.ItemKind
 	name            string
 	overrides, root bool
+	exec            bool
 	owner           pack.ItemRef // for a file of an item that is not the item itself
 	data            string       // the path when empty
 }
@@ -39,6 +40,7 @@ func skillFile(skill, rel string) src {
 func mcp(data string) src   { return src{rel: ".rulesync/mcp.jsonc", data: data} }
 func (s src) override() src { s.overrides = true; return s }
 func (s src) asRoot() src   { s.root = true; return s }
+func (s src) asExec() src   { s.exec = true; return s }
 
 func layer(kind pack.LayerKind, name string, srcs ...src) pack.Layer {
 	dir := map[pack.LayerKind]string{pack.LayerBase: "base", pack.LayerProfile: "profiles/" + name, pack.LayerVariant: "variants/" + name}[kind]
@@ -53,7 +55,7 @@ func layer(kind pack.LayerKind, name string, srcs ...src) pack.Layer {
 		if s.kind != "" {
 			owner = pack.ItemRef{Kind: s.kind, Name: s.name}
 		}
-		l.Files = append(l.Files, pack.File{Path: p, Rel: s.rel, Item: owner, Data: []byte(data)})
+		l.Files = append(l.Files, pack.File{Path: p, Rel: s.rel, Item: owner, Data: []byte(data), Exec: s.exec})
 		if s.kind != "" {
 			l.Items = append(l.Items, pack.Item{Kind: s.kind, Name: s.name, Path: p, Root: s.root, Dotai: pack.Dotai{Overrides: s.overrides}})
 		}
@@ -387,6 +389,18 @@ func TestStageRejectsConflicts(t *testing.T) {
 	}
 	if s.User != nil || s.Project != nil {
 		t.Errorf("staging = %+v, want empty", s)
+	}
+}
+
+func TestStageKeepsTheExecutableBit(t *testing.T) {
+	s, diags := merge.Stage(newPack(base(plain("dotai/tools/run.sh").asExec(), plain("dotai/tools/run.conf"))), merge.Selection{})
+	if len(diags) != 0 || len(s.User) != 2 {
+		t.Fatalf("Stage() = %+v, %v, want two tools", s, format(diags))
+	}
+	for _, f := range s.User {
+		if want := f.Path == ".dotai/tools/run.sh"; f.Exec != want {
+			t.Errorf("%s exec = %v, want %v", f.Path, f.Exec, want)
+		}
 	}
 }
 

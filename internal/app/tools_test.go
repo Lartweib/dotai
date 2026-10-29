@@ -66,8 +66,13 @@ func TestStageInstallsToolsAndExpandsPaths(t *testing.T) {
 			t.Errorf("%s/%s = %q, %v, want %q", want.scope, want.path, data, err, want.data)
 		}
 	}
-	info, err := os.Stat(filepath.Join(out, "user", ".dotai", "tools", "hello.sh"))
-	if err == nil && runtime.GOOS != "windows" && info.Mode().Perm()&0o111 == 0 {
-		t.Errorf("hello.sh mode = %v, want it executable", info.Mode())
+	if runtime.GOOS == "windows" {
+		return // no execute bits
+	}
+	for name, exec := range map[string]bool{"user/.dotai/tools/hello.sh": true, "user/.dotai/tools/logo.bin": false, "project/.dotai/tools/lint.sh": false} {
+		info, err := os.Stat(filepath.Join(out, filepath.FromSlash(name)))
+		if err != nil || (info.Mode().Perm()&0o111 != 0) != exec {
+			t.Errorf("%s mode = %v, %v, want executable %v", name, info, err, exec)
+		}
 	}
 }
