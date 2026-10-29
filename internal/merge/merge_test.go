@@ -1,9 +1,12 @@
 package merge_test
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
+
+	"go.yaml.in/yaml/v3"
 
 	"github.com/lartweib/dotai/internal/merge"
 	"github.com/lartweib/dotai/internal/pack"
@@ -37,10 +40,11 @@ func plain(rel string) src { return src{rel: rel} }
 func skillFile(skill, rel string) src {
 	return src{rel: ".rulesync/skills/" + skill + "/" + rel, owner: pack.ItemRef{Kind: pack.ItemSkill, Name: skill}}
 }
-func mcp(data string) src   { return src{rel: ".rulesync/mcp.jsonc", data: data} }
-func (s src) override() src { s.overrides = true; return s }
-func (s src) asRoot() src   { s.root = true; return s }
-func (s src) asExec() src   { s.exec = true; return s }
+func mcp(data string) src      { return src{rel: ".rulesync/mcp.jsonc", data: data} }
+func settings(data string) src { return src{rel: "dotai/settings.yaml", data: data} }
+func (s src) override() src    { s.overrides = true; return s }
+func (s src) asRoot() src      { s.root = true; return s }
+func (s src) asExec() src      { s.exec = true; return s }
 
 func layer(kind pack.LayerKind, name string, srcs ...src) pack.Layer {
 	dir := map[pack.LayerKind]string{pack.LayerBase: "base", pack.LayerProfile: "profiles/" + name, pack.LayerVariant: "variants/" + name}[kind]
@@ -56,11 +60,36 @@ func layer(kind pack.LayerKind, name string, srcs ...src) pack.Layer {
 			owner = pack.ItemRef{Kind: s.kind, Name: s.name}
 		}
 		l.Files = append(l.Files, pack.File{Path: p, Rel: s.rel, Item: owner, Data: []byte(data), Exec: s.exec})
+		if s.rel == "dotai/settings.yaml" && s.data != "" {
+			l.Settings = readSettings(s.data)
+		}
 		if s.kind != "" {
 			l.Items = append(l.Items, pack.Item{Kind: s.kind, Name: s.name, Path: p, Root: s.root, Dotai: pack.Dotai{Overrides: s.overrides}})
 		}
 	}
 	return l
+}
+
+// readSettings decodes a valid settings.yaml as the pack loader does.
+func readSettings(data string) *pack.Settings {
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(data), &doc); err != nil {
+		panic(err)
+	}
+	s := &pack.Settings{}
+	root := doc.Content[0]
+	for i := 0; i < len(root.Content); i += 2 {
+		k, v := root.Content[i], root.Content[i+1]
+		if k.Value != "dotai" {
+			s.Blocks = append(s.Blocks, pack.SettingsBlock{Harness: k.Value, Value: v})
+			continue
+		}
+		for _, o := range v.Content[1].Content {
+			parts := append(strings.SplitN(o.Value, ".", 3), "")
+			s.Overrides = append(s.Overrides, pack.Override{Harness: parts[0], Key: parts[1], Var: parts[2], Line: o.Line, Column: o.Column})
+		}
+	}
+	return s
 }
 
 func base(srcs ...src) pack.Layer                 { return layer(pack.LayerBase, "base", srcs...) }
@@ -94,6 +123,10 @@ const (
 	baseMCP = "{\n  // shared servers\n  \"mcpServers\": {\n    \"git\": {\"command\": \"git-mcp\"},\n  },\n}\n"
 	webMCP  = `{"mcpServers": {"web": {"command": "web-mcp"}}}`
 	gitMCP  = `{"mcpServers": {"git": {"command": "other"}}}`
+
+	baseSettings = "claudecode:\n  model: sonnet\n  env: {A: \"1\", B: \"1\"}\n  statusLine: base\nopencode:\n  model: m\n"
+	tmuxSettings = "claudecode:\n  model: opus\n  env: {C: \"2\", A: \"2\"}\n  theme: dark\n" +
+		"dotai:\n  overrides: [claudecode.model, claudecode.env.A]\n"
 )
 
 func TestCheck(t *testing.T) {
@@ -205,16 +238,45 @@ func TestCheck(t *testing.T) {
 			want: []string{`variants/v/dotai/tools/Run.sh: name-case-conflict: .dotai/tools/Run.sh differs only by case from .dotai/tools/run.sh (first: base/dotai/tools/run.sh)`},
 		},
 		{
-			name: "settings in two layers of a scope",
-			pack: newPack(base(plain("dotai/settings.yaml")), variant("v", plain("dotai/settings.yaml"))),
-			want: []string{`variants/v/dotai/settings.yaml: merge-pending: dotai/settings.yaml is also provided by base (first: base/dotai/settings.yaml) (fix: keep it in one layer; merging lists and values across layers lands in a later version of dotai)`},
+			name: "settings keys and env variables merge across layers",
+			pack: newPack(base(settings(baseSettings)), variant("v", settings("claudecode:\n  theme: dark\n  env: {C: \"2\"}\nopencode:\n  theme: x\n")), variant("w", settings("claudecode:\n  theme: light\n")),
+				profile("a", settings("claudecode:\n  model: opus\n")), profile("b", settings("claudecode:\n  env: {A: \"3\"}\n"))),
+		},
+		{
+			name: "declared settings overrides",
+			pack: newPack(base(settings(baseSettings)), variant("v", settings(tmuxSettings))),
+		},
+		{
+			name: "undeclared settings overrides",
+			pack: newPack(base(settings(baseSettings)), variant("v", settings("claudecode:\n  model: opus\n  env: {A: \"2\"}\n"))),
+			want: []string{
+				`variants/v/dotai/settings.yaml:2:3: override-undeclared: setting claudecode.model already exists in base (first: base/dotai/settings.yaml:2) (fix: add claudecode.model to dotai.overrides to replace it)`,
+				`variants/v/dotai/settings.yaml:3:9: override-undeclared: setting claudecode.env.A already exists in base (first: base/dotai/settings.yaml:3) (fix: add claudecode.env.A to dotai.overrides to replace it)`,
+			},
+		},
+		{
+			name: "settings overrides without target",
+			pack: newPack(base(settings("claudecode:\n  model: a\ndotai:\n  overrides: [claudecode.model]\n")), profile("a", settings(tmuxSettings))),
+			want: []string{
+				`base/dotai/settings.yaml:4:15: override-without-target: setting claudecode.model has nothing to override (fix: remove it from dotai.overrides; no earlier layer of its scope sets it)`,
+				`profiles/a/dotai/settings.yaml:6:15: override-without-target: setting claudecode.model has nothing to override (fix: remove it from dotai.overrides; no earlier layer of its scope sets it)`,
+				`profiles/a/dotai/settings.yaml:6:33: override-without-target: setting claudecode.env.A has nothing to override (fix: remove it from dotai.overrides; no earlier layer of its scope sets it)`,
+			},
+		},
+		{
+			name: "same setting in two profiles, even with an override",
+			pack: newPack(profile("a", settings(baseSettings)), profile("b", settings(tmuxSettings))),
+			want: []string{
+				`profiles/b/dotai/settings.yaml:2:3: profile-conflict: setting claudecode.model is also set by profile a (first: profiles/a/dotai/settings.yaml:2) (fix: keep it in one profile; profiles cannot override each other)`,
+				`profiles/b/dotai/settings.yaml:3:17: profile-conflict: setting claudecode.env.A is also set by profile a (first: profiles/a/dotai/settings.yaml:3) (fix: keep it in one profile; profiles cannot override each other)`,
+			},
 		},
 		{
 			name: "hooks and permissions in two profiles",
 			pack: newPack(profile("a", plain(".rulesync/hooks.jsonc"), plain(".rulesync/permissions.jsonc")), profile("b", plain(".rulesync/hooks.jsonc"), plain(".rulesync/permissions.jsonc"))),
 			want: []string{
-				`profiles/b/.rulesync/hooks.jsonc: merge-pending: .rulesync/hooks.jsonc is also provided by profiles/a (first: profiles/a/.rulesync/hooks.jsonc) (fix: keep it in one layer; merging lists and values across layers lands in a later version of dotai)`,
-				`profiles/b/.rulesync/permissions.jsonc: merge-pending: .rulesync/permissions.jsonc is also provided by profiles/a (first: profiles/a/.rulesync/permissions.jsonc) (fix: keep it in one layer; merging lists and values across layers lands in a later version of dotai)`,
+				`profiles/b/.rulesync/hooks.jsonc: merge-pending: .rulesync/hooks.jsonc is also provided by profiles/a (first: profiles/a/.rulesync/hooks.jsonc) (fix: keep it in one layer; merging lists across layers lands in a later version of dotai)`,
+				`profiles/b/.rulesync/permissions.jsonc: merge-pending: .rulesync/permissions.jsonc is also provided by profiles/a (first: profiles/a/.rulesync/permissions.jsonc) (fix: keep it in one layer; merging lists across layers lands in a later version of dotai)`,
 			},
 		},
 		{
@@ -235,8 +297,8 @@ func TestCheck(t *testing.T) {
 			pack: newPack(base(), variant("a", plain("dotai/tools/lint.sh")), variant("b", plain("dotai/tools/lint.sh"))),
 		},
 		{
-			name: "same file path in both scopes",
-			pack: newPack(base(plain("dotai/settings.yaml")), profile("a", plain("dotai/settings.yaml"))),
+			name: "same file path and settings in both scopes",
+			pack: newPack(base(plain("dotai/notes.md"), settings(baseSettings)), profile("a", plain("dotai/notes.md"), settings(baseSettings))),
 		},
 		{
 			name: "MCP servers with distinct names merge",
@@ -307,7 +369,7 @@ func files(fs []merge.File) []string {
 
 func TestStage(t *testing.T) {
 	p := newPack(
-		base(rule("overview").asRoot(), skill("commit"), skillFile("commit", "notes.md"), subagent("reviewer.md", "reviewer"), plain("dotai/settings.yaml"), plain("README.md")),
+		base(rule("overview").asRoot(), skill("commit"), skillFile("commit", "notes.md"), subagent("reviewer.md", "reviewer"), settings(baseSettings), plain("README.md")),
 		profile("web", rule("web"), plain("dotai/tools/lint.sh")),
 		profile("docs", command("publish")),
 		variant("standalone", rule("standalone")),
@@ -327,7 +389,6 @@ func TestStage(t *testing.T) {
 				".rulesync/skills/commit/notes.md base",
 				".rulesync/subagents/reviewer.md base",
 				"README.md base",
-				"dotai/settings.yaml base",
 			},
 			project: []string{},
 		},
@@ -340,7 +401,6 @@ func TestStage(t *testing.T) {
 				".rulesync/skills/commit/SKILL.md variants/tmux",
 				".rulesync/subagents/team/reviewer.md variants/tmux",
 				"README.md base",
-				"dotai/settings.yaml base",
 			},
 			project: []string{
 				".dotai/tools/lint.sh profiles/web",
@@ -408,5 +468,52 @@ func TestStageWithoutVariants(t *testing.T) {
 	s, diags := merge.Stage(newPack(base(rule("x"))), merge.Selection{})
 	if len(diags) != 0 || len(s.User) != 1 || s.User[0].Layer != "base" {
 		t.Errorf("Stage() = %+v, %v, want the base only", s, format(diags))
+	}
+}
+
+// settingsOf lists each merged setting of harnesses as "harness.key=value
+// layer", and each variable of an env as "harness.env.VAR=value layer".
+func settingsOf(byHarness map[string][]merge.Setting, harnesses ...string) []string {
+	out := []string{}
+	for _, h := range harnesses {
+		for _, s := range byHarness[h] {
+			if s.Origins == nil {
+				out = append(out, fmt.Sprintf("%s.%s=%s %s", h, s.Key, s.Value.Value, s.Layer))
+				continue
+			}
+			for i := 0; i+1 < len(s.Value.Content); i += 2 {
+				v := s.Value.Content[i].Value
+				out = append(out, fmt.Sprintf("%s.%s.%s=%s %s", h, s.Key, v, s.Value.Content[i+1].Value, s.Origins[v]))
+			}
+		}
+	}
+	return out
+}
+
+func TestStageMergesSettings(t *testing.T) {
+	p := newPack(base(settings(baseSettings)), variant("tmux", settings(tmuxSettings)),
+		profile("web", settings("claudecode:\n  env: {W: \"1\"}\n")), profile("docs", settings("claudecode:\n  model: haiku\n  env: {D: \"1\"}\n")))
+	s, diags := merge.Stage(p, merge.Selection{Profiles: []string{"web", "docs"}})
+	if len(diags) != 0 {
+		t.Fatalf("Stage() diagnostics = %v", format(diags))
+	}
+	user := []string{
+		"claudecode.model=opus variants/tmux",
+		"claudecode.env.A=2 variants/tmux",
+		"claudecode.env.B=1 base",
+		"claudecode.env.C=2 variants/tmux",
+		"claudecode.statusLine=base base",
+		"claudecode.theme=dark variants/tmux",
+		"opencode.model=m base",
+	}
+	if got := settingsOf(s.UserSettings, "claudecode", "opencode"); !reflect.DeepEqual(got, user) {
+		t.Errorf("user settings =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(user, "\n"))
+	}
+	project := []string{"claudecode.model=haiku profiles/docs", "claudecode.env.D=1 profiles/docs", "claudecode.env.W=1 profiles/web"}
+	if got := settingsOf(s.ProjectSettings, "claudecode", "opencode"); !reflect.DeepEqual(got, project) {
+		t.Errorf("project settings =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(project, "\n"))
+	}
+	if len(s.UserSettings) != 2 || len(s.ProjectSettings) != 1 {
+		t.Errorf("harnesses = %d user, %d project, want 2 and 1", len(s.UserSettings), len(s.ProjectSettings))
 	}
 }

@@ -111,20 +111,20 @@
           "line": 0,
           "column": 0
         },
-        "hint": "keep it in one layer; merging lists and values across layers lands in a later version of dotai"
+        "hint": "keep it in one layer; merging lists across layers lands in a later version of dotai"
       },
       {
         "file": "variants/standalone/dotai/settings.yaml",
-        "line": 0,
-        "column": 0,
-        "code": "merge-pending",
-        "message": "dotai/settings.yaml is also provided by base",
+        "line": 2,
+        "column": 3,
+        "code": "override-undeclared",
+        "message": "setting claudecode.model already exists in base",
         "related": {
           "file": "base/dotai/settings.yaml",
-          "line": 0,
+          "line": 2,
           "column": 0
         },
-        "hint": "keep it in one layer; merging lists and values across layers lands in a later version of dotai"
+        "hint": "add claudecode.model to dotai.overrides to replace it"
       },
       {
         "file": "variants/tmux/.rulesync/commands/release.md",
