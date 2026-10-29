@@ -6,8 +6,10 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/lartweib/dotai/internal/plan/jsonc"
 )
@@ -35,6 +37,9 @@ func TestGolden(t *testing.T) {
 			}
 			before, after := befores[0], strings.Replace(befores[0], ".before.", ".after.", 1)
 			got := applyEdits(t, read(t, before), read(t, script))
+			if _, err := jsonc.Parse(got); err != nil {
+				t.Fatalf("output does not parse: %v\n%s", err, got)
+			}
 			if *update {
 				if err := os.WriteFile(after, got, 0o644); err != nil {
 					t.Fatal(err)
@@ -87,7 +92,7 @@ func applyEdits(t *testing.T, src, script []byte) []byte {
 	return doc.Bytes()
 }
 
-func read(t *testing.T, path string) []byte {
+func read(t testing.TB, path string) []byte {
 	t.Helper()
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -107,6 +112,9 @@ func TestEditErrors(t *testing.T) {
 	if err := doc.Set([]string{"a", "b"}, []byte(`1`)); err == nil {
 		t.Error("Set through a number succeeded")
 	}
+	if err := doc.Set([]string{"\x9a"}, []byte(`1`)); err == nil {
+		t.Error("Set of a key Get cannot read back succeeded")
+	}
 	if err := doc.Set(nil, []byte(`{}`)); err == nil {
 		t.Error("Set with an empty path succeeded")
 	}
@@ -121,7 +129,7 @@ func TestEditErrors(t *testing.T) {
 	}
 }
 
-func fixtures(t *testing.T) []string {
+func fixtures(t testing.TB) []string {
 	t.Helper()
 	paths, err := filepath.Glob("testdata/*.before.json*")
 	if err != nil || len(paths) == 0 {
@@ -240,4 +248,33 @@ func TestEdits(t *testing.T) {
 			}
 		})
 	}
+}
+
+// FuzzSet checks that setting a top-level key in any valid document gives a
+// document that parses and holds the new value.
+func FuzzSet(f *testing.F) {
+	for _, path := range fixtures(f) {
+		f.Add(read(f, path), "key", "text")
+	}
+	f.Fuzz(func(t *testing.T, src []byte, key, text string) {
+		doc, err := jsonc.Parse(src)
+		if err != nil || !utf8.ValidString(key) {
+			return
+		}
+		value, _ := json.Marshal(map[string]any{"list": []string{text}})
+		if err := doc.Set([]string{key}, value); err != nil {
+			t.Fatalf("Set: %v", err)
+		}
+		again, err := jsonc.Parse(doc.Bytes())
+		if err != nil {
+			t.Fatalf("output does not parse: %v\n%q", err, doc.Bytes())
+		}
+		got, _ := again.Get([]string{key})
+		var want, have any
+		_ = json.Unmarshal(value, &want)
+		_ = json.Unmarshal(got, &have)
+		if !reflect.DeepEqual(have, want) {
+			t.Fatalf("Get = %s, want %s\n%q", got, value, doc.Bytes())
+		}
+	})
 }

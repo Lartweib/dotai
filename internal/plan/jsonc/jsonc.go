@@ -125,6 +125,72 @@ func lineIndent(x hujson.Extra) (string, bool) {
 // key keeps its position and comments; a new key goes at the end of its
 // object, and missing objects on the way are created.
 func (d *Document) Set(path []string, value []byte) error {
+	return d.verified(func() error { return d.set(path, value) }, func(after *Document) bool {
+		got, ok := after.Get(path)
+		return ok && canonical(got) == canonical(value)
+	})
+}
+
+// Delete removes the key at path with its same-line comment and the own-line
+// comments right above it. A missing key is not an error.
+func (d *Document) Delete(path []string) error {
+	return d.verified(func() error {
+		if len(path) == 0 {
+			return errors.New("empty path")
+		}
+		for d.lookup(path) != nil { // every duplicate of the key
+			d.delete(path)
+		}
+		return nil
+	}, func(after *Document) bool {
+		_, ok := after.Get(path)
+		return !ok
+	})
+}
+
+// Union appends to the array at path each element, which must be valid
+// JSON, that the array does not hold yet, keeping the order of both. A
+// missing array is created. Elements are compared as canonical JSON (see
+// canonical), so numbers compare as written: 1.0 and 1 are different.
+func (d *Document) Union(path []string, elems ...[]byte) error {
+	return d.verified(func() error { return d.union(path, elems...) }, func(after *Document) bool {
+		got, _ := after.Get(path)
+		var held []json.RawMessage
+		_ = json.Unmarshal(got, &held)
+		for _, e := range elems {
+			if !slices.ContainsFunc(held, func(h json.RawMessage) bool { return canonical(h) == canonical(e) }) {
+				return false
+			}
+		}
+		return true
+	})
+}
+
+// verified runs edit and keeps its result only when the output parses again
+// and check accepts the parsed output. Otherwise it puts the document back
+// as it was and returns an error, so a bug in the edit layer can never emit
+// a corrupt file.
+func (d *Document) verified(edit func() error, check func(after *Document) bool) error {
+	var saved *hujson.Value
+	if d.root != nil {
+		c := d.root.Clone()
+		saved = &c
+	}
+	err := edit()
+	if err == nil {
+		after, perr := Parse(d.Bytes())
+		if perr != nil || !check(after) {
+			err = errors.New("the edit failed its check and was undone")
+		}
+	}
+	if err != nil {
+		d.root = saved
+	}
+	return err
+}
+
+// set does the work of Set.
+func (d *Document) set(path []string, value []byte) error {
 	if len(path) == 0 {
 		return errors.New("empty path")
 	}
@@ -163,20 +229,10 @@ func (d *Document) Set(path []string, value []byte) error {
 	return nil
 }
 
-// Delete removes the key at path with its same-line comment and the own-line
-// comments right above it. A missing key is not an error.
-func (d *Document) Delete(path []string) error {
-	if len(path) == 0 {
-		return errors.New("empty path")
-	}
+// delete removes the last member at path, which must exist.
+func (d *Document) delete(path []string) {
 	parent := d.lookup(path[:len(path)-1])
-	if parent == nil {
-		return nil
-	}
 	i, _ := member(parent, path[len(path)-1])
-	if i < 0 {
-		return nil
-	}
 	obj := parent.Value.(*hujson.Object)
 	n, gone := len(obj.Members), obj.Members[i]
 	next := &obj.AfterExtra
@@ -207,14 +263,10 @@ func (d *Document) Delete(path []string) error {
 	}
 	*next = merged
 	obj.Members = slices.Delete(obj.Members, i, i+1)
-	return nil
 }
 
-// Union appends to the array at path each element, which must be valid
-// JSON, that the array does not hold yet, keeping the order of both. A
-// missing array is created. Elements are compared as canonical JSON (see
-// canonical), so numbers compare as written: 1.0 and 1 are different.
-func (d *Document) Union(path []string, elems ...[]byte) error {
+// union does the work of Union.
+func (d *Document) union(path []string, elems ...[]byte) error {
 	for _, e := range elems {
 		if !json.Valid(e) {
 			return fmt.Errorf("element for %q is not valid JSON", path)
@@ -222,7 +274,7 @@ func (d *Document) Union(path []string, elems ...[]byte) error {
 	}
 	v := d.lookup(path)
 	if v == nil {
-		if err := d.Set(path, []byte("[]")); err != nil {
+		if err := d.set(path, []byte("[]")); err != nil {
 			return err
 		}
 		v = d.lookup(path)
