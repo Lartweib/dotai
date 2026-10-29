@@ -187,6 +187,25 @@ func TestRunStage(t *testing.T) {
 	}
 }
 
+func TestRunStageWithoutAHomeDirectory(t *testing.T) {
+	t.Setenv("HOME", "")
+	t.Setenv("USERPROFILE", "")
+	t.Setenv("home", "") // Plan 9
+	var stdout, stderr bytes.Buffer
+	env := testEnv(&stdout, &stderr)
+	called := false
+	env.Stage = func(_ context.Context, _, _, _ string, _ app.Selection, tools app.ToolPaths, _ bool, _ app.Progress) (app.StageResult, error) {
+		called = true
+		if tools.UserErr == nil || tools.ProjectErr != nil {
+			t.Errorf("tools = %+v, want only the user tools directory unknown", tools)
+		}
+		return app.StageResult{Files: []app.StagedFile{}, Diagnostics: []app.Diagnostic{}}, nil
+	}
+	if code := cli.Run([]string{"stage", examplePack, "--out", "s"}, env); code != cli.ExitOK || !called {
+		t.Errorf("exit code = %d, stage called %v, stderr = %q, want the stage to run", code, called, stderr.String())
+	}
+}
+
 func TestRunStageRefusesAnEarlierStaging(t *testing.T) {
 	out := t.TempDir()
 	if err := os.WriteFile(filepath.Join(out, app.StageMarker), nil, 0o644); err != nil {

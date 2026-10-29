@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -23,13 +24,50 @@ func TestExpandPaths(t *testing.T) {
 		{"NUL byte", "\x00${DOTAI_TOOLS}", "\x00${DOTAI_TOOLS}"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := string(app.ExpandPaths([]byte(tt.in), tools)); got != tt.want {
-				t.Errorf("ExpandPaths(%q) = %q, want %q", tt.in, got, tt.want)
+			if got, err := app.ExpandPaths([]byte(tt.in), tools); err != nil || string(got) != tt.want {
+				t.Errorf("ExpandPaths(%q) = %q, %v, want %q", tt.in, got, err, tt.want)
 			}
 		})
 	}
-	if got := string(app.ExpandPaths([]byte("${DOTAI_TOOLS}"), tools)); strings.Contains(got, `\`) || !filepath.IsAbs(filepath.FromSlash(got)) {
+	if got, _ := app.ExpandPaths([]byte("${DOTAI_TOOLS}"), tools); strings.Contains(string(got), `\`) || !filepath.IsAbs(filepath.FromSlash(string(got))) {
 		t.Errorf("expanded to %q, want an absolute path with forward slashes", got)
+	}
+}
+
+func TestExpandPathsUnknownDirectory(t *testing.T) {
+	errHome, errWd := errors.New("$HOME is not defined"), errors.New("getwd failed")
+	tools := app.ToolPaths{UserErr: errHome, ProjectErr: errWd}
+	for _, in := range []string{"no tokens", "\xff${DOTAI_TOOLS}"} {
+		if got, err := app.ExpandPaths([]byte(in), tools); err != nil || string(got) != in {
+			t.Errorf("ExpandPaths(%q) = %q, %v, want it unchanged", in, got, err)
+		}
+	}
+	for token, cause := range map[string]error{"${DOTAI_TOOLS}": errHome, "${DOTAI_PROJECT_TOOLS}": errWd} {
+		_, err := app.ExpandPaths([]byte("run "+token+"/x"), tools)
+		if !errors.Is(err, cause) || !strings.Contains(err.Error(), token) {
+			t.Errorf("ExpandPaths(%s) error = %v, want one that names the token and %v", token, err, cause)
+		}
+	}
+}
+
+func TestStageFailsOnlyWhenATokenNeedsAnUnknownDirectory(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "dotai.yaml"), "schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\nrulesync: 41.0.0\nharnesses: [opencode]\n")
+	rule := filepath.Join(dir, "base", ".rulesync", "rules", "r.md")
+	writeFile(t, rule, "No tokens.\n")
+	f := quiet(t)
+	f.tools = app.ToolPaths{UserErr: errors.New("$HOME is not defined")}
+	if res, err := f.stage(dir, filepath.Join(t.TempDir(), "s"), app.Selection{}, false); err != nil || len(res.Diagnostics) > 0 {
+		t.Fatalf("Stage() = %+v, %v, want a staging without tokens to need no home", res, err)
+	}
+	writeFile(t, rule, "Run ${DOTAI_TOOLS}/x.\n")
+	out := filepath.Join(t.TempDir(), "s")
+	_, err := f.stage(dir, out, app.Selection{}, false)
+	if err == nil || !strings.Contains(err.Error(), "user/.rulesync/rules/r.md") || !strings.Contains(err.Error(), "${DOTAI_TOOLS}") || !strings.Contains(err.Error(), "$HOME is not defined") {
+		t.Errorf("Stage() error = %v, want one that names the file, the token and the cause", err)
+	}
+	if _, err := os.Stat(out); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("out exists after a failed expansion: %v", err)
 	}
 }
 

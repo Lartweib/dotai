@@ -115,7 +115,11 @@ func stage(ctx context.Context, w stageFS, fetch fetchFunc, run runFunc, cacheDi
 		files []merge.File
 	}{{ScopeUser, s.User}, {ScopeProject, s.Project}} {
 		for _, f := range t.files {
-			c := content{data: expandPaths(f.Data, tools), perm: 0o644}
+			data, err := expandPaths(f.Data, tools)
+			if err != nil {
+				return StageResult{}, fmt.Errorf("%s/%s: %w", t.scope, f.Path, err)
+			}
+			c := content{data: data, perm: 0o644}
 			if f.Exec {
 				c.perm = 0o755
 			}

@@ -185,13 +185,9 @@ func newStageCmd(env Env, jsonOut *bool) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		tools, err := toolPaths()
-		if err != nil {
-			return err
-		}
 		ctx, stop := interruptible(cmd)
 		defer stop()
-		res, err := env.Stage(ctx, cache, packDir(args), out, sel(cmd), tools, force, downloadProgress(env, *jsonOut))
+		res, err := env.Stage(ctx, cache, packDir(args), out, sel(cmd), toolPaths(), force, downloadProgress(env, *jsonOut))
 		if err != nil {
 			return err
 		}
@@ -212,14 +208,19 @@ func newStageCmd(env Env, jsonOut *bool) *cobra.Command {
 }
 
 // toolPaths are the tools directories under the user's home and the
-// current directory, the project.
-func toolPaths() (app.ToolPaths, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return app.ToolPaths{}, err
+// current directory, the project. A directory that cannot be found fails
+// the stage only when a staged file needs it.
+func toolPaths() app.ToolPaths {
+	home, homeErr := os.UserHomeDir()
+	project, projectErr := os.Getwd()
+	t := app.ToolsIn(home, project)
+	if homeErr != nil {
+		t.UserErr = fmt.Errorf("the home directory is unknown: %w", homeErr)
 	}
-	project, err := os.Getwd()
-	return app.ToolsIn(home, project), err
+	if projectErr != nil {
+		t.ProjectErr = fmt.Errorf("the current directory is unknown: %w", projectErr)
+	}
+	return t
 }
 
 // selectionFlags adds --variant and --profile to cmd. The returned function
