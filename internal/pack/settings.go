@@ -76,6 +76,9 @@ func readSettings(r reader, src []byte, kind LayerKind, harnesses []string) *Set
 		case v.Kind != yaml.MappingNode:
 			r.report(v, CodeFieldType, "%s must be a mapping", k.Value)
 		default:
+			if env := lookup(v, "env"); k.Value == "claudecode" && env != nil && env.Kind != yaml.MappingNode && !reported(env) {
+				r.report(env, CodeFieldType, "claudecode.env must be a mapping: it merges per variable")
+			}
 			s.Blocks = append(s.Blocks, SettingsBlock{k.Value, v})
 		}
 	}

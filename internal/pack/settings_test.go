@@ -107,6 +107,11 @@ func TestLoadSettingsDiagnostics(t *testing.T) {
 		},
 		{name: "dotai block is not a mapping", src: "dotai: [x]\n", want: []string{"1:8: field-type: dotai must be a mapping"}},
 		{
+			name: "claudecode env merges per variable",
+			src:  "claudecode:\n  env: [A]\nopencode:\n  env: x\n",
+			want: []string{"2:8: field-type: claudecode.env must be a mapping: it merges per variable"},
+		},
+		{
 			name: "malformed override paths",
 			src: "claudecode:\n  model: a\n  env: {A: b}\nopencode:\n  env: {}\ndotai:\n  overrides:\n" +
 				"    - claudecode\n    - .model\n    - claudecode.model.alias\n    - claudecode.env\n    - opencode.env.A\n    - 1\n",
