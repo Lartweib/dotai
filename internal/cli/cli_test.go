@@ -18,7 +18,7 @@ import (
 )
 
 func testEnv(stdout, stderr *bytes.Buffer) cli.Env {
-	return cli.Env{Stdout: stdout, Stderr: stderr, Version: fixedVersion, Validate: app.Validate, Stage: app.Stage}
+	return cli.Env{Stdout: stdout, Stderr: stderr, Version: fixedVersion, Validate: app.Validate, Stage: app.Stage, PlanInstall: app.PlanInstall}
 }
 
 var update = flag.Bool("update", false, "rewrite golden files")
