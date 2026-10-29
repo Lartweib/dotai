@@ -19,11 +19,12 @@ The scope is set by [0020](decisions/0020-v1-scope-engine-and-pack.md) and the c
 | 7 | `plan` and the adapters as data | `dotai install --dry-run` prints the exact plan, readable or as `--json` |
 | 8 | `backup`, `state` and isolated execution for Claude Code | `dotai install --mode isolated`, then open Claude Code isolated with the pack; `dotai restore` puts everything back |
 | 9 | Isolated mode for agy and OpenCode | The same demo on the other two harnesses |
+| 9b | Replace mode for Claude Code, agy and OpenCode ([0034](decisions/0034-replace-mode-in-v1.md)) | Back up the real configuration, `dotai install --mode replace` into a temporary home's real harness paths, then `dotai restore` brings the original back |
 | 10 | Project scope: `dotai apply --profile`, merge by key, mods as plugins ([0027](decisions/0027-loose-files-and-plugins-only-for-mods.md)) | Apply a profile to a test project and see foreign content kept |
 | 11 | `doctor` | Edit an installed file by hand and see `dotai doctor` report it |
 | 12 | Release: binaries per platform | Install `dotai` from a release and repeat the PR 8 demo |
 
-Checkpoints: PR 4 is the first real harness output, PR 8 the first real use with a safe way back, and PR 10 closes the v1 scope.
+Checkpoints: PR 4 is the first real harness output, PR 8 the first real use with a safe way back, PR 9b the first install over the real configuration, and PR 10 closes the v1 scope.
 
 ## After v1
 
@@ -34,4 +35,4 @@ The UI is a thin layer over the same use cases as the CLI ([0026](decisions/0026
 | 13 | `dotai ui`, read-only | Installed state, the current plan and the `doctor` result in the browser |
 | 14 | UI actions | Install, apply profiles and restore from the UI; each action shows its plan and asks for confirmation |
 
-Also after v1: the replace mode and engine support for stack detection during onboarding ([0020](decisions/0020-v1-scope-engine-and-pack.md)).
+Also after v1: engine support for stack detection during onboarding ([0020](decisions/0020-v1-scope-engine-and-pack.md)).
