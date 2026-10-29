@@ -2,7 +2,8 @@
 // 0028): its rulesync target, how far it can run isolated from the user's
 // own configuration (decision 0018), and where its user scope installs in
 // isolated mode (decision 0031). Detecting a harness and launching it
-// isolated are logic, and come with the commands that need them.
+// isolated are logic, and come with the commands that need them; Command
+// names the executable that dotai run launches (decision 0032).
 package harness
 
 import (
@@ -57,17 +58,20 @@ type Isolation struct {
 // installs to <home>/IsolatedDir/Dir/Install/<rest>. All paths are slash
 // paths.
 type Adapter struct {
-	ID        string // the name in the manifest's harnesses
-	Target    string // the rulesync target
-	Dir       string // the harness's directory under IsolatedDir
-	Staging   string // where rulesync writes the harness's files, relative to the home directory
-	Install   string // where Staging installs, relative to Dir; "" is Dir itself
+	ID      string // the name in the manifest's harnesses
+	Target  string // the rulesync target
+	Dir     string // the harness's directory under IsolatedDir
+	Staging string // where rulesync writes the harness's files, relative to the home directory
+	Install string // where Staging installs, relative to Dir; "" is Dir itself
+	// Command is the executable dotai run looks up on PATH and launches
+	// isolated; "" until dotai run supports the harness (roadmap PR 9).
+	Command   string
 	Isolation Isolation
 }
 
 var adapters = []Adapter{
 	{
-		ID: "claudecode", Target: "claudecode", Dir: "claude", Staging: ".claude",
+		ID: "claudecode", Target: "claudecode", Dir: "claude", Staging: ".claude", Command: "claude",
 		Isolation: Isolation{
 			Level:   Partial,
 			Relogin: true, // decision 0018 verified it on Windows only; per OS with roadmap PR 8

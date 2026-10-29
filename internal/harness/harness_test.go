@@ -101,3 +101,14 @@ func TestAllIsACopy(t *testing.T) {
 		t.Error("All() shares its data with the caller")
 	}
 }
+
+// TestCommands checks the executable dotai run launches for each harness:
+// only Claude Code so far, agy and OpenCode come with roadmap PR 9.
+func TestCommands(t *testing.T) {
+	want := map[string]string{"claudecode": "claude", "antigravity-cli": "", "opencode": ""}
+	for _, a := range harness.All() {
+		if got := a.Command; got != want[a.ID] {
+			t.Errorf("%s: Command = %q, want %q", a.ID, got, want[a.ID])
+		}
+	}
+}
