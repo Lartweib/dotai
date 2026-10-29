@@ -12,15 +12,27 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/lartweib/dotai/internal/harness"
 	"github.com/lartweib/dotai/internal/pack"
 	"github.com/lartweib/dotai/internal/plan"
+	"github.com/lartweib/dotai/internal/state"
 )
 
 // ModeIsolated is the install mode of decision 0031, the only one so far.
 const ModeIsolated = "isolated"
+
+// The files of dotai under the home directory besides the isolated root
+// and the tools directory (decision 0032): the install state, the backups
+// and the lock an install holds.
+const (
+	dotaiDir   = ".dotai"
+	stateFile  = "state.json"
+	backupsDir = "backups"
+	lockFile   = "lock"
+)
 
 // CodePathUnmapped is the diagnostic of a staged file that no harness of
 // the pack and no tools rule installs.
@@ -122,25 +134,57 @@ type installFS interface {
 // dir, with variant or the pack's default, into the absolute home
 // directory home. It stages the pack as Stage does, into a temporary
 // directory it removes, with ${DOTAI_TOOLS} at home's tools directory,
-// then compares each staged file with its target. Apart from fetching
-// rulesync, it writes nothing else. A pack with problems, including a
-// staged file that nothing installs, gives diagnostics. rulesync is
-// fetched into cacheDir as FetchRulesync does; progress may be nil.
+// then compares each staged file with its target. A file the previous
+// install owned, by its state in ~/.dotai/state.json, that the pack no
+// longer stages is removed; an owned file the user edited fails the plan
+// with a *plan.EditedError. Apart from fetching rulesync, it writes
+// nothing else. A pack with problems, including a staged file that
+// nothing installs, gives diagnostics. rulesync is fetched into cacheDir
+// as FetchRulesync does; progress may be nil.
 func PlanInstall(ctx context.Context, cacheDir, dir, variant, home string, progress Progress) (InstallPlan, error) {
 	return planInstall(ctx, osInstallFS{}, download, generate, cacheDir, dir, variant, home, progress)
 }
 
-func planInstall(ctx context.Context, d installFS, fetch fetchFunc, run runFunc, cacheDir, dir, variant, home string, progress Progress) (res InstallPlan, err error) {
-	if !filepath.IsAbs(home) {
-		return InstallPlan{}, fmt.Errorf("home directory %q is not absolute", home)
-	}
-	tmp, err := d.StagingDir()
+func planInstall(ctx context.Context, d installFS, fetch fetchFunc, run runFunc, cacheDir, dir, variant, home string, progress Progress) (InstallPlan, error) {
+	var res InstallPlan
+	err := withPlan(ctx, d, fetch, run, cacheDir, dir, variant, home, progress, func(p planned) error {
+		res = p.plan
+		return nil
+	})
 	if err != nil {
 		return InstallPlan{}, err
 	}
+	return res, nil
+}
+
+// planned is a plan with what carrying it out needs: the plan's own
+// operations, the user staging tree that holds the staged files, the
+// state of the previous install (nil before the first one), the pack's
+// harnesses and whether the exec bit is left out. Only plan is set when
+// the plan has diagnostics.
+type planned struct {
+	plan       InstallPlan
+	ops        []plan.Op
+	tree       string
+	prev       *state.State
+	harnesses  []string
+	ignoreExec bool
+}
+
+// withPlan plans the install as PlanInstall describes and calls then with
+// the plan while the staging still exists; the staging is removed after
+// then returns.
+func withPlan(ctx context.Context, d installFS, fetch fetchFunc, run runFunc, cacheDir, dir, variant, home string, progress Progress, then func(planned) error) (err error) {
+	if !filepath.IsAbs(home) {
+		return fmt.Errorf("home directory %q is not absolute", home)
+	}
+	tmp, err := d.StagingDir()
+	if err != nil {
+		return err
+	}
 	defer func() {
 		if rmErr := d.RemoveAll(tmp); rmErr != nil {
-			res, err = InstallPlan{}, errors.Join(err, fmt.Errorf("the temporary staging %s could not be removed: %w", tmp, rmErr))
+			err = errors.Join(err, fmt.Errorf("the temporary staging %s could not be removed: %w", tmp, rmErr))
 		}
 	}()
 	out := filepath.Join(tmp, "staging")
@@ -148,9 +192,9 @@ func planInstall(ctx context.Context, d installFS, fetch fetchFunc, run runFunc,
 	tools.Project, tools.ProjectErr = "", errors.New("an install covers the user scope only")
 	s, err := stage(ctx, d, fetch, run, cacheDir, dir, out, Selection{Variant: variant}, tools, false, progress)
 	if err != nil {
-		return InstallPlan{}, err
+		return err
 	}
-	res = InstallPlan{
+	res := InstallPlan{
 		Pack: s.Pack, Variant: variant, Mode: ModeIsolated, Root: filepath.Join(home, filepath.FromSlash(harness.IsolatedDir)),
 		Harnesses: []HarnessPlan{}, Ops: []InstallOp{}, Diagnostics: s.Diagnostics,
 	}
@@ -158,19 +202,20 @@ func planInstall(ctx context.Context, d installFS, fetch fetchFunc, run runFunc,
 		res.Variant = cmp.Or(variant, s.Pack.DefaultVariant)
 	}
 	if len(s.Diagnostics) > 0 {
-		return res, nil
+		return then(planned{plan: res})
 	}
 	adapters, err := harness.Lookup(s.Pack.Harnesses)
 	if err != nil {
-		return InstallPlan{}, err
+		return err
 	}
-	p, err := buildPlan(ctx, d, filepath.Join(out, ScopeUser), home, adapters)
+	tree := filepath.Join(out, ScopeUser)
+	p, prev, err := buildPlan(ctx, d, tree, home, adapters)
 	if u, ok := errors.AsType[*plan.UnmappedError](err); ok {
 		res.Diagnostics = unmappedDiagnostics(u)
-		return res, nil
+		return then(planned{plan: res})
 	}
 	if err != nil {
-		return InstallPlan{}, err
+		return err
 	}
 	for _, a := range adapters {
 		res.Harnesses = append(res.Harnesses, harnessPlan(res.Root, a))
@@ -181,17 +226,19 @@ func planInstall(ctx context.Context, d installFS, fetch fetchFunc, run runFunc,
 			Exec: op.Exec, Before: op.Before, After: op.After, BeforeExec: op.BeforeExec,
 		})
 	}
-	return res, nil
+	return then(planned{plan: res, ops: p.Ops, tree: tree, prev: prev, harnesses: s.Pack.Harnesses, ignoreExec: !d.ExecBit()})
 }
 
 // buildPlan plans the user-scope staging tree tree into home. A first
 // plan from the names alone checks every staged path and maps every file
 // before anything is read; the plan is then built again with the hash of
-// each staged file and the state of each target.
-func buildPlan(ctx context.Context, d installFS, tree, home string, adapters []harness.Adapter) (plan.Plan, error) {
+// each staged file, the state of each target and of each file the previous
+// install owned, and that install's ownership record. It also returns the
+// previous install's state, nil when there is none.
+func buildPlan(ctx context.Context, d installFS, tree, home string, adapters []harness.Adapter) (plan.Plan, *state.State, error) {
 	names, err := d.Files(tree)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return plan.Plan{}, err
+		return plan.Plan{}, nil, err
 	}
 	in := plan.Input{Home: home, Adapters: adapters, IgnoreExec: !d.ExecBit()}
 	for _, name := range names {
@@ -199,25 +246,76 @@ func buildPlan(ctx context.Context, d installFS, tree, home string, adapters []h
 	}
 	first, err := plan.Build(in)
 	if err != nil {
-		return plan.Plan{}, err
+		return plan.Plan{}, nil, err
+	}
+	prev, err := readState(d, home)
+	if err != nil {
+		return plan.Plan{}, nil, err
 	}
 	in.Files, in.Disk = nil, map[string]plan.Current{}
-	dirs := map[string]error{} // the outcome of checkDir for each directory checked
+	var targets []string
 	for _, op := range first.Ops {
 		staged, err := d.Hash(ctx, filepath.Join(tree, filepath.FromSlash(op.Source)))
 		if err != nil {
-			return plan.Plan{}, err
+			return plan.Plan{}, nil, err
 		}
 		in.Files = append(in.Files, plan.File{Path: op.Source, Hash: staged.Hash, Exec: staged.Exec})
-		cur, ok, err := inspectTarget(ctx, d, home, op.Target, dirs)
-		if err != nil {
-			return plan.Plan{}, err
-		}
-		if ok {
-			in.Disk[op.Target] = cur
+		targets = append(targets, op.Target)
+	}
+	if prev != nil {
+		in.Owned = prev.Owned()
+		for _, f := range prev.Files {
+			if !slices.Contains(targets, f.Target) {
+				targets = append(targets, f.Target)
+			}
 		}
 	}
-	return plan.Build(in)
+	dirs := map[string]error{} // the outcome of checkDir for each directory checked
+	for _, target := range targets {
+		cur, ok, err := inspectTarget(ctx, d, home, target, dirs)
+		if err != nil {
+			return plan.Plan{}, nil, err
+		}
+		if ok {
+			in.Disk[target] = cur
+		}
+	}
+	p, err := plan.Build(in)
+	if err != nil {
+		return plan.Plan{}, nil, err
+	}
+	return p, prev, nil
+}
+
+// readState reads the state of the previous install in home, nil when
+// there is none. Neither the dotai directory nor the state file is
+// followed when it is a link.
+func readState(d installFS, home string) (*state.State, error) {
+	dir := filepath.Join(home, dotaiDir)
+	if err := checkDir(d, dir); errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	} else if err != nil {
+		return nil, err
+	}
+	name := filepath.Join(dir, stateFile)
+	mode, err := d.Lstat(name)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return nil, nil
+	case err != nil:
+		return nil, err
+	case !mode.IsRegular():
+		return nil, &NotRegularError{Path: name, Mode: mode}
+	}
+	data, err := d.ReadFile(dir, stateFile)
+	if err != nil {
+		return nil, err
+	}
+	s, err := state.Decode(data)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", name, err)
+	}
+	return &s, nil
 }
 
 // inspectTarget gives the state of target, a path under home, and whether
@@ -308,35 +406,46 @@ func (osInstallFS) Lstat(name string) (fs.FileMode, error) {
 	return info.Mode(), nil
 }
 
-// Hash opens name only after Lstat found a regular file there, and checks
-// that the file it opened is that one, so that a link put there in
-// between is not read. A FIFO put there in between can still block the
-// open; ctx stops the read, not the open.
+// Hash reads name as openRegular opens it.
 func (osInstallFS) Hash(ctx context.Context, name string) (plan.Current, error) {
-	info, err := os.Lstat(name)
-	if err != nil {
-		return plan.Current{}, err
-	}
-	if !info.Mode().IsRegular() {
-		return plan.Current{}, &NotRegularError{Path: name, Mode: info.Mode()}
-	}
-	f, err := os.Open(name)
+	f, info, err := openRegular(name)
 	if err != nil {
 		return plan.Current{}, err
 	}
 	defer f.Close()
-	opened, err := f.Stat()
-	if err != nil {
-		return plan.Current{}, err
-	}
-	if !os.SameFile(info, opened) {
-		return plan.Current{}, fmt.Errorf("%s changed while it was read", name)
-	}
 	h := sha256.New()
 	if _, err := io.Copy(h, ctxReader{ctx, f}); err != nil {
 		return plan.Current{}, fmt.Errorf("%s: %w", name, err)
 	}
 	return plan.Current{Hash: hex.EncodeToString(h.Sum(nil)), Exec: info.Mode()&0o111 != 0}, nil
+}
+
+// openRegular opens name only after Lstat found a regular file there, and
+// checks that the file it opened is that one, so that a link put there in
+// between is not read. A FIFO put there in between can still block the
+// open; the caller's context stops the read, not the open.
+func openRegular(name string) (*os.File, fs.FileInfo, error) {
+	info, err := os.Lstat(name)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, nil, &NotRegularError{Path: name, Mode: info.Mode()}
+	}
+	f, err := os.Open(name)
+	if err != nil {
+		return nil, nil, err
+	}
+	opened, err := f.Stat()
+	if err != nil {
+		f.Close()
+		return nil, nil, err
+	}
+	if !os.SameFile(info, opened) {
+		f.Close()
+		return nil, nil, fmt.Errorf("%s changed while it was read", name)
+	}
+	return f, info, nil
 }
 
 // ctxReader reads from r until ctx is done.
