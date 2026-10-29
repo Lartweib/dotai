@@ -23,11 +23,12 @@ import (
 // minute on each reading, so that each backup gets its own id.
 type clockFS struct {
 	app.OSInstallFS
+	t   *testing.T
 	now time.Time
 }
 
-func newClockFS() *clockFS {
-	return &clockFS{now: time.Date(2026, 10, 29, 10, 0, 0, 0, time.UTC)}
+func newClockFS(t *testing.T) *clockFS {
+	return &clockFS{t: t, now: time.Date(2026, 10, 29, 10, 0, 0, 0, time.UTC)}
 }
 
 func (c *clockFS) Now() time.Time {
@@ -115,7 +116,7 @@ func installed(t *testing.T, home string) []string {
 
 func TestInstallInAFreshHomeWritesEveryFile(t *testing.T) {
 	home, tmp := installHome(t)
-	d := newClockFS()
+	d := newClockFS(t)
 	res, err := (&fakeRulesync{t: t}).install(d, examplePack, home)
 	if err != nil || len(res.Diagnostics) != 0 {
 		t.Fatalf("Install() = %+v, %v", res, err)
@@ -179,7 +180,7 @@ func TestInstallInAFreshHomeWritesEveryFile(t *testing.T) {
 
 func TestInstallAgainWithNoChangeWritesNothing(t *testing.T) {
 	home, _ := installHome(t)
-	d := newClockFS()
+	d := newClockFS(t)
 	first, err := quiet(t).install(d, examplePack, home)
 	if err != nil {
 		t.Fatal(err)
@@ -211,7 +212,7 @@ func TestInstallAgainWithNoChangeWritesNothing(t *testing.T) {
 func TestInstallReplacesAChangedFileWithABackup(t *testing.T) {
 	home, _ := installHome(t)
 	dir := copyPack(t)
-	d := newClockFS()
+	d := newClockFS(t)
 	if _, err := quiet(t).install(d, dir, home); err != nil {
 		t.Fatal(err)
 	}
@@ -263,7 +264,7 @@ func TestInstallReplacesAChangedFileWithABackup(t *testing.T) {
 func TestInstallRemovesAFileThePackDropped(t *testing.T) {
 	home, _ := installHome(t)
 	dir := copyPack(t)
-	d := newClockFS()
+	d := newClockFS(t)
 	if _, err := quiet(t).install(d, dir, home); err != nil {
 		t.Fatal(err)
 	}
@@ -304,7 +305,7 @@ func TestInstallRemovesAFileThePackDropped(t *testing.T) {
 func TestInstallRefusesAnOwnedFileTheUserEdited(t *testing.T) {
 	home, _ := installHome(t)
 	dir := copyPack(t)
-	d := newClockFS()
+	d := newClockFS(t)
 	first, err := (&fakeRulesync{t: t}).install(d, dir, home)
 	if err != nil {
 		t.Fatal(err)
@@ -336,7 +337,7 @@ func TestInstallRefusesAnOwnedFileTheUserEdited(t *testing.T) {
 func TestInstallTakesOwnershipOfAFileThatAlreadyMatches(t *testing.T) {
 	home, _ := installHome(t)
 	writeFile(t, at(home, ".dotai/isolated/claude/CLAUDE.md"), "# generated\n")
-	res, err := (&fakeRulesync{t: t}).install(newClockFS(), examplePack, home)
+	res, err := (&fakeRulesync{t: t}).install(newClockFS(t), examplePack, home)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -348,7 +349,7 @@ func TestInstallTakesOwnershipOfAFileThatAlreadyMatches(t *testing.T) {
 
 func TestInstallRecordsAFirstInstallThatWritesNothing(t *testing.T) {
 	home, _ := installHome(t)
-	d := newClockFS()
+	d := newClockFS(t)
 	first, err := quiet(t).install(d, examplePack, home)
 	if err != nil {
 		t.Fatal(err)
@@ -368,9 +369,10 @@ func TestInstallRecordsAFirstInstallThatWritesNothing(t *testing.T) {
 	}
 }
 
-// tamperFS changes target on disk at the first write of the install,
-// after the backup, as another program would between plan and execution,
-// or fails the write number failAt.
+// tamperFS counts the writes of targets, not of the install state. At the
+// first one, after the backup, it changes target on disk as another
+// program would between plan and execution; it fails the write number
+// failAt.
 type tamperFS struct {
 	*clockFS
 	target string
@@ -378,26 +380,23 @@ type tamperFS struct {
 	writes int
 }
 
-func (f *tamperFS) WriteAtomic(name string, data []byte, exec bool) error {
-	f.writes++
-	if f.writes == 1 && f.target != "" {
-		if err := os.MkdirAll(filepath.Dir(f.target), 0o755); err != nil {
-			return err
+func (f *tamperFS) WriteIn(root, name string, data []byte, mode os.FileMode) error {
+	if name != "state.json" {
+		f.writes++
+		if f.writes == 1 && f.target != "" {
+			writeFile(f.t, f.target, "tampered\n")
 		}
-		if err := os.WriteFile(f.target, []byte("tampered\n"), 0o644); err != nil {
-			return err
+		if f.writes == f.failAt {
+			return errDisk
 		}
 	}
-	if f.writes == f.failAt {
-		return errDisk
-	}
-	return f.clockFS.WriteAtomic(name, data, exec)
+	return f.clockFS.WriteIn(root, name, data, mode)
 }
 
 func TestInstallStopsWhenATargetChangedAfterPlanning(t *testing.T) {
 	home, _ := installHome(t)
 	tampered := at(home, ".dotai/tools/hello.sh")
-	d := &tamperFS{clockFS: newClockFS(), target: tampered}
+	d := &tamperFS{clockFS: newClockFS(t), target: tampered}
 	_, err := (&fakeRulesync{t: t}).install(d, examplePack, home)
 	var changed *app.ChangedError
 	var ie *app.InstallError
@@ -408,7 +407,7 @@ func TestInstallStopsWhenATargetChangedAfterPlanning(t *testing.T) {
 		t.Errorf("Install() error = %q, want the target, the rollback and the backup", err)
 	}
 	if got := installed(t, home); !reflect.DeepEqual(got, []string{".dotai/tools/hello.sh"}) {
-		t.Errorf("home = %v, want only the tampered file", got)
+		t.Errorf("home = %v, want only the tampered file, and no state", got)
 	}
 	if got, _ := os.ReadFile(tampered); string(got) != "tampered\n" {
 		t.Errorf("hello.sh = %q, want what the other program wrote", got)
@@ -425,14 +424,14 @@ func TestInstallRollsBackFromTheBackupWhenAWriteFails(t *testing.T) {
 	home, _ := installHome(t)
 	foreign := at(home, ".dotai/isolated/claude/CLAUDE.md")
 	writeFile(t, foreign, "# there before\n")
-	d := &tamperFS{clockFS: newClockFS(), failAt: 3}
+	d := &tamperFS{clockFS: newClockFS(t), failAt: 3}
 	_, err := (&fakeRulesync{t: t}).install(d, examplePack, home)
 	var ie *app.InstallError
 	if !errors.Is(err, errDisk) || !errors.As(err, &ie) || ie.Rollback != nil {
 		t.Fatalf("Install() error = %v, want the write failure and a rollback that worked", err)
 	}
 	if got := installed(t, home); !reflect.DeepEqual(got, []string{".dotai/isolated/claude/CLAUDE.md"}) {
-		t.Errorf("home = %v, want only the file that was there", got)
+		t.Errorf("home = %v, want only the file that was there, and no state", got)
 	}
 	if got, _ := os.ReadFile(foreign); string(got) != "# there before\n" {
 		t.Errorf("CLAUDE.md = %q, want it restored from the backup", got)
@@ -442,42 +441,88 @@ func TestInstallRollsBackFromTheBackupWhenAWriteFails(t *testing.T) {
 	}
 }
 
-// failRemoveFS fails every Remove, so that a rollback cannot delete what
-// the install created.
+// overwriteFS writes other content over target right after the install
+// wrote it, as another program would, and then fails the next write.
+type overwriteFS struct {
+	*clockFS
+	target  string
+	written bool
+}
+
+func (f *overwriteFS) WriteIn(root, name string, data []byte, mode os.FileMode) error {
+	if f.written && name != "state.json" {
+		return errDisk
+	}
+	if err := f.clockFS.WriteIn(root, name, data, mode); err != nil {
+		return err
+	}
+	if filepath.Join(root, filepath.FromSlash(name)) == f.target {
+		f.written = true
+		writeFile(f.t, f.target, "someone else's\n")
+	}
+	return nil
+}
+
+// TestInstallRollbackLeavesWhatAnotherProgramWrote checks that a rollback
+// does not overwrite a replaced target that is neither what the install
+// wrote nor what was there, and reports it.
+func TestInstallRollbackLeavesWhatAnotherProgramWrote(t *testing.T) {
+	home, _ := installHome(t)
+	target := at(home, ".dotai/isolated/claude/CLAUDE.md")
+	writeFile(t, target, "# there before\n")
+	_, err := (&fakeRulesync{t: t}).install(&overwriteFS{clockFS: newClockFS(t), target: target}, examplePack, home)
+	var ie *app.InstallError
+	if !errors.As(err, &ie) || ie.Rollback == nil || !strings.Contains(ie.Rollback.Error(), target) || !strings.Contains(ie.Rollback.Error(), "left as it is") {
+		t.Fatalf("Install() error = %v, want a rollback that reports %s", err, target)
+	}
+	if got, _ := os.ReadFile(target); string(got) != "someone else's\n" {
+		t.Errorf("CLAUDE.md = %q, want what the other program wrote", got)
+	}
+}
+
+// failRemoveFS fails every removal inside a root, so that a rollback
+// cannot delete what the install created.
 type failRemoveFS struct {
 	*tamperFS
 }
 
-func (failRemoveFS) Remove(string) error { return errors.New("locked by another program") }
+func (failRemoveFS) RemoveIn(string, string) error { return errors.New("locked by another program") }
 
 func TestInstallReportsARollbackThatFailed(t *testing.T) {
 	home, _ := installHome(t)
-	d := failRemoveFS{&tamperFS{clockFS: newClockFS(), failAt: 2}}
+	d := failRemoveFS{&tamperFS{clockFS: newClockFS(t), failAt: 2}}
 	_, err := quiet(t).install(d, examplePack, home)
 	var ie *app.InstallError
 	if !errors.As(err, &ie) || ie.Rollback == nil || !strings.Contains(err.Error(), "locked by another program") || !strings.Contains(err.Error(), ie.Backup) {
 		t.Errorf("Install() error = %v, want the cause, the rollback failure and the backup", err)
 	}
+	// The journal stays, so that the next install owns what was written.
+	s := readJSON(t, at(home, ".dotai/state.json"), state.Decode)
+	if s.Pending == nil || s.Pending.Backup != filepath.Base(ie.Backup) {
+		t.Errorf("state = %+v, want the journal of the install", s)
+	}
+	if res, err := quiet(t).install(newClockFS(t), examplePack, home); err != nil || res.Backup == nil {
+		t.Errorf("next Install() = %+v, %v, want it to finish the install", res, err)
+	}
 }
 
-// failBackupFS fails to write any file into the backups.
+// failBackupFS fails to write the manifest of a backup.
 type failBackupFS struct {
 	*clockFS
-	home string
 }
 
-func (f failBackupFS) WriteFile(dir, name string, data []byte, perm os.FileMode) error {
-	if strings.HasPrefix(dir, at(f.home, ".dotai/backups")) && name == "manifest.json" {
+func (f failBackupFS) WriteSynced(dir, name string, data []byte, perm os.FileMode) error {
+	if name == "manifest.json" {
 		return errDisk
 	}
-	return f.clockFS.WriteFile(dir, name, data, perm)
+	return f.clockFS.WriteSynced(dir, name, data, perm)
 }
 
 func TestInstallWritesNothingWhenTheBackupFails(t *testing.T) {
 	home, _ := installHome(t)
 	writeFile(t, at(home, ".dotai/isolated/claude/CLAUDE.md"), "# there before\n")
 	before := tree(t, home)
-	_, err := (&fakeRulesync{t: t}).install(failBackupFS{newClockFS(), home}, examplePack, home)
+	_, err := (&fakeRulesync{t: t}).install(failBackupFS{newClockFS(t)}, examplePack, home)
 	if !errors.Is(err, errDisk) || !strings.Contains(err.Error(), "nothing was written") {
 		t.Fatalf("Install() error = %v, want the backup failure", err)
 	}
@@ -493,7 +538,7 @@ func TestInstallRefusesWhileAnotherHoldsTheLock(t *testing.T) {
 	home, _ := installHome(t)
 	lock := at(home, ".dotai/lock")
 	writeFile(t, lock, "")
-	_, err := quiet(t).install(newClockFS(), examplePack, home)
+	_, err := quiet(t).install(newClockFS(t), examplePack, home)
 	var le *app.LockedError
 	if !errors.As(err, &le) || le.Path != lock || !strings.Contains(err.Error(), "another dotai") || !strings.Contains(err.Error(), lock) {
 		t.Fatalf("Install() error = %v, want a held lock naming %s", err, lock)
@@ -509,7 +554,7 @@ func TestInstallRefusesALinkAtTheDotaiDirectory(t *testing.T) {
 	if err := os.Symlink(real, at(home, ".dotai")); err != nil {
 		t.Skipf("symbolic links not supported here: %v", err)
 	}
-	_, err := quiet(t).install(newClockFS(), examplePack, home)
+	_, err := quiet(t).install(newClockFS(t), examplePack, home)
 	var nr *app.NotRegularError
 	if !errors.As(err, &nr) || nr.Path != at(home, ".dotai") {
 		t.Errorf("Install() error = %v, want a not-regular error naming the dotai directory", err)
@@ -521,18 +566,18 @@ func TestInstallRefusesALinkAtTheDotaiDirectory(t *testing.T) {
 
 func TestInstallInvalidPackWritesNothing(t *testing.T) {
 	home, _ := installHome(t)
-	res, err := app.InstallWith(context.Background(), newClockFS(), quiet(t).fetch, quiet(t).run, examplePack, "nope", home)
+	res, err := app.InstallWith(context.Background(), newClockFS(t), quiet(t).fetch, quiet(t).run, examplePack, "nope", home)
 	if err != nil || len(res.Diagnostics) != 1 || res.Backup != nil || res.State != "" {
 		t.Fatalf("Install() = %+v, %v, want one diagnostic and nothing installed", res, err)
 	}
-	if got := tree(t, home); len(got) != 0 {
-		t.Errorf("home = %v, want nothing", got)
+	if entries, _ := os.ReadDir(home); len(entries) != 0 {
+		t.Errorf("home = %v, want nothing, not even the dotai directory", entries)
 	}
 }
 
 func TestInstallKeepsTheFirstAndTheLastTenBackups(t *testing.T) {
 	home, _ := installHome(t)
-	d := newClockFS()
+	d := newClockFS(t)
 	var ids []string
 	for i := range 13 {
 		if i > 0 { // a file the install owns is gone, so it is written again
@@ -557,7 +602,7 @@ func TestInstallKeepsTheFirstAndTheLastTenBackups(t *testing.T) {
 func TestPlanInstallAfterAnInstall(t *testing.T) {
 	home, _ := installHome(t)
 	dir := copyPack(t)
-	if _, err := quiet(t).install(newClockFS(), dir, home); err != nil {
+	if _, err := quiet(t).install(newClockFS(t), dir, home); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Remove(filepath.Join(dir, "base", "dotai", "tools", "hello.sh")); err != nil {
@@ -584,7 +629,7 @@ func TestInstallRefusesAStateItCannotRead(t *testing.T) {
 	home, _ := installHome(t)
 	name := at(home, ".dotai/state.json")
 	writeFile(t, name, `{"schema": "dotai.state/v9"}`)
-	_, err := quiet(t).install(newClockFS(), examplePack, home)
+	_, err := quiet(t).install(newClockFS(t), examplePack, home)
 	if err == nil || !strings.Contains(err.Error(), name) || !strings.Contains(err.Error(), "dotai.state/v9") {
 		t.Errorf("Install() error = %v, want the state file and its schema", err)
 	}
@@ -595,7 +640,7 @@ func TestInstallRefusesAStateItCannotRead(t *testing.T) {
 
 func TestInstallCleansTheHomeDirectory(t *testing.T) {
 	home, _ := installHome(t)
-	res, err := quiet(t).install(newClockFS(), examplePack, home+"/./")
+	res, err := quiet(t).install(newClockFS(t), examplePack, home+"/./")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -611,7 +656,7 @@ func TestInstallCleansTheHomeDirectory(t *testing.T) {
 // is deleted.
 func TestInstallPrunesByTheRecordedTime(t *testing.T) {
 	home, _ := installHome(t)
-	d := newClockFS()
+	d := newClockFS(t)
 	var ids []string
 	for i := range 12 {
 		if i > 0 {

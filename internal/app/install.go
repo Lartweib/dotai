@@ -168,12 +168,14 @@ type planned struct {
 	tree       string
 	prev       *state.State
 	harnesses  []string
+	owned      map[string]plan.Current // the targets the previous install owns, as they are
 	ignoreExec bool
 }
 
 // withPlan plans the install as PlanInstall describes and calls then with
 // the plan while the staging still exists; the staging is removed after
-// then returns.
+// then returns. A staging that cannot be removed is a *stagingError, on
+// its own when nothing else failed.
 func withPlan(ctx context.Context, d installFS, fetch fetchFunc, run runFunc, cacheDir, dir, variant, home string, progress Progress, then func(planned) error) (err error) {
 	if !filepath.IsAbs(home) {
 		return fmt.Errorf("home directory %q is not absolute", home)
@@ -185,7 +187,11 @@ func withPlan(ctx context.Context, d installFS, fetch fetchFunc, run runFunc, ca
 	}
 	defer func() {
 		if rmErr := d.RemoveAll(tmp); rmErr != nil {
-			err = errors.Join(err, fmt.Errorf("the temporary staging %s could not be removed: %w", tmp, rmErr))
+			if err == nil {
+				err = &stagingError{dir: tmp, err: rmErr}
+			} else {
+				err = errors.Join(err, &stagingError{dir: tmp, err: rmErr})
+			}
 		}
 	}()
 	out := filepath.Join(tmp, "staging")
@@ -227,7 +233,7 @@ func withPlan(ctx context.Context, d installFS, fetch fetchFunc, run runFunc, ca
 			Exec: op.Exec, Before: op.Before, After: op.After, BeforeExec: op.BeforeExec,
 		})
 	}
-	return then(planned{plan: res, ops: p.Ops, tree: tree, prev: prev, harnesses: s.Pack.Harnesses, ignoreExec: !d.ExecBit()})
+	return then(planned{plan: res, ops: p.Ops, tree: tree, prev: prev, harnesses: s.Pack.Harnesses, owned: p.Owned, ignoreExec: !d.ExecBit()})
 }
 
 // buildPlan plans the user-scope staging tree tree into home. A first

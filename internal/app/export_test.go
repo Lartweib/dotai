@@ -42,3 +42,11 @@ type ExecuteFS = executeFS
 func InstallWith(ctx context.Context, d executeFS, fetch fetchFunc, run runFunc, dir, variant, home string) (InstallResult, error) {
 	return install(ctx, d, fetch, run, "cache", dir, variant, home, nil)
 }
+
+// RetryWith, Transient and NarrowMode are the retry of a move or a removal,
+// the errors it retries on this OS, and the mode of a replaced file.
+var (
+	RetryWith  = retryWith
+	Transient  = transient
+	NarrowMode = narrowMode
+)
