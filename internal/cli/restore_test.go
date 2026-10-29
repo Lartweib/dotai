@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -32,7 +33,7 @@ var restoreResult = app.RestoreResult{
 		{Action: plan.Create, Harness: "opencode", Target: "/home/u/.dotai/isolated/opencode/config/opencode/opencode.jsonc", From: "20261029T103000.000Z_install", After: "dd"},
 		{Action: plan.Remove, Target: "/home/u/.dotai/tools/hello.sh", Before: "ee", BeforeExec: true},
 	},
-	Conflicts: []app.RestoreConflict{{Target: "/home/u/.dotai/isolated/claude/agents/reviewer.md", Harness: "claudecode", Backup: "20261029T103000.000Z_install"}},
+	Conflicts: []app.RestoreConflict{{Target: "/home/u/.dotai/isolated/claude/agents/reviewer.md", Harness: "claudecode", Backup: "20261029T103000.000Z_install", Expected: "c0", Current: "cc"}},
 	Harnesses: []string{"claudecode", "opencode"},
 	Backup:    &app.BackupRef{ID: "20261029T110000.000Z_restore", Path: "/home/u/.dotai/backups/20261029T110000.000Z_restore"},
 	State:     "/home/u/.dotai/state.json",
@@ -197,6 +198,18 @@ func TestRunRestoreConflicts(t *testing.T) {
 			if strings.Contains(tt.args[len(tt.args)-1], "json") {
 				if e := decodeOne(t, stdout.Bytes()); e.OK || e.Error == nil || e.Error.Code != output.CodeInternal || !strings.Contains(e.Error.Message, tt.wantErr) {
 					t.Errorf("envelope = %+v, want an internal error with %q", e, tt.wantErr)
+				}
+				var e struct {
+					Data struct {
+						Conflicts []map[string]string `json:"conflicts"`
+					} `json:"data"`
+				}
+				if err := json.Unmarshal(stdout.Bytes(), &e); err != nil {
+					t.Fatal(err)
+				}
+				want := map[string]string{"target": conflict, "harness": "claudecode", "backup": "20261029T103000.000Z_install", "expected": "c0", "current": "cc"}
+				if len(e.Data.Conflicts) != 1 || !reflect.DeepEqual(e.Data.Conflicts[0], want) {
+					t.Errorf("data conflicts = %v, want %v", e.Data.Conflicts, want)
 				}
 				return
 			}

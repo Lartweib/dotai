@@ -85,7 +85,9 @@
       {
         "target": "/home/u/.dotai/isolated/claude/agents/reviewer.md",
         "harness": "claudecode",
-        "backup": "20261029T103000.000Z_install"
+        "backup": "20261029T103000.000Z_install",
+        "expected": "c0",
+        "current": "cc"
       }
     ],
     "harnesses": [

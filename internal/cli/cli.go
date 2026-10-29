@@ -102,6 +102,9 @@ func Run(args []string, env Env) int {
 	}
 	if jsonRequested(root, args) {
 		e := output.Failure(commandName(cmd), code, err.Error())
+		if conflict, ok := errors.AsType[*app.ConflictError](err); ok {
+			e.Data = map[string]any{"conflicts": conflict.Conflicts}
+		}
 		if invalid != nil {
 			e = output.Invalid(commandName(cmd), err.Error(), invalid.data)
 		}
