@@ -8,11 +8,14 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/lartweib/dotai/internal/backup"
+	"github.com/lartweib/dotai/internal/harness"
+	"github.com/lartweib/dotai/internal/merge"
 	"github.com/lartweib/dotai/internal/plan"
 	"github.com/lartweib/dotai/internal/state"
 )
@@ -67,11 +70,14 @@ type RestoreOp struct {
 
 // RestoreConflict is a target that holds neither what the install of
 // Backup wrote nor what the restore puts there: the user or a harness
-// changed it after that install.
+// changed it after that install. Expected is the SHA-256 that install
+// wrote, "" for a file it removed, and Current the one the target holds.
 type RestoreConflict struct {
-	Target  string `json:"target"`
-	Harness string `json:"harness"`
-	Backup  string `json:"backup"`
+	Target   string `json:"target"`
+	Harness  string `json:"harness"`
+	Backup   string `json:"backup"`
+	Expected string `json:"expected"`
+	Current  string `json:"current"`
 }
 
 // ConflictError is a restore that would overwrite or delete files that
@@ -109,18 +115,15 @@ func (e *CorruptBackupError) Error() string {
 
 func (e *CorruptBackupError) Unwrap() error { return e.Err }
 
-// PendingError is an install state with a journal: an install or a
-// restore that did not finish, whose files are not all as either side
-// records.
-type PendingError struct {
-	State   string
-	Pack    state.Pack
-	Variant string
+// StaleError is a restore whose plan no longer holds once it took the
+// lock: the install state or a target changed while the user was asked,
+// or another dotai ran in between.
+type StaleError struct {
+	What string
 }
 
-func (e *PendingError) Error() string {
-	return fmt.Sprintf("an install or a restore did not finish: %s still holds its journal, so restore cannot tell what is on disk; "+
-		"run dotai install %s --variant %s to settle it, then restore again; nothing was written", e.State, e.Pack.Path, e.Variant)
+func (e *StaleError) Error() string {
+	return fmt.Sprintf("%s changed while the restore was planned and confirmed; nothing was written: run restore again", e.What)
 }
 
 // RestoreError is a restore that stopped after it started writing: the
@@ -137,7 +140,7 @@ func (e *RestoreError) Error() string {
 		return fmt.Sprintf("the restore stopped: %v; everything it wrote was put back from its backup %s, which is kept", e.Cause, e.Backup)
 	}
 	return fmt.Sprintf("the restore stopped: %v; putting back what it wrote failed: %v; the backup %s holds what was there before, "+
-		"and the install state keeps the restore's journal: run dotai install to settle it", e.Cause, e.Rollback, e.Backup)
+		"and the install state keeps the restore's journal: the next restore settles it", e.Cause, e.Rollback, e.Backup)
 }
 
 func (e *RestoreError) Unwrap() []error {
@@ -153,22 +156,28 @@ func (e *RestoreError) Unwrap() []error {
 // wrote files; with one, every install from that one down to the install
 // that took the backup id, newest first, so that the disk ends as it was
 // before it. The installs are found from the state, through the state
-// before each one that its backup keeps.
+// before each one that its backup keeps. A journal in the state is
+// settled first: an interrupted install is undone as the newest install,
+// and an interrupted restore is rolled back from its backup before the
+// restore goes on, so that without an id it undoes what that one was
+// undoing.
 //
-// Everything is checked under ~/.dotai/lock before the first write: the
-// state has no journal, each manifest is one an install wrote for home
-// with every target inside a harness's isolated directory or the tools
-// directory, each copy holds what its manifest records, and each target
-// holds what the install wrote. A target that holds something else, and
-// not what the restore puts there either, is a conflict: overwrite is
-// asked once with the plan, and the restore writes nothing unless it
-// answers true; a nil overwrite refuses. Every file the restore then
-// replaces or deletes is copied into a backup of its own first, so that
-// nothing is lost, and a journal is written into the state; a failure or
-// a cancellation rolls back from that backup, as an install does. The
-// state is then the one from before the oldest install undone, or none,
-// and the backups undone are marked restored. Failures after the restore
-// succeeded are warnings.
+// Everything is checked before the first write: each manifest is one an
+// install wrote for home with every target inside a harness's isolated
+// directory or the tools directory, each copy holds what its manifest
+// records, and each target holds what the install wrote. A target that
+// holds something else, and not what the restore puts there either, is a
+// conflict: overwrite is asked once with the plan, before the lock is
+// taken, and the restore writes nothing unless it answers true; a nil
+// overwrite refuses. Under ~/.dotai/lock the plan is made again, and a
+// restore whose state, conflicts or targets changed meanwhile is a
+// *StaleError. Every file the restore then replaces or deletes is copied
+// into a backup of its own first, so that nothing is lost, and a journal
+// is written into the state; a failure or a cancellation rolls back from
+// that backup, as an install does. The state is then the one from before
+// the oldest install undone, or none, in which case the empty isolated and
+// tools directories go too, and the backups undone are marked restored.
+// Failures after the restore succeeded are warnings.
 func Restore(ctx context.Context, home, id string, overwrite func(RestoreResult) (bool, error)) (RestoreResult, error) {
 	return restore(ctx, osInstallFS{}, home, id, overwrite)
 }
@@ -192,12 +201,33 @@ func restore(ctx context.Context, d executeFS, home, id string, overwrite func(R
 	r := restorer{runner: runner{ctx: ctx, d: d, home: home, p: planned{
 		prev: s, tree: filepath.Join(home, dotaiDir, backupsDir), ignoreExec: !d.ExecBit(),
 	}}}
-	res := RestoreResult{Warnings: []string{}}
+	res, _, err := r.planned(*s, id)
+	if err != nil {
+		return RestoreResult{}, err
+	}
+	if len(res.Conflicts) > 0 {
+		ok := false
+		if overwrite != nil {
+			if ok, err = overwrite(res); err != nil {
+				return RestoreResult{}, err
+			}
+		}
+		if !ok {
+			return RestoreResult{}, &ConflictError{Conflicts: res.Conflicts}
+		}
+	}
 	err = r.locked(&res.Warnings, func() error {
 		if err := r.recheckState(statePath); err != nil {
+			return &StaleError{What: "the install state " + statePath}
+		}
+		again, chain, err := r.planned(*s, id)
+		if err != nil {
 			return err
 		}
-		return r.run(&res, id, overwrite)
+		if !reflect.DeepEqual(again.Ops, res.Ops) || !reflect.DeepEqual(again.Conflicts, res.Conflicts) {
+			return &StaleError{What: "a file the restore writes"}
+		}
+		return r.write(&res, chain)
 	})
 	if err != nil {
 		return RestoreResult{}, err
@@ -230,33 +260,36 @@ type vfile struct {
 	from   string // the backup that holds src
 }
 
-// run plans the restore of id into res, asks overwrite when there are
-// conflicts, and carries it out.
-func (r *restorer) run(res *RestoreResult, id string, overwrite func(RestoreResult) (bool, error)) error {
-	s := *r.p.prev
-	statePath := filepath.Join(r.home, dotaiDir, stateFile)
-	if s.Pending != nil {
-		return &PendingError{State: statePath, Pack: s.Pack, Variant: s.Variant}
-	}
+// planned plans the restore of id from s, as plan describes, and gives
+// the installs it undoes. r.p.ops holds its operations.
+func (r *restorer) planned(s state.State, id string) (RestoreResult, []undone, error) {
+	res := RestoreResult{Warnings: []string{}, State: filepath.Join(r.home, dotaiDir, stateFile)}
 	chain, err := r.chain(s, id)
 	if err != nil {
-		return err
+		return RestoreResult{}, nil, err
 	}
-	if err := r.plan(res, s, chain); err != nil {
-		return err
+	if err := r.plan(&res, s, chain); err != nil {
+		return RestoreResult{}, nil, err
 	}
-	res.State = statePath
-	if len(res.Conflicts) > 0 {
-		ok := false
-		if overwrite != nil {
-			if ok, err = overwrite(*res); err != nil {
-				return err
-			}
-		}
-		if !ok {
-			return &ConflictError{Conflicts: res.Conflicts}
-		}
+	return res, chain, nil
+}
+
+// settled is s without its journal, naming the backup that undoes what it
+// owns once the journal is settled.
+func settled(s state.State) state.State {
+	s.Backup = settledBackup(s)
+	s.Pending = nil
+	return s
+}
+
+// write carries out the plan in r.p.ops under the lock, as Restore
+// describes, and fills res with its backup and warnings.
+func (r *restorer) write(res *RestoreResult, chain []undone) error {
+	s := *r.p.prev
+	if s.Pending != nil {
+		r.removeTemps(s.Pending)
 	}
+	base := settled(s)
 	prior := chain[len(chain)-1].prior
 	finish := func() error {
 		if prior == nil {
@@ -272,10 +305,11 @@ func (r *restorer) run(res *RestoreResult, id string, overwrite func(RestoreResu
 		if prior != nil {
 			info = backup.Info{Mode: prior.Mode, Pack: backup.Pack(prior.Pack), Variant: prior.Variant, Harnesses: prior.Harnesses}
 		}
-		if ref, err = r.backup(backup.OperationRestore, info, &s, r.p.ops); err != nil {
+		var err error
+		if ref, err = r.backup(backup.OperationRestore, info, &base, r.p.ops); err != nil {
 			return fmt.Errorf("the backup failed, nothing was written: %w", err)
 		}
-		if err := r.writeState(state.Journal(s, ref.ID, r.p.ops)); err != nil {
+		if err := r.writeState(state.Journal(base, ref.ID, r.p.ops)); err != nil {
 			return fmt.Errorf("the restore journal could not be written, nothing was written: %w", errors.Join(err, r.d.RemoveAll(ref.Path)))
 		}
 		done, err := r.execute(r.p.ops)
@@ -293,6 +327,9 @@ func (r *restorer) run(res *RestoreResult, id string, overwrite func(RestoreResu
 		return err
 	}
 	res.Backup = ref
+	if res.Uninstalled {
+		r.removeEmptyRoots()
+	}
 
 	for _, u := range chain {
 		if err := r.mark(u, ref); err != nil {
@@ -311,11 +348,42 @@ func (r *restorer) run(res *RestoreResult, id string, overwrite func(RestoreResu
 	return nil
 }
 
+// removeEmptyRoots removes, once nothing dotai installed is left, each
+// harness's isolated directory and the tools directory when they are
+// empty real directories, then the isolated root when it is empty too. It
+// never removes the backups or the dotai directory, and does its best: a
+// directory that holds anything, such as a harness's login, stays.
+func (r *restorer) removeEmptyRoots() {
+	isolated := filepath.Join(r.home, filepath.FromSlash(harness.IsolatedDir))
+	if checkDir(r.d, isolated) == nil {
+		names, _ := r.d.List(isolated)
+		for _, name := range names {
+			if checkDir(r.d, filepath.Join(isolated, name)) == nil {
+				_ = r.d.RemoveIn(isolated, name)
+			}
+		}
+		_ = r.d.Remove(isolated)
+	}
+	if tools := filepath.Join(r.home, filepath.FromSlash(merge.ToolsDir)); checkDir(r.d, tools) == nil {
+		_ = r.d.Remove(tools)
+	}
+}
+
 // chain gives the installs to undo, newest first: the one s names, then
 // the one before it, as the state each backup keeps names it, down to the
 // backup id, or only the first without an id.
+//
+// A journal in s puts its backup first: an interrupted install is the
+// newest install, and an interrupted restore is undone before the
+// installs, which without an id then undoes the install the state names.
 func (r *restorer) chain(s state.State, id string) ([]undone, error) {
-	if s.Backup == "" {
+	head, pendingRestore := s.Backup, false
+	if s.Pending != nil {
+		head = s.Pending.Backup
+		op, _ := backup.Operation(head)
+		pendingRestore = op == backup.OperationRestore
+	}
+	if head == "" {
 		return nil, fmt.Errorf("nothing to restore: no install recorded in %s wrote files", filepath.Join(r.home, dotaiDir, stateFile))
 	}
 	if id != "" {
@@ -324,13 +392,14 @@ func (r *restorer) chain(s state.State, id string) ([]undone, error) {
 		}
 	}
 	var chain []undone
-	for next := s.Backup; ; {
-		u, err := r.load(next)
+	for next := head; ; {
+		u, err := r.load(next, len(chain) == 0 && pendingRestore)
 		if err != nil {
 			return nil, err
 		}
 		chain = append(chain, u)
-		if id == "" || next == id {
+		last := len(chain) == 1 && !pendingRestore || len(chain) == 2 && pendingRestore
+		if id == "" && (last || u.prior == nil || u.prior.Backup == "") || next == id {
 			return chain, nil
 		}
 		if u.prior == nil || u.prior.Backup == "" {
@@ -375,7 +444,7 @@ func (r *restorer) checkTarget(id string) error {
 
 // load reads and checks the backup id of an install to undo: its
 // manifest, every copy it holds and the state before its install.
-func (r *restorer) load(id string) (undone, error) {
+func (r *restorer) load(id string, restoreBackup bool) (undone, error) {
 	if _, ok := backup.ParseID(id); !ok {
 		return undone{}, fmt.Errorf("the install state leads to %q, which is not a backup id: it was edited, so restore stops", id)
 	}
@@ -399,7 +468,7 @@ func (r *restorer) load(id string) (undone, error) {
 		return undone{}, err
 	}
 	switch {
-	case m.Operation != backup.OperationInstall:
+	case m.Operation != backup.OperationInstall && !(restoreBackup && m.Operation == backup.OperationRestore):
 		return undone{}, fmt.Errorf("the backup %s is not one an install took: restore undoes installs", id)
 	case m.Restored != nil:
 		return undone{}, fmt.Errorf("the backup %s is already restored, yet the install state leads to it: it was edited, so restore stops", id)
@@ -461,11 +530,17 @@ func (r *restorer) verify(id, dir, name, hash string) error {
 // operations to carry it out. It follows each target from the disk
 // through each op, newest first: an op expects its target to hold what it
 // wrote (nothing for a remove) and leaves it with what it found (nothing
-// for a create). A target that holds anything else, which is also not
+// for a create); an op of an interrupted install or restore may also still
+// hold what it found. A target that holds anything else, which is also not
 // what it ends with, is a conflict. Each target whose end differs from
 // the disk is written.
 func (r *restorer) plan(res *RestoreResult, s state.State, chain []undone) error {
 	harnessOf := map[string]string{}
+	if s.Pending != nil {
+		for _, op := range s.Pending.Ops {
+			harnessOf[op.Target] = op.Harness
+		}
+	}
 	for _, st := range append([]*state.State{&s}, priors(chain)...) {
 		for _, f := range st.Files {
 			if _, ok := harnessOf[f.Target]; !ok {
@@ -476,13 +551,14 @@ func (r *restorer) plan(res *RestoreResult, s state.State, chain []undone) error
 	type check struct {
 		target, backup string
 		expect         *backup.Content
+		found          *backup.Content // what an interrupted operation found there, which it may not have written yet
 		seen           vfile
 	}
 	var checks []check
 	var order []string
 	disk, virtual := map[string]vfile{}, map[string]vfile{}
 	dirs := map[string]error{}
-	for _, u := range chain {
+	for i, u := range chain {
 		res.Undone = append(res.Undone, UndoneInstall{
 			ID: u.m.ID, Path: u.dir, CreatedAt: u.m.CreatedAt, Pack: u.m.Pack, Variant: u.m.Variant, Harnesses: u.m.Harnesses,
 		})
@@ -497,7 +573,11 @@ func (r *restorer) plan(res *RestoreResult, s state.State, chain []undone) error
 				disk[op.Target] = v
 				order = append(order, op.Target)
 			}
-			checks = append(checks, check{op.Target, u.m.ID, op.After, v})
+			c := check{target: op.Target, backup: u.m.ID, expect: op.After, seen: v}
+			if i == 0 && s.Pending != nil {
+				c.found = op.Before
+			}
+			checks = append(checks, c)
 			virtual[op.Target] = vfile{}
 			if op.Before != nil {
 				virtual[op.Target] = vfile{exists: true, cur: plan.Current{Hash: op.Before.SHA256, Exec: op.Before.Exec}, src: u.m.ID + "/" + op.File, from: u.m.ID}
@@ -510,11 +590,16 @@ func (r *restorer) plan(res *RestoreResult, s state.State, chain []undone) error
 	for _, c := range checks {
 		end := virtual[c.target]
 		if !c.seen.exists || conflicted[c.target] ||
-			c.expect != nil && r.same(c.seen.cur, c.expect.SHA256, c.expect.Exec) || end.exists && r.same(c.seen.cur, end.cur.Hash, end.cur.Exec) {
+			c.expect != nil && r.same(c.seen.cur, c.expect.SHA256, c.expect.Exec) ||
+			c.found != nil && r.same(c.seen.cur, c.found.SHA256, c.found.Exec) || end.exists && r.same(c.seen.cur, end.cur.Hash, end.cur.Exec) {
 			continue
 		}
 		conflicted[c.target] = true
-		res.Conflicts = append(res.Conflicts, RestoreConflict{Target: c.target, Harness: harnessOf[c.target], Backup: c.backup})
+		rc := RestoreConflict{Target: c.target, Harness: harnessOf[c.target], Backup: c.backup, Current: c.seen.cur.Hash}
+		if c.expect != nil {
+			rc.Expected = c.expect.SHA256
+		}
+		res.Conflicts = append(res.Conflicts, rc)
 	}
 
 	res.Ops = []RestoreOp{}

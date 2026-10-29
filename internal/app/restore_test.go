@@ -62,6 +62,9 @@ func TestRestoreAfterAFreshInstallUninstalls(t *testing.T) {
 	if got := installed(t, home); len(got) != 0 {
 		t.Errorf("home = %v, want every installed file gone, and the state too", got)
 	}
+	if entries, _ := os.ReadDir(at(home, ".dotai")); len(entries) != 1 || entries[0].Name() != "backups" {
+		t.Errorf("~/.dotai = %v, want only the backups, the empty directories removed", entries)
+	}
 	if !res.Uninstalled || res.State != at(home, ".dotai/state.json") || res.Backup == nil || !strings.HasSuffix(res.Backup.ID, "_restore") {
 		t.Errorf("Restore() = %+v, want an uninstall with a restore backup", res)
 	}
@@ -399,20 +402,73 @@ func TestRestoreRefusesATamperedManifest(t *testing.T) {
 	}
 }
 
-// TestRestoreRefusesAnInterruptedInstall checks that a journal stops the
-// restore, which names the way out, and that an interrupted restore is
-// settled by an install and then undone.
-func TestRestoreRefusesAnInterruptedInstall(t *testing.T) {
+// TestRestoreUndoesAnInterruptedInstall checks that a restore settles the
+// journal of an install that was killed by undoing it as the newest
+// install, without the pack.
+func TestRestoreUndoesAnInterruptedInstall(t *testing.T) {
+	home, _ := installHome(t)
+	dir := copyPack(t)
+	tools := filepath.Join(dir, "base", "dotai", "tools")
+	writeFile(t, at(home, ".dotai/tools/mine.sh"), "echo mine\n")
+	writeFile(t, filepath.Join(tools, "mine.sh"), "echo pack\n")
+	if _, err := quiet(t).install(newClockFS(t), dir, home); err != nil {
+		t.Fatal(err)
+	}
+	afterA := snapshot(t, home)
+	stateA, _ := os.ReadFile(at(home, ".dotai/state.json"))
+	writeFile(t, filepath.Join(tools, "hello.sh"), "echo changed\n")
+	writeFile(t, filepath.Join(tools, "a.sh"), "echo new\n")
+	writeFile(t, filepath.Join(tools, "mine.sh"), "echo pack again\n")
+	crash(t, &crashFS{clockFS: newClockFS(t), crashAt: 2}, dir, "", home)
+	s := readJSON(t, at(home, ".dotai/state.json"), state.Decode)
+	if s.Pending == nil {
+		t.Fatal("the crash left no journal")
+	}
+	res, err := restore(newClockFS(t), home, "", nil)
+	if err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+	if len(res.Undone) != 1 || res.Undone[0].ID != s.Pending.Backup {
+		t.Errorf("undone = %+v, want the interrupted install %s", res.Undone, s.Pending.Backup)
+	}
+	delete(afterA, ".dotai/state.json")
+	if got := snapshot(t, home); !reflect.DeepEqual(withoutState(got), afterA) {
+		t.Errorf("home = %v, want it as after the first install %v", got, afterA)
+	}
+	if got, _ := os.ReadFile(at(home, ".dotai/state.json")); string(got) != string(stateA) {
+		t.Errorf("state = %s, want the first install's %s", got, stateA)
+	}
+}
+
+func withoutState(m map[string]string) map[string]string {
+	delete(m, ".dotai/state.json")
+	return m
+}
+
+// TestRestoreUndoesAFirstInstallThatWasKilled checks the same in a fresh
+// home, where a created file the user changed since is a conflict and is
+// left unless allowed.
+func TestRestoreUndoesAFirstInstallThatWasKilled(t *testing.T) {
 	home, _ := installHome(t)
 	crash(t, &crashFS{clockFS: newClockFS(t), crashAt: 3}, examplePack, "", home)
-	before := tree(t, home)
-	_, err := restore(newClockFS(t), home, "", nil)
-	var pe *app.PendingError
-	if !errors.As(err, &pe) || !strings.Contains(err.Error(), "dotai install") {
-		t.Fatalf("Restore() error = %v, want the journal and the way out", err)
+	s := readJSON(t, at(home, ".dotai/state.json"), state.Decode)
+	written := ""
+	for _, op := range s.Pending.Ops {
+		if _, err := os.Stat(op.Target); err == nil {
+			written = op.Target
+		}
 	}
-	if got := tree(t, home); !reflect.DeepEqual(got, before) {
-		t.Errorf("home = %v, want it unchanged", got)
+	writeFile(t, written, "mine now\n")
+	_, err := restore(newClockFS(t), home, "", nil)
+	var ce *app.ConflictError
+	if !errors.As(err, &ce) || len(ce.Conflicts) != 1 || ce.Conflicts[0].Target != written {
+		t.Fatalf("Restore() error = %v, want the changed file %s reported", err, written)
+	}
+	if _, err := restore(newClockFS(t), home, "", func(app.RestoreResult) (bool, error) { return true, nil }); err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+	if got := installed(t, home); len(got) != 0 {
+		t.Errorf("home = %v, want everything the killed install wrote gone", got)
 	}
 }
 
@@ -442,39 +498,105 @@ func (f *restoreCrashFS) RemoveIn(root, name string) error {
 	return f.clockFS.RemoveIn(root, name)
 }
 
-func TestRestoreThatWasKilledIsSettledByAnInstall(t *testing.T) {
+// killRestore runs a restore through d until d kills it.
+func killRestore(t *testing.T, d app.ExecuteFS, home, id string) {
+	t.Helper()
+	defer func() {
+		if r := recover(); r != errCrash {
+			t.Fatalf("recovered %v, want the crash", r)
+		}
+	}()
+	_, _ = restore(d, home, id, nil)
+}
+
+// TestRestoreSettlesARestoreThatWasKilled checks that the next restore
+// rolls a killed restore back and then undoes what it was undoing, and
+// that an install settles it too, as before.
+func TestRestoreSettlesARestoreThatWasKilled(t *testing.T) {
+	for _, next := range []string{"restore", "install"} {
+		t.Run(next, func(t *testing.T) {
+			home, _ := installHome(t)
+			dir := copyPack(t)
+			writeFile(t, at(home, ".dotai/tools/hello.sh"), "echo mine\n")
+			first, err := quiet(t).install(newClockFS(t), dir, home)
+			if err != nil {
+				t.Fatal(err)
+			}
+			killRestore(t, &restoreCrashFS{clockFS: newClockFS(t), crashAt: 3}, home, "")
+			s := readJSON(t, at(home, ".dotai/state.json"), state.Decode)
+			if s.Pending == nil || !strings.HasSuffix(s.Pending.Backup, "_restore") {
+				t.Fatalf("state = %+v, want the restore's journal", s)
+			}
+			if next == "install" {
+				if _, err := quiet(t).install(newClockFS(t), dir, home); err != nil {
+					t.Fatalf("Install() after the killed restore error = %v", err)
+				}
+				assertConverged(t, dir, "", home)
+				if _, err := restore(newClockFS(t), home, "", nil); err != nil { // the install that settled it
+					t.Fatal(err)
+				}
+			}
+			res, err := restore(newClockFS(t), home, "", nil)
+			if err != nil {
+				t.Fatalf("Restore() error = %v", err)
+			}
+			if last := res.Undone[len(res.Undone)-1]; last.ID != first.Backup.ID || !res.Uninstalled {
+				t.Errorf("Restore() = %+v, want the first install undone and nothing left", res)
+			}
+			if got := snapshot(t, home); !reflect.DeepEqual(got, map[string]string{".dotai/tools/hello.sh": "exec=false echo mine\n"}) {
+				t.Errorf("home = %v, want only the user's own file, as it was", got)
+			}
+		})
+	}
+}
+
+// TestRestoreAsksBeforeItLocks checks that the question is asked without
+// the lock held, and that a restore whose files changed while it asked is
+// refused under the lock without writing.
+func TestRestoreAsksBeforeItLocks(t *testing.T) {
 	home, _ := installHome(t)
-	dir := copyPack(t)
-	writeFile(t, at(home, ".dotai/tools/hello.sh"), "echo mine\n")
-	if _, err := quiet(t).install(newClockFS(t), dir, home); err != nil {
+	if _, err := quiet(t).install(newClockFS(t), examplePack, home); err != nil {
 		t.Fatal(err)
 	}
-	func() {
-		defer func() {
-			if r := recover(); r != errCrash {
-				t.Fatalf("recovered %v, want the crash", r)
-			}
-		}()
-		_, _ = restore(&restoreCrashFS{clockFS: newClockFS(t), crashAt: 3}, home, "", nil)
-	}()
-	if s := readJSON(t, at(home, ".dotai/state.json"), state.Decode); s.Pending == nil || !strings.HasSuffix(s.Pending.Backup, "_restore") {
-		t.Fatalf("state = %+v, want the restore's journal", s)
-	}
-	var pe *app.PendingError
-	if _, err := restore(newClockFS(t), home, "", nil); !errors.As(err, &pe) {
-		t.Fatalf("Restore() error = %v, want the journal", err)
-	}
-	if _, err := quiet(t).install(newClockFS(t), dir, home); err != nil {
-		t.Fatalf("Install() after the killed restore error = %v", err)
-	}
-	assertConverged(t, dir, "", home)
-	for range 2 { // the install that settled it, then the first one
-		if _, err := restore(newClockFS(t), home, "", nil); err != nil {
-			t.Fatalf("Restore() error = %v", err)
+	writeFile(t, at(home, ".dotai/isolated/claude/settings.json"), "{\"mine\": true}\n")
+	before := snapshot(t, home)
+	_, err := restore(newClockFS(t), home, "", func(app.RestoreResult) (bool, error) {
+		if _, err := os.Stat(at(home, ".dotai/lock")); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("lock while asking = %v, want none", err)
 		}
+		writeFile(t, at(home, ".dotai/tools/hello.sh"), "echo changed meanwhile\n")
+		return true, nil
+	})
+	var se *app.StaleError
+	if !errors.As(err, &se) || !strings.Contains(err.Error(), "run restore again") {
+		t.Fatalf("Restore() error = %v, want a stale plan", err)
 	}
-	if got := snapshot(t, home); !reflect.DeepEqual(got, map[string]string{".dotai/tools/hello.sh": "exec=false echo mine\n"}) {
-		t.Errorf("home = %v, want only the user's own file, as it was", got)
+	before[".dotai/tools/hello.sh"] = snapshot(t, home)[".dotai/tools/hello.sh"]
+	if got := snapshot(t, home); !reflect.DeepEqual(got, before) || len(backups(t, home)) != 1 {
+		t.Errorf("home = %v, backups %v, want nothing written", got, backups(t, home))
+	}
+}
+
+// TestRestoreLeavesWhatAHarnessKeeps checks that an uninstall removes the
+// empty isolated and tools directories, and keeps a harness directory that
+// holds a file dotai never installed, such as a login.
+func TestRestoreLeavesWhatAHarnessKeeps(t *testing.T) {
+	home, _ := installHome(t)
+	if _, err := quiet(t).install(newClockFS(t), examplePack, home); err != nil {
+		t.Fatal(err)
+	}
+	login := at(home, ".dotai/isolated/claude/.credentials.json")
+	writeFile(t, login, "{}\n")
+	if _, err := restore(newClockFS(t), home, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := tree(t, at(home, ".dotai/isolated")); !reflect.DeepEqual(got, []string{"claude/.credentials.json"}) {
+		t.Errorf("isolated = %v, want only the login", got)
+	}
+	for _, gone := range []string{".dotai/isolated/gemini", ".dotai/isolated/opencode", ".dotai/tools"} {
+		if _, err := os.Stat(at(home, gone)); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("%s = %v, want it removed", gone, err)
+		}
 	}
 }
 
