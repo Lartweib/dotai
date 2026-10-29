@@ -123,7 +123,7 @@ func TestRunSelectionFlags(t *testing.T) {
 					gotValidate = sel
 					return app.ValidateResult{Valid: true, Pack: &app.PackSummary{}}, nil
 				},
-				Stage: func(_ context.Context, _, _, _ string, sel app.Selection, _ bool, _ app.Progress) (app.StageResult, error) {
+				Stage: func(_ context.Context, _, _, _ string, sel app.Selection, _ app.ToolPaths, _ bool, _ app.Progress) (app.StageResult, error) {
 					gotStage = sel
 					return app.StageResult{}, nil
 				},
@@ -144,7 +144,15 @@ func TestRunStage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
 	staged := app.StageResult{Files: []app.StagedFile{
+		{Scope: app.ScopeUser, Path: ".dotai/tools/hello.sh", Layer: "base"},
 		{Scope: app.ScopeUser, Path: ".rulesync/rules/overview.md", Layer: "base"},
 		{Scope: app.ScopeProject, Path: ".rulesync/rules/web.md", Layer: "profiles/web"},
 		{Scope: app.ScopeUser, Path: ".claude/CLAUDE.md", Generator: app.GeneratorRulesync},
@@ -155,9 +163,12 @@ func TestRunStage(t *testing.T) {
 	}{{true, false}, {false, true}} {
 		var stdout, stderr bytes.Buffer
 		env := testEnv(&stdout, &stderr)
-		env.Stage = func(ctx context.Context, cacheDir, dir, out string, sel app.Selection, force bool, progress app.Progress) (app.StageResult, error) {
+		env.Stage = func(ctx context.Context, cacheDir, dir, out string, sel app.Selection, tools app.ToolPaths, force bool, progress app.Progress) (app.StageResult, error) {
 			if ctx == nil || cacheDir != wantCache || dir != examplePack || out != "s" || !force || (progress != nil) != tt.wantProgress {
 				t.Errorf("Stage(%q, %q, %q, force %v, progress %v), want the cache, the pack, s, force and progress %v", cacheDir, dir, out, force, progress != nil, tt.wantProgress)
+			}
+			if want := app.ToolsIn(home, cwd); tools != want {
+				t.Errorf("tools = %+v, want %+v from the home and current directories", tools, want)
 			}
 			return staged, nil
 		}
@@ -170,7 +181,7 @@ func TestRunStage(t *testing.T) {
 		}
 		if tt.json {
 			assertGolden(t, filepath.Join("testdata", "stage-example.json.golden"), stdout.Bytes())
-		} else if want := "user/.rulesync/rules/overview.md  base\nproject/.rulesync/rules/web.md  profiles/web\nuser/.claude/CLAUDE.md  rulesync\n"; stdout.String() != want {
+		} else if want := "user/.dotai/tools/hello.sh  base\nuser/.rulesync/rules/overview.md  base\nproject/.rulesync/rules/web.md  profiles/web\nuser/.claude/CLAUDE.md  rulesync\n"; stdout.String() != want {
 			t.Errorf("stdout = %q, want %q", stdout.String(), want)
 		}
 	}

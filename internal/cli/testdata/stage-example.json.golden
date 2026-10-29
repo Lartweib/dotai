@@ -6,6 +6,11 @@
     "files": [
       {
         "scope": "user",
+        "path": ".dotai/tools/hello.sh",
+        "layer": "base"
+      },
+      {
+        "scope": "user",
         "path": ".rulesync/rules/overview.md",
         "layer": "base"
       },

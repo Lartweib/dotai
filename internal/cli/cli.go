@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -30,7 +31,7 @@ type Env struct {
 	Stdout, Stderr io.Writer
 	Version        func() app.VersionInfo
 	Validate       func(dir string, sel app.Selection) (app.ValidateResult, error)
-	Stage          func(ctx context.Context, cacheDir, dir, out string, sel app.Selection, force bool, progress app.Progress) (app.StageResult, error)
+	Stage          func(ctx context.Context, cacheDir, dir, out string, sel app.Selection, tools app.ToolPaths, force bool, progress app.Progress) (app.StageResult, error)
 	FetchRulesync  func(ctx context.Context, cacheDir, dir string, progress app.Progress) (app.RulesyncResult, error)
 }
 
@@ -184,9 +185,13 @@ func newStageCmd(env Env, jsonOut *bool) *cobra.Command {
 		if err != nil {
 			return err
 		}
+		tools, err := toolPaths()
+		if err != nil {
+			return err
+		}
 		ctx, stop := interruptible(cmd)
 		defer stop()
-		res, err := env.Stage(ctx, cache, packDir(args), out, sel(cmd), force, downloadProgress(env, *jsonOut))
+		res, err := env.Stage(ctx, cache, packDir(args), out, sel(cmd), tools, force, downloadProgress(env, *jsonOut))
 		if err != nil {
 			return err
 		}
@@ -204,6 +209,17 @@ func newStageCmd(env Env, jsonOut *bool) *cobra.Command {
 		return nil
 	}
 	return cmd
+}
+
+// toolPaths are the tools directories under the user's home and the
+// current directory, the project.
+func toolPaths() (app.ToolPaths, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return app.ToolPaths{}, err
+	}
+	project, err := os.Getwd()
+	return app.ToolsIn(home, project), err
 }
 
 // selectionFlags adds --variant and --profile to cmd. The returned function

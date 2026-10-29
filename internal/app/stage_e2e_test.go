@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/lartweib/dotai/internal/app"
@@ -23,12 +24,14 @@ func TestStageWithRealRulesync(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := filepath.Join(t.TempDir(), "staging")
-	if _, err := app.Stage(context.Background(), cache, examplePack, out, app.Selection{Profiles: []string{"web"}}, false, nil); err != nil {
+	tools := app.ToolsIn(t.TempDir(), t.TempDir())
+	if _, err := app.Stage(context.Background(), cache, examplePack, out, app.Selection{Profiles: []string{"web"}}, tools, false, nil); err != nil {
 		t.Fatalf("Stage() error = %v", err)
 	}
 	got := tree(t, out)
 	for _, want := range []string{
 		"user/.claude/CLAUDE.md",
+		"user/.dotai/tools/hello.sh",
 		"user/.claude/agents/reviewer.md",
 		"user/.claude/skills/commit-message/SKILL.md",
 		"user/.gemini/GEMINI.md",
@@ -39,5 +42,9 @@ func TestStageWithRealRulesync(t *testing.T) {
 		if !slices.Contains(got, want) {
 			t.Errorf("staging has no %s; tree = %v", want, got)
 		}
+	}
+	claude, err := os.ReadFile(filepath.Join(out, "user", ".claude", "CLAUDE.md"))
+	if want := filepath.ToSlash(tools.User) + "/hello.sh"; err != nil || !strings.Contains(string(claude), want) {
+		t.Errorf("CLAUDE.md = %q, %v, want it to name %s", claude, err, want)
 	}
 }
