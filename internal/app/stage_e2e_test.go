@@ -47,4 +47,12 @@ func TestStageWithRealRulesync(t *testing.T) {
 	if want := filepath.ToSlash(tools.User) + "/hello.sh"; err != nil || !strings.Contains(string(claude), want) {
 		t.Errorf("CLAUDE.md = %q, %v, want it to name %s", claude, err, want)
 	}
+	for name, want := range map[string]string{
+		".claude/settings.json":                 "{\n  \"model\": \"sonnet\"\n}\n",
+		".gemini/antigravity-cli/settings.json": "{\n  \"statusLine\": {\n    \"type\": \"command\",\n    \"command\": \"" + filepath.ToSlash(tools.User) + "/hello.sh\"\n  }\n}\n",
+	} {
+		if got, err := os.ReadFile(filepath.Join(out, "user", filepath.FromSlash(name))); err != nil || string(got) != want {
+			t.Errorf("%s = %q, %v, want %q", name, got, err, want)
+		}
+	}
 }
