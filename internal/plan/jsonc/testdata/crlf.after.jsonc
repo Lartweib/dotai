@@ -1,0 +1,14 @@
+{
+  // A file with CRLF line endings.
+  "model": "fake-model-2",
+  "permissions": {
+    "allow": ["Read", "Grep"],
+    "deny": [
+      "Bash(rm:*)"
+    ],
+    "defaultMode": "plan"
+  },
+  "env": {
+    "FAKE_TOKEN": "x"
+  }
+}
