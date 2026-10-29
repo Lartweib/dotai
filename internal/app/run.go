@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -16,29 +17,40 @@ import (
 
 // RunPlan is how dotai run launches a harness against its isolated install
 // (decision 0032): the harness's isolation, which decision 0018 requires to
-// show first, the executable found on PATH for Command, and the arguments
-// and environment it is given.
+// show first, the executable found on PATH for Command, the arguments and
+// environment it is given, and notes about how it is launched.
 type RunPlan struct {
 	Harness HarnessPlan
 	Command string   // the name looked up on PATH, such as claude
 	Program string   // the path it was found at
 	Args    []string // the arguments after the program name
 	Env     []string // the whole environment of the harness, as KEY=value
+	Notes   []string // what the user should know about the launch, text for people
 }
+
+// batchUnsafe are the characters cmd.exe reads in a batch file's command
+// line even inside the quotes the arguments get, so that they cannot be
+// passed to a batch file safely.
+const batchUnsafe = "&|<>^%\"!\r\n"
 
 // PlanRun plans launching the harness id isolated, with args passed
 // through after the flags its pointers need, from the install state in the
 // absolute home directory home. The install state must record an isolated
 // install that includes id and no journal, and the harness's isolated
-// directory must be a real directory. The harness's environment is the
-// current one without the variables its pointers set, which are then set
-// to its isolated directories. It reads the state and takes no lock, and
-// writes nothing.
+// directory must be a real directory. While it checks them, it holds
+// ~/.dotai/lock, which it takes without waiting, so that it refuses to run
+// while an install or a restore writes, and releases it before returning:
+// the harness runs without it. The harness's environment is the current one
+// without the variables its pointers set, which are then set to its
+// isolated directories. On Windows, a batch file (.cmd or .bat) found
+// first on PATH gives way to the harness's .exe further on PATH; launched
+// on its own, it gets a note, and an argument that cmd.exe would read is
+// refused. Apart from the lock, it writes nothing.
 func PlanRun(home, id string, args []string) (RunPlan, error) {
-	return planRun(osInstallFS{}, exec.LookPath, home, id, args, os.Environ())
+	return planRun(osInstallFS{}, exec.LookPath, runtime.GOOS, home, id, args, os.Environ())
 }
 
-func planRun(d installFS, lookPath func(string) (string, error), home, id string, args, environ []string) (RunPlan, error) {
+func planRun(d executeFS, lookPath func(string) (string, error), goos, home, id string, args, environ []string) (p RunPlan, err error) {
 	a, err := launchable(id)
 	if err != nil {
 		return RunPlan{}, err
@@ -48,6 +60,24 @@ func planRun(d installFS, lookPath func(string) (string, error), home, id string
 	}
 	home = filepath.Clean(home)
 	statePath := filepath.Join(home, dotaiDir, stateFile)
+	// Read once without the lock, so that a home without an install gets
+	// no lock either.
+	if s, err := readState(d, home); err != nil {
+		return RunPlan{}, err
+	} else if s == nil {
+		return RunPlan{}, fmt.Errorf("there is no install state %s: run dotai install with a pack that has %s first", statePath, id)
+	}
+	unlock, err := runner{ctx: context.Background(), d: d, home: home}.lock()
+	if locked, ok := errors.AsType[*LockedError](err); ok {
+		return RunPlan{}, fmt.Errorf("an install or restore is running, run again when it is done: %w", locked)
+	} else if err != nil {
+		return RunPlan{}, err
+	}
+	defer func() {
+		if uErr := unlock(); uErr != nil {
+			p, err = RunPlan{}, errors.Join(err, fmt.Errorf("the lock %s could not be removed: %w; remove it before dotai runs again", filepath.Join(home, dotaiDir, lockFile), uErr))
+		}
+	}()
 	s, err := readState(d, home)
 	switch {
 	case err != nil:
@@ -74,23 +104,23 @@ func planRun(d installFS, lookPath func(string) (string, error), home, id string
 			return RunPlan{}, err
 		}
 	}
-	program, err := lookPath(a.Command)
+	program, err := findProgram(lookPath, goos, a.Command)
 	if err != nil {
-		return RunPlan{}, fmt.Errorf("%s was not found on PATH, install it or add its directory to PATH: %w", a.Command, err)
+		return RunPlan{}, err
 	}
-	p := RunPlan{Harness: h, Command: a.Command, Program: program, Args: []string{}, Env: []string{}}
+	p = RunPlan{Harness: h, Command: a.Command, Program: program, Args: []string{}, Env: []string{}, Notes: []string{}}
 	set := map[string]bool{}
 	for _, ptr := range h.Pointers {
 		if ptr.Mechanism == string(harness.Flag) {
 			p.Args = append(p.Args, ptr.Name, ptr.Dir)
 		} else {
-			set[envKey(ptr.Name)] = true
+			set[envKey(goos, ptr.Name)] = true
 		}
 	}
 	p.Args = append(p.Args, args...)
 	for _, kv := range environ {
 		name, _, _ := strings.Cut(kv, "=")
-		if !set[envKey(name)] {
+		if !set[envKey(goos, name)] {
 			p.Env = append(p.Env, kv)
 		}
 	}
@@ -99,7 +129,45 @@ func planRun(d installFS, lookPath func(string) (string, error), home, id string
 			p.Env = append(p.Env, ptr.Name+"="+ptr.Dir)
 		}
 	}
+	if isBatch(goos, program) {
+		for _, arg := range p.Args {
+			if strings.ContainsAny(arg, batchUnsafe) {
+				return RunPlan{}, fmt.Errorf("%s resolves to the batch file %s, which Windows runs through cmd.exe, and the argument %q cannot be passed to it safely: cmd.exe reads & | < > ^ %% \" ! and line breaks even in quotes. Install the native %s.exe, or leave those characters out", a.Command, program, arg, a.Command)
+			}
+		}
+		p.Notes = append(p.Notes, fmt.Sprintf("%s resolves to the batch file %s: Ctrl-C may show cmd's \"Terminate batch job (Y/N)?\" prompt after the harness exits; the native %s.exe avoids it", a.Command, program, a.Command))
+	}
 	return p, nil
+}
+
+// findProgram looks command up on PATH. A command found only in the
+// current directory or through a relative PATH entry is refused, as
+// exec.LookPath reports it. On Windows, a batch file gives way to
+// command.exe when PATH has one further on.
+func findProgram(lookPath func(string) (string, error), goos, command string) (string, error) {
+	program, err := lookPath(command)
+	switch {
+	case errors.Is(err, exec.ErrDot):
+		return "", fmt.Errorf("%s was found only in the current directory or through a relative PATH entry (%s), which dotai does not run: remove it from PATH, or make that entry absolute", command, program)
+	case err != nil:
+		return "", fmt.Errorf("%s was not found on PATH, install it or add its directory to PATH: %w", command, err)
+	}
+	if isBatch(goos, program) {
+		if exe, err := lookPath(command + ".exe"); err == nil {
+			return exe, nil
+		}
+	}
+	return program, nil
+}
+
+// isBatch reports a Windows batch file, which Windows runs through cmd.exe.
+func isBatch(goos, program string) bool {
+	if goos != "windows" {
+		return false
+	}
+	// Windows paths whatever the OS that runs the tests.
+	ext := strings.ToLower(program[strings.LastIndexAny(program, `.\/`)+1:])
+	return ext == "cmd" || ext == "bat"
 }
 
 // launchable is the adapter of id when dotai run launches it; an unknown
@@ -123,10 +191,10 @@ func launchable(id string) (harness.Adapter, error) {
 	return all[i], nil
 }
 
-// envKey is the name of an environment variable as the OS compares it:
+// envKey is the name of an environment variable as goos compares it:
 // without case on Windows.
-func envKey(name string) string {
-	if runtime.GOOS == "windows" {
+func envKey(goos, name string) string {
+	if goos == "windows" {
 		return strings.ToUpper(name)
 	}
 	return name

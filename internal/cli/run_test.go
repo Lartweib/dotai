@@ -79,6 +79,20 @@ func TestRunRunLaunchesAndForwardsTheExitCode(t *testing.T) {
 	}
 }
 
+func TestRunRunPrintsTheNotesAfterTheLeaks(t *testing.T) {
+	restoreHome(t)
+	p := runPlan
+	p.Notes = []string{`claude resolves to the batch file C:\npm\claude.cmd: Ctrl-C may show cmd's prompt`}
+	f := &fakeRun{res: p}
+	var stderr bytes.Buffer
+	if code := cli.Run([]string{"run", "claudecode"}, f.env(&bytes.Buffer{}, &stderr)); code != cli.ExitOK {
+		t.Errorf("exit code = %d, want %d", code, cli.ExitOK)
+	}
+	if want := "dotai: leaks: credentials do not carry over\ndotai: note: " + p.Notes[0] + "\n"; !strings.HasSuffix(stderr.String(), want) {
+		t.Errorf("stderr = %q, want it to end with %q", stderr.String(), want)
+	}
+}
+
 func TestRunRunLinesWithoutReloginOrLeaks(t *testing.T) {
 	restoreHome(t)
 	p := runPlan

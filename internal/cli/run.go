@@ -54,7 +54,7 @@ func newRunCmd(env Env, jsonOut, parsed *bool) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		if err := writeLaunch(env.Stderr, p.Harness); err != nil {
+		if err := writeLaunch(env.Stderr, p); err != nil {
 			return err
 		}
 		code, err := env.Launch(p)
@@ -71,8 +71,9 @@ func newRunCmd(env Env, jsonOut, parsed *bool) *cobra.Command {
 
 // writeLaunch prints, before the harness starts, what decision 0018
 // requires to show of its isolation: its level and pointers, the login
-// and each leak, one line each.
-func writeLaunch(w io.Writer, h app.HarnessPlan) error {
+// and each leak, then each note about the launch, one line each.
+func writeLaunch(w io.Writer, p app.RunPlan) error {
+	h := p.Harness
 	var b strings.Builder
 	pointers := make([]string, 0, len(h.Pointers))
 	for _, ptr := range h.Pointers {
@@ -93,6 +94,9 @@ func writeLaunch(w io.Writer, h app.HarnessPlan) error {
 	}
 	for _, leak := range h.Leaks {
 		fmt.Fprintf(&b, "dotai: leaks: %s\n", leak)
+	}
+	for _, note := range p.Notes {
+		fmt.Fprintf(&b, "dotai: note: %s\n", note)
 	}
 	_, err := io.WriteString(w, b.String())
 	return err
