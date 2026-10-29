@@ -41,7 +41,7 @@ func TestNew(t *testing.T) {
 		t.Errorf("New() = %+v, want files %+v", s, want)
 	}
 	owned := s.Owned()
-	if len(owned) != 3 || owned[ops[2].Target] != (plan.Owned{Hash: "h1", Exec: true}) || owned[ops[0].Target] != (plan.Owned{Harness: "claudecode", Hash: "a"}) {
+	if len(owned) != 3 || !reflect.DeepEqual(owned[ops[2].Target], plan.Owned{Hash: "h1", Exec: true}) || !reflect.DeepEqual(owned[ops[0].Target], plan.Owned{Harness: "claudecode", Hash: "a"}) {
 		t.Errorf("Owned() = %+v, want the three files by target", owned)
 	}
 }
@@ -113,5 +113,60 @@ func TestSameInstall(t *testing.T) {
 	version.Pack.Version = "1.0.1"
 	if s.SameInstall(version) {
 		t.Error("SameInstall() = true for another pack version")
+	}
+}
+
+// TestJournal checks the record an install writes before its first write:
+// every operation it is about to carry out, and how the plan then reads
+// the targets it was writing.
+func TestJournal(t *testing.T) {
+	s, ops := sample(t)
+	base := state.State{Schema: state.Schema, Harnesses: []string{}, Files: []state.File{{Target: ops[1].Target, Harness: "claudecode", SHA256: "s"}, {Target: ops[2].Target, SHA256: "h0", Exec: true}, {Target: ops[3].Target, Harness: "claudecode", SHA256: "o"}}}
+	j := state.Journal(base, s.Backup, ops)
+	want := &state.Pending{Backup: s.Backup, Ops: []state.PendingOp{
+		{Action: plan.Create, Target: ops[0].Target, Harness: "claudecode", After: &state.Content{SHA256: "a"}},
+		{Action: plan.Replace, Target: ops[2].Target, Before: &state.Content{SHA256: "h0"}, After: &state.Content{SHA256: "h1", Exec: true}},
+		{Action: plan.Remove, Target: ops[3].Target, Harness: "claudecode", Before: &state.Content{SHA256: "o"}},
+	}}
+	if !reflect.DeepEqual(j.Pending, want) || !reflect.DeepEqual(j.Files, base.Files) || base.Pending != nil {
+		t.Fatalf("Journal() = %+v, want %+v over the base files", j.Pending, want)
+	}
+	data, err := state.Encode(j)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back, err := state.Decode(data); err != nil || !reflect.DeepEqual(back, j) {
+		t.Errorf("Decode(Encode()) = %+v, %v, want %+v", back, err, j)
+	}
+	if strings.Contains(encode(t, s), "pending") {
+		t.Errorf("Encode() of a finished install = %s, want no pending", encode(t, s))
+	}
+
+	// A file dotai did not own and was replacing: still the file it found.
+	j.Files = j.Files[:1]
+	j.Pending.Ops[1].Before = &state.Content{SHA256: "f0"}
+	owned := j.Owned()
+	wantOwned := map[string]plan.Owned{
+		ops[0].Target: {Harness: "claudecode", Hash: "a"},
+		ops[1].Target: {Harness: "claudecode", Hash: "s"},
+		ops[2].Target: {Hash: "h1", Exec: true, Foreign: []plan.Current{{Hash: "f0"}}},
+		ops[3].Target: {Harness: "claudecode", Hash: "o"},
+	}
+	if !reflect.DeepEqual(owned, wantOwned) {
+		t.Errorf("Owned() = %+v, want %+v", owned, wantOwned)
+	}
+	j.Files = base.Files
+	if got := j.Owned()[ops[2].Target]; !reflect.DeepEqual(got, plan.Owned{Hash: "h0", Exec: true, Also: []plan.Current{{Hash: "h1", Exec: true}}}) {
+		t.Errorf("Owned() of a replaced owned file = %+v, want its old and new content", got)
+	}
+}
+
+func TestSettled(t *testing.T) {
+	s, ops := sample(t)
+	j := state.Journal(s, "b2", ops)
+	got := j.Settled(map[string]plan.Current{ops[0].Target: {Hash: "x"}, ops[2].Target: {Hash: "h1", Exec: true}})
+	want := []state.File{{Target: ops[0].Target, Harness: "claudecode", SHA256: "x"}, {Target: ops[2].Target, SHA256: "h1", Exec: true}}
+	if got.Pending != nil || !reflect.DeepEqual(got.Files, want) || got.Backup != s.Backup {
+		t.Errorf("Settled() = %+v, want files %+v and no pending", got, want)
 	}
 }
