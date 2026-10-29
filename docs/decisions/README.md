@@ -38,6 +38,7 @@ Records were renumbered on 2026-10-26, when the records about the reference pack
 | [0028](0028-plan-centric-hexagonal-engine.md) | A plan-centric engine with a pure domain and ports (partially superseded by 0029) | accepted | 2026-10-26 |
 | [0029](0029-rulesync-checksums-embedded-in-the-engine.md) | rulesync checksums are embedded in the engine | accepted | 2026-10-28 |
 | [0030](0030-tools-paths-and-project-config.md) | Tool paths, one tools directory, settings overrides and project config | accepted | 2026-10-28 |
+| [0031](0031-isolated-install-root.md) | Isolated installs live under `~/.dotai/isolated/` | accepted | 2026-10-29 |
 
 ## Superseded (history only)
 
