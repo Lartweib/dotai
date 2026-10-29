@@ -315,3 +315,27 @@ func FuzzSet(f *testing.F) {
 		}
 	})
 }
+
+// TestFailedEditKeepsBytes checks that an edit that fails leaves the
+// document exactly as it was.
+func TestFailedEditKeepsBytes(t *testing.T) {
+	for _, src := range []string{"{\"a\": 1,\n}", "{\n  \"a\": [1,],\n  \"o\": {\"x\": 1,},\n}\n"} {
+		doc, err := jsonc.Parse([]byte(src))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, edit := range []func(*jsonc.Document) error{
+			set([]string{"a", "b"}, `1`),
+			set([]string{"\x9a"}, `1`),
+			union([]string{"a"}, `{nope`),
+			union([]string{"a", "x"}, `2`),
+		} {
+			if err := edit(doc); err == nil {
+				t.Fatalf("edit on %q succeeded, want an error", src)
+			}
+			if got := string(doc.Bytes()); got != src {
+				t.Errorf("failed edit changed the bytes\ngot:  %q\nwant: %q", got, src)
+			}
+		}
+	}
+}

@@ -192,10 +192,11 @@ func (d *Document) Union(path []string, elems ...[]byte) error {
 // as it was and returns an error, so a bug in the edit layer can never emit
 // a corrupt file.
 func (d *Document) verified(edit func() error, check func(after *Document) bool) error {
-	var saved *hujson.Value
+	// Snapshot the packed bytes: Clone loses the empty marker of a trailing
+	// comma, and the bytes parse back to the same tree.
+	var saved []byte
 	if d.root != nil {
-		c := d.root.Clone()
-		saved = &c
+		saved = d.root.Pack()
 	}
 	err := edit()
 	if err == nil {
@@ -205,7 +206,11 @@ func (d *Document) verified(edit func() error, check func(after *Document) bool)
 		}
 	}
 	if err != nil {
-		d.root = saved
+		d.root = nil
+		if saved != nil {
+			v, _ := hujson.Parse(saved) // it parsed before the edit
+			d.root = &v
+		}
 	}
 	return err
 }
