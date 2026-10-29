@@ -133,6 +133,10 @@ type EditedError struct {
 }
 
 func (e *EditedError) Error() string {
+	if len(e.Targets) == 1 {
+		return "the installed file " + e.Targets[0] + " was changed after dotai installed it, and dotai does not overwrite or remove it: " +
+			"move it away or put back what dotai installed, then install again"
+	}
 	return "the installed files " + strings.Join(e.Targets, ", ") + " were changed after dotai installed them, and dotai does not overwrite or remove them: " +
 		"move them away or put back what dotai installed, then install again"
 }

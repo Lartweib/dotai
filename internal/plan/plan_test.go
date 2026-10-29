@@ -446,3 +446,18 @@ func TestBuildResolvesAnInterruptedInstall(t *testing.T) {
 		t.Errorf("Build() error = %v, want the edited target", err)
 	}
 }
+
+// TestEditedErrorWording checks that the message agrees in number with the
+// files it names.
+func TestEditedErrorWording(t *testing.T) {
+	one := (&plan.EditedError{Targets: []string{"/h/a"}}).Error()
+	if want := "the installed file /h/a was changed after dotai installed it, and dotai does not overwrite or remove it: " +
+		"move it away or put back what dotai installed, then install again"; one != want {
+		t.Errorf("Error() = %q, want %q", one, want)
+	}
+	two := (&plan.EditedError{Targets: []string{"/h/a", "/h/b"}}).Error()
+	if want := "the installed files /h/a, /h/b were changed after dotai installed them, and dotai does not overwrite or remove them: " +
+		"move them away or put back what dotai installed, then install again"; two != want {
+		t.Errorf("Error() = %q, want %q", two, want)
+	}
+}
