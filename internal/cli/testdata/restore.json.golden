@@ -1,0 +1,107 @@
+{
+  "schema": "dotai.cli/v1",
+  "command": "restore",
+  "ok": true,
+  "data": {
+    "undone": [
+      {
+        "id": "20261029T103000.000Z_install",
+        "path": "/home/u/.dotai/backups/20261029T103000.000Z_install",
+        "createdAt": "2026-10-29T10:30:00Z",
+        "pack": {
+          "name": "minimal-pack",
+          "version": "0.1.0",
+          "path": "/home/u/packs/minimal-pack"
+        },
+        "variant": "tmux",
+        "harnesses": [
+          "claudecode",
+          "opencode"
+        ]
+      },
+      {
+        "id": "20261029T101500.000Z_install",
+        "path": "/home/u/.dotai/backups/20261029T101500.000Z_install",
+        "createdAt": "2026-10-29T10:15:00Z",
+        "pack": {
+          "name": "minimal-pack",
+          "version": "0.1.0",
+          "path": "/home/u/packs/minimal-pack"
+        },
+        "variant": "standalone",
+        "harnesses": [
+          "claudecode",
+          "opencode"
+        ]
+      }
+    ],
+    "ops": [
+      {
+        "action": "replace",
+        "harness": "claudecode",
+        "target": "/home/u/.dotai/isolated/claude/settings.json",
+        "from": "20261029T101500.000Z_install",
+        "exec": false,
+        "before": "aa",
+        "beforeExec": false,
+        "after": "bb",
+        "conflict": false
+      },
+      {
+        "action": "remove",
+        "harness": "claudecode",
+        "target": "/home/u/.dotai/isolated/claude/agents/reviewer.md",
+        "from": "",
+        "exec": false,
+        "before": "cc",
+        "beforeExec": false,
+        "after": "",
+        "conflict": true
+      },
+      {
+        "action": "create",
+        "harness": "opencode",
+        "target": "/home/u/.dotai/isolated/opencode/config/opencode/opencode.jsonc",
+        "from": "20261029T103000.000Z_install",
+        "exec": false,
+        "before": "",
+        "beforeExec": false,
+        "after": "dd",
+        "conflict": false
+      },
+      {
+        "action": "remove",
+        "harness": "",
+        "target": "/home/u/.dotai/tools/hello.sh",
+        "from": "",
+        "exec": false,
+        "before": "ee",
+        "beforeExec": true,
+        "after": "",
+        "conflict": false
+      }
+    ],
+    "conflicts": [
+      {
+        "target": "/home/u/.dotai/isolated/claude/agents/reviewer.md",
+        "harness": "claudecode",
+        "backup": "20261029T103000.000Z_install",
+        "expected": "c0",
+        "current": "cc"
+      }
+    ],
+    "harnesses": [
+      "claudecode",
+      "opencode"
+    ],
+    "backup": {
+      "id": "20261029T110000.000Z_restore",
+      "path": "/home/u/.dotai/backups/20261029T110000.000Z_restore"
+    },
+    "state": "/home/u/.dotai/state.json",
+    "uninstalled": false,
+    "warnings": [
+      "close claudecode, opencode before restoring: a harness that is running may rewrite its files while they are put back"
+    ]
+  }
+}

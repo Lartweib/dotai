@@ -35,6 +35,10 @@ type Env struct {
 	FetchRulesync  func(ctx context.Context, cacheDir, dir string, progress app.Progress) (app.RulesyncResult, error)
 	PlanInstall    func(ctx context.Context, cacheDir, dir, variant, home string, progress app.Progress) (app.InstallPlan, error)
 	Install        func(ctx context.Context, cacheDir, dir, variant, home string, progress app.Progress) (app.InstallResult, error)
+	Restore        func(ctx context.Context, home, id string, overwrite func(app.RestoreResult) (bool, error)) (app.RestoreResult, error)
+	// Prompt asks the user a yes or no question; nil when no one can
+	// answer, such as when stdin is not a terminal.
+	Prompt func(ctx context.Context, question string) (bool, error)
 }
 
 // invalidError is a command outcome that rejects its input, such as a pack
@@ -65,7 +69,7 @@ func Run(args []string, env Env) int {
 	root.SetArgs(args)
 	root.SetOut(env.Stdout)
 	root.SetErr(env.Stderr)
-	root.AddCommand(newVersionCmd(env, &jsonOut), newValidateCmd(env, &jsonOut), newStageCmd(env, &jsonOut), newRulesyncCmd(env, &jsonOut), newInstallCmd(env, &jsonOut))
+	root.AddCommand(newVersionCmd(env, &jsonOut), newValidateCmd(env, &jsonOut), newStageCmd(env, &jsonOut), newRulesyncCmd(env, &jsonOut), newInstallCmd(env, &jsonOut), newRestoreCmd(env, &jsonOut))
 
 	// In JSON mode help is a result like any other: one envelope whose data
 	// holds the help text.
@@ -98,6 +102,9 @@ func Run(args []string, env Env) int {
 	}
 	if jsonRequested(root, args) {
 		e := output.Failure(commandName(cmd), code, err.Error())
+		if conflict, ok := errors.AsType[*app.ConflictError](err); ok {
+			e.Data = map[string]any{"conflicts": conflict.Conflicts}
+		}
 		if invalid != nil {
 			e = output.Invalid(commandName(cmd), err.Error(), invalid.data)
 		}

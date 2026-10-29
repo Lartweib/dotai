@@ -1,0 +1,17 @@
+Restore · undid 2 installs, newest first
+  20261029T103000.000Z_install · minimal-pack 0.1.0 · variant tmux
+  20261029T101500.000Z_install · minimal-pack 0.1.0 · variant standalone
+
+claudecode
+  restore  /home/u/.dotai/isolated/claude/settings.json
+  delete   /home/u/.dotai/isolated/claude/agents/reviewer.md  (changed after the install, kept in the restore backup)
+
+opencode
+  restore  /home/u/.dotai/isolated/opencode/config/opencode/opencode.jsonc
+
+tools
+  delete   /home/u/.dotai/tools/hello.sh
+
+2 restore, 2 delete · restored
+backup: /home/u/.dotai/backups/20261029T110000.000Z_restore
+state:  /home/u/.dotai/state.json

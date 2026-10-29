@@ -21,14 +21,20 @@ import (
 // Schema is the version of the manifest format.
 const Schema = "dotai.backup/v1"
 
-// OperationInstall is the operation of a backup taken by an install.
-const OperationInstall = "install"
+// The operations that take a backup: an install, and a restore, which
+// backs up what it overwrites or deletes.
+const (
+	OperationInstall = "install"
+	OperationRestore = "restore"
+)
 
-// ManifestName is the manifest's name in a backup directory, and FilesDir
-// the directory that holds the copies.
+// ManifestName is the manifest's name in a backup directory, FilesDir the
+// directory that holds the copies and StateName the copy of the install
+// state from before the operation.
 const (
 	ManifestName = "manifest.json"
 	FilesDir     = "files"
+	StateName    = "state.json"
 )
 
 // idTime is the layout of the timestamp of an id: UTC with milliseconds
@@ -36,7 +42,7 @@ const (
 // Windows.
 const idTime = "20060102T150405.000Z"
 
-var idPattern = regexp.MustCompile(`^(\d{8}T\d{6}\.\d{3}Z)_[a-z]+$`)
+var idPattern = regexp.MustCompile(`^(\d{8}T\d{6}\.\d{3}Z)_([a-z]+)$`)
 
 // ID is the id of a backup of operation taken at t, also its directory
 // name, such as 20261029T101500.000Z_install.
@@ -55,7 +61,18 @@ func ParseID(id string) (time.Time, bool) {
 	return t, err == nil
 }
 
-// Manifest describes one backup.
+// Operation gives the operation of the backup id, such as install; ok is
+// false for a name that is not a backup id.
+func Operation(id string) (string, bool) {
+	if _, ok := ParseID(id); !ok {
+		return "", false
+	}
+	return idPattern.FindStringSubmatch(id)[2], true
+}
+
+// Manifest describes one backup. PriorState is the install state before
+// the operation, nil in a backup taken by a dotai that did not record it;
+// Restored is set once a restore has undone the operation.
 type Manifest struct {
 	Schema    string    `json:"schema"`
 	ID        string    `json:"id"`
@@ -63,7 +80,25 @@ type Manifest struct {
 	CreatedAt time.Time `json:"createdAt"`
 	Home      string    `json:"home"` // the home directory each File is relative to
 	Info
-	Ops []Op `json:"ops"`
+	PriorState *PriorState `json:"priorState,omitempty"`
+	Restored   *Restored   `json:"restored,omitempty"`
+	Ops        []Op        `json:"ops"`
+}
+
+// PriorState is the install state from before the operation: None when
+// there was none, or else its copy File, StateName in the backup
+// directory, and that copy's SHA-256 in hex.
+type PriorState struct {
+	None   bool   `json:"none,omitempty"`
+	File   string `json:"file,omitempty"`
+	SHA256 string `json:"sha256,omitempty"`
+}
+
+// Restored is when a restore undid the operation, and the id of the backup
+// that restore took, "" when it wrote no file.
+type Restored struct {
+	At     time.Time `json:"at"`
+	Backup string    `json:"backup"`
 }
 
 // Info is what the operation installed: its mode, the pack, the variant
@@ -161,33 +196,87 @@ func Decode(data []byte) (Manifest, error) {
 	return m, nil
 }
 
+// Check reports a manifest m that is not one this format writes for the
+// backup id taken into home: another id, operation or home directory, an
+// op whose before, after and copy do not fit its action, a copy that is
+// not at its target's path under FilesDir, a target that is not under home
+// or that is named twice, or a prior state that is neither none nor
+// StateName. It does not check where under home a target is.
+func Check(m Manifest, id, home string) error {
+	op, ok := Operation(id)
+	switch {
+	case !ok || m.ID != id:
+		return fmt.Errorf("backup manifest has the id %q, want %q", m.ID, id)
+	case m.Operation != op:
+		return fmt.Errorf("backup manifest %s has the operation %q, want %q", id, m.Operation, op)
+	case m.Home != home:
+		return fmt.Errorf("backup %s was taken for the home directory %s, not %s", id, m.Home, home)
+	}
+	if p := m.PriorState; p != nil && (p.None == (p.File != "") || p.File != "" && (p.File != StateName || p.SHA256 == "") || p.None && p.SHA256 != "") {
+		return fmt.Errorf("backup manifest %s: the prior state must be none or %s with its SHA-256", id, StateName)
+	}
+	seen := map[string]bool{}
+	for _, o := range m.Ops {
+		rel, err := Rel(home, o.Target)
+		if err != nil || !filepath.IsAbs(o.Target) {
+			return fmt.Errorf("backup manifest %s: target %s is not under the home directory %s", id, o.Target, home)
+		}
+		if seen[o.Target] {
+			return fmt.Errorf("backup manifest %s: target %s is named twice", id, o.Target)
+		}
+		seen[o.Target] = true
+		var fits bool
+		switch o.Action {
+		case plan.Create:
+			fits = o.File == "" && o.Before == nil && o.After != nil
+		case plan.Replace:
+			fits = o.Before != nil && o.After != nil
+		case plan.Remove:
+			fits = o.Before != nil && o.After == nil
+		default:
+			return fmt.Errorf("backup manifest %s: target %s has the action %q, want create, replace or remove", id, o.Target, o.Action)
+		}
+		if !fits {
+			return fmt.Errorf("backup manifest %s: the %s of %s does not have the before and after a %s has", id, o.Action, o.Target, o.Action)
+		}
+		if o.Action != plan.Create && o.File != path.Join(FilesDir, rel) {
+			return fmt.Errorf("backup manifest %s: the copy of %s is %q, want %q", id, o.Target, o.File, path.Join(FilesDir, rel))
+		}
+	}
+	return nil
+}
+
 // Entry is a backup directory found on disk: its id, the time its
-// manifest records and whether it has a manifest at all. A backup without
-// one is incomplete: it was being taken when its install stopped.
+// manifest records, whether it has a manifest at all and whether the
+// install state leads to it, as the last install's backup or one before
+// it. A backup without a manifest is incomplete: it was being taken when
+// its operation stopped.
 type Entry struct {
 	ID        string
 	CreatedAt time.Time
 	Complete  bool
+	Chain     bool
 }
 
-// Prune gives the ids of entries to delete, sorted, so that only the last
-// keep complete backups remain, besides the oldest complete one, which
+// Prune gives the ids of entries to delete, sorted, so that no more than
+// keep complete backups remain besides the oldest complete one, which
 // holds what was there before the first write and is never deleted. They
 // are ordered by the time their manifests record, then by id, so that a
-// clock that went back does not reorder them by name. Incomplete backups
-// are deleted and do not count. A backup in protect, such as the one just
-// taken or the one the install state names, is never deleted.
+// clock that went back does not reorder them by name. Backups the state
+// does not lead to (restored installs and restores) go first, oldest
+// first; then the history beyond its newest keep backups, oldest first,
+// never those keep. Incomplete backups are deleted and do not count. A
+// backup in protect, such as the one just taken or the one the install
+// state names, is never deleted.
 func Prune(entries []Entry, keep int, protect ...string) []string {
 	var complete []Entry
 	var out []string
 	for _, e := range entries {
 		switch {
-		case slices.Contains(protect, e.ID):
-		case !e.Complete:
-			out = append(out, e.ID)
-		}
-		if e.Complete {
+		case e.Complete:
 			complete = append(complete, e)
+		case !slices.Contains(protect, e.ID):
+			out = append(out, e.ID)
 		}
 	}
 	slices.SortFunc(complete, func(a, b Entry) int {
@@ -196,11 +285,31 @@ func Prune(entries []Entry, keep int, protect ...string) []string {
 		}
 		return strings.Compare(a.ID, b.ID)
 	})
-	if len(complete) > keep+1 {
-		for _, e := range complete[1 : len(complete)-keep] {
-			if !slices.Contains(protect, e.ID) {
-				out = append(out, e.ID)
-			}
+	if len(complete) <= keep+1 {
+		slices.Sort(out)
+		return out
+	}
+	var spent, history []Entry
+	for _, e := range complete[1:] {
+		if e.Chain {
+			history = append(history, e)
+		} else {
+			spent = append(spent, e)
+		}
+	}
+	if len(history) > keep {
+		history = history[:len(history)-keep]
+	} else {
+		history = nil
+	}
+	excess := len(complete) - (keep + 1)
+	for _, e := range slices.Concat(spent, history) {
+		if excess == 0 {
+			break
+		}
+		if !slices.Contains(protect, e.ID) {
+			out = append(out, e.ID)
+			excess--
 		}
 	}
 	slices.Sort(out)
