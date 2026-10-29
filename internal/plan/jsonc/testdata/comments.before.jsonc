@@ -1,0 +1,13 @@
+// Editor settings, written by hand.
+{
+  /* Block comment above a key. */
+  "theme": "dark", // trailing line comment
+  "fontSize": 14 /* trailing block comment */,
+  // Own-line comment above a key that gets deleted.
+  "telemetry": true,
+  "editor": {
+    "tabSize": 2, // keep me
+    "wordWrap": "off"
+  }
+  // Comment before the closing brace.
+}

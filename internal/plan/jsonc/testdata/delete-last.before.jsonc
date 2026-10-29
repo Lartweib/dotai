@@ -1,0 +1,6 @@
+{
+  "first": 1,
+  "second": 2, // trailing on second
+  // Leading comment of the last key.
+  "last": 3
+}
