@@ -1,6 +1,6 @@
 # Roadmap
 
-The delivery plan for the engine, as a sequence of pull requests. Every PR is a deliverable: it leaves something that can be run or inspected, stays under about 400 changed lines, and carries its own tests. PRs are stacked on `main`: each one merges into `main` and the next one starts from there.
+The delivery plan for the engine, as a sequence of pull requests. Every PR is a deliverable: it leaves something that can be run or inspected, does one thing, and carries its own tests. PRs are stacked on `main`: each one merges into `main` and the next one starts from there.
 
 Demos use the minimal example pack in the repository (`examples/minimal-pack`) and a temporary home directory. They never touch a real harness configuration.
 
