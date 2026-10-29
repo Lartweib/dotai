@@ -95,7 +95,7 @@ internal/
 
 JSON and JSONC key edits use `tailscale/hujson` plus a small own edit layer in `plan`, which keeps comments, key order and line endings ([0028](decisions/0028-plan-centric-hexagonal-engine.md)).
 
-The plan so far covers the user scope of an isolated install: each staged file is created, replaced or left unchanged in its harness's directory under `~/.dotai/isolated/`, and tools in `~/.dotai/tools/` ([0031](decisions/0031-isolated-install-root.md)). The harness adapters carry that mapping as data. Removing files an earlier install owned comes with the ownership record (roadmap PR 8), and key-level merges come with the project scope (roadmap PR 10).
+The plan so far covers the user scope of an isolated install: each staged file is created, replaced or left unchanged in its harness's directory under `~/.dotai/isolated/`, and tools in `~/.dotai/tools/` ([0031](decisions/0031-isolated-install-root.md)). The harness adapters carry that mapping as data. A file the previous install owned that the pack no longer stages is removed, and an owned file the user edited stops the plan. `dotai install` carries the plan out: it backs up, executes with a rollback from that backup on failure, and records the install state with its ownership record last ([0032](decisions/0032-install-state-backup-and-isolated-launch.md); formats in [CLI-JSON](CLI-JSON.md#install-state)). Key-level merges come with the project scope (roadmap PR 10).
 
 Pending:
 
