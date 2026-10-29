@@ -123,7 +123,9 @@ func lineIndent(x hujson.Extra) (string, bool) {
 
 // Set sets the value at path to value, which must be valid JSON. An existing
 // key keeps its position and comments; a new key goes at the end of its
-// object, and missing objects on the way are created.
+// object, and missing objects on the way are created. An object replacing
+// an object is applied key by key, so comments inside it stay; any other
+// value, an array included, replaces the old one as a whole.
 func (d *Document) Set(path []string, value []byte) error {
 	return d.verified(func() error { return d.set(path, value) }, func(after *Document) bool {
 		got, ok := after.Get(path)
@@ -219,12 +221,40 @@ func (d *Document) set(path []string, value []byte) error {
 		if canonical(old) == canonical(value) {
 			return nil
 		}
+		next, _ := hujson.Parse(slices.Clone(value))
+		oldObj, wasObj := v.Value.(*hujson.Object)
+		if newObj, isObj := next.Value.(*hujson.Object); wasObj && isObj {
+			return d.setObject(path, oldObj, newObj)
+		}
 		// Spread the new value over lines unless the old one was a
 		// non-empty array or object written on one line.
 		_, literal := v.Value.(hujson.Literal)
 		spread := literal || len(old) <= 2 || bytes.ContainsRune(hujson.Value{Value: v.Value}.Pack(), '\n')
 		ind, own := lineIndent(obj.Members[j].Name.BeforeExtra)
 		v.Value = d.render(value, ind, own && spread)
+	}
+	return nil
+}
+
+// setObject turns the object old at path into value key by key: it sets the
+// keys of value in their order and deletes the keys value does not have, so
+// the comments inside old stay.
+func (d *Document) setObject(path []string, old, value *hujson.Object) error {
+	var gone []string
+	for _, m := range old.Members {
+		gone = append(gone, m.Name.Value.(hujson.Literal).String())
+	}
+	for _, m := range value.Members {
+		key := m.Name.Value.(hujson.Literal).String()
+		gone = slices.DeleteFunc(gone, func(k string) bool { return k == key })
+		if err := d.set(append(slices.Clip(path), key), standard(m.Value)); err != nil {
+			return err
+		}
+	}
+	for _, key := range gone {
+		for p := append(slices.Clip(path), key); d.lookup(p) != nil; {
+			d.delete(p)
+		}
 	}
 	return nil
 }

@@ -233,6 +233,16 @@ func TestEdits(t *testing.T) {
 		{"append after a multi-line block comment",
 			"{\n  \"a\": 1 /* x\n y */\n}\n", set([]string{"b"}, `2`),
 			"{\n  \"a\": 1, /* x\n y */\n  \"b\": 2\n}\n"},
+		{"replace an object keeps the comments inside it",
+			"{\"a\": {// keep\n \"x\": 1}}", set([]string{"a"}, `{"x": 2}`),
+			"{\"a\": {// keep\n \"x\": 2}}"},
+		{"replace an object sets, adds and deletes only what differs",
+			"{\n  \"a\": {\n    // keep\n    \"x\": 1,\n    \"y\": 2\n  }\n}\n",
+			set([]string{"a"}, `{"z": {"n": 3}, "x": 1}`),
+			"{\n  \"a\": {\n    // keep\n    \"x\": 1,\n    \"z\": {\n      \"n\": 3\n    }\n  }\n}\n"},
+		{"replace an array as a whole",
+			"{\n  \"a\": [1, /* gone */ 2]\n}\n", set([]string{"a"}, `[3]`),
+			"{\n  \"a\": [3]\n}\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
