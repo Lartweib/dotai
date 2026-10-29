@@ -131,6 +131,7 @@
       "id": "20261029T101500.000Z_install",
       "path": "/home/u/.dotai/backups/20261029T101500.000Z_install"
     },
-    "state": "/home/u/.dotai/state.json"
+    "state": "/home/u/.dotai/state.json",
+    "warnings": []
   }
 }

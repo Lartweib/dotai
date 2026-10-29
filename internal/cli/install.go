@@ -79,7 +79,13 @@ func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
 		if res.Backup != nil {
 			backup = res.Backup.Path
 		}
-		return writePlan(env.Stdout, res.InstallPlan, useColor(env.Stdout), "installed\nbackup: "+backup+"\nstate:  "+res.State+"\n")
+		if err := writePlan(env.Stdout, res.InstallPlan, useColor(env.Stdout), "installed\nbackup: "+backup+"\nstate:  "+res.State+"\n"); err != nil {
+			return err
+		}
+		for _, w := range res.Warnings {
+			fmt.Fprintf(env.Stderr, "warning: %s\n", w)
+		}
+		return nil
 	}
 	return cmd
 }

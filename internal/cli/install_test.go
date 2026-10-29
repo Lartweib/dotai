@@ -219,6 +219,7 @@ var installResult = func() app.InstallResult {
 		InstallPlan: p,
 		Backup:      &app.BackupRef{ID: "20261029T101500.000Z_install", Path: "/home/u/.dotai/backups/20261029T101500.000Z_install"},
 		State:       "/home/u/.dotai/state.json",
+		Warnings:    []string{},
 	}
 }()
 
@@ -342,6 +343,32 @@ func TestRunInstallFailureWithoutDryRun(t *testing.T) {
 		}
 		if code := cli.Run([]string{"install"}, env); code != cli.ExitInternal || stdout.Len() != 0 || !strings.Contains(stderr.String(), err.Error()) {
 			t.Errorf("exit code = %d, stdout = %q, stderr = %q, want an internal error with %q", code, stdout.String(), stderr.String(), err)
+		}
+	}
+}
+
+func TestRunInstallWithWarnings(t *testing.T) {
+	res := installResult
+	res.Warnings = []string{"older backups could not be pruned: busy"}
+	for _, jsonOut := range []bool{false, true} {
+		var stdout, stderr bytes.Buffer
+		env := testEnv(&stdout, &stderr)
+		env.Install = func(context.Context, string, string, string, string, app.Progress) (app.InstallResult, error) {
+			return res, nil
+		}
+		args := []string{"install"}
+		if jsonOut {
+			args = append(args, "--json")
+		}
+		code := cli.Run(args, env)
+		if code != cli.ExitOK {
+			t.Errorf("json %v: exit code = %d, want 0: the install succeeded", jsonOut, code)
+		}
+		if !jsonOut && (stderr.String() != "warning: older backups could not be pruned: busy\n" || !strings.Contains(stdout.String(), "state:  /home/u/.dotai/state.json")) {
+			t.Errorf("stdout = %q, stderr = %q, want the summary and the warning", stdout.String(), stderr.String())
+		}
+		if jsonOut && (!strings.Contains(stdout.String(), `"warnings": [`) || !strings.Contains(stdout.String(), "could not be pruned") || stderr.Len() != 0) {
+			t.Errorf("stdout = %s, stderr = %q, want the warning in data", stdout.String(), stderr.String())
 		}
 	}
 }
