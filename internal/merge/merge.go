@@ -2,8 +2,10 @@
 // pack and builds one staging tree per scope. It does no I/O. Each rule of
 // the "Merge rules" table in docs/PACK-FORMAT.md maps to one function here:
 // claim (Name row), mergeMCP (MCP servers in the Name row), checkRoot (Root
-// rule row), claimPath (every other file, tools included, decision 0030)
-// and crossScope (the cross-scope paragraph).
+// rule row), claimPath (every other file) and crossScope (the cross-scope
+// paragraph). claimPath also places a layer's tools at their install path,
+// .dotai/tools/, and reports a tool in two layers of a scope as
+// tool-conflict (decision 0030).
 //
 // Not covered yet:
 //   - A variant's detect rule. The user scope uses the variant in the
@@ -11,7 +13,7 @@
 //   - Merging lists and values: dotai/settings.yaml, hooks.jsonc and
 //     permissions.jsonc in two layers of a scope are reported as
 //     merge-pending until their content merge lands (roadmap PR 5); any
-//     other repeated path is an error.
+//     other repeated path is a path-conflict, or a tool-conflict for a tool.
 package merge
 
 import (
