@@ -517,3 +517,58 @@ func TestStageMergesSettings(t *testing.T) {
 		t.Errorf("harnesses = %d user, %d project, want 2 and 1", len(s.UserSettings), len(s.ProjectSettings))
 	}
 }
+
+func TestStageSettingsOrderAndMissingSettings(t *testing.T) {
+	tests := []struct {
+		name          string
+		pack          *pack.Pack
+		sel           merge.Selection
+		user, project []string
+	}{
+		{
+			name: "a later env variable joins the env at its first variable's place",
+			pack: newPack(base(settings("claudecode:\n  model: a\n  env: {A: \"1\"}\n  statusLine: s\n")), variant("v", settings("claudecode:\n  theme: t\n  env: {C: \"2\"}\n"))),
+			user: []string{
+				"claudecode.model=a base",
+				"claudecode.env.A=1 base",
+				"claudecode.env.C=2 variants/v",
+				"claudecode.statusLine=s base",
+				"claudecode.theme=t variants/v",
+			},
+			project: []string{},
+		},
+		{
+			// plain gives a settings.yaml whose content was rejected:
+			// Settings is nil, as the pack loader leaves it.
+			name:    "rejected or absent settings",
+			pack:    newPack(base(plain("dotai/settings.yaml")), variant("v", settings("claudecode:\n  model: a\n")), profile("a", plain("dotai/settings.yaml")), profile("b")),
+			sel:     merge.Selection{Profiles: []string{"a", "b"}},
+			user:    []string{"claudecode.model=a variants/v"},
+			project: []string{},
+		},
+		{
+			name:    "no settings in any layer",
+			pack:    newPack(base(rule("x")), variant("v"), profile("a")),
+			sel:     merge.Selection{Profiles: []string{"a"}},
+			user:    []string{},
+			project: []string{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if diags := merge.Check(tt.pack, merge.Selection{}); len(diags) != 0 {
+				t.Fatalf("Check() = %v", format(diags))
+			}
+			s, diags := merge.Stage(tt.pack, tt.sel)
+			if len(diags) != 0 {
+				t.Fatalf("Stage() diagnostics = %v", format(diags))
+			}
+			if got := settingsOf(s.UserSettings, "claudecode"); !reflect.DeepEqual(got, tt.user) {
+				t.Errorf("user settings =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(tt.user, "\n"))
+			}
+			if got := settingsOf(s.ProjectSettings, "claudecode"); !reflect.DeepEqual(got, tt.project) {
+				t.Errorf("project settings =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(tt.project, "\n"))
+			}
+		})
+	}
+}
