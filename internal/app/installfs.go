@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"strings"
 	"time"
 
 	"github.com/lartweib/dotai/internal/plan"
@@ -144,11 +145,27 @@ func (osInstallFS) SyncDir(name string) error                    { return syncDi
 
 // tempName is a new name next to the slash path name.
 func tempName(name string) (string, error) {
-	b := make([]byte, 8)
+	b := make([]byte, tempBytes)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
 	}
-	return path.Join(path.Dir(name), "."+path.Base(name)+".dotai-"+hex.EncodeToString(b)), nil
+	return path.Join(path.Dir(name), "."+path.Base(name)+tempInfix+hex.EncodeToString(b)), nil
+}
+
+const (
+	tempInfix = ".dotai-"
+	tempBytes = 8
+)
+
+// isTempOf reports whether entry is a name tempName gives for a file
+// named base.
+func isTempOf(entry, base string) bool {
+	rest, ok := strings.CutPrefix(entry, "."+base+tempInfix)
+	if !ok || len(rest) != 2*tempBytes {
+		return false
+	}
+	_, err := hex.DecodeString(rest)
+	return err == nil
 }
 
 // narrowMode is mode with no read or write permission that cur lacks, so

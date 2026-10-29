@@ -81,7 +81,19 @@ func TestInstallRecoversFromACrash(t *testing.T) {
 			if s.Pending == nil || len(s.Pending.Ops) != 4 || len(s.Files) != 0 {
 				t.Fatalf("state after the crash = %+v, want the journal of four creates", s)
 			}
+			// What a write the kill cut short leaves, and a file of the user's.
+			left := at(home, ".dotai/tools/.hello.sh.dotai-0123456789abcdef")
+			mine := at(home, ".dotai/tools/.hello.sh.dotai-notes")
+			writeFile(t, left, "partial")
+			writeFile(t, mine, "mine")
 			res, err := quiet(t).install(newClockFS(t), examplePack, home)
+			if _, err := os.Stat(left); !errors.Is(err, fs.ErrNotExist) {
+				t.Errorf("temporary file = %v, want it removed", err)
+			}
+			if _, err := os.Stat(mine); err != nil {
+				t.Errorf("user file = %v, want it kept", err)
+			}
+			_ = os.Remove(mine)
 			if err != nil {
 				t.Fatalf("Install() after the crash error = %v", err)
 			}

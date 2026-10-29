@@ -256,6 +256,9 @@ func (r runner) run(res *InstallResult) (err error) {
 	if err := r.recheckState(statePath); err != nil {
 		return err
 	}
+	if prev != nil && prev.Pending != nil {
+		r.removeTemps(prev.Pending)
+	}
 
 	if len(writes) == 0 {
 		if prev != nil {
@@ -324,6 +327,34 @@ func (r runner) lock() (func() error, error) {
 		}
 	}
 	return nil, le
+}
+
+// removeTemps removes the temporary files an install that stopped midway
+// left next to the targets of its journal and next to the state, as
+// WriteIn names them. It does its best: a file it cannot remove stays.
+func (r runner) removeTemps(p *state.Pending) {
+	targets := []string{filepath.Join(r.home, dotaiDir, stateFile)}
+	for _, op := range p.Ops {
+		targets = append(targets, op.Target)
+	}
+	for _, target := range targets {
+		root, name, err := installRoot(r.home, target)
+		if target == targets[0] {
+			root, name, err = filepath.Join(r.home, dotaiDir), stateFile, nil
+		}
+		if err != nil {
+			continue
+		}
+		names, err := r.d.List(filepath.Dir(target))
+		if err != nil {
+			continue
+		}
+		for _, n := range names {
+			if isTempOf(n, path.Base(name)) {
+				_ = r.d.RemoveIn(root, path.Join(path.Dir(name), n))
+			}
+		}
+	}
 }
 
 // recheckState checks, under the lock, that the install state is still
