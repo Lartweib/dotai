@@ -1,0 +1,3 @@
+{"op": "union", "path": ["plugins"], "value": ["alpha", {"version": 2, "name": "beta"}, "gamma", "gamma"]}
+{"op": "union", "path": ["tags"], "value": ["two", "three"]}
+{"op": "union", "path": ["extra", "list"], "value": ["x", {"name": "delta"}]}

@@ -67,6 +67,16 @@ func applyEdits(t *testing.T, src, script []byte) []byte {
 			err = doc.Set(e.Path, e.Value)
 		case "delete":
 			err = doc.Delete(e.Path)
+		case "union":
+			var raw []json.RawMessage
+			if err := json.Unmarshal(e.Value, &raw); err != nil {
+				t.Fatal(err)
+			}
+			elems := make([][]byte, len(raw))
+			for i, r := range raw {
+				elems[i] = r
+			}
+			err = doc.Union(e.Path, elems...)
 		default:
 			t.Fatalf("unknown op %q", e.Op)
 		}
@@ -99,6 +109,12 @@ func TestEditErrors(t *testing.T) {
 	}
 	if err := doc.Set(nil, []byte(`{}`)); err == nil {
 		t.Error("Set with an empty path succeeded")
+	}
+	if err := doc.Union([]string{"a"}, []byte(`2`)); err == nil {
+		t.Error("Union on a number succeeded")
+	}
+	if err := doc.Union([]string{"b"}, []byte(`{nope`)); err == nil {
+		t.Error("Union with invalid JSON succeeded")
 	}
 	if got := string(doc.Bytes()); got != `{"a": 1}` {
 		t.Errorf("failed edits changed the document: %s", got)

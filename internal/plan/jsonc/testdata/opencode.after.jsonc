@@ -1,0 +1,21 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  // Theme picked by hand; dotai must not touch it.
+  "theme": "system",
+  "model": "example-provider/example-model",
+  "mcp": {
+    "notes": {
+      "type": "local",
+      "command": ["notes-mcp", "--stdio"],
+      "enabled": true
+    },
+    "search": {
+      "type": "remote",
+      "url": "https://search.example.com/mcp"
+    }
+  },
+  "instructions": ["CONTRIBUTING.md", "AGENTS.md"],
+  "permission": {
+    "edit": "ask"
+  },
+}

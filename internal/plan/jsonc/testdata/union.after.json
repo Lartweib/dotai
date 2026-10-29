@@ -1,0 +1,16 @@
+{
+  "plugins": [
+    "alpha",
+    {"name": "beta", "version": 2},
+    "gamma"
+  ],
+  "tags": ["one", "two", "three"],
+  "extra": {
+    "list": [
+      "x",
+      {
+        "name": "delta"
+      }
+    ]
+  }
+}

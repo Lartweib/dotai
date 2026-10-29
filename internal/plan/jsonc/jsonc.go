@@ -191,17 +191,52 @@ func (d *Document) Delete(path []string) error {
 	if i == 0 && !bytes.ContainsRune(*next, '\n') {
 		merged = slices.Clone(gone.Name.BeforeExtra) // one-line object
 	}
-	if i == n-1 && i > 0 && gone.Value.AfterExtra == nil {
-		// The previous member becomes the last one: drop its comma.
+	if i == n-1 && i > 0 {
+		// The previous member becomes the last one: it takes the deleted
+		// member's trailing comma, or none.
 		prev := &obj.Members[i-1].Value
-		merged = append(slices.Clone(prev.AfterExtra), merged...)
-		prev.AfterExtra = nil
+		if gone.Value.AfterExtra == nil {
+			merged = append(slices.Clone(prev.AfterExtra), merged...)
+			prev.AfterExtra = nil
+		} else if prev.AfterExtra == nil {
+			prev.AfterExtra = hujson.Extra{}
+		}
 	}
 	if n == 1 && !hasComment(merged) {
 		merged = nil
 	}
 	*next = merged
 	obj.Members = slices.Delete(obj.Members, i, i+1)
+	return nil
+}
+
+// Union appends to the array at path each element, which must be valid
+// JSON, that the array does not hold yet, keeping the order of both. A
+// missing array is created. Elements are compared as canonical JSON (see
+// canonical), so numbers compare as written: 1.0 and 1 are different.
+func (d *Document) Union(path []string, elems ...[]byte) error {
+	for _, e := range elems {
+		if !json.Valid(e) {
+			return fmt.Errorf("element for %q is not valid JSON", path)
+		}
+	}
+	v := d.lookup(path)
+	if v == nil {
+		if err := d.Set(path, []byte("[]")); err != nil {
+			return err
+		}
+		v = d.lookup(path)
+	}
+	arr, ok := v.Value.(*hujson.Array)
+	if !ok {
+		return fmt.Errorf("%q is not an array", path)
+	}
+	for _, e := range elems {
+		held := func(x hujson.Value) bool { return canonical(standard(x)) == canonical(e) }
+		if !slices.ContainsFunc(arr.Elements, held) {
+			d.appendTo(v, len(path)+1, nil, e)
+		}
+	}
 	return nil
 }
 
@@ -283,7 +318,8 @@ func nest(keys []string, value []byte) []byte {
 }
 
 // canonical returns valid JSON in a form where equal values are equal
-// strings: compact, with object keys sorted.
+// strings: compact, with object keys sorted. Numbers stay as written, so
+// 1.0 and 1 are different.
 func canonical(b []byte) string {
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.UseNumber()
