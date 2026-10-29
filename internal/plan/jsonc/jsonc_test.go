@@ -27,7 +27,10 @@ type edit struct {
 // the result with NAME.after.*, then applies the edits again to check that
 // they are idempotent.
 func TestGolden(t *testing.T) {
-	scripts, _ := filepath.Glob("testdata/*.edits")
+	scripts, err := filepath.Glob("testdata/*.edits")
+	if err != nil || len(scripts) == 0 {
+		t.Fatalf("no edit scripts: %v", err)
+	}
 	for _, script := range scripts {
 		name := strings.TrimSuffix(script, ".edits")
 		t.Run(filepath.Base(name), func(t *testing.T) {
@@ -246,6 +249,12 @@ func TestEdits(t *testing.T) {
 		{"delete keeps the next key's inline comment",
 			`{"a": 1, /* note on b */ "b": 2}`, del([]string{"a"}),
 			`{ /* note on b */ "b": 2}`},
+		{"delete of a missing key changes nothing",
+			"{\"a\": 1 /* c */}", del([]string{"b"}),
+			"{\"a\": 1 /* c */}"},
+		{"delete on an empty file changes nothing",
+			"\n", del([]string{"a"}),
+			"\n"},
 		{"replace an array as a whole",
 			"{\n  \"a\": [1, /* gone */ 2]\n}\n", set([]string{"a"}, `[3]`),
 			"{\n  \"a\": [3]\n}\n"},
