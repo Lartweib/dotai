@@ -144,9 +144,13 @@ func lineIndent(x hujson.Extra) (string, bool) {
 // equal to the current one as canonical JSON (see equalityKey) changes
 // nothing.
 func (d *Document) Set(path []string, value []byte) error {
-	return d.verified(func() error { return d.set(path, value) }, func(after *Document) bool {
-		got, ok := after.Get(path)
-		return ok && equalityKey(got) == equalityKey(value)
+	return d.verified(func() error { return d.set(path, value) }, func(top map[string]any) bool {
+		parent := modelObject(top, path, true)
+		if parent == nil {
+			return false
+		}
+		parent[path[len(path)-1]] = decodeJSON(value)
+		return true
 	})
 }
 
@@ -163,9 +167,11 @@ func (d *Document) Delete(path []string) error {
 			d.delete(path)
 		}
 		return nil
-	}, func(after *Document) bool {
-		_, ok := after.Get(path)
-		return !ok
+	}, func(top map[string]any) bool {
+		if parent := modelObject(top, path, false); parent != nil {
+			delete(parent, path[len(path)-1])
+		}
+		return true
 	})
 }
 
@@ -174,36 +180,48 @@ func (d *Document) Delete(path []string) error {
 // missing array is created. Elements are compared as canonical JSON (see
 // equalityKey), so numbers compare as written: 1.0 and 1 are different.
 func (d *Document) Union(path []string, elems ...[]byte) error {
-	return d.verified(func() error { return d.union(path, elems...) }, func(after *Document) bool {
-		got, _ := after.Get(path)
-		var held []json.RawMessage
-		_ = json.Unmarshal(got, &held)
-		for _, e := range elems {
-			if !slices.ContainsFunc(held, func(h json.RawMessage) bool { return equalityKey(h) == equalityKey(e) }) {
+	return d.verified(func() error { return d.union(path, elems...) }, func(top map[string]any) bool {
+		parent := modelObject(top, path, true)
+		if parent == nil {
+			return false
+		}
+		arr := []any{}
+		if v, present := parent[path[len(path)-1]]; present {
+			var ok bool
+			if arr, ok = v.([]any); !ok {
 				return false
 			}
 		}
+		for _, e := range elems {
+			x := decodeJSON(e)
+			if !slices.ContainsFunc(arr, func(y any) bool { return keyOf(y) == keyOf(x) }) {
+				arr = append(arr, x)
+			}
+		}
+		parent[path[len(path)-1]] = arr
 		return true
 	})
 }
 
 // verified runs edit and keeps its result only when the output parses again
-// and check accepts the parsed output. Otherwise it puts the document back
-// as it was and returns an error, so a bug in the edit layer can never emit
-// a corrupt file.
-func (d *Document) verified(edit func() error, check func(after *Document) bool) error {
+// and equals, as canonical JSON, the document that model computes on its
+// own: model applies the same edit to the decoded top-level object. Any
+// difference, such as a sibling key lost in a comment, undoes the edit and
+// returns an error, so a bug in the edit layer can never emit a wrong file.
+// The model is a plain map: canonical JSON sorts keys, and the golden tests
+// guard key order.
+func (d *Document) verified(edit func() error, model func(top map[string]any) bool) error {
 	// Snapshot the packed bytes: Clone loses the empty marker of a trailing
 	// comma, and the bytes parse back to the same tree.
 	var saved []byte
+	top := map[string]any{}
 	if d.root != nil {
 		saved = d.root.Pack()
+		top = decodeJSON(compactJSON(*d.root)).(map[string]any)
 	}
 	err := edit()
-	if err == nil {
-		after, perr := Parse(d.Bytes())
-		if perr != nil || !check(after) {
-			err = errors.New("the edit failed its check and was undone")
-		}
+	if err == nil && !(model(top) && d.matches(top)) {
+		err = errors.New("the edit failed its check and was undone")
 	}
 	if err != nil {
 		d.root = nil
@@ -213,6 +231,43 @@ func (d *Document) verified(edit func() error, check func(after *Document) bool)
 		}
 	}
 	return err
+}
+
+// matches reports whether the document's bytes parse and equal want as
+// canonical JSON.
+func (d *Document) matches(want map[string]any) bool {
+	after, err := Parse(d.Bytes())
+	if err != nil {
+		return false
+	}
+	got := keyOf(map[string]any{})
+	if after.root != nil {
+		got = equalityKey(compactJSON(*after.root))
+	}
+	return got == keyOf(want)
+}
+
+// modelObject returns the object in the model top that holds the last key of
+// path, or nil when a value on the way is not an object. With create, it
+// adds the missing objects on the way, as Set does.
+func modelObject(top map[string]any, path []string, create bool) map[string]any {
+	if len(path) == 0 {
+		return nil
+	}
+	m := top
+	for _, key := range path[:len(path)-1] {
+		v, present := m[key]
+		if !present && create {
+			v = map[string]any{}
+			m[key] = v
+		}
+		next, ok := v.(map[string]any)
+		if !ok {
+			return nil
+		}
+		m = next
+	}
+	return m
 }
 
 // set does the work of Set; verified checks it.
@@ -458,13 +513,22 @@ func nest(keys []string, value []byte) []byte {
 // equalityKey returns valid JSON in a form where equal values are equal
 // strings: compact, with object keys sorted. Numbers stay as written, so
 // 1.0 and 1 are different.
-func equalityKey(b []byte) string {
+func equalityKey(b []byte) string { return keyOf(decodeJSON(b)) }
+
+// keyOf returns the equality key of a decoded value; see equalityKey.
+func keyOf(x any) string {
+	out, _ := json.Marshal(x)
+	return string(out)
+}
+
+// decodeJSON decodes valid JSON into maps, slices and json.Number values,
+// so numbers keep the text they were written with.
+func decodeJSON(b []byte) any {
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.UseNumber()
 	var x any
 	_ = dec.Decode(&x)
-	out, _ := json.Marshal(x)
-	return string(out)
+	return x
 }
 
 // lineBreaks returns the offsets of the line breaks in x, the whitespace and

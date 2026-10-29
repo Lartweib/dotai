@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -287,32 +288,127 @@ func TestEdits(t *testing.T) {
 	}
 }
 
-// FuzzSet checks that setting a top-level key in any valid document gives a
-// document that parses and holds the new value.
-func FuzzSet(f *testing.F) {
+// reviewerCases are layouts that once broke an edit. They seed the fuzz
+// corpus next to the golden fixtures.
+var reviewerCases = []string{
+	"{\"a\": 1 // c\n}",
+	"{\"allow\": [\"x\", \"y\" // c\n]}",
+	"{\n  \"a\": 1, /* x\n y */\n  \"b\": 2\n}\n",
+	"{ /* hdr\n x */\n  \"a\": 1,\n  \"b\": 2\n}",
+	"{\n  \"a\": 1 /* x\n y */\n}\n",
+	"{\"a\": {// keep\n \"x\": 1}}",
+	"{\n  \"a\": 1, // about a\n  \"b\": 2, \"c\": 3\n}\n",
+	"{\"a\": 1, // note\n \"b\": 2}",
+	"{\"a\": 1,\n}",
+	`{"a": 1, /* note on b */ "b": 2}`,
+	"{\n  \"a\": 1,\n\n  // Section\n\n  // Lead of b.\n  \"b\": 2,\n  \"c\": 3\n}\n",
+}
+
+// fuzzEdit fuzzes one edit of a top-level key. model applies the same edit
+// to the decoded document and reports whether the edit should succeed. A
+// failed edit must leave the bytes as they were; a successful one must give
+// a document that parses and equals the model as JSON.
+func fuzzEdit(f *testing.F, edit func(d *jsonc.Document, key, text string) error, model func(top map[string]any, key, text string) bool) {
+	var seeds [][]byte
 	for _, path := range fixtures(f) {
-		f.Add(read(f, path), "key", "text")
+		seeds = append(seeds, read(f, path))
+	}
+	for _, src := range reviewerCases {
+		seeds = append(seeds, []byte(src))
+	}
+	for _, src := range seeds {
+		for _, key := range []string{"a", "b", "c", "allow", "new"} {
+			f.Add(src, key, "x")
+		}
 	}
 	f.Fuzz(func(t *testing.T, src []byte, key, text string) {
 		doc, err := jsonc.Parse(src)
-		if err != nil || !utf8.ValidString(key) {
+		if err != nil || !utf8.ValidString(key) || !utf8.ValidString(text) {
 			return
 		}
-		value, _ := json.Marshal(map[string]any{"list": []string{text}})
-		if err := doc.Set([]string{key}, value); err != nil {
-			t.Fatalf("Set: %v", err)
+		top := wholeDocument(doc)
+		ok := model(top, key, text)
+		if err := edit(doc, key, text); err != nil {
+			if !bytes.Equal(doc.Bytes(), src) {
+				t.Fatalf("failed edit changed the bytes\n%q", doc.Bytes())
+			}
+			if ok {
+				t.Fatalf("edit failed: %v\n%q", err, src)
+			}
+			return
+		}
+		if !ok {
+			t.Fatalf("edit succeeded, want an error\n%q", src)
 		}
 		again, err := jsonc.Parse(doc.Bytes())
 		if err != nil {
 			t.Fatalf("output does not parse: %v\n%q", err, doc.Bytes())
 		}
-		got, _ := again.Get([]string{key})
-		var want, have any
-		_ = json.Unmarshal(value, &want)
-		_ = json.Unmarshal(got, &have)
-		if !reflect.DeepEqual(have, want) {
-			t.Fatalf("Get = %s, want %s\n%q", got, value, doc.Bytes())
+		if got := wholeDocument(again); !reflect.DeepEqual(got, top) {
+			t.Fatalf("got %v, want %v\nsrc: %q\nout: %q", got, top, src, doc.Bytes())
 		}
+	})
+}
+
+// wholeDocument decodes the document's top-level object.
+func wholeDocument(d *jsonc.Document) map[string]any {
+	whole, ok := d.Get(nil)
+	if !ok {
+		return map[string]any{}
+	}
+	return decode(whole).(map[string]any)
+}
+
+func decode(b []byte) any {
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.UseNumber()
+	var x any
+	_ = dec.Decode(&x)
+	return x
+}
+
+func setValue(text string) []byte {
+	value, _ := json.Marshal(map[string]any{"list": []string{text}})
+	return value
+}
+
+func FuzzSet(f *testing.F) {
+	fuzzEdit(f, func(d *jsonc.Document, key, text string) error {
+		return d.Set([]string{key}, setValue(text))
+	}, func(top map[string]any, key, text string) bool {
+		top[key] = decode(setValue(text))
+		return true
+	})
+}
+
+func FuzzDelete(f *testing.F) {
+	fuzzEdit(f, func(d *jsonc.Document, key, _ string) error {
+		return d.Delete([]string{key})
+	}, func(top map[string]any, key, _ string) bool {
+		delete(top, key)
+		return true
+	})
+}
+
+func FuzzUnion(f *testing.F) {
+	fuzzEdit(f, func(d *jsonc.Document, key, text string) error {
+		elem, _ := json.Marshal(text)
+		return d.Union([]string{key}, elem, []byte(`1`))
+	}, func(top map[string]any, key, text string) bool {
+		arr := []any{}
+		if v, present := top[key]; present {
+			var ok bool
+			if arr, ok = v.([]any); !ok {
+				return false
+			}
+		}
+		for _, e := range []any{text, json.Number("1")} {
+			if !slices.ContainsFunc(arr, func(x any) bool { return reflect.DeepEqual(x, e) }) {
+				arr = append(arr, e)
+			}
+		}
+		top[key] = arr
+		return true
 	})
 }
 
