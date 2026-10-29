@@ -21,3 +21,6 @@ func FetchRulesyncWith(ctx context.Context, fetch fetchFunc, cacheDir, dir strin
 
 // ExpandPaths is the path variable expansion of a staged file.
 var ExpandPaths = expandPaths
+
+// EncodeSettings is the settings file of one harness.
+var EncodeSettings = encodeSettings

@@ -24,6 +24,24 @@
         "path": ".claude/CLAUDE.md",
         "layer": "",
         "generator": "rulesync"
+      },
+      {
+        "scope": "user",
+        "path": ".claude/settings.json",
+        "layer": "",
+        "origins": {
+          "model": "base"
+        },
+        "generator": "rulesync+dotai"
+      },
+      {
+        "scope": "user",
+        "path": ".gemini/antigravity-cli/settings.json",
+        "layer": "",
+        "origins": {
+          "statusLine": "base"
+        },
+        "generator": "dotai"
       }
     ],
     "diagnostics": []

@@ -156,6 +156,8 @@ func TestRunStage(t *testing.T) {
 		{Scope: app.ScopeUser, Path: ".rulesync/rules/overview.md", Layer: "base"},
 		{Scope: app.ScopeProject, Path: ".rulesync/rules/web.md", Layer: "profiles/web"},
 		{Scope: app.ScopeUser, Path: ".claude/CLAUDE.md", Generator: app.GeneratorRulesync},
+		{Scope: app.ScopeUser, Path: ".claude/settings.json", Origins: map[string]string{"model": "base"}, Generator: app.GeneratorRulesyncDotai},
+		{Scope: app.ScopeUser, Path: ".gemini/antigravity-cli/settings.json", Origins: map[string]string{"statusLine": "base"}, Generator: app.GeneratorDotai},
 	}, Diagnostics: []app.Diagnostic{}}
 	for _, tt := range []struct {
 		json         bool
@@ -181,7 +183,7 @@ func TestRunStage(t *testing.T) {
 		}
 		if tt.json {
 			assertGolden(t, filepath.Join("testdata", "stage-example.json.golden"), stdout.Bytes())
-		} else if want := "user/.dotai/tools/hello.sh  base\nuser/.rulesync/rules/overview.md  base\nproject/.rulesync/rules/web.md  profiles/web\nuser/.claude/CLAUDE.md  rulesync\n"; stdout.String() != want {
+		} else if want := "user/.dotai/tools/hello.sh  base\nuser/.rulesync/rules/overview.md  base\nproject/.rulesync/rules/web.md  profiles/web\nuser/.claude/CLAUDE.md  rulesync\nuser/.claude/settings.json  rulesync+dotai\nuser/.gemini/antigravity-cli/settings.json  dotai\n"; stdout.String() != want {
 			t.Errorf("stdout = %q, want %q", stdout.String(), want)
 		}
 	}
