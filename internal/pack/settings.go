@@ -79,6 +79,11 @@ func readSettings(r reader, src []byte, kind LayerKind, harnesses []string) *Set
 			if env := lookup(v, "env"); k.Value == "claudecode" && env != nil && env.Kind != yaml.MappingNode && !reported(env) {
 				r.report(env, CodeFieldType, "claudecode.env must be a mapping: it merges per variable")
 			}
+			for j := 0; j < len(v.Content); j += 2 { // a dot would make its identity ambiguous
+				if key := v.Content[j]; strings.Contains(key.Value, ".") {
+					r.report(key, CodeSettingsValue, "%s: key %q must not contain a dot: a settings key is a name", k.Value, key.Value)
+				}
+			}
 			s.Blocks = append(s.Blocks, SettingsBlock{k.Value, v})
 		}
 	}

@@ -112,6 +112,14 @@ func TestLoadSettingsDiagnostics(t *testing.T) {
 			want: []string{"2:8: field-type: claudecode.env must be a mapping: it merges per variable"},
 		},
 		{
+			name: "top-level keys with a dot",
+			src:  "claudecode:\n  env.A: x\n  env: {B.C: y}\nopencode:\n  a.b: {c.d: z}\n",
+			want: []string{
+				`2:3: settings-value-invalid: claudecode: key "env.A" must not contain a dot: a settings key is a name`,
+				`5:3: settings-value-invalid: opencode: key "a.b" must not contain a dot: a settings key is a name`,
+			},
+		},
+		{
 			name: "malformed override paths",
 			src: "claudecode:\n  model: a\n  env: {A: b}\nopencode:\n  env: {}\ndotai:\n  overrides:\n" +
 				"    - claudecode\n    - .model\n    - claudecode.model.alias\n    - claudecode.env\n    - opencode.env.A\n    - 1\n",
