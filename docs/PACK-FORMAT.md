@@ -101,8 +101,9 @@ For each scope:
 
 Decided in [0030](decisions/0030-tools-paths-and-project-config.md).
 
-- `dotai/tools/` installs to `~/.dotai/tools/` at user scope and to `.dotai/tools/` at project scope. The same path in two layers of a scope is an error; a layer that adjusts another layer's tool config ships a file with a different name.
-- While staging, `${DOTAI_TOOLS}` and `${DOTAI_PROJECT_TOOLS}` become the absolute paths of those directories in every text file of the layers, skills and hooks included, before rulesync runs.
+- `dotai/tools/` installs to `~/.dotai/tools/` at user scope and to `.dotai/tools/` at project scope, keeping the executable bit where the file system has one. The same path in two layers of a scope is an error (`tool-conflict`); a layer that adjusts another layer's tool config ships a file with a different name.
+- While staging, `${DOTAI_TOOLS}` and `${DOTAI_PROJECT_TOOLS}` become the absolute paths of those directories in every text file of the layers, skills and hooks included, before rulesync runs. A file that is not UTF-8, or that holds a NUL byte, is copied as-is, and no other `${...}` is touched.
+- The paths are written with forward slashes on every platform, Windows included: Windows accepts them, and a backslash inside a JSON string, such as a hook command in `.rulesync/hooks.jsonc`, would be an invalid escape.
 - `.dotai/config.yaml` in a project belongs to the user and the pack; the engine never writes it. Tools find it by walking up from the current directory to the nearest `.dotai/`. The engine records the applied profiles in its own file in the same directory.
 
 ## Merge rules

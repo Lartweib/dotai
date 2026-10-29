@@ -3,7 +3,9 @@
 // the "Merge rules" table in docs/PACK-FORMAT.md maps to one function here:
 // claim (Name row), mergeMCP (MCP servers in the Name row), checkRoot (Root
 // rule row), claimPath (every other file) and crossScope (the cross-scope
-// paragraph).
+// paragraph). claimPath also places a layer's tools at their install path,
+// .dotai/tools/, and reports a tool in two layers of a scope as
+// tool-conflict (decision 0030).
 //
 // Not covered yet:
 //   - A variant's detect rule. The user scope uses the variant in the
@@ -11,7 +13,7 @@
 //   - Merging lists and values: dotai/settings.yaml, hooks.jsonc and
 //     permissions.jsonc in two layers of a scope are reported as
 //     merge-pending until their content merge lands (roadmap PR 5); any
-//     other repeated path is an error.
+//     other repeated path is a path-conflict, or a tool-conflict for a tool.
 package merge
 
 import (
@@ -44,6 +46,7 @@ const (
 	CodeServerConflict        = "mcp-server-conflict"
 	CodeMCPInvalid            = "mcp-invalid"
 	CodePathConflict          = "path-conflict"
+	CodeToolConflict          = "tool-conflict"
 	CodeMergePending          = "merge-pending"
 )
 
@@ -51,6 +54,13 @@ const (
 	mcpFile   = ".rulesync/mcp.jsonc"
 	mcpServer = "mcp-server" // the kind of an MCP server in a scope's names
 	fileLine  = 0            // a problem with an item or a file concerns the whole file
+)
+
+// A layer's tools, and where a scope's tree holds them: their install path
+// under the home or the project directory.
+const (
+	toolsSource = "dotai/tools/"
+	ToolsDir    = ".dotai/tools"
 )
 
 // pendingMerge holds the files whose lists and values will be merged
@@ -69,6 +79,7 @@ type File struct {
 	Layer   string            // path of the layer that provides it; "" for a merged file
 	Origins map[string]string // for a merged file, the layer path of each entry by name
 	Data    []byte
+	Exec    bool // the source is executable
 }
 
 // Staging holds the merged tree of each scope, in path order.
@@ -322,10 +333,18 @@ func (s *scope) checkRoot(l pack.Layer, it pack.Item) {
 
 // claimPath gives any other file one owner by path. The files of
 // pendingMerge follow the same rule until their content merge lands, with
-// their own code.
+// their own code. A tool enters the tree at its install path.
 func (s *scope) claimPath(l pack.Layer, f pack.File) {
-	prev, taken := s.files[f.Rel]
+	at := f.Rel
+	tool, isTool := strings.CutPrefix(f.Rel, toolsSource)
+	if isTool {
+		at = ToolsDir + "/" + tool
+	}
+	prev, taken := s.files[at]
 	switch {
+	case taken && isTool:
+		s.report(pack.NewDiagnostic(f.Path, fileLine, 0, CodeToolConflict, "tool %s is also provided by %s", tool, prev.Layer).WithRelated(prev.src, fileLine).
+			WithHint("rename it; a tool has one owner, and a layer that adjusts another layer's tool ships a file with a different name"))
 	case taken && slices.Contains(pendingMerge, f.Rel):
 		s.report(pack.NewDiagnostic(f.Path, fileLine, 0, CodeMergePending, "%s is also provided by %s", f.Rel, prev.Layer).WithRelated(prev.src, fileLine).
 			WithHint("keep it in one layer; merging lists and values across layers lands in a later version of dotai"))
@@ -333,7 +352,7 @@ func (s *scope) claimPath(l pack.Layer, f pack.File) {
 		s.report(pack.NewDiagnostic(f.Path, fileLine, 0, CodePathConflict, "%s is also provided by %s", f.Rel, prev.Layer).WithRelated(prev.src, fileLine).
 			WithHint("keep it in one layer; a file has one owner"))
 	default:
-		s.put(staged{File{Path: f.Rel, Layer: l.Path, Data: f.Data}, f.Path, f.Item})
+		s.put(staged{File{Path: at, Layer: l.Path, Data: f.Data, Exec: f.Exec}, f.Path, f.Item})
 	}
 }
 

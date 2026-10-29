@@ -54,10 +54,10 @@ func (e *UsageError) Error() string { return e.msg }
 
 // stageFS is the port Stage writes through.
 type stageFS interface {
-	List(dir string) ([]string, error)             // entry names; an fs.ErrNotExist error when dir is missing
-	Files(dir string) ([]string, error)            // slash paths of every file under dir
-	TempDir(beside string) (string, error)         // a new empty directory next to beside, on its volume
-	WriteFile(dir, name string, data []byte) error // name is a slash path inside dir; nothing outside dir is written
+	List(dir string) ([]string, error)                               // entry names; an fs.ErrNotExist error when dir is missing
+	Files(dir string) ([]string, error)                              // slash paths of every file under dir
+	TempDir(beside string) (string, error)                           // a new empty directory next to beside, on its volume
+	WriteFile(dir, name string, data []byte, perm fs.FileMode) error // name is a slash path inside dir; nothing outside dir is written
 	Rename(from, to string) error
 	RemoveAll(path string) error
 }
@@ -72,16 +72,19 @@ type stageFS interface {
 // the rulesync the pack pins runs over the .rulesync/ of each scope tree,
 // with that tree as its home directory, and writes the output of the
 // pack's harnesses into it: the user scope at the paths it has under the
-// home directory, the project scope at those of a project. rulesync is
-// fetched into cacheDir as FetchRulesync does; progress may be nil.
-func Stage(ctx context.Context, cacheDir, dir, out string, sel Selection, force bool, progress Progress) (StageResult, error) {
-	return stage(ctx, osStageFS{}, download, generate, cacheDir, dir, out, sel, force, progress)
+// home directory, the project scope at those of a project. Each scope's
+// tools are staged at their install path, .dotai/tools/, and the path
+// variables of every staged text file become the paths in tools before
+// rulesync runs. rulesync is fetched into cacheDir as FetchRulesync does;
+// progress may be nil.
+func Stage(ctx context.Context, cacheDir, dir, out string, sel Selection, tools ToolPaths, force bool, progress Progress) (StageResult, error) {
+	return stage(ctx, osStageFS{}, download, generate, cacheDir, dir, out, sel, tools, force, progress)
 }
 
 // GeneratorRulesync is the Generator of the files rulesync renders.
 const GeneratorRulesync = "rulesync"
 
-func stage(ctx context.Context, w stageFS, fetch fetchFunc, run runFunc, cacheDir, dir, out string, sel Selection, force bool, progress Progress) (StageResult, error) {
+func stage(ctx context.Context, w stageFS, fetch fetchFunc, run runFunc, cacheDir, dir, out string, sel Selection, tools ToolPaths, force bool, progress Progress) (StageResult, error) {
 	if err := checkOut(dir, out); err != nil {
 		return StageResult{}, err
 	}
@@ -106,13 +109,21 @@ func stage(ctx context.Context, w stageFS, fetch fetchFunc, run runFunc, cacheDi
 	if err != nil {
 		return StageResult{}, err
 	}
-	files := map[string][]byte{StageMarker: []byte("Written by dotai stage. dotai stage --force replaces this directory.\n")}
+	files := map[string]content{StageMarker: {data: []byte("Written by dotai stage. dotai stage --force replaces this directory.\n"), perm: 0o644}}
 	for _, t := range []struct {
 		scope string
 		files []merge.File
 	}{{ScopeUser, s.User}, {ScopeProject, s.Project}} {
 		for _, f := range t.files {
-			files[path.Join(t.scope, f.Path)] = f.Data
+			data, err := expandPaths(f.Data, tools)
+			if err != nil {
+				return StageResult{}, fmt.Errorf("%s/%s: %w", t.scope, f.Path, err)
+			}
+			c := content{data: data, perm: 0o644}
+			if f.Exec {
+				c.perm = 0o755
+			}
+			files[path.Join(t.scope, f.Path)] = c
 			res.Files = append(res.Files, StagedFile{Scope: t.scope, Path: f.Path, Layer: f.Layer, Origins: f.Origins})
 		}
 	}
@@ -159,8 +170,14 @@ func stage(ctx context.Context, w stageFS, fetch fetchFunc, run runFunc, cacheDi
 	return res, nil
 }
 
+// content is a file to write and its permissions.
+type content struct {
+	data []byte
+	perm fs.FileMode
+}
+
 // hasSources reports whether files give scope a .rulesync/ to render.
-func hasSources(files map[string][]byte, scope string) bool {
+func hasSources(files map[string]content, scope string) bool {
 	for name := range files {
 		if strings.HasPrefix(name, scope+"/.rulesync/") {
 			return true
@@ -209,7 +226,7 @@ func checkTarget(w stageFS, out string, force bool) (replace bool, err error) {
 // place. An existing out is first moved aside and is put back if the move
 // fails. On failure out is unchanged and the temporary directory is
 // removed.
-func swap(w stageFS, out string, replace bool, files map[string][]byte, render func(tmp string) ([]StagedFile, error)) (rendered []StagedFile, err error) {
+func swap(w stageFS, out string, replace bool, files map[string]content, render func(tmp string) ([]StagedFile, error)) (rendered []StagedFile, err error) {
 	failed := func(err error) ([]StagedFile, error) {
 		return nil, fmt.Errorf("staging into %s failed, it was left as it was: %w", out, err)
 	}
@@ -223,7 +240,7 @@ func swap(w stageFS, out string, replace bool, files map[string][]byte, render f
 		}
 	}()
 	for _, name := range slices.Sorted(maps.Keys(files)) {
-		if err := w.WriteFile(tmp, name, files[name]); err != nil {
+		if err := w.WriteFile(tmp, name, files[name].data, files[name].perm); err != nil {
 			return failed(err)
 		}
 	}
@@ -277,7 +294,7 @@ func (osStageFS) TempDir(beside string) (string, error) {
 
 // WriteFile writes through os.Root, which refuses any path or link that
 // leads outside dir.
-func (osStageFS) WriteFile(dir, name string, data []byte) error {
+func (osStageFS) WriteFile(dir, name string, data []byte, perm fs.FileMode) error {
 	root, err := os.OpenRoot(dir)
 	if err != nil {
 		return err
@@ -286,7 +303,7 @@ func (osStageFS) WriteFile(dir, name string, data []byte) error {
 	if err := root.MkdirAll(path.Dir(name), 0o755); err != nil {
 		return err
 	}
-	return root.WriteFile(name, data, 0o644)
+	return root.WriteFile(name, data, perm)
 }
 
 func (osStageFS) Files(dir string) ([]string, error) {

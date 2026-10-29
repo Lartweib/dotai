@@ -48,10 +48,14 @@ func writeFile(t *testing.T, name, data string) {
 
 func TestStageWritesEveryStagedFile(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "staging")
-	res, err := quiet(t).stage(examplePack, out, app.Selection{Profiles: []string{"web"}}, false)
+	fr := quiet(t)
+	fr.tools = app.ToolsIn("home", "project")
+	res, err := fr.stage(examplePack, out, app.Selection{Profiles: []string{"web"}}, false)
 	if err != nil || len(res.Diagnostics) != 0 {
 		t.Fatalf("Stage() = %+v, %v", res, err)
 	}
+	// The relative tools paths read the same on every platform.
+	expand := strings.NewReplacer("${DOTAI_TOOLS}", "home/.dotai/tools", "${DOTAI_PROJECT_TOOLS}", "project/.dotai/tools")
 	want := []string{app.StageMarker}
 	for _, f := range res.Files {
 		want = append(want, f.Scope+"/"+f.Path)
@@ -59,10 +63,14 @@ func TestStageWritesEveryStagedFile(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		src, err := os.ReadFile(filepath.Join(examplePack, filepath.FromSlash(f.Layer), filepath.FromSlash(f.Path)))
-		if err != nil || !reflect.DeepEqual(data, src) {
-			t.Errorf("%s/%s does not match its source in %s: %v", f.Scope, f.Path, f.Layer, err)
+		rel := strings.Replace(f.Path, ".dotai/tools/", "dotai/tools/", 1)
+		src, err := os.ReadFile(filepath.Join(examplePack, filepath.FromSlash(f.Layer), filepath.FromSlash(rel)))
+		if err != nil || string(data) != expand.Replace(string(src)) || strings.Contains(string(data), "${DOTAI_") {
+			t.Errorf("%s/%s does not match its source in %s with the tools paths: %v", f.Scope, f.Path, f.Layer, err)
 		}
+	}
+	if data, _ := os.ReadFile(filepath.Join(out, "user", ".rulesync", "rules", "overview.md")); !strings.Contains(string(data), "home/.dotai/tools/hello.sh") {
+		t.Errorf("overview.md = %q, want the tools path", data)
 	}
 	slices.Sort(want)
 	if got := tree(t, out); len(want) < 2 || !reflect.DeepEqual(got, want) {
@@ -171,11 +179,11 @@ func (f *failingFS) fail(method string) bool {
 	return false
 }
 
-func (f *failingFS) WriteFile(dir, name string, data []byte) error {
+func (f *failingFS) WriteFile(dir, name string, data []byte, perm os.FileMode) error {
 	if f.fail("WriteFile") {
 		return errDisk
 	}
-	return f.OSStageFS.WriteFile(dir, name, data)
+	return f.OSStageFS.WriteFile(dir, name, data, perm)
 }
 
 func (f *failingFS) Rename(from, to string) error {
@@ -215,6 +223,7 @@ func TestStageFailureLeavesOutUntouched(t *testing.T) {
 type fakeRulesync struct {
 	t                *testing.T
 	quiet            bool
+	tools            app.ToolPaths
 	fetchErr, runErr error
 	runs             []rulesyncRun
 }
@@ -257,7 +266,7 @@ func (f *fakeRulesync) stage(dir, out string, sel app.Selection, force bool) (ap
 }
 
 func (f *fakeRulesync) stageWith(w app.StageFS, dir, out string, sel app.Selection, force bool) (app.StageResult, error) {
-	return app.StageWith(w, f.fetch, f.run, dir, out, sel, force)
+	return app.StageWith(w, f.fetch, f.run, dir, out, sel, f.tools, force)
 }
 
 func TestStageRunsRulesyncInEachScope(t *testing.T) {
