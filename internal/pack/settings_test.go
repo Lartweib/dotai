@@ -24,6 +24,21 @@ func TestLoadSettingsDiagnostics(t *testing.T) {
 		{name: "empty file", src: ""},
 		{name: "syntax error", src: "claudecode:\n  model: a: b\n", want: []string{"2:0: yaml-invalid: mapping values are not allowed in this context"}},
 		{name: "not a mapping", src: "- claudecode\n", want: []string{"1:1: field-type: settings.yaml must be a mapping"}},
+		{name: "comment-only file is an empty layer", src: "# nothing yet\n"},
+		{name: "bare document marker is an empty layer", src: "---\n"},
+		{name: "top-level scalar", src: "sonnet\n", want: []string{"1:1: field-type: settings.yaml must be a mapping"}},
+		{name: "null root", src: "~\n", want: []string{"1:1: settings-value-invalid: settings.yaml: null is not allowed: a layer cannot unset a key"}},
+		{name: "two documents", src: "claudecode: {}\n---\nopencode: {}\n", want: []string{"2:1: yaml-invalid: only one YAML document is allowed"}},
+		{
+			name: "merge keys, anchored keys and tagged collections",
+			src:  "claudecode:\n  <<: {a: 1}\n  &k b: 1\n  c: !set {x: 1}\n  d: !!seq [1]\n  e: !!map {}\n  \"<<\": quoted\nopencode:\n  <<: *k\n",
+			want: []string{
+				"2:3: settings-value-invalid: claudecode: merge keys are not allowed",
+				"3:3: settings-value-invalid: claudecode.b: YAML anchors and aliases are not allowed",
+				"4:6: settings-value-invalid: claudecode.c: tag !set is not allowed",
+				"9:3: settings-value-invalid: opencode: merge keys are not allowed",
+			},
+		},
 		{
 			name: "unknown harness and harness outside the manifest",
 			src:  "vscode: {}\nantigravity-cli: {}\n",

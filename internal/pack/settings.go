@@ -45,10 +45,12 @@ func readSettings(r reader, src []byte, kind LayerKind, harnesses []string) *Set
 		return nil
 	}
 	s := &Settings{}
-	if root == nil {
+	if root == nil || root.Tag == "!!null" && root.Value == "" { // empty, comments only or a bare ---
 		return s
 	}
-	checkJSON(r, root, "")
+	if checkJSON(r, root, ""); reported(root) {
+		return s
+	}
 	if root.Kind != yaml.MappingNode {
 		r.report(root, CodeFieldType, "settings.yaml must be a mapping")
 		return s
@@ -58,7 +60,7 @@ func readSettings(r reader, src []byte, kind LayerKind, harnesses []string) *Set
 	seen := map[string]bool{}
 	for i := 0; i+1 < len(root.Content); i += 2 {
 		k, v := root.Content[i], root.Content[i+1]
-		if seen[k.Value] || k.Tag != "!!str" || reported(v) {
+		if seen[k.Value] || k.Tag != "!!str" || k.Anchor != "" || reported(v) {
 			continue
 		}
 		seen[k.Value] = true
@@ -89,14 +91,17 @@ func reported(n *yaml.Node) bool {
 }
 
 // checkJSON reports what in n, at path, has no JSON form: anchors and
-// aliases, null, keys that are not strings, duplicate keys, numbers that
-// are not finite and tags other than the core scalar ones. A timestamp is
-// kept as its text.
+// aliases, null, merge keys and other keys that are not strings, duplicate
+// keys, numbers that are not finite and tags other than the core ones. A
+// timestamp is kept as its text.
 func checkJSON(r reader, n *yaml.Node, path string) {
 	at := cmp.Or(path, "settings.yaml")
 	if n.Kind == yaml.AliasNode || n.Anchor != "" {
 		r.report(n, CodeSettingsValue, "%s: YAML anchors and aliases are not allowed", at)
 		return
+	}
+	if n.Kind == yaml.MappingNode && n.Tag != "!!map" || n.Kind == yaml.SequenceNode && n.Tag != "!!seq" {
+		r.report(n, CodeSettingsValue, "%s: tag %s is not allowed", at, n.Tag)
 	}
 	switch n.Kind {
 	case yaml.MappingNode:
@@ -104,6 +109,10 @@ func checkJSON(r reader, n *yaml.Node, path string) {
 		for i := 0; i+1 < len(n.Content); i += 2 {
 			k, v := n.Content[i], n.Content[i+1]
 			switch {
+			case k.Tag == "!!merge":
+				r.report(k, CodeSettingsValue, "%s: merge keys are not allowed", at)
+			case k.Anchor != "":
+				r.report(k, CodeSettingsValue, "%s: YAML anchors and aliases are not allowed", strings.TrimPrefix(path+"."+k.Value, "."))
 			case k.Kind != yaml.ScalarNode || k.Tag != "!!str":
 				r.report(k, CodeSettingsValue, "%s: key %s must be a string", at, k.Value)
 			case seen[k.Value]:
@@ -145,7 +154,7 @@ func readOverrides(r reader, n *yaml.Node, blocks []SettingsBlock) []Override {
 	for i := 0; i+1 < len(n.Content); i += 2 {
 		k, v := n.Content[i], n.Content[i+1]
 		switch {
-		case k.Tag != "!!str" || reported(v):
+		case k.Tag != "!!str" || k.Anchor != "" || reported(v):
 		case k.Value != "overrides":
 			r.report(k, CodeFieldUnknown, "dotai: unknown field %q", k.Value)
 		case list == nil:
