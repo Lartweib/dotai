@@ -70,7 +70,7 @@ var adapters = []Adapter{
 		ID: "claudecode", Target: "claudecode", Dir: "claude", Staging: ".claude",
 		Isolation: Isolation{
 			Level:   Partial,
-			Relogin: true,
+			Relogin: true, // decision 0018 verified it on Windows only; per OS with roadmap PR 8
 			Leaks: []string{
 				"~/.claude/CLAUDE.md still loads when the working directory is under the home directory",
 				"on Windows, credentials live in the configuration directory, so you must log in again",
