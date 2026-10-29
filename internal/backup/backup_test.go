@@ -162,3 +162,87 @@ func TestPruneWithAClockThatWentBack(t *testing.T) {
 		t.Errorf("Prune() = %v, want the second id pruned", got)
 	}
 }
+
+func TestOperation(t *testing.T) {
+	for id, want := range map[string]string{"20261029T131500.123Z_install": "install", "20261029T131500.123Z_restore": "restore", "notes": ""} {
+		if got, ok := backup.Operation(id); got != want || ok != (want != "") {
+			t.Errorf("Operation(%q) = %q, %v, want %q", id, got, ok, want)
+		}
+	}
+}
+
+// TestManifestRecordsThePriorStateAndTheRestore checks that the state
+// before the operation and the restore that undid it round-trip, and that
+// a manifest without them, as an older dotai wrote, still decodes.
+func TestManifestRecordsThePriorStateAndTheRestore(t *testing.T) {
+	m, err := backup.New("20261029T131500.123Z_install", backup.OperationInstall, at, "/h", backup.Info{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old, err := backup.Encode(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(old), "priorState") || strings.Contains(string(old), "restored") {
+		t.Errorf("Encode() = %s, want neither field when unset", old)
+	}
+	if back, err := backup.Decode(old); err != nil || back.PriorState != nil || back.Restored != nil {
+		t.Errorf("Decode() = %+v, %v, want no prior state and no restore", back, err)
+	}
+	for _, prior := range []backup.PriorState{{None: true}, {File: backup.StateName, SHA256: "5e"}} {
+		m.PriorState = &prior
+		m.Restored = &backup.Restored{At: at.UTC(), Backup: "20261029T131600.000Z_restore"}
+		data, err := backup.Encode(m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if back, err := backup.Decode(data); err != nil || !reflect.DeepEqual(back, m) {
+			t.Errorf("Decode(Encode()) = %+v, %v, want %+v", back, err, m)
+		}
+	}
+}
+
+// TestCheck checks that a manifest is refused unless every op is one an
+// install writes: the action's contents, the copy at the path of its
+// target, a target under the home directory and named once, and the id and
+// home directory it is read for.
+func TestCheck(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home")
+	target := filepath.Join(home, ".dotai", "tools", "a.sh")
+	id := "20261029T131500.123Z_install"
+	valid := func() backup.Manifest {
+		return backup.Manifest{Schema: backup.Schema, ID: id, Operation: backup.OperationInstall, Home: home, PriorState: &backup.PriorState{None: true}, Ops: []backup.Op{
+			{Action: plan.Create, Target: filepath.Join(home, ".dotai", "tools", "b.sh"), After: &backup.Content{SHA256: "b"}},
+			{Action: plan.Replace, Target: target, File: "files/.dotai/tools/a.sh", Before: &backup.Content{SHA256: "a0"}, After: &backup.Content{SHA256: "a1"}},
+		}}
+	}
+	if err := backup.Check(valid(), id, home); err != nil {
+		t.Fatalf("Check() = %v, want a valid manifest", err)
+	}
+	for name, tt := range map[string]struct {
+		change func(*backup.Manifest)
+		want   string
+	}{
+		"another id":               {func(m *backup.Manifest) { m.ID = "20261029T131500.124Z_install" }, "id"},
+		"another home":             {func(m *backup.Manifest) { m.Home = filepath.Dir(home) }, "home directory"},
+		"another operation":        {func(m *backup.Manifest) { m.Operation = "restore" }, "operation"},
+		"an unknown action":        {func(m *backup.Manifest) { m.Ops[0].Action = "unchanged" }, "action"},
+		"a create with a copy":     {func(m *backup.Manifest) { m.Ops[0].File = "files/x" }, "create"},
+		"a replace without before": {func(m *backup.Manifest) { m.Ops[1].Before = nil }, "replace"},
+		"a remove with after":      {func(m *backup.Manifest) { m.Ops[1].Action = plan.Remove }, "remove"},
+		"a copy elsewhere":         {func(m *backup.Manifest) { m.Ops[1].File = "files/../../../.ssh/id_rsa" }, "copy"},
+		"a target outside":         {func(m *backup.Manifest) { m.Ops[0].Target = filepath.Join(filepath.Dir(home), "x") }, "not under the home directory"},
+		"a relative target":        {func(m *backup.Manifest) { m.Ops[0].Target = "x" }, "not under the home directory"},
+		"a target twice":           {func(m *backup.Manifest) { m.Ops[0].Target = target }, "twice"},
+		"a prior state elsewhere":  {func(m *backup.Manifest) { m.PriorState = &backup.PriorState{File: "../state.json", SHA256: "s"} }, "state"},
+		"a prior state and none":   {func(m *backup.Manifest) { m.PriorState = &backup.PriorState{None: true, File: backup.StateName} }, "state"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := valid()
+			tt.change(&m)
+			if err := backup.Check(m, id, home); err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("Check() = %v, want an error about %s", err, tt.want)
+			}
+		})
+	}
+}

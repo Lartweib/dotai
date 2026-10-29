@@ -690,3 +690,69 @@ func TestInstallPrunesByTheRecordedTime(t *testing.T) {
 		t.Errorf("backups = %v, want %v", got, want)
 	}
 }
+
+// TestInstallKeepsThePriorStateInItsBackup checks that each backup records
+// the install state from before its install, so that a restore can put it
+// back: none before the first install, and a synced copy after it.
+func TestInstallKeepsThePriorStateInItsBackup(t *testing.T) {
+	home, _ := installHome(t)
+	dir := copyPack(t)
+	d := newClockFS(t)
+	first, err := quiet(t).install(d, dir, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := readJSON(t, filepath.Join(first.Backup.Path, "manifest.json"), backup.Decode)
+	if m.PriorState == nil || !m.PriorState.None {
+		t.Errorf("first prior state = %+v, want none", m.PriorState)
+	}
+	if _, err := os.Stat(filepath.Join(first.Backup.Path, "state.json")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("first backup state.json = %v, want none", err)
+	}
+	before, err := os.ReadFile(first.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(dir, "base", "dotai", "tools", "hello.sh"), "echo changed\n")
+	second, err := quiet(t).install(d, dir, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m = readJSON(t, filepath.Join(second.Backup.Path, "manifest.json"), backup.Decode)
+	copied, err := os.ReadFile(filepath.Join(second.Backup.Path, "state.json"))
+	if err != nil || string(copied) != string(before) {
+		t.Fatalf("second backup state.json = %q, %v, want the state of the first install", copied, err)
+	}
+	if m.PriorState == nil || m.PriorState.None || m.PriorState.File != "state.json" || m.PriorState.SHA256 != sum(string(before)) {
+		t.Errorf("second prior state = %+v, want the copy and its hash", m.PriorState)
+	}
+	if runtime.GOOS != "windows" {
+		if info, err := os.Stat(filepath.Join(second.Backup.Path, "state.json")); err != nil || info.Mode().Perm() != 0o600 {
+			t.Errorf("state.json copy mode = %v, %v, want 0600", info.Mode(), err)
+		}
+	}
+}
+
+// TestInstallAfterACrashChainsToTheCrashedBackup checks that the state an
+// install starts from after a crash names the backup of the crashed
+// install, so that a restore undoes that one next.
+func TestInstallAfterACrashChainsToTheCrashedBackup(t *testing.T) {
+	home, _ := installHome(t)
+	dir := copyPack(t)
+	if _, err := quiet(t).install(newClockFS(t), dir, home); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(dir, "base", "dotai", "tools", "hello.sh"), "echo changed\n")
+	writeFile(t, filepath.Join(dir, "base", "dotai", "tools", "new.sh"), "echo new\n")
+	crash(t, &crashFS{clockFS: newClockFS(t), crashAt: 2}, dir, "", home)
+	crashed := readJSON(t, at(home, ".dotai/state.json"), state.Decode).Pending.Backup
+	writeFile(t, filepath.Join(dir, "base", "dotai", "tools", "other.sh"), "echo other\n")
+	res, err := quiet(t).install(newClockFS(t), dir, home)
+	if err != nil || res.Backup == nil {
+		t.Fatalf("Install() = %+v, %v, want a backup", res, err)
+	}
+	prior := readJSON(t, filepath.Join(res.Backup.Path, "state.json"), state.Decode)
+	if prior.Backup != crashed || prior.Pending != nil {
+		t.Errorf("prior state = %+v, want the crashed backup %s and no journal", prior, crashed)
+	}
+}

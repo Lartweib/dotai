@@ -262,10 +262,7 @@ func (r runner) run(res *InstallResult) (err error) {
 
 	if len(writes) == 0 {
 		if prev != nil {
-			next.Backup = prev.Backup
-			if prev.Pending != nil {
-				next.Backup = prev.Pending.Backup
-			}
+			next.Backup = settledBackup(*prev)
 		}
 		next.InstalledAt = r.d.Now().UTC()
 		if err := r.writeState(next); err != nil {
@@ -275,13 +272,20 @@ func (r runner) run(res *InstallResult) (err error) {
 		return nil
 	}
 
-	ref, err := r.backup(writes)
-	if err != nil {
-		return fmt.Errorf("the backup failed, nothing was written: %w", err)
-	}
 	base := state.State{Schema: state.Schema, Pack: next.Pack, Variant: next.Variant, Mode: next.Mode, Harnesses: next.Harnesses, Files: []state.File{}}
+	var prior *state.State // what the backup records as the state before
 	if prev != nil {
 		base = prev.Settled(r.p.owned)
+		base.Backup = settledBackup(*prev)
+		prior = &base
+	}
+	info := backup.Info{
+		Mode: ModeIsolated, Pack: backup.Pack{Name: r.pack.Name, Version: r.pack.Version, Path: r.pack.Path},
+		Variant: r.p.plan.Variant, Harnesses: r.p.harnesses,
+	}
+	ref, err := r.backup(backup.OperationInstall, info, prior, writes)
+	if err != nil {
+		return fmt.Errorf("the backup failed, nothing was written: %w", err)
 	}
 	if err := r.writeState(state.Journal(base, ref.ID, writes)); err != nil {
 		return fmt.Errorf("the install journal could not be written, nothing was written: %w", errors.Join(err, r.d.RemoveAll(ref.Path)))
@@ -304,6 +308,20 @@ func (r runner) run(res *InstallResult) (err error) {
 		res.Warnings = append(res.Warnings, fmt.Sprintf("older backups could not be pruned: %v", err))
 	}
 	return nil
+}
+
+// settledBackup is the backup that undoes what dotai owns once the journal
+// of s, if any, is settled: that of the install the journal records, which
+// may have written its files, or else the one s names. A restore's journal
+// changes nothing there, since what it wrote is undone by the install
+// before it.
+func settledBackup(s state.State) string {
+	if s.Pending != nil {
+		if op, _ := backup.Operation(s.Pending.Backup); op == backup.OperationInstall {
+			return s.Pending.Backup
+		}
+	}
+	return s.Backup
 }
 
 // lock takes ~/.dotai/lock, creating ~/.dotai when it is missing.
@@ -371,11 +389,12 @@ func (r runner) recheckState(statePath string) error {
 	return nil
 }
 
-// backup writes a new backup of writes: a copy of each target that is
-// replaced or removed, checked against the plan, and then the manifest,
-// each synced to the disk with its directories. A backup that fails is
-// removed.
-func (r runner) backup(writes []plan.Op) (ref *BackupRef, err error) {
+// backup writes a new backup of operation, which writes writes and
+// installs what info names: a copy of each target that is replaced or
+// removed, checked against the plan, a copy of prior, the install state
+// before the operation (nil for none), and then the manifest, each synced
+// to the disk with its directories. A backup that fails is removed.
+func (r runner) backup(operation string, info backup.Info, prior *state.State, writes []plan.Op) (ref *BackupRef, err error) {
 	root := filepath.Join(r.home, dotaiDir, backupsDir)
 	if err := ensureDir(r.d, r.home, root, 0o700); err != nil {
 		return nil, err
@@ -383,7 +402,7 @@ func (r runner) backup(writes []plan.Op) (ref *BackupRef, err error) {
 	t := r.d.Now()
 	var id, dir string
 	for range 1000 { // ids have milliseconds; another backup in the same one moves this one on
-		id = backup.ID(t, backup.OperationInstall)
+		id = backup.ID(t, operation)
 		dir = filepath.Join(root, id)
 		if err = r.d.Mkdir(dir, 0o700); !errors.Is(err, fs.ErrExist) {
 			break
@@ -398,11 +417,7 @@ func (r runner) backup(writes []plan.Op) (ref *BackupRef, err error) {
 			err = errors.Join(err, r.d.RemoveAll(dir))
 		}
 	}()
-	info := backup.Info{
-		Mode: ModeIsolated, Pack: backup.Pack{Name: r.pack.Name, Version: r.pack.Version, Path: r.pack.Path},
-		Variant: r.p.plan.Variant, Harnesses: r.p.harnesses,
-	}
-	m, err := backup.New(id, backup.OperationInstall, t, r.home, info, writes)
+	m, err := backup.New(id, operation, t, r.home, info, writes)
 	if err != nil {
 		return nil, err
 	}
@@ -430,6 +445,18 @@ func (r runner) backup(writes []plan.Op) (ref *BackupRef, err error) {
 		if err := r.d.SyncDir(filepath.Join(dir, filepath.FromSlash(d))); err != nil {
 			return nil, err
 		}
+	}
+	m.PriorState = &backup.PriorState{None: true}
+	if prior != nil {
+		data, err := state.Encode(*prior)
+		if err != nil {
+			return nil, err
+		}
+		if err := r.d.WriteSynced(dir, backup.StateName, data, 0o600); err != nil {
+			return nil, err
+		}
+		h := sha256.Sum256(data)
+		m.PriorState = &backup.PriorState{File: backup.StateName, SHA256: hex.EncodeToString(h[:])}
 	}
 	data, err := backup.Encode(m)
 	if err != nil {
