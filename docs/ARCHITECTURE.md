@@ -95,6 +95,8 @@ internal/
 
 JSON and JSONC key edits use `tailscale/hujson` plus a small own edit layer in `plan`, which keeps comments, key order and line endings ([0028](decisions/0028-plan-centric-hexagonal-engine.md)).
 
+The plan so far covers the user scope of an isolated install: each staged file is created, replaced or left unchanged in its harness's directory under `~/.dotai/isolated/`, and tools in `~/.dotai/tools/` ([0031](decisions/0031-isolated-install-root.md)). The harness adapters carry that mapping as data. Removing files an earlier install owned comes with the ownership record (roadmap PR 8), and key-level merges come with the project scope (roadmap PR 10).
+
 Pending:
 
 - Pack format: decided in [0022](decisions/0022-pack-format-and-manifest.md), specified in [PACK-FORMAT.md](PACK-FORMAT.md). Models are declared per harness in each subagent, without tiers ([0024](decisions/0024-models-declared-per-harness-no-tiers.md)). Settings are per-harness blocks merged as-is ([0025](decisions/0025-settings-as-per-harness-passthrough.md)).
