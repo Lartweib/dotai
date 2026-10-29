@@ -136,13 +136,20 @@ func checkJSON(r reader, n *yaml.Node, path string) {
 		}
 	case yaml.ScalarNode:
 		switch n.Tag {
-		case "!!str", "!!int", "!!bool", "!!timestamp":
+		case "!!str", "!!bool", "!!timestamp":
+		case "!!int":
+			if !fitsInt64(n.Value) {
+				r.report(n, CodeSettingsValue, "%s: %s does not fit a 64-bit integer", at, n.Value)
+			}
 		case "!!null":
 			r.report(n, CodeSettingsValue, "%s: null is not allowed: a layer cannot unset a key", at)
 		case "!!float":
 			f, _ := strconv.ParseFloat(n.Value, 64)
 			if v := strings.ToLower(strings.TrimLeft(n.Value, "+-")); v == ".inf" || v == ".nan" || math.IsInf(f, 0) {
 				r.report(n, CodeSettingsValue, "%s: %s is not a finite number", at, n.Value)
+			} else if strings.Trim(strings.TrimLeft(n.Value, "+-"), "0123456789") == "" && !fitsInt64(n.Value) {
+				// YAML takes an integer too large for 64 bits as a float.
+				r.report(n, CodeSettingsValue, "%s: %s does not fit a 64-bit integer", at, n.Value)
 			}
 		default:
 			r.report(n, CodeSettingsValue, "%s: tag %s is not allowed", at, n.Tag)
@@ -234,4 +241,11 @@ func lookup(n *yaml.Node, key string) *yaml.Node {
 		}
 	}
 	return nil
+}
+
+// fitsInt64 reports whether the YAML integer s fits an int64 or a uint64.
+func fitsInt64(s string) bool {
+	_, errInt := strconv.ParseInt(s, 0, 64)
+	_, errUint := strconv.ParseUint(s, 0, 64)
+	return errInt == nil || errUint == nil
 }

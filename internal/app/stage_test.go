@@ -59,6 +59,9 @@ func TestStageWritesEveryStagedFile(t *testing.T) {
 	want := []string{app.StageMarker}
 	for _, f := range res.Files {
 		want = append(want, f.Scope+"/"+f.Path)
+		if f.Generator != "" {
+			continue
+		}
 		data, err := os.ReadFile(filepath.Join(out, f.Scope, filepath.FromSlash(f.Path)))
 		if err != nil {
 			t.Fatal(err)
@@ -219,10 +222,12 @@ func TestStageFailureLeavesOutUntouched(t *testing.T) {
 
 // fakeRulesync stands in for fetching and running rulesync. It records
 // its runs and, unless quiet, writes one CLAUDE.md per scope where rulesync
-// writes the root rule of claudecode.
+// writes the root rule of claudecode, and settings, when set, as the user
+// scope's .claude/settings.json.
 type fakeRulesync struct {
 	t                *testing.T
 	quiet            bool
+	settings         string
 	tools            app.ToolPaths
 	fetchErr, runErr error
 	runs             []rulesyncRun
@@ -256,6 +261,9 @@ func (f *fakeRulesync) run(_ context.Context, bin rulesync.Result, targets []str
 		}
 		if !f.quiet {
 			writeFile(f.t, filepath.Join(j.Dir, name), "# generated\n")
+		}
+		if f.settings != "" && j.Global {
+			writeFile(f.t, filepath.Join(j.Dir, ".claude", "settings.json"), f.settings)
 		}
 	}
 	return nil
@@ -387,5 +395,76 @@ func TestStageRulesyncFailureLeavesOutAsItWas(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestStageRendersSettingsAfterRulesync(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "staging")
+	f := &fakeRulesync{t: t, quiet: true, settings: "{\n  \"hooks\": {}\n}\n", tools: app.ToolsIn("home", "project")}
+	res, err := f.stage(examplePack, out, app.Selection{Variant: "tmux"}, false)
+	if err != nil {
+		t.Fatalf("Stage() error = %v", err)
+	}
+	for _, want := range []struct {
+		file app.StagedFile
+		data string
+	}{
+		{app.StagedFile{Scope: app.ScopeUser, Path: ".claude/settings.json", Origins: map[string]string{"model": "variants/tmux", "env.DOTAI_TERMINAL": "variants/tmux"}, Generator: app.GeneratorRulesyncDotai},
+			"{\n  \"hooks\": {},\n  \"model\": \"opus\",\n  \"env\": {\n    \"DOTAI_TERMINAL\": \"tmux\"\n  }\n}\n"},
+		{app.StagedFile{Scope: app.ScopeUser, Path: ".gemini/antigravity-cli/settings.json", Origins: map[string]string{"statusLine": "base"}, Generator: app.GeneratorDotai},
+			"{\n  \"statusLine\": {\n    \"type\": \"command\",\n    \"command\": \"home/.dotai/tools/hello.sh\"\n  }\n}\n"},
+	} {
+		if !slices.ContainsFunc(res.Files, func(f app.StagedFile) bool { return reflect.DeepEqual(f, want.file) }) {
+			t.Errorf("files = %+v, want %+v", res.Files, want.file)
+		}
+		if data, err := os.ReadFile(filepath.Join(out, want.file.Scope, filepath.FromSlash(want.file.Path))); err != nil || string(data) != want.data {
+			t.Errorf("%s = %q, %v, want %q", want.file.Path, data, err, want.data)
+		}
+	}
+}
+
+func TestStageSettingsConflictWritesNothing(t *testing.T) {
+	parent := t.TempDir()
+	out := filepath.Join(parent, "staging")
+	if _, err := quiet(t).stage(examplePack, out, app.Selection{}, false); err != nil {
+		t.Fatal(err)
+	}
+	before := tree(t, out)
+	f := &fakeRulesync{t: t, quiet: true, settings: `{"model": "haiku"}`}
+	res, err := f.stage(examplePack, out, app.Selection{}, true)
+	want := app.Diagnostic{File: "base/dotai/settings.yaml", Code: app.CodeSettingsConflict}
+	if err != nil || len(res.Diagnostics) != 1 || len(res.Files) != 0 || res.Diagnostics[0].File != want.File || res.Diagnostics[0].Code != want.Code ||
+		!strings.Contains(res.Diagnostics[0].Message, "user/.claude/settings.json") {
+		t.Errorf("Stage() = %+v, %v, want one diagnostic at %s about user/.claude/settings.json", res, err, want.File)
+	}
+	if got := tree(t, out); !reflect.DeepEqual(got, before) {
+		t.Errorf("tree = %v, want %v", got, before)
+	}
+	if entries, _ := os.ReadDir(parent); len(entries) != 1 {
+		t.Errorf("entries next to --out = %v, want only --out", entries)
+	}
+}
+
+func TestStageRendersSettingsWithoutOtherFiles(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "dotai.yaml"), "schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\nrulesync: 41.0.0\nharnesses: [opencode]\nprofiles:\n  p:\n    path: profiles/p\n    description: P.\n")
+	writeFile(t, filepath.Join(dir, "base", "dotai", "settings.yaml"), "opencode: {model: a}\n")
+	writeFile(t, filepath.Join(dir, "profiles", "p", "dotai", "settings.yaml"), "opencode: {model: b}\n")
+	out := filepath.Join(t.TempDir(), "s")
+	f := quiet(t)
+	res, err := f.stage(dir, out, app.Selection{Profiles: []string{"p"}}, false)
+	if err != nil || len(f.runs) != 0 {
+		t.Fatalf("Stage() = %+v, %v after %d runs, want no rulesync run", res, err, len(f.runs))
+	}
+	for _, want := range []app.StagedFile{
+		{Scope: app.ScopeUser, Path: ".config/opencode/opencode.jsonc", Origins: map[string]string{"model": "base"}, Generator: app.GeneratorDotai},
+		{Scope: app.ScopeProject, Path: "opencode.jsonc", Origins: map[string]string{"model": "profiles/p"}, Generator: app.GeneratorDotai},
+	} {
+		if !slices.ContainsFunc(res.Files, func(f app.StagedFile) bool { return reflect.DeepEqual(f, want) }) {
+			t.Errorf("files = %+v, want %+v", res.Files, want)
+		}
+		if _, err := os.Stat(filepath.Join(out, want.Scope, filepath.FromSlash(want.Path))); err != nil {
+			t.Errorf("settings file missing: %v", err)
+		}
 	}
 }

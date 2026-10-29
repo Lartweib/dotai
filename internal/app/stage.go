@@ -37,7 +37,8 @@ type StageResult struct {
 // StagedFile is one written file: its scope, its path inside the scope's
 // staging tree and the layer that provides it. A merged file has no layer
 // and gives the layer of each entry in Origins. A file rendered from the
-// staged sources has no layer and names its Generator, such as rulesync.
+// staged sources has no layer and names its Generator, such as rulesync;
+// a settings file also gives the layer of each key in Origins.
 type StagedFile struct {
 	Scope     string            `json:"scope"`
 	Path      string            `json:"path"`
@@ -58,6 +59,7 @@ type stageFS interface {
 	Files(dir string) ([]string, error)                              // slash paths of every file under dir
 	TempDir(beside string) (string, error)                           // a new empty directory next to beside, on its volume
 	WriteFile(dir, name string, data []byte, perm fs.FileMode) error // name is a slash path inside dir; nothing outside dir is written
+	ReadFile(dir, name string) ([]byte, error)                       // name is a slash path inside dir; an fs.ErrNotExist error when it is missing
 	Rename(from, to string) error
 	RemoveAll(path string) error
 }
@@ -75,8 +77,11 @@ type stageFS interface {
 // home directory, the project scope at those of a project. Each scope's
 // tools are staged at their install path, .dotai/tools/, and the path
 // variables of every staged text file become the paths in tools before
-// rulesync runs. rulesync is fetched into cacheDir as FetchRulesync does;
-// progress may be nil.
+// rulesync runs. After rulesync, the merged settings of each scope are
+// written into each harness's settings file, after the keys rulesync wrote
+// there; a key written by both is a settings-conflict diagnostic, and
+// nothing is written. rulesync is fetched into cacheDir as FetchRulesync
+// does; progress may be nil.
 func Stage(ctx context.Context, cacheDir, dir, out string, sel Selection, tools ToolPaths, force bool, progress Progress) (StageResult, error) {
 	return stage(ctx, osStageFS{}, download, generate, cacheDir, dir, out, sel, tools, force, progress)
 }
@@ -131,38 +136,54 @@ func stage(ctx context.Context, w stageFS, fetch fetchFunc, run runFunc, cacheDi
 	if err != nil {
 		return StageResult{}, err
 	}
-	// render runs rulesync over the scopes that have sources and returns
-	// the files it added.
+	// render runs rulesync over the scopes that have sources, then writes
+	// the settings of each scope, and returns the files they added.
 	render := func(tmp string) ([]StagedFile, error) {
-		var scopes []string
 		var jobs []rulesync.Job
 		for _, scope := range []string{ScopeUser, ScopeProject} {
 			if hasSources(files, scope) {
-				scopes = append(scopes, scope)
 				jobs = append(jobs, rulesync.Job{Dir: filepath.Join(tmp, scope), Global: scope == ScopeUser})
 			}
 		}
-		if len(jobs) == 0 {
-			return nil, nil
-		}
-		if err := run(ctx, bin, p.Manifest.Harnesses, jobs...); err != nil {
-			return nil, err
+		if len(jobs) > 0 {
+			if err := run(ctx, bin, p.Manifest.Harnesses, jobs...); err != nil {
+				return nil, err
+			}
 		}
 		var rendered []StagedFile
-		for i, scope := range scopes {
-			names, err := w.Files(jobs[i].Dir)
+		for _, t := range []struct {
+			scope    string
+			settings map[string][]merge.Setting
+		}{{ScopeUser, s.UserSettings}, {ScopeProject, s.ProjectSettings}} {
+			dir := filepath.Join(tmp, t.scope)
+			written, err := renderSettings(w, dir, t.scope, p.Manifest.Harnesses, t.settings, tools)
+			if err != nil {
+				return nil, err
+			}
+			if !hasSources(files, t.scope) && len(written) == 0 {
+				continue
+			}
+			names, err := w.Files(dir)
 			if err != nil {
 				return nil, err
 			}
 			for _, name := range names {
-				if _, staged := files[path.Join(scope, name)]; !staged {
-					rendered = append(rendered, StagedFile{Scope: scope, Path: name, Generator: GeneratorRulesync})
+				i := slices.IndexFunc(written, func(f StagedFile) bool { return f.Path == name })
+				switch _, staged := files[path.Join(t.scope, name)]; {
+				case i >= 0:
+					rendered = append(rendered, written[i])
+				case !staged:
+					rendered = append(rendered, StagedFile{Scope: t.scope, Path: name, Generator: GeneratorRulesync})
 				}
 			}
 		}
 		return rendered, nil
 	}
 	rendered, err := swap(w, out, replace, files, render)
+	if c, ok := errors.AsType[*SettingsConflict](err); ok {
+		res.Files, res.Diagnostics = []StagedFile{}, []Diagnostic{c.diagnostic()}
+		return res, nil
+	}
 	if err != nil {
 		return StageResult{}, err
 	}
@@ -293,8 +314,11 @@ func (osStageFS) TempDir(beside string) (string, error) {
 }
 
 // WriteFile writes through os.Root, which refuses any path or link that
-// leads outside dir.
+// leads outside dir. dir is created when it is missing.
 func (osStageFS) WriteFile(dir, name string, data []byte, perm fs.FileMode) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
 	root, err := os.OpenRoot(dir)
 	if err != nil {
 		return err
@@ -304,6 +328,15 @@ func (osStageFS) WriteFile(dir, name string, data []byte, perm fs.FileMode) erro
 		return err
 	}
 	return root.WriteFile(name, data, perm)
+}
+
+func (osStageFS) ReadFile(dir, name string) ([]byte, error) {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	return root.ReadFile(name)
 }
 
 func (osStageFS) Files(dir string) ([]string, error) {

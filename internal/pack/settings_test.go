@@ -90,6 +90,14 @@ func TestLoadSettingsDiagnostics(t *testing.T) {
 			},
 		},
 		{
+			name: "integers that do not fit 64 bits",
+			src:  "opencode:\n  a: [18446744073709551615, -9223372036854775808, 0x1F]\n  b: 18446744073709551616\n  c: -9223372036854775809\n",
+			want: []string{
+				"3:6: settings-value-invalid: opencode.b: 18446744073709551616 does not fit a 64-bit integer",
+				"4:6: settings-value-invalid: opencode.c: -9223372036854775809 does not fit a 64-bit integer",
+			},
+		},
+		{
 			name: "duplicate keys at any depth",
 			src:  "claudecode:\n  env:\n    A: 1\n    A: 2\nclaudecode: {}\n",
 			want: []string{
