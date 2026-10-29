@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -27,7 +28,8 @@ func settings(t *testing.T, src string) []merge.Setting {
 }
 
 func TestEncodeSettings(t *testing.T) {
-	tools := app.ToolPaths{User: `C:\home\.dotai\tools`, Project: "p/.dotai/tools"}
+	// A native separator, so Windows shows that it becomes a forward slash.
+	tools := app.ToolPaths{User: filepath.FromSlash("C:/home/.dotai/tools"), Project: "p/.dotai/tools"}
 	for _, tt := range []struct {
 		name, rulesync, settings, want string
 	}{
