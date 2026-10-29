@@ -178,6 +178,7 @@ func withPlan(ctx context.Context, d installFS, fetch fetchFunc, run runFunc, ca
 	if !filepath.IsAbs(home) {
 		return fmt.Errorf("home directory %q is not absolute", home)
 	}
+	home = filepath.Clean(home)
 	tmp, err := d.StagingDir()
 	if err != nil {
 		return err

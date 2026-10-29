@@ -592,3 +592,15 @@ func TestInstallRefusesAStateItCannotRead(t *testing.T) {
 		t.Errorf("home = %v, want only the state", got)
 	}
 }
+
+func TestInstallCleansTheHomeDirectory(t *testing.T) {
+	home, _ := installHome(t)
+	res, err := quiet(t).install(newClockFS(), examplePack, home+"/./")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := readJSON(t, filepath.Join(res.Backup.Path, "manifest.json"), backup.Decode)
+	if m.Home != home || res.State != at(home, ".dotai/state.json") || res.Root != at(home, ".dotai/isolated") {
+		t.Errorf("home = %q, state %q, root %q, want them under %s", m.Home, res.State, res.Root, home)
+	}
+}

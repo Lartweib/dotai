@@ -122,6 +122,7 @@ func install(ctx context.Context, d executeFS, fetch fetchFunc, run runFunc, cac
 	if !filepath.IsAbs(home) {
 		return InstallResult{}, fmt.Errorf("home directory %q is not absolute", home)
 	}
+	home = filepath.Clean(home)
 	packPath, err := filepath.Abs(dir)
 	if err != nil {
 		return InstallResult{}, err
