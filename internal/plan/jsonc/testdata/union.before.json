@@ -1,0 +1,7 @@
+{
+  "plugins": [
+    "alpha",
+    {"name": "beta", "version": 2}
+  ],
+  "tags": ["one", "two"]
+}

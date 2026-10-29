@@ -1,0 +1,6 @@
+{"op": "set", "path": ["theme"], "value": "light"}
+{"op": "set", "path": ["fontSize"], "value": 16}
+{"op": "delete", "path": ["telemetry"]}
+{"op": "set", "path": ["editor", "wordWrap"], "value": "on"}
+{"op": "set", "path": ["editor", "rulers"], "value": [80, 120]}
+{"op": "set", "path": ["files"], "value": {"exclude": {"**/.git": true}}}

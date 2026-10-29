@@ -1,0 +1,9 @@
+{
+  // A file with CRLF line endings.
+  "model": "fake-model-1",
+  "permissions": {
+    "allow": ["Read", "Grep"],
+    "deny": []
+  },
+  "obsolete": 1
+}

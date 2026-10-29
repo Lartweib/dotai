@@ -1,0 +1,4 @@
+{"op": "set", "path": ["mcp", "search"], "value": {"type": "remote", "url": "https://search.example.com/mcp"}}
+{"op": "union", "path": ["instructions"], "value": ["AGENTS.md", "CONTRIBUTING.md"]}
+{"op": "delete", "path": ["agent"]}
+{"op": "set", "path": ["permission"], "value": {"edit": "ask"}}

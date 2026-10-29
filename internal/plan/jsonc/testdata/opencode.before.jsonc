@@ -1,0 +1,20 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  // Theme picked by hand; dotai must not touch it.
+  "theme": "system",
+  "model": "example-provider/example-model",
+  "mcp": {
+    "notes": {
+      "type": "local",
+      "command": ["notes-mcp", "--stdio"],
+      "enabled": true
+    }
+  },
+  "instructions": ["CONTRIBUTING.md"],
+  // Old agent installed by a previous run.
+  "agent": {
+    "reviewer": {
+      "model": "example-provider/old-model"
+    }
+  },
+}

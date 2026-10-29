@@ -1,0 +1,2 @@
+{"op": "set", "path": ["b"], "value": 2}
+{"op": "delete", "path": ["a"]}

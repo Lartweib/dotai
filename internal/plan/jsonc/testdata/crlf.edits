@@ -1,0 +1,5 @@
+{"op": "set", "path": ["model"], "value": "fake-model-2"}
+{"op": "set", "path": ["permissions", "deny"], "value": ["Bash(rm:*)"]}
+{"op": "set", "path": ["permissions", "defaultMode"], "value": "plan"}
+{"op": "delete", "path": ["obsolete"]}
+{"op": "set", "path": ["env"], "value": {"FAKE_TOKEN": "x"}}

@@ -1,0 +1,15 @@
+{
+	"name": "tabs",
+	"nested": {
+		"keep": true,
+		"extra": {
+			"list": [
+				1,
+				2
+			]
+		}
+	},
+	"added": [
+		"a"
+	]
+}

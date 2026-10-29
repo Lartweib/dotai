@@ -1,0 +1,4 @@
+{"op": "union", "path": ["permissions", "allow"], "value": ["Bash(git status:*)", "Bash(go test:*)"]}
+{"op": "union", "path": ["permissions", "deny"], "value": ["Read(./secrets/**)"]}
+{"op": "set", "path": ["env", "DOTAI_TOOLS"], "value": "/home/user/.dotai/tools"}
+{"op": "set", "path": ["statusLine"], "value": {"type": "command", "command": "dotai-status"}}

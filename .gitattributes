@@ -17,3 +17,6 @@
 go.mod   text eol=lf
 go.sum   text eol=lf
 *.golden text eol=lf
+
+# CRLF JSONC fixtures must keep their line endings byte for byte
+internal/plan/jsonc/testdata/*crlf* -text

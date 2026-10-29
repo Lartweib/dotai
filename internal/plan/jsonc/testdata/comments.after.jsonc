@@ -1,0 +1,20 @@
+// Editor settings, written by hand.
+{
+  /* Block comment above a key. */
+  "theme": "light", // trailing line comment
+  "fontSize": 16 /* trailing block comment */,
+  "editor": {
+    "tabSize": 2, // keep me
+    "wordWrap": "on",
+    "rulers": [
+      80,
+      120
+    ]
+  },
+  "files": {
+    "exclude": {
+      "**/.git": true
+    }
+  }
+  // Comment before the closing brace.
+}

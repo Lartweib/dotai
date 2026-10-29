@@ -1,0 +1,4 @@
+{"op": "union", "path": ["a"], "value": ["x", "y"]}
+{"op": "set", "path": ["b", "e"], "value": 2}
+{"op": "delete", "path": ["d"]}
+{"op": "set", "path": ["f"], "value": "new"}
