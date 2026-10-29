@@ -25,7 +25,10 @@ type edit struct {
 
 // TestGolden applies each testdata/NAME.edits to NAME.before.* and compares
 // the result with NAME.after.*, then applies the edits again to check that
-// they are idempotent.
+// they are idempotent. An .edits file holds one JSON object per edit, in
+// order: {"op": "set", "path": [...], "value": <JSON>}, {"op": "delete",
+// "path": [...]} or {"op": "union", "path": [...], "value": [<elements>]}.
+// Run go test -update to rewrite the .after files, then review their diff.
 func TestGolden(t *testing.T) {
 	scripts, err := filepath.Glob("testdata/*.edits")
 	if err != nil || len(scripts) == 0 {

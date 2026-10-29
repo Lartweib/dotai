@@ -1,10 +1,12 @@
 // Package jsonc edits JSON and JSONC files key by key, on top of the hujson
 // syntax tree, so that every byte the edit does not touch stays as it was:
-// comments, key order, indentation, line endings and trailing commas
-// (decision 0028). Paths are object keys from the top-level object down;
-// they never index into arrays.
+// comments, key order, indentation, line endings and trailing commas. dotai
+// edits only the keys it owns in files other tools also write, such as
+// harness settings, so it must never reformat or drop anything else. Paths
+// are object keys from the top-level object down; they never index into
+// arrays.
 //
-// Known limits: an own-line comment directly above a deleted key goes with
+// Known limits: the own-line comments directly above a deleted key go with
 // it, and an inserted array or object is written one item per line when its
 // parent spans several lines.
 package jsonc
@@ -34,7 +36,10 @@ type Document struct {
 }
 
 // Parse parses src, which must be empty or hold a single object, and
-// detects its line ending and indentation unit.
+// detects the style that new lines follow. The first line break decides the
+// line ending, so a file with mixed endings gets the first one's. The indent
+// unit is the indent of the first top-level key, or two spaces when there is
+// none.
 func Parse(src []byte) (*Document, error) {
 	d := &Document{src: slices.Clone(src), eol: "\n", indent: "  "}
 	if i := bytes.IndexByte(src, '\n'); i > 0 && src[i-1] == '\r' {
@@ -72,14 +77,15 @@ func (d *Document) Bytes() []byte {
 	return d.root.Pack()
 }
 
-// Get returns the value at path as compact standard JSON, without comments,
-// and whether it exists.
+// Get returns the value at path as compact standard JSON, without comments
+// or trailing commas, and whether it exists. With duplicate keys the last one
+// wins, here and in every edit.
 func (d *Document) Get(path []string) ([]byte, bool) {
 	v := d.lookup(path)
 	if v == nil {
 		return nil, false
 	}
-	return standard(*v), true
+	return compactJSON(*v), true
 }
 
 // lookup returns the value at path, or nil when a key is missing or a value
@@ -90,14 +96,14 @@ func (d *Document) lookup(path []string) *hujson.Value {
 		if v == nil {
 			return nil
 		}
-		_, v = member(v, key)
+		_, v = findMember(v, key)
 	}
 	return v
 }
 
-// member returns the index and value of the last member named key in the
+// findMember returns the index and value of the last member named key in the
 // object v, or -1 and nil.
-func member(v *hujson.Value, key string) (int, *hujson.Value) {
+func findMember(v *hujson.Value, key string) (int, *hujson.Value) {
 	obj, ok := v.Value.(*hujson.Object)
 	if !ok {
 		return -1, nil
@@ -110,8 +116,8 @@ func member(v *hujson.Value, key string) (int, *hujson.Value) {
 	return -1, nil
 }
 
-// standard returns v as compact JSON without comments or trailing commas.
-func standard(v hujson.Value) []byte {
+// compactJSON returns v as compact JSON without comments or trailing commas.
+func compactJSON(v hujson.Value) []byte {
 	c := v.Clone()
 	c.BeforeExtra, c.AfterExtra = nil, nil
 	c.Standardize()
@@ -134,16 +140,20 @@ func lineIndent(x hujson.Extra) (string, bool) {
 // key keeps its position and comments; a new key goes at the end of its
 // object, and missing objects on the way are created. An object replacing
 // an object is applied key by key, so comments inside it stay; any other
-// value, an array included, replaces the old one as a whole.
+// value, an array included, replaces the old one as a whole. Setting a value
+// equal to the current one as canonical JSON (see equalityKey) changes
+// nothing.
 func (d *Document) Set(path []string, value []byte) error {
 	return d.verified(func() error { return d.set(path, value) }, func(after *Document) bool {
 		got, ok := after.Get(path)
-		return ok && canonical(got) == canonical(value)
+		return ok && equalityKey(got) == equalityKey(value)
 	})
 }
 
-// Delete removes the key at path with its same-line comment and the own-line
-// comments right above it. A missing key is not an error.
+// Delete removes the key at path, every duplicate included, with its
+// same-line comment and the own-line comments right above it, up to a blank
+// line. A missing key is not an error. The parent object stays, even when it
+// is left empty.
 func (d *Document) Delete(path []string) error {
 	return d.verified(func() error {
 		if len(path) == 0 {
@@ -162,14 +172,14 @@ func (d *Document) Delete(path []string) error {
 // Union appends to the array at path each element, which must be valid
 // JSON, that the array does not hold yet, keeping the order of both. A
 // missing array is created. Elements are compared as canonical JSON (see
-// canonical), so numbers compare as written: 1.0 and 1 are different.
+// equalityKey), so numbers compare as written: 1.0 and 1 are different.
 func (d *Document) Union(path []string, elems ...[]byte) error {
 	return d.verified(func() error { return d.union(path, elems...) }, func(after *Document) bool {
 		got, _ := after.Get(path)
 		var held []json.RawMessage
 		_ = json.Unmarshal(got, &held)
 		for _, e := range elems {
-			if !slices.ContainsFunc(held, func(h json.RawMessage) bool { return canonical(h) == canonical(e) }) {
+			if !slices.ContainsFunc(held, func(h json.RawMessage) bool { return equalityKey(h) == equalityKey(e) }) {
 				return false
 			}
 		}
@@ -200,7 +210,7 @@ func (d *Document) verified(edit func() error, check func(after *Document) bool)
 	return err
 }
 
-// set does the work of Set.
+// set does the work of Set; verified checks it.
 func (d *Document) set(path []string, value []byte) error {
 	if len(path) == 0 {
 		return errors.New("empty path")
@@ -217,17 +227,16 @@ func (d *Document) set(path []string, value []byte) error {
 		if !ok {
 			return fmt.Errorf("%q is not an object", path[:i])
 		}
-		j, v := member(parent, key)
+		j, v := findMember(parent, key)
 		if v == nil {
-			d.appendTo(parent, i+1, &key, nest(path[i+1:], value))
+			d.appendMember(obj, i+1, key, nest(path[i+1:], value))
 			return nil
 		}
 		if i < len(path)-1 {
 			parent = v
 			continue
 		}
-		old := standard(*v)
-		if canonical(old) == canonical(value) {
+		if equalityKey(compactJSON(*v)) == equalityKey(value) {
 			return nil
 		}
 		next, _ := hujson.Parse(slices.Clone(value))
@@ -235,12 +244,10 @@ func (d *Document) set(path []string, value []byte) error {
 		if newObj, isObj := next.Value.(*hujson.Object); wasObj && isObj {
 			return d.setObject(path, oldObj, newObj)
 		}
-		// Spread the new value over lines unless the old one was a
-		// non-empty array or object written on one line.
-		_, literal := v.Value.(hujson.Literal)
-		spread := literal || len(old) <= 2 || bytes.ContainsRune(hujson.Value{Value: v.Value}.Pack(), '\n')
+		// A key on its own line gets the new value spread over lines, unless
+		// the old value was written inline.
 		ind, own := lineIndent(obj.Members[j].Name.BeforeExtra)
-		v.Value = d.render(value, ind, own && spread)
+		v.Value = d.render(value, ind, own && !writtenInline(v.Value))
 	}
 	return nil
 }
@@ -256,7 +263,7 @@ func (d *Document) setObject(path []string, old, value *hujson.Object) error {
 	for _, m := range value.Members {
 		key := m.Name.Value.(hujson.Literal).String()
 		gone = slices.DeleteFunc(gone, func(k string) bool { return k == key })
-		if err := d.set(append(slices.Clip(path), key), standard(m.Value)); err != nil {
+		if err := d.set(append(slices.Clip(path), key), compactJSON(m.Value)); err != nil {
 			return err
 		}
 	}
@@ -271,9 +278,11 @@ func (d *Document) setObject(path []string, old, value *hujson.Object) error {
 // delete removes the last member at path, which must exist.
 func (d *Document) delete(path []string) {
 	parent := d.lookup(path[:len(path)-1])
-	i, _ := member(parent, path[len(path)-1])
+	i, _ := findMember(parent, path[len(path)-1])
 	obj := parent.Value.(*hujson.Object)
 	n, gone := len(obj.Members), obj.Members[i]
+	// next is the text after the key: before the next key, or before the
+	// closing brace. It receives what stays around the deleted key.
 	next := &obj.AfterExtra
 	if i+1 < n {
 		next = &obj.Members[i+1].Name.BeforeExtra
@@ -291,20 +300,22 @@ func (d *Document) delete(path []string) {
 		// member's trailing comma, or none.
 		prev := &obj.Members[i-1].Value
 		if gone.Value.AfterExtra == nil {
+			// No trailing comma: move the text before prev's comma out
+			// and drop the comma.
 			merged = append(slices.Clone(prev.AfterExtra), merged...)
 			prev.AfterExtra = nil
 		} else if prev.AfterExtra == nil {
-			prev.AfterExtra = hujson.Extra{}
+			prev.AfterExtra = hujson.Extra{} // a non-nil AfterExtra emits it
 		}
 	}
 	if n == 1 && !hasComment(merged) {
-		merged = nil
+		merged = nil // the object is now empty: write it as {}
 	}
 	*next = merged
 	obj.Members = slices.Delete(obj.Members, i, i+1)
 }
 
-// union does the work of Union.
+// union does the work of Union; verified checks it.
 func (d *Document) union(path []string, elems ...[]byte) error {
 	for _, e := range elems {
 		if !json.Valid(e) {
@@ -323,37 +334,51 @@ func (d *Document) union(path []string, elems ...[]byte) error {
 		return fmt.Errorf("%q is not an array", path)
 	}
 	for _, e := range elems {
-		held := func(x hujson.Value) bool { return canonical(standard(x)) == canonical(e) }
+		held := func(x hujson.Value) bool { return equalityKey(compactJSON(x)) == equalityKey(e) }
 		if !slices.ContainsFunc(arr.Elements, held) {
-			d.appendTo(v, len(path)+1, nil, e)
+			d.appendElement(arr, len(path)+1, e)
 		}
 	}
 	return nil
 }
 
-// appendTo appends value to the object or array c, whose items sit at depth.
-// name is the new member's key, or nil for an array element. The new item
-// follows the style of the last one: on its own line with the same indent,
-// or inline. An empty container is spread over lines.
-func (d *Document) appendTo(c *hujson.Value, depth int, name *string, value []byte) {
-	var tail *hujson.Extra
+// appendMember appends the member key: value to obj, whose members sit at
+// depth.
+func (d *Document) appendMember(obj *hujson.Object, depth int, key string, value []byte) {
 	var last *hujson.Value
-	var ind string
-	var own bool
-	switch x := c.Value.(type) {
-	case *hujson.Object:
-		tail = &x.AfterExtra
-		if n := len(x.Members); n > 0 {
-			last = &x.Members[n-1].Value
-			ind, own = lineIndent(x.Members[n-1].Name.BeforeExtra)
-		}
-	case *hujson.Array:
-		tail = &x.AfterExtra
-		if n := len(x.Elements); n > 0 {
-			last = &x.Elements[n-1]
-			ind, own = lineIndent(last.BeforeExtra)
-		}
+	var lastBefore hujson.Extra
+	if n := len(obj.Members); n > 0 {
+		last, lastBefore = &obj.Members[n-1].Value, obj.Members[n-1].Name.BeforeExtra
 	}
+	before, item := d.newItem(&obj.AfterExtra, last, lastBefore, depth, value)
+	item.BeforeExtra = hujson.Extra(" ")
+	obj.Members = append(obj.Members, hujson.ObjectMember{
+		Name:  hujson.Value{BeforeExtra: before, Value: hujson.String(key)},
+		Value: item,
+	})
+}
+
+// appendElement appends value to arr, whose elements sit at depth.
+func (d *Document) appendElement(arr *hujson.Array, depth int, value []byte) {
+	var last *hujson.Value
+	var lastBefore hujson.Extra
+	if n := len(arr.Elements); n > 0 {
+		last = &arr.Elements[n-1]
+		lastBefore = last.BeforeExtra
+	}
+	before, item := d.newItem(&arr.AfterExtra, last, lastBefore, depth, value)
+	item.BeforeExtra = before
+	arr.Elements = append(arr.Elements, item)
+}
+
+// newItem lays out value as a new last item of a container: tail is the
+// text before the closing bracket, last the current last item or nil, and
+// lastBefore the text before it. The new item follows the last one's style,
+// on its own line with the same indent or inline; in an empty container it
+// gets its own line. newItem moves tail and fixes the commas, and returns
+// the text to put before the item and the item itself.
+func (d *Document) newItem(tail *hujson.Extra, last *hujson.Value, lastBefore hujson.Extra, depth int, value []byte) (hujson.Extra, hujson.Value) {
+	ind, own := lineIndent(lastBefore)
 	// A comment on the last item's line stays on that line.
 	head, rest := cutLine(*tail)
 	if last == nil {
@@ -376,18 +401,21 @@ func (d *Document) appendTo(c *hujson.Value, depth int, name *string, value []by
 	} else if last != nil {
 		last.AfterExtra = hujson.Extra{} // add the separating comma
 	}
-	switch x := c.Value.(type) {
-	case *hujson.Object:
-		item.BeforeExtra = hujson.Extra(" ")
-		x.Members = append(x.Members, hujson.ObjectMember{
-			Name:  hujson.Value{BeforeExtra: before, Value: hujson.String(*name)},
-			Value: item,
-		})
-	case *hujson.Array:
-		item.BeforeExtra = before
-		x.Elements = append(x.Elements, item)
-	}
 	*tail = rest
+	return before, item
+}
+
+// writtenInline reports whether v is a non-empty array or object written on
+// one line.
+func writtenInline(v hujson.ValueTrimmed) bool {
+	n := 0
+	switch x := v.(type) {
+	case *hujson.Object:
+		n = len(x.Members)
+	case *hujson.Array:
+		n = len(x.Elements)
+	}
+	return n > 0 && !bytes.ContainsRune(hujson.Value{Value: v}.Pack(), '\n')
 }
 
 // render turns valid JSON into a value: compact, or spread over lines with
@@ -412,10 +440,10 @@ func nest(keys []string, value []byte) []byte {
 	return value
 }
 
-// canonical returns valid JSON in a form where equal values are equal
+// equalityKey returns valid JSON in a form where equal values are equal
 // strings: compact, with object keys sorted. Numbers stay as written, so
 // 1.0 and 1 are different.
-func canonical(b []byte) string {
+func equalityKey(b []byte) string {
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.UseNumber()
 	var x any
