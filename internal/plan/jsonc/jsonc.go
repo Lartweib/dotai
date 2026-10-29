@@ -20,9 +20,14 @@ import (
 	"github.com/tailscale/hujson"
 )
 
+// bom is the UTF-8 byte order mark. Parse sets it aside and Bytes puts it
+// back.
+var bom = []byte("\xef\xbb\xbf")
+
 // Document is a parsed JSON or JSONC object being edited.
 type Document struct {
 	src    []byte
+	bom    bool          // the input starts with a UTF-8 byte order mark
 	root   *hujson.Value // nil while the input is empty
 	eol    string        // "\n" or "\r\n"
 	indent string        // one indentation level: spaces or a tab
@@ -35,6 +40,7 @@ func Parse(src []byte) (*Document, error) {
 	if i := bytes.IndexByte(src, '\n'); i > 0 && src[i-1] == '\r' {
 		d.eol = "\r\n"
 	}
+	src, d.bom = bytes.CutPrefix(src, bom)
 	if len(bytes.TrimSpace(src)) == 0 {
 		return d, nil
 	}
@@ -59,6 +65,9 @@ func Parse(src []byte) (*Document, error) {
 func (d *Document) Bytes() []byte {
 	if d.root == nil {
 		return slices.Clone(d.src)
+	}
+	if d.bom {
+		return append(slices.Clone(bom), d.root.Pack()...)
 	}
 	return d.root.Pack()
 }
