@@ -314,3 +314,135 @@ func TestBuildRefusesAHarnessWithoutIsolation(t *testing.T) {
 		t.Errorf("Build() error = %v, want it to contain %q", err, want)
 	}
 }
+
+// TestBuildRemovesOwnedTargets checks that a target an earlier install
+// owned and the pack no longer stages is removed when it is still there,
+// in target order with the rest, and that a staged one is not.
+func TestBuildRemovesOwnedTargets(t *testing.T) {
+	home := t.TempDir()
+	kept := under(home, ".dotai/isolated/claude/CLAUDE.md")
+	dropped := under(home, ".dotai/isolated/claude/agents/old.md")
+	tool := under(home, ".dotai/tools/old.sh")
+	gone := under(home, ".dotai/isolated/claude/rules/gone.md")
+	in := plan.Input{
+		Home: home, Adapters: adapters(t, "claudecode"), Files: staged(".claude/CLAUDE.md"),
+		Owned: map[string]plan.Owned{
+			kept:    {Harness: "claudecode", Hash: "old"},
+			dropped: {Harness: "claudecode", Hash: "a"},
+			tool:    {Hash: "t", Exec: true},
+			gone:    {Harness: "claudecode", Hash: "g"}, // deleted since: nothing to remove
+		},
+		Disk: map[string]plan.Current{kept: {Hash: "old"}, dropped: {Hash: "a"}, tool: {Hash: "t", Exec: true}},
+	}
+	got, err := plan.Build(in)
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	want := []plan.Op{
+		{Action: plan.Replace, Scope: plan.ScopeUser, Harness: "claudecode", Source: ".claude/CLAUDE.md", Target: kept, Before: "old", After: "new:.claude/CLAUDE.md"},
+		{Action: plan.Remove, Scope: plan.ScopeUser, Harness: "claudecode", Target: dropped, Before: "a"},
+		{Action: plan.Remove, Scope: plan.ScopeUser, Target: tool, Before: "t", BeforeExec: true},
+	}
+	if !reflect.DeepEqual(got.Ops, want) {
+		t.Errorf("Build() = %+v, want %+v", got.Ops, want)
+	}
+}
+
+// TestBuildRefusesEditedOwnedTargets checks that an owned target whose
+// content or exec bit differs from the ownership record is an error
+// naming every such target, whether the pack still stages it or not.
+func TestBuildRefusesEditedOwnedTargets(t *testing.T) {
+	home := t.TempDir()
+	staged1 := under(home, ".dotai/isolated/claude/CLAUDE.md")
+	dropped := under(home, ".dotai/isolated/claude/agents/old.md")
+	tests := []struct {
+		name       string
+		disk       map[string]plan.Current
+		ignoreExec bool
+		edited     []string
+	}{
+		{name: "as recorded", disk: map[string]plan.Current{staged1: {Hash: "s"}, dropped: {Hash: "d"}}},
+		{name: "content", disk: map[string]plan.Current{staged1: {Hash: "x"}, dropped: {Hash: "y"}}, edited: []string{staged1, dropped}},
+		{name: "exec bit", disk: map[string]plan.Current{staged1: {Hash: "s", Exec: true}, dropped: {Hash: "d"}}, edited: []string{staged1}},
+		{name: "exec bit ignored", disk: map[string]plan.Current{staged1: {Hash: "s", Exec: true}, dropped: {Hash: "d"}}, ignoreExec: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			in := plan.Input{
+				Home: home, Adapters: adapters(t, "claudecode"), Files: staged(".claude/CLAUDE.md"), IgnoreExec: tt.ignoreExec,
+				Owned: map[string]plan.Owned{staged1: {Harness: "claudecode", Hash: "s"}, dropped: {Harness: "claudecode", Hash: "d"}},
+				Disk:  tt.disk,
+			}
+			got, err := plan.Build(in)
+			var e *plan.EditedError
+			if tt.edited == nil {
+				if err != nil {
+					t.Errorf("Build() error = %v, want none", err)
+				}
+				return
+			}
+			if !errors.As(err, &e) || !reflect.DeepEqual(e.Targets, tt.edited) || len(got.Ops) != 0 {
+				t.Fatalf("Build() = %+v, %v, want an EditedError naming %v", got.Ops, err, tt.edited)
+			}
+			for _, target := range tt.edited {
+				if !strings.Contains(err.Error(), target) {
+					t.Errorf("Error() = %q, want it to name %s", err, target)
+				}
+			}
+		})
+	}
+}
+
+// TestBuildRefusesOwnedTargetsOutsideDotai checks that an ownership record
+// cannot make the plan remove a file outside the directories an install
+// writes to.
+func TestBuildRefusesOwnedTargetsOutsideDotai(t *testing.T) {
+	home := t.TempDir()
+	for _, rel := range []string{".claude/CLAUDE.md", ".dotai/state.json", ".dotai/isolated", ".dotai/toolsx/a", "../x"} {
+		t.Run(rel, func(t *testing.T) {
+			target := under(home, rel)
+			in := plan.Input{Home: home, Owned: map[string]plan.Owned{target: {Hash: "h"}}, Disk: map[string]plan.Current{target: {Hash: "h"}}}
+			if _, err := plan.Build(in); err == nil || !strings.Contains(err.Error(), "is not under") {
+				t.Errorf("Build() error = %v, want an owned target outside the install directories", err)
+			}
+		})
+	}
+}
+
+// TestBuildResolvesAnInterruptedInstall checks the ownership of the
+// targets an install that stopped midway was writing: a content in Also is
+// dotai's as much as Hash, and a content in Foreign means the file is not
+// dotai's, so it is neither an edit nor removed. Plan.Owned gives every
+// target dotai owns on disk.
+func TestBuildResolvesAnInterruptedInstall(t *testing.T) {
+	home := t.TempDir()
+	written := under(home, ".dotai/isolated/claude/agents/a.md") // replaced before the stop
+	pending := under(home, ".dotai/isolated/claude/agents/b.md") // not replaced yet
+	foreign := under(home, ".dotai/isolated/claude/agents/c.md") // a file dotai never owned, not replaced yet
+	edited := under(home, ".dotai/isolated/claude/agents/d.md")
+	owned := map[string]plan.Owned{
+		written: {Harness: "claudecode", Hash: "a0", Also: []plan.Current{{Hash: "a1"}}},
+		pending: {Harness: "claudecode", Hash: "b0", Also: []plan.Current{{Hash: "b1"}}},
+		foreign: {Harness: "claudecode", Hash: "c1", Foreign: []plan.Current{{Hash: "c0"}}},
+	}
+	disk := map[string]plan.Current{written: {Hash: "a1"}, pending: {Hash: "b0"}, foreign: {Hash: "c0"}}
+	got, err := plan.Build(plan.Input{Home: home, Adapters: adapters(t, "claudecode"), Owned: owned, Disk: disk})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	want := []plan.Op{
+		{Action: plan.Remove, Scope: plan.ScopeUser, Harness: "claudecode", Target: written, Before: "a1"},
+		{Action: plan.Remove, Scope: plan.ScopeUser, Harness: "claudecode", Target: pending, Before: "b0"},
+	}
+	if !reflect.DeepEqual(got.Ops, want) {
+		t.Errorf("Build() = %+v, want %+v", got.Ops, want)
+	}
+	if want := map[string]plan.Current{written: {Hash: "a1"}, pending: {Hash: "b0"}}; !reflect.DeepEqual(got.Owned, want) {
+		t.Errorf("Owned = %+v, want %+v", got.Owned, want)
+	}
+	owned[edited] = plan.Owned{Hash: "d0", Also: []plan.Current{{Hash: "d1"}}, Foreign: []plan.Current{{Hash: "d2"}}}
+	disk[edited] = plan.Current{Hash: "dx"}
+	if _, err := plan.Build(plan.Input{Home: home, Owned: owned, Disk: disk}); !errors.As(err, new(*plan.EditedError)) {
+		t.Errorf("Build() error = %v, want the edited target", err)
+	}
+}

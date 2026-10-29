@@ -24,4 +24,4 @@ antigravity-cli
 tools
   create     /home/u/.dotai/tools/hello.sh
 
-2 create, 1 replace, 1 unchanged · dry run, nothing was written
+2 create, 1 replace, 0 remove, 1 unchanged · dry run, nothing was written

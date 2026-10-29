@@ -122,7 +122,6 @@ func TestRunInstallUsageErrors(t *testing.T) {
 		args []string
 		want string
 	}{
-		{name: "without dry run", args: []string{"install", examplePack, "--json"}, want: "--dry-run"},
 		{name: "with a profile", args: []string{"install", examplePack, "--dry-run", "--profile", "web", "--json"}, want: "profile"},
 		{name: "two paths", args: []string{"install", "a", "b", "--dry-run", "--json"}, want: "arg"},
 	} {
@@ -133,6 +132,10 @@ func TestRunInstallUsageErrors(t *testing.T) {
 				t.Error("PlanInstall called on a usage error")
 				return app.InstallPlan{}, nil
 			}
+			env.Install = func(context.Context, string, string, string, string, app.Progress) (app.InstallResult, error) {
+				t.Error("Install called on a usage error")
+				return app.InstallResult{}, nil
+			}
 			if code := cli.Run(tt.args, env); code != cli.ExitUsage {
 				t.Errorf("exit code = %d, want %d", code, cli.ExitUsage)
 			}
@@ -141,9 +144,10 @@ func TestRunInstallUsageErrors(t *testing.T) {
 			}
 		})
 	}
+	// A profile is refused without --dry-run too.
 	var stderr bytes.Buffer
-	if code := cli.Run([]string{"install", examplePack}, testEnv(&bytes.Buffer{}, &stderr)); code != cli.ExitUsage || !strings.Contains(stderr.String(), "not available yet") {
-		t.Errorf("exit code = %d, stderr = %q, want a usage error saying installing is not available yet", code, stderr.String())
+	if code := cli.Run([]string{"install", examplePack, "--profile", "web"}, testEnv(&bytes.Buffer{}, &stderr)); code != cli.ExitUsage || !strings.Contains(stderr.String(), "profile") {
+		t.Errorf("exit code = %d, stderr = %q, want a usage error about the profile", code, stderr.String())
 	}
 }
 
@@ -201,5 +205,170 @@ func TestRunInstallWithoutAHomeDirectory(t *testing.T) {
 	}
 	if code := cli.Run([]string{"install", "--dry-run"}, env); code != cli.ExitInternal || !strings.Contains(stderr.String(), "home directory") {
 		t.Errorf("exit code = %d, stderr = %q, want an internal error about the home directory", code, stderr.String())
+	}
+}
+
+// installResult is an install of installPlan that also removed a file the
+// pack dropped.
+var installResult = func() app.InstallResult {
+	p := installPlan
+	p.Ops = append(append([]app.InstallOp{}, installPlan.Ops[:2]...),
+		app.InstallOp{Action: plan.Remove, Harness: "claudecode", Target: "/home/u/.dotai/isolated/claude/rules/old.md", Before: "ff"})
+	p.Ops = append(p.Ops, installPlan.Ops[2:]...)
+	return app.InstallResult{
+		InstallPlan: p,
+		Backup:      &app.BackupRef{ID: "20261029T101500.000Z_install", Path: "/home/u/.dotai/backups/20261029T101500.000Z_install"},
+		State:       "/home/u/.dotai/state.json",
+		Warnings:    []string{},
+	}
+}()
+
+func TestRunInstall(t *testing.T) {
+	t.Setenv("DOTAI_CACHE_DIR", "cache")
+	wantCache, err := filepath.Abs("cache")
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	for _, tt := range []struct {
+		name         string
+		args         []string
+		golden       string
+		wantVariant  string
+		wantProgress bool
+	}{
+		{name: "text", args: []string{"install", examplePack}, golden: "install.txt.golden", wantProgress: true},
+		{name: "json", args: []string{"install", examplePack, "--variant", "tmux", "--json"}, golden: "install.json.golden", wantVariant: "tmux"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			env := testEnv(&stdout, &stderr)
+			env.PlanInstall = func(context.Context, string, string, string, string, app.Progress) (app.InstallPlan, error) {
+				t.Error("PlanInstall called without --dry-run")
+				return app.InstallPlan{}, nil
+			}
+			env.Install = func(ctx context.Context, cacheDir, dir, variant, gotHome string, progress app.Progress) (app.InstallResult, error) {
+				if ctx == nil || cacheDir != wantCache || dir != examplePack || variant != tt.wantVariant || gotHome != home || (progress != nil) != tt.wantProgress {
+					t.Errorf("Install(%q, %q, %q, %q, progress %v), want the cache, the pack, %q, the home and progress %v",
+						cacheDir, dir, variant, gotHome, progress != nil, tt.wantVariant, tt.wantProgress)
+				}
+				return installResult, nil
+			}
+			if code := cli.Run(tt.args, env); code != cli.ExitOK || stderr.Len() != 0 {
+				t.Errorf("exit code = %d, stderr = %q, want 0 and empty", code, stderr.String())
+			}
+			assertGolden(t, filepath.Join("testdata", tt.golden), stdout.Bytes())
+		})
+	}
+}
+
+func TestRunInstallJSONShapeWithoutDryRun(t *testing.T) {
+	var stdout bytes.Buffer
+	env := testEnv(&stdout, &bytes.Buffer{})
+	env.Install = func(context.Context, string, string, string, string, app.Progress) (app.InstallResult, error) {
+		return installResult, nil
+	}
+	if code := cli.Run([]string{"install", "--json"}, env); code != cli.ExitOK {
+		t.Fatalf("exit code = %d", code)
+	}
+	var e struct {
+		Command string `json:"command"`
+		Data    struct {
+			Mode   string                       `json:"mode"`
+			Ops    []map[string]json.RawMessage `json:"ops"`
+			Backup *struct {
+				ID   string `json:"id"`
+				Path string `json:"path"`
+			} `json:"backup"`
+			State string `json:"state"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &e); err != nil {
+		t.Fatal(err)
+	}
+	if e.Command != "install" || e.Data.Mode != "isolated" || len(e.Data.Ops) != 5 || e.Data.Backup == nil ||
+		e.Data.Backup.ID != installResult.Backup.ID || e.Data.Backup.Path != installResult.Backup.Path || e.Data.State != installResult.State {
+		t.Errorf("envelope = %+v, want the plan with the backup and the state", e)
+	}
+	if string(e.Data.Ops[2]["action"]) != `"remove"` || string(e.Data.Ops[2]["source"]) != `""` {
+		t.Errorf("op 2 = %v, want a remove without a source", e.Data.Ops[2])
+	}
+}
+
+func TestRunInstallThatWroteNothing(t *testing.T) {
+	var stdout bytes.Buffer
+	env := testEnv(&stdout, &bytes.Buffer{})
+	res := app.InstallResult{InstallPlan: installPlan, State: "/home/u/.dotai/state.json"}
+	env.Install = func(context.Context, string, string, string, string, app.Progress) (app.InstallResult, error) {
+		return res, nil
+	}
+	if code := cli.Run([]string{"install"}, env); code != cli.ExitOK || !strings.HasSuffix(stdout.String(), "installed\nbackup: none, no file was written\nstate:  /home/u/.dotai/state.json\n") {
+		t.Errorf("exit code = %d, stdout = %q, want no backup", code, stdout.String())
+	}
+	stdout.Reset()
+	if code := cli.Run([]string{"install", "--json"}, env); code != cli.ExitOK || !strings.Contains(stdout.String(), `"backup": null`) {
+		t.Errorf("exit code = %d, stdout = %s, want a null backup", code, stdout.String())
+	}
+}
+
+func TestRunInstallInvalidPackWithoutDryRun(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	env := testEnv(&stdout, &stderr)
+	env.Install = func(context.Context, string, string, string, string, app.Progress) (app.InstallResult, error) {
+		return app.InstallResult{InstallPlan: app.InstallPlan{
+			Pack: &app.PackSummary{Name: "p", Version: "1.0.0"}, Mode: app.ModeIsolated, Harnesses: []app.HarnessPlan{}, Ops: []app.InstallOp{},
+			Diagnostics: []app.Diagnostic{{File: "dotai.yaml", Code: "layer-selection", Message: "variant \"nope\" is not defined"}},
+		}}, nil
+	}
+	if code := cli.Run([]string{"install", "p", "--variant", "nope", "--json"}, env); code != cli.ExitInvalid || stderr.Len() != 0 {
+		t.Errorf("exit code = %d, stderr = %q, want %d and empty", code, stderr.String(), cli.ExitInvalid)
+	}
+	if e := decodeOne(t, stdout.Bytes()); e.OK || e.Error == nil || e.Error.Code != output.CodeInvalid {
+		t.Errorf("envelope = %+v, want invalid", e)
+	}
+}
+
+func TestRunInstallFailureWithoutDryRun(t *testing.T) {
+	for _, err := range []error{
+		&app.LockedError{Path: "/home/u/.dotai/lock"},
+		&app.InstallError{Cause: &app.ChangedError{Path: "/home/u/.dotai/tools/hello.sh"}, Backup: "/home/u/.dotai/backups/x"},
+		&plan.EditedError{Targets: []string{"/home/u/.dotai/isolated/claude/CLAUDE.md"}},
+	} {
+		var stdout, stderr bytes.Buffer
+		env := testEnv(&stdout, &stderr)
+		env.Install = func(context.Context, string, string, string, string, app.Progress) (app.InstallResult, error) {
+			return app.InstallResult{}, err
+		}
+		if code := cli.Run([]string{"install"}, env); code != cli.ExitInternal || stdout.Len() != 0 || !strings.Contains(stderr.String(), err.Error()) {
+			t.Errorf("exit code = %d, stdout = %q, stderr = %q, want an internal error with %q", code, stdout.String(), stderr.String(), err)
+		}
+	}
+}
+
+func TestRunInstallWithWarnings(t *testing.T) {
+	res := installResult
+	res.Warnings = []string{"older backups could not be pruned: busy"}
+	for _, jsonOut := range []bool{false, true} {
+		var stdout, stderr bytes.Buffer
+		env := testEnv(&stdout, &stderr)
+		env.Install = func(context.Context, string, string, string, string, app.Progress) (app.InstallResult, error) {
+			return res, nil
+		}
+		args := []string{"install"}
+		if jsonOut {
+			args = append(args, "--json")
+		}
+		code := cli.Run(args, env)
+		if code != cli.ExitOK {
+			t.Errorf("json %v: exit code = %d, want 0: the install succeeded", jsonOut, code)
+		}
+		if !jsonOut && (stderr.String() != "warning: older backups could not be pruned: busy\n" || !strings.Contains(stdout.String(), "state:  /home/u/.dotai/state.json")) {
+			t.Errorf("stdout = %q, stderr = %q, want the summary and the warning", stdout.String(), stderr.String())
+		}
+		if jsonOut && (!strings.Contains(stdout.String(), `"warnings": [`) || !strings.Contains(stdout.String(), "could not be pruned") || stderr.Len() != 0) {
+			t.Errorf("stdout = %s, stderr = %q, want the warning in data", stdout.String(), stderr.String())
+		}
 	}
 }

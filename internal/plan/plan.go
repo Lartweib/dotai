@@ -3,10 +3,10 @@
 // I/O; the caller hashes the staged files and the current targets.
 //
 // It covers the user scope of an isolated install (decision 0031): each
-// staged file is created, replaced or left unchanged at its install path.
-// Key-level merges into files other tools also write come with the project
-// scope, and removing files an earlier install owned comes with the
-// ownership record.
+// staged file is created, replaced or left unchanged at its install path,
+// and each file an earlier install owned that the pack no longer stages is
+// removed (decision 0032). Key-level merges into files other tools also
+// write come with the project scope.
 package plan
 
 import (
@@ -38,6 +38,7 @@ const (
 	Create    Action = "create"    // the target is missing
 	Replace   Action = "replace"   // the target has other content or another exec bit
 	Unchanged Action = "unchanged" // the target already has the staged content and exec bit
+	Remove    Action = "remove"    // an earlier install owned the target and the pack no longer stages it
 )
 
 // File is one file of the user-scope staging tree: its slash path inside
@@ -57,30 +58,51 @@ type Current struct {
 	Exec bool
 }
 
+// Owned is a target the previous install wrote, as its ownership record
+// holds it: the harness it was installed for, "" for a tool, and the
+// SHA-256 in hex and exec bit it was written with. An install that stopped
+// before it finished leaves targets in two possible states: Also lists
+// other contents that are dotai's too, such as what that install was
+// writing, and Foreign the contents that mean the target is still the
+// file dotai found there and never owned.
+type Owned struct {
+	Harness string
+	Hash    string
+	Exec    bool
+	Also    []Current
+	Foreign []Current
+}
+
 // Input is what Build plans from. Disk holds the current state of each
 // target that exists; a target missing from Disk does not exist. Its keys
 // must be the targets Locate returns, which are also the Targets of the
-// plan. IgnoreExec leaves the exec bit out of the comparison, for a file
-// system that has none, such as on Windows; the caller decides it, so that
-// Build behaves the same on every OS.
+// plan, and the keys of Owned. Owned is the ownership record of the
+// previous install, by absolute target; it is empty before the first one.
+// IgnoreExec leaves the exec bit out of the comparison, for a file system
+// that has none, such as on Windows; the caller decides it, so that Build
+// behaves the same on every OS.
 type Input struct {
 	Home       string            // the absolute home directory
 	Adapters   []harness.Adapter // the harnesses of the pack's manifest
 	Files      []File
 	Disk       map[string]Current
+	Owned      map[string]Owned
 	IgnoreExec bool
 }
 
-// Plan is the list of operations, in target order.
+// Plan is the list of operations, in target order, and the targets of
+// Input.Owned that exist and are dotai's, with their current state.
 type Plan struct {
-	Ops []Op
+	Ops   []Op
+	Owned map[string]Current
 }
 
 // Op is one file operation. Harness is empty for a tool, which is not
 // installed for one harness. Before and BeforeExec are the target's
 // current hash and exec bit, empty and false when it is missing, so that
 // execution and backup can check that it did not change after planning.
-// After and Exec are what it will have.
+// After and Exec are what it will have; a Remove has no Source, After or
+// Exec.
 type Op struct {
 	Action     Action
 	Scope      string
@@ -103,6 +125,18 @@ func (e *UnmappedError) Error() string {
 	return "no harness of the pack installs the staged files " + strings.Join(e.Paths, ", ")
 }
 
+// EditedError is a target the previous install owned whose content or
+// exec bit is no longer what it wrote: the user edited it, and the plan
+// neither replaces nor removes it. Targets lists every such target, sorted.
+type EditedError struct {
+	Targets []string
+}
+
+func (e *EditedError) Error() string {
+	return "the installed files " + strings.Join(e.Targets, ", ") + " were changed after dotai installed them, and dotai does not overwrite or remove them: " +
+		"move them away or put back what dotai installed, then install again"
+}
+
 // Build plans the install of the user-scope staging tree. A file under
 // one of the adapters' staging paths installs into that harness's
 // isolated directory, a file under the tools directory into the user's
@@ -110,6 +144,14 @@ func (e *UnmappedError) Error() string {
 // an UnmappedError, so that nothing staged is dropped silently. A path
 // Windows cannot store is an error on every OS, and so are two files with
 // one target, a harness given twice and a harness without isolation.
+//
+// A target in Owned that no staged file installs is removed when it still
+// exists; one that is missing needs nothing. An owned target outside the
+// isolated root and the tools directory is an error, and so is an owned
+// target that exists with a hash or exec bit that is neither what Owned
+// records nor in its Also or Foreign: an EditedError, so that nothing the
+// user changed is overwritten or removed. A target in its Foreign is not
+// dotai's: it is neither removed nor in Plan.Owned.
 func Build(in Input) (Plan, error) {
 	if !filepath.IsAbs(in.Home) {
 		return Plan{}, fmt.Errorf("home directory %q is not absolute", in.Home)
@@ -156,6 +198,36 @@ func Build(in Input) (Plan, error) {
 		slices.Sort(unmapped)
 		return Plan{}, &UnmappedError{Paths: unmapped}
 	}
+	var edited []string
+	for target, o := range in.Owned {
+		if !installed(in.Home, target) {
+			return Plan{}, fmt.Errorf("owned target %s is not under %s or %s, where an install writes", target,
+				filepath.Join(in.Home, filepath.FromSlash(harness.IsolatedDir)), filepath.Join(in.Home, filepath.FromSlash(merge.ToolsDir)))
+		}
+		cur, ok := in.Disk[target]
+		if !ok {
+			continue
+		}
+		mine := in.same(cur, Current{Hash: o.Hash, Exec: o.Exec}) || slices.ContainsFunc(o.Also, func(c Current) bool { return in.same(cur, c) })
+		if !mine && slices.ContainsFunc(o.Foreign, func(c Current) bool { return in.same(cur, c) }) {
+			continue
+		}
+		if !mine {
+			edited = append(edited, target)
+			continue
+		}
+		if p.Owned == nil {
+			p.Owned = map[string]Current{}
+		}
+		p.Owned[target] = cur
+		if _, staged := sources[target]; !staged {
+			p.Ops = append(p.Ops, Op{Action: Remove, Scope: ScopeUser, Harness: o.Harness, Target: target, Before: cur.Hash, BeforeExec: cur.Exec})
+		}
+	}
+	if len(edited) > 0 {
+		slices.Sort(edited)
+		return Plan{}, &EditedError{Targets: edited}
+	}
 	slices.SortFunc(p.Ops, func(a, b Op) int { return cmp.Compare(a.Target, b.Target) })
 	return p, nil
 }
@@ -176,6 +248,23 @@ func Locate(home string, adapters []harness.Adapter, source string) (h, target s
 		}
 	}
 	return "", "", false
+}
+
+// same reports whether a and b have the same content and exec bit, unless
+// the exec bit is ignored.
+func (in Input) same(a, b Current) bool {
+	return a.Hash == b.Hash && (in.IgnoreExec || a.Exec == b.Exec)
+}
+
+// installed reports whether target is a path inside the isolated root or
+// the tools directory under home, the only places an install writes.
+func installed(home, target string) bool {
+	rel, err := filepath.Rel(home, target)
+	if err != nil || !filepath.IsLocal(rel) {
+		return false
+	}
+	rel = filepath.ToSlash(rel)
+	return strings.HasPrefix(rel, harness.IsolatedDir+"/") || strings.HasPrefix(rel, merge.ToolsDir+"/")
 }
 
 // reserved are the device names Windows refuses as a file name, with or

@@ -34,6 +34,7 @@ type Env struct {
 	Stage          func(ctx context.Context, cacheDir, dir, out string, sel app.Selection, tools app.ToolPaths, force bool, progress app.Progress) (app.StageResult, error)
 	FetchRulesync  func(ctx context.Context, cacheDir, dir string, progress app.Progress) (app.RulesyncResult, error)
 	PlanInstall    func(ctx context.Context, cacheDir, dir, variant, home string, progress app.Progress) (app.InstallPlan, error)
+	Install        func(ctx context.Context, cacheDir, dir, variant, home string, progress app.Progress) (app.InstallResult, error)
 }
 
 // invalidError is a command outcome that rejects its input, such as a pack

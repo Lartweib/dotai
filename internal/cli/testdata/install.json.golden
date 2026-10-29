@@ -1,0 +1,137 @@
+{
+  "schema": "dotai.cli/v1",
+  "command": "install",
+  "ok": true,
+  "data": {
+    "pack": {
+      "name": "minimal-pack",
+      "version": "0.1.0",
+      "engine": "",
+      "rulesync": "",
+      "harnesses": [
+        "claudecode",
+        "antigravity-cli",
+        "opencode"
+      ],
+      "profiles": [],
+      "variants": [],
+      "defaultVariant": "",
+      "layers": []
+    },
+    "variant": "standalone",
+    "mode": "isolated",
+    "root": "/home/u/.dotai/isolated",
+    "harnesses": [
+      {
+        "id": "claudecode",
+        "level": "partial",
+        "dir": "/home/u/.dotai/isolated/claude",
+        "pointers": [
+          {
+            "mechanism": "env",
+            "name": "CLAUDE_CONFIG_DIR",
+            "dir": "/home/u/.dotai/isolated/claude"
+          }
+        ],
+        "relogin": true,
+        "leaks": [
+          "~/.claude/CLAUDE.md still loads when the working directory is under the home directory"
+        ]
+      },
+      {
+        "id": "antigravity-cli",
+        "level": "partial",
+        "dir": "/home/u/.dotai/isolated/gemini",
+        "pointers": [
+          {
+            "mechanism": "flag",
+            "name": "--gemini_dir",
+            "dir": "/home/u/.dotai/isolated/gemini"
+          }
+        ],
+        "relogin": false,
+        "leaks": [
+          "authentication is shared through the OS keyring"
+        ]
+      },
+      {
+        "id": "opencode",
+        "level": "partial",
+        "dir": "/home/u/.dotai/isolated/opencode",
+        "pointers": [
+          {
+            "mechanism": "env",
+            "name": "XDG_CONFIG_HOME",
+            "dir": "/home/u/.dotai/isolated/opencode/config"
+          },
+          {
+            "mechanism": "env",
+            "name": "XDG_DATA_HOME",
+            "dir": "/home/u/.dotai/isolated/opencode/data"
+          }
+        ],
+        "relogin": true,
+        "leaks": []
+      }
+    ],
+    "ops": [
+      {
+        "action": "create",
+        "harness": "claudecode",
+        "source": ".claude/CLAUDE.md",
+        "target": "/home/u/.dotai/isolated/claude/CLAUDE.md",
+        "exec": false,
+        "before": "",
+        "after": "aa",
+        "beforeExec": false
+      },
+      {
+        "action": "unchanged",
+        "harness": "claudecode",
+        "source": ".claude/settings.json",
+        "target": "/home/u/.dotai/isolated/claude/settings.json",
+        "exec": false,
+        "before": "bb",
+        "after": "bb",
+        "beforeExec": false
+      },
+      {
+        "action": "remove",
+        "harness": "claudecode",
+        "source": "",
+        "target": "/home/u/.dotai/isolated/claude/rules/old.md",
+        "exec": false,
+        "before": "ff",
+        "after": "",
+        "beforeExec": false
+      },
+      {
+        "action": "replace",
+        "harness": "antigravity-cli",
+        "source": ".gemini/GEMINI.md",
+        "target": "/home/u/.dotai/isolated/gemini/GEMINI.md",
+        "exec": false,
+        "before": "cc",
+        "after": "dd",
+        "beforeExec": false
+      },
+      {
+        "action": "create",
+        "harness": "",
+        "source": ".dotai/tools/hello.sh",
+        "target": "/home/u/.dotai/tools/hello.sh",
+        "exec": true,
+        "before": "",
+        "after": "ee",
+        "beforeExec": false
+      }
+    ],
+    "diagnostics": [],
+    "backup": {
+      "id": "20261029T101500.000Z_install",
+      "path": "/home/u/.dotai/backups/20261029T101500.000Z_install"
+    },
+    "state": "/home/u/.dotai/state.json",
+    "warnings": []
+  }
+}

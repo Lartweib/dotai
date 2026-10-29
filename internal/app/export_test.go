@@ -33,3 +33,20 @@ type OSInstallFS = osInstallFS
 func PlanInstallWith(ctx context.Context, d installFS, fetch fetchFunc, run runFunc, dir, variant, home string) (InstallPlan, error) {
 	return planInstall(ctx, d, fetch, run, "cache", dir, variant, home, nil)
 }
+
+// ExecuteFS is the port Install writes through.
+type ExecuteFS = executeFS
+
+// InstallWith is Install through d, fetching through fetch and running
+// rulesync through run.
+func InstallWith(ctx context.Context, d executeFS, fetch fetchFunc, run runFunc, dir, variant, home string) (InstallResult, error) {
+	return install(ctx, d, fetch, run, "cache", dir, variant, home, nil)
+}
+
+// RetryWith, Transient and NarrowMode are the retry of a move or a removal,
+// the errors it retries on this OS, and the mode of a replaced file.
+var (
+	RetryWith  = retryWith
+	Transient  = transient
+	NarrowMode = narrowMode
+)
