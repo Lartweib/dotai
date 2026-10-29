@@ -624,3 +624,44 @@ func TestRestoreStopsAtABackupThatIsGone(t *testing.T) {
 		t.Errorf("home = %v, want nothing written", got)
 	}
 }
+
+// TestRetentionKeepsTheHistory checks that restores do not prune a backup
+// the install state still leads to: after eight installs and four
+// restores, the twelve backups lose a restored one, and a restore of the
+// first install still puts back the disk as it was.
+func TestRetentionKeepsTheHistory(t *testing.T) {
+	home, _ := installHome(t)
+	dir := copyPack(t)
+	writeFile(t, at(home, ".dotai/tools/hello.sh"), "echo mine\n")
+	original := snapshot(t, home)
+	d := newClockFS(t)
+	var ids []string
+	for i := range 8 {
+		writeFile(t, filepath.Join(dir, "base", "dotai", "tools", "hello.sh"), fmt.Sprintf("echo %d\n", i))
+		res, err := quiet(t).install(d, dir, home)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, res.Backup.ID)
+	}
+	for range 4 {
+		if _, err := restore(d, home, "", nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := backups(t, home)
+	if len(got) != 11 || slices.Contains(got, ids[4]) {
+		t.Errorf("backups = %v, want eleven, without the oldest restored install %s", got, ids[4])
+	}
+	for _, id := range ids[:4] {
+		if !slices.Contains(got, id) {
+			t.Errorf("backup %s of the history was pruned", id)
+		}
+	}
+	if _, err := restore(d, home, ids[0], nil); err != nil {
+		t.Fatalf("Restore(%s) error = %v", ids[0], err)
+	}
+	if got := snapshot(t, home); !reflect.DeepEqual(got, original) {
+		t.Errorf("home = %v, want the original %v", got, original)
+	}
+}

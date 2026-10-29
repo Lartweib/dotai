@@ -300,11 +300,11 @@ func (r *restorer) run(res *RestoreResult, id string, overwrite func(RestoreResu
 		}
 	}
 	if ref != nil {
-		protect := []string{ref.ID}
-		if prior != nil && prior.Backup != "" {
-			protect = append(protect, prior.Backup)
+		head := ""
+		if prior != nil {
+			head = prior.Backup
 		}
-		if err := r.prune(protect...); err != nil {
+		if err := r.prune(head, ref.ID, head); err != nil {
 			res.Warnings = append(res.Warnings, fmt.Sprintf("older backups could not be pruned: %v", err))
 		}
 	}

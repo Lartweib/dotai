@@ -247,32 +247,36 @@ func Check(m Manifest, id, home string) error {
 }
 
 // Entry is a backup directory found on disk: its id, the time its
-// manifest records and whether it has a manifest at all. A backup without
-// one is incomplete: it was being taken when its install stopped.
+// manifest records, whether it has a manifest at all and whether the
+// install state leads to it, as the last install's backup or one before
+// it. A backup without a manifest is incomplete: it was being taken when
+// its operation stopped.
 type Entry struct {
 	ID        string
 	CreatedAt time.Time
 	Complete  bool
+	Chain     bool
 }
 
-// Prune gives the ids of entries to delete, sorted, so that only the last
-// keep complete backups remain, besides the oldest complete one, which
+// Prune gives the ids of entries to delete, sorted, so that no more than
+// keep complete backups remain besides the oldest complete one, which
 // holds what was there before the first write and is never deleted. They
 // are ordered by the time their manifests record, then by id, so that a
-// clock that went back does not reorder them by name. Incomplete backups
-// are deleted and do not count. A backup in protect, such as the one just
-// taken or the one the install state names, is never deleted.
+// clock that went back does not reorder them by name. Backups the state
+// does not lead to (restored installs and restores) go first, oldest
+// first; then the history beyond its newest keep backups, oldest first,
+// never those keep. Incomplete backups are deleted and do not count. A
+// backup in protect, such as the one just taken or the one the install
+// state names, is never deleted.
 func Prune(entries []Entry, keep int, protect ...string) []string {
 	var complete []Entry
 	var out []string
 	for _, e := range entries {
 		switch {
-		case slices.Contains(protect, e.ID):
-		case !e.Complete:
-			out = append(out, e.ID)
-		}
-		if e.Complete {
+		case e.Complete:
 			complete = append(complete, e)
+		case !slices.Contains(protect, e.ID):
+			out = append(out, e.ID)
 		}
 	}
 	slices.SortFunc(complete, func(a, b Entry) int {
@@ -281,11 +285,31 @@ func Prune(entries []Entry, keep int, protect ...string) []string {
 		}
 		return strings.Compare(a.ID, b.ID)
 	})
-	if len(complete) > keep+1 {
-		for _, e := range complete[1 : len(complete)-keep] {
-			if !slices.Contains(protect, e.ID) {
-				out = append(out, e.ID)
-			}
+	if len(complete) <= keep+1 {
+		slices.Sort(out)
+		return out
+	}
+	var spent, history []Entry
+	for _, e := range complete[1:] {
+		if e.Chain {
+			history = append(history, e)
+		} else {
+			spent = append(spent, e)
+		}
+	}
+	if len(history) > keep {
+		history = history[:len(history)-keep]
+	} else {
+		history = nil
+	}
+	excess := len(complete) - (keep + 1)
+	for _, e := range slices.Concat(spent, history) {
+		if excess == 0 {
+			break
+		}
+		if !slices.Contains(protect, e.ID) {
+			out = append(out, e.ID)
+			excess--
 		}
 	}
 	slices.Sort(out)

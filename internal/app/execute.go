@@ -296,7 +296,7 @@ func (r runner) write(res *InstallResult, writes []plan.Op, next state.State) er
 		return &InstallError{Cause: err, Rollback: rb, Backup: ref.Path}
 	}
 	res.Backup, res.State = ref, statePath
-	if err := r.prune(ref.ID); err != nil {
+	if err := r.prune(ref.ID, ref.ID); err != nil {
 		res.Warnings = append(res.Warnings, fmt.Sprintf("older backups could not be pruned: %v", err))
 	}
 	return nil
@@ -708,14 +708,17 @@ func (r runner) writeState(s state.State) error {
 }
 
 // prune removes the backups retention does not keep, never the backups in
-// protect. A backup whose manifest cannot be read or decoded is left
-// alone; one without a manifest is incomplete.
-func (r runner) prune(protect ...string) error {
+// protect, with head the backup the install state now names ("" for
+// none), from which the history is followed. A backup whose manifest
+// cannot be read or decoded is left alone; one without a manifest is
+// incomplete.
+func (r runner) prune(head string, protect ...string) error {
 	root := filepath.Join(r.home, dotaiDir, backupsDir)
 	names, err := r.d.List(root)
 	if err != nil {
 		return err
 	}
+	chain := r.history(head)
 	var entries []backup.Entry
 	for _, name := range names {
 		if _, ok := backup.ParseID(name); !ok {
@@ -733,13 +736,45 @@ func (r runner) prune(protect ...string) error {
 		if err != nil {
 			continue
 		}
-		entries = append(entries, backup.Entry{ID: name, CreatedAt: m.CreatedAt, Complete: true})
+		entries = append(entries, backup.Entry{ID: name, CreatedAt: m.CreatedAt, Complete: true, Chain: chain[name]})
 	}
 	var errs []error
 	for _, id := range backup.Prune(entries, keepBackups, protect...) {
 		errs = append(errs, r.d.RemoveAll(filepath.Join(root, id)))
 	}
 	return errors.Join(errs...)
+}
+
+// history is the set of backups the install state leads to: head, then
+// the backup the state kept in it names, and so on, as far as each one can
+// be read.
+func (r runner) history(head string) map[string]bool {
+	root := filepath.Join(r.home, dotaiDir, backupsDir)
+	seen := map[string]bool{}
+	for id := head; id != "" && !seen[id]; {
+		if _, ok := backup.ParseID(id); !ok {
+			break
+		}
+		seen[id] = true
+		dir := filepath.Join(root, id)
+		data, err := r.d.ReadFile(dir, backup.ManifestName)
+		if err != nil {
+			break
+		}
+		m, err := backup.Decode(data)
+		if err != nil || m.PriorState == nil || m.PriorState.None {
+			break
+		}
+		if data, err = r.d.ReadFile(dir, m.PriorState.File); err != nil {
+			break
+		}
+		prior, err := state.Decode(data)
+		if err != nil {
+			break
+		}
+		id = prior.Backup
+	}
+	return seen
 }
 
 // same reports whether cur is the content hash and exec bit, leaving the

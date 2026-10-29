@@ -3,6 +3,7 @@ package backup_test
 import (
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -130,7 +131,7 @@ func TestPrune(t *testing.T) {
 		{name: "keep plus the first", entries: entries(1, 11)},
 		{name: "two too many", entries: all, want: ids(all[1:3])},
 		{name: "unsorted", entries: append(entries(7, 13), entries(1, 6)...), want: ids(all[1:3])},
-		{name: "protected", entries: all, protect: []string{all[1].ID}, want: ids(all[2:3])},
+		{name: "protected", entries: all, protect: []string{all[1].ID}, want: ids(all[2:4])},
 		{name: "incomplete", entries: append(entries(1, 3), incomplete), want: []string{incomplete.ID}},
 		{name: "incomplete and protected", entries: append(entries(1, 3), incomplete), protect: []string{incomplete.ID}},
 		{name: "incomplete does not count", entries: append(entries(1, 11), incomplete), want: []string{incomplete.ID}},
@@ -142,6 +143,37 @@ func TestPrune(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestPruneSparesTheHistory checks that the backups the install state
+// leads to are pruned last: restored installs and restores go first, oldest
+// first, and of the history only what is beyond its newest keep backups.
+func TestPruneSparesTheHistory(t *testing.T) {
+	es := entries(1, 12) // eight installs, then four restores of the last four
+	for i := range es {
+		es[i].Chain = i < 4
+		if i >= 8 {
+			es[i].ID = strings.Replace(es[i].ID, "_install", "_restore", 1)
+		}
+	}
+	if got := backup.Prune(es, 10); !reflect.DeepEqual(got, []string{es[4].ID}) {
+		t.Errorf("Prune() = %v, want only the oldest restored install %s", got, es[4].ID)
+	}
+	if got := backup.Prune(es, 2); !reflect.DeepEqual(got, sorted(append(ids(es[4:]), es[1].ID))) {
+		t.Errorf("Prune(keep 2) = %v, want every spent backup and the history beyond its newest two, %v", got, sorted(append(ids(es[4:]), es[1].ID)))
+	}
+	chain := entries(1, 13)
+	for i := range chain {
+		chain[i].Chain = true
+	}
+	if got := backup.Prune(chain, 10); !reflect.DeepEqual(got, ids(chain[1:3])) {
+		t.Errorf("Prune() of a long history = %v, want %v", got, ids(chain[1:3]))
+	}
+}
+
+func sorted(s []string) []string {
+	slices.Sort(s)
+	return s
 }
 
 // TestPruneWithAClockThatWentBack checks that the order is the recorded
