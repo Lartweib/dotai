@@ -6,6 +6,8 @@ tags: [engine, install, backup, state, isolation]
 
 # 0032 · Install state, backup layout and the isolated launch command
 
+> **Partially superseded by [0035](0035-settings-files-owned-by-key.md): in a harness's settings file dotai owns only the keys it writes,** recorded with their hashes in `state.json`, so a key the harness writes there is not an edit. Everything else is still in force.
+
 ## Context
 
 [0018](0018-install-modes-and-mandatory-backup.md) requires a backup before any write and an alias command per harness, and sketches the backup format. [0013](0013-renderer-merges-by-key.md) requires an ownership record but leaves where it is stored pending. [0028](0028-plan-centric-hexagonal-engine.md) fixes the pipeline (plan → backup → execute → record state) and that execution stops when a target changed after planning. [0031](0031-isolated-install-root.md) leaves the alias command pending. Roadmap PR 8 is split into 8a (`dotai install` executes the isolated plan), 8b (`dotai restore`) and 8c (launching a harness isolated).

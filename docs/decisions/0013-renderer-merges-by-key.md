@@ -36,3 +36,5 @@ In addition, a Claude Code plugin cannot carry `permissions`, `env` or `statusLi
 ## Evidence
 
 - Internal research (not published) on harness surfaces, §0.6, §1 (local state), §5.1 and §6.4 (recommendations 2 and 3).
+
+Update 2026-10-30: for the settings files of the isolated installs, the record of owned keys lives in `state.json`, as [0035](0035-settings-files-owned-by-key.md) decides.
