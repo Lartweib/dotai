@@ -18,6 +18,7 @@
         "standalone"
       ],
       "defaultVariant": "",
+      "sharedSkills": [],
       "layers": [
         {
           "kind": "base",

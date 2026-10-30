@@ -21,6 +21,7 @@
         "tmux"
       ],
       "defaultVariant": "standalone",
+      "sharedSkills": [],
       "layers": [
         {
           "kind": "base",

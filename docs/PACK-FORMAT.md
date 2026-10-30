@@ -57,6 +57,7 @@ variants:
   orca:
     path: variants/orca
     detect: { command: orca }
+    shared-skills: true
 ```
 
 | Field | Required | Meaning |
@@ -71,6 +72,7 @@ variants:
 | `profiles.<name>.hints` | no | Evidence for the onboarding agent. The engine never acts on them. |
 | `variants.<name>.default` | no | Variant used when nothing is chosen or detected. Exactly one variant sets it when the pack has variants. |
 | `variants.<name>.detect` | no | Mechanical rule that preselects the variant. `command`: preselect when that command is on `PATH`. |
+| `variants.<name>.shared-skills` | no | `true` makes the user's shared skills folder, `~/.agents/skills`, where other tools install skills, visible in the isolated install of this variant ([0036](decisions/0036-shared-skills-per-variant.md)). Default `false`: only the pack's content is visible. Only variants take it. |
 
 `base/` is implicit and always applied.
 

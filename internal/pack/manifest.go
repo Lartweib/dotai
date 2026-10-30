@@ -37,11 +37,14 @@ type Profile struct {
 	Hints                   []string
 }
 
-// Variant is a user-level layer applied on top of the base.
+// Variant is a user-level layer applied on top of the base. SharedSkills
+// makes the user's shared skills folder, ~/.agents/skills, visible in the
+// isolated install of the variant (decision 0036).
 type Variant struct {
-	Name, Path string
-	Default    bool
-	Detect     *Detect
+	Name, Path   string
+	Default      bool
+	Detect       *Detect
+	SharedSkills bool
 }
 
 // Detect is the mechanical rule that preselects a variant.
@@ -130,13 +133,14 @@ func decodeVariants(fsys fs.FS, r reader, o object) (out []Variant, declared int
 	}
 	vs := r.object(o.keys["variants"], o.vals["variants"], "variants")
 	for _, name := range vs.order {
-		v := r.object(vs.keys[name], vs.vals[name], "variant "+name, "path", "default", "detect")
+		v := r.object(vs.keys[name], vs.vals[name], "variant "+name, "path", "default", "detect", "shared-skills")
 		va := Variant{Name: name, Path: layerPath(fsys, v)}
 		var valid bool
 		va.Default, valid = v.boolean("default")
 		if va.Default || v.has("default") && !valid {
 			declared++
 		}
+		va.SharedSkills, _ = v.boolean("shared-skills")
 		if v.has("detect") {
 			d := r.object(v.keys["detect"], v.vals["detect"], "detect", "command")
 			va.Detect = &Detect{}

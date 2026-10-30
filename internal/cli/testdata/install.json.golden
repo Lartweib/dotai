@@ -16,6 +16,7 @@
       "profiles": [],
       "variants": [],
       "defaultVariant": "",
+      "sharedSkills": [],
       "layers": []
     },
     "variant": "standalone",
