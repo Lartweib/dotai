@@ -197,12 +197,15 @@ func (e *RestoreError) Unwrap() []error {
 // that backup, as an install does. The state is then the one from before
 // the oldest install undone, or none, in which case the empty isolated and
 // tools directories go too, and the backups undone are marked restored.
-// Failures after the restore succeeded are warnings.
-func Restore(ctx context.Context, home, id string, overwrite func(RestoreResult) (bool, error)) (RestoreResult, error) {
-	return restore(ctx, osInstallFS{}, home, id, overwrite)
+// Failures after the restore succeeded are warnings. The warnings of the
+// plan, such as to close the harnesses whose files it writes, are also
+// given to warn, when it is not nil, before overwrite is asked and before
+// the lock, the backup or any write.
+func Restore(ctx context.Context, home, id string, warn Warn, overwrite func(RestoreResult) (bool, error)) (RestoreResult, error) {
+	return restore(ctx, osInstallFS{}, home, id, warn, overwrite)
 }
 
-func restore(ctx context.Context, d executeFS, home, id string, overwrite func(RestoreResult) (bool, error)) (RestoreResult, error) {
+func restore(ctx context.Context, d executeFS, home, id string, warn Warn, overwrite func(RestoreResult) (bool, error)) (RestoreResult, error) {
 	if !filepath.IsAbs(home) {
 		return RestoreResult{}, fmt.Errorf("home directory %q is not absolute", home)
 	}
@@ -224,6 +227,11 @@ func restore(ctx context.Context, d executeFS, home, id string, overwrite func(R
 	res, _, err := r.planned(*s, id)
 	if err != nil {
 		return RestoreResult{}, err
+	}
+	for _, w := range res.Warnings {
+		if warn != nil {
+			warn(w)
+		}
 	}
 	if len(res.Conflicts) > 0 {
 		ok := false

@@ -48,7 +48,7 @@ func newRestoreCmd(env Env, jsonOut *bool) *cobra.Command {
 			id = args[0]
 		}
 		color := useColor(env.Stdout)
-		warned := map[string]bool{}
+		warn, warned := earlyWarnings(env, *jsonOut)
 		asked := false
 		overwrite := func(p app.RestoreResult) (bool, error) {
 			if yes {
@@ -57,11 +57,7 @@ func newRestoreCmd(env Env, jsonOut *bool) *cobra.Command {
 			if *jsonOut || env.Prompt == nil {
 				return false, nil
 			}
-			asked = true
-			for _, w := range p.Warnings {
-				fmt.Fprintf(env.Stderr, "warning: %s\n", w)
-				warned[w] = true
-			}
+			asked = true // the warnings of the plan were printed before
 			if err := writeConflicts(env.Stdout, p.Conflicts); err != nil {
 				return false, err
 			}
@@ -71,7 +67,7 @@ func newRestoreCmd(env Env, jsonOut *bool) *cobra.Command {
 			}
 			return env.Prompt(ctx, q)
 		}
-		res, err := env.Restore(ctx, home, id, overwrite)
+		res, err := env.Restore(ctx, home, id, warn, overwrite)
 		if _, ok := errors.AsType[*app.ConflictError](err); ok && asked {
 			return errors.New("the restore was cancelled: nothing was written")
 		}

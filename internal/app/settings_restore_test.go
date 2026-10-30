@@ -1,8 +1,12 @@
 package app_test
 
 import (
+	"context"
 	"errors"
+	"os"
 	"reflect"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/lartweib/dotai/internal/app"
@@ -28,6 +32,54 @@ func TestInstallWarnsToCloseAHarnessWhoseSettingsItWrites(t *testing.T) {
 	want := []string{"close claudecode before installing: a harness that is running may rewrite its settings file while dotai writes its keys there"}
 	if !reflect.DeepEqual(res.Warnings, want) {
 		t.Errorf("warnings = %q, want %q", res.Warnings, want)
+	}
+}
+
+// orderFS is the real file system port that logs each write, so that a
+// test can tell what came before the first one.
+type orderFS struct {
+	*clockFS
+	log *[]string
+}
+
+func (f orderFS) WriteIn(root, name string, data []byte, mode os.FileMode) error {
+	*f.log = append(*f.log, "write "+name)
+	return f.clockFS.WriteIn(root, name, data, mode)
+}
+
+func (f orderFS) WriteSynced(dir, name string, data []byte, perm os.FileMode) error {
+	*f.log = append(*f.log, "backup "+name)
+	return f.clockFS.WriteSynced(dir, name, data, perm)
+}
+
+// TestCloseWarningsComeBeforeTheFirstWrite checks that install and restore
+// give the warning to close a harness as soon as the plan is known, before
+// they back up or write anything, and keep it in their result.
+func TestCloseWarningsComeBeforeTheFirstWrite(t *testing.T) {
+	home, _ := installHome(t)
+	c := newClockFS(t)
+	if _, err := installVariant(t, c, examplePack, "standalone", home); err != nil {
+		t.Fatal(err)
+	}
+	var log []string
+	warn := func(text string) { log = append(log, "warn "+text) }
+	f := quiet(t)
+	res, err := app.InstallWarnWith(context.Background(), orderFS{c, &log}, f.fetch, f.run, examplePack, "tmux", home, warn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(log) < 2 || !strings.HasPrefix(log[0], "warn close claudecode before installing") || strings.Count(strings.Join(log, "\n"), "warn ") != 1 ||
+		!slices.Contains(res.Warnings, strings.TrimPrefix(log[0], "warn ")) {
+		t.Errorf("install log = %q, warnings %q; want the warning once, first, and in the result", log, res.Warnings)
+	}
+	log = nil
+	rres, err := app.RestoreWarnWith(context.Background(), orderFS{c, &log}, home, "", warn, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(log) < 2 || !strings.HasPrefix(log[0], "warn close claudecode") || !strings.Contains(log[0], "before restoring") ||
+		!slices.Contains(rres.Warnings, strings.TrimPrefix(log[0], "warn ")) {
+		t.Errorf("restore log = %q, warnings %q; want the warning first and in the result", log, rres.Warnings)
 	}
 }
 

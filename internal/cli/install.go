@@ -68,7 +68,8 @@ func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
 			}
 			return writePlan(env.Stdout, res, useColor(env.Stdout), "dry run, nothing was written\n")
 		}
-		res, err := env.Install(ctx, cache, packDir(args), variant, home, progress)
+		warn, warned := earlyWarnings(env, *jsonOut)
+		res, err := env.Install(ctx, cache, packDir(args), variant, home, progress, warn)
 		if err != nil {
 			return err
 		}
@@ -86,11 +87,31 @@ func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
 			return err
 		}
 		for _, w := range res.Warnings {
-			fmt.Fprintf(env.Stderr, "warning: %s\n", w)
+			if !warned[w] {
+				fmt.Fprintf(env.Stderr, "warning: %s\n", w)
+			}
 		}
 		return nil
 	}
 	return cmd
+}
+
+// earlyWarnings is the warn port of install and restore: without --json, it
+// prints each warning on stderr as soon as the use case gives it, before
+// anything is written, and records it in warned, so that it is not printed
+// again with the warnings that come after. With --json it is nil: the
+// warnings are in data.
+func earlyWarnings(env Env, jsonOut bool) (app.Warn, map[string]bool) {
+	warned := map[string]bool{}
+	if jsonOut {
+		return nil, warned
+	}
+	return func(text string) {
+		if !warned[text] {
+			warned[text] = true
+			fmt.Fprintf(env.Stderr, "warning: %s\n", text)
+		}
+	}, warned
 }
 
 // writePlan prints an install plan: the pack and mode, how each harness

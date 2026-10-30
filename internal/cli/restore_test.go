@@ -51,11 +51,16 @@ type fakeRestore struct {
 	asked bool
 }
 
-func (f *fakeRestore) restore(ctx context.Context, home, id string, overwrite func(app.RestoreResult) (bool, error)) (app.RestoreResult, error) {
+func (f *fakeRestore) restore(ctx context.Context, home, id string, warn app.Warn, overwrite func(app.RestoreResult) (bool, error)) (app.RestoreResult, error) {
 	if ctx == nil || overwrite == nil {
 		f.t.Error("Restore called without a context or an overwrite function")
 	}
 	f.home, f.id = home, id
+	if warn != nil { // as the real one does, before it asks or writes
+		for _, w := range f.res.Warnings {
+			warn(w)
+		}
+	}
 	if len(f.res.Conflicts) > 0 {
 		f.asked = true
 		ok, err := overwrite(f.res)
@@ -221,6 +226,25 @@ func TestRunRestoreConflicts(t *testing.T) {
 	}
 }
 
+// TestRunRestoreWarnsBeforeItWrites checks that the warning to close the
+// harnesses is printed when the restore gives it, before it writes and so
+// before the summary, once.
+func TestRunRestoreWarnsBeforeItWrites(t *testing.T) {
+	restoreHome(t)
+	var out bytes.Buffer // stdout and stderr, in the order they are written
+	env := testEnv(&out, &out)
+	res := restoreResult
+	res.Conflicts = []app.RestoreConflict{}
+	env.Restore = (&fakeRestore{t: t, res: res}).restore
+	if code := cli.Run([]string{"restore"}, env); code != cli.ExitOK {
+		t.Fatalf("exit code = %d", code)
+	}
+	w := "warning: " + restoreResult.Warnings[0] + "\n"
+	if got := out.String(); !strings.HasPrefix(got, w+"Restore · ") || strings.Count(got, w) != 1 {
+		t.Errorf("output = %q, want the warning first and once", got)
+	}
+}
+
 // TestRunRestoreAsksAboutAChangedKey checks that a key of a settings file
 // that changed after the install is listed by name before the question.
 func TestRunRestoreAsksAboutAChangedKey(t *testing.T) {
@@ -262,7 +286,7 @@ func TestRunRestoreUsageErrors(t *testing.T) {
 	restoreHome(t)
 	var stdout bytes.Buffer
 	env := testEnv(&stdout, &bytes.Buffer{})
-	env.Restore = func(context.Context, string, string, func(app.RestoreResult) (bool, error)) (app.RestoreResult, error) {
+	env.Restore = func(context.Context, string, string, app.Warn, func(app.RestoreResult) (bool, error)) (app.RestoreResult, error) {
 		t.Error("Restore called on a usage error")
 		return app.RestoreResult{}, nil
 	}

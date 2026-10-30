@@ -166,12 +166,18 @@ type executeFS interface {
 // journal, so that the next install owns what it wrote. An install that
 // writes no file takes no backup, and leaves the state as it was when it
 // records the same install. Failures after the install succeeded are
-// warnings.
-func Install(ctx context.Context, cacheDir, dir, variant, home string, progress Progress) (InstallResult, error) {
-	return install(ctx, osInstallFS{}, download, generate, cacheDir, dir, variant, home, progress)
+// warnings. A warning the user must read before the install writes, such
+// as to close a harness, is also given to warn, when it is not nil, once
+// the plan is known and before the lock, the backup or any write.
+func Install(ctx context.Context, cacheDir, dir, variant, home string, progress Progress, warn Warn) (InstallResult, error) {
+	return install(ctx, osInstallFS{}, download, generate, cacheDir, dir, variant, home, progress, warn)
 }
 
-func install(ctx context.Context, d executeFS, fetch fetchFunc, run runFunc, cacheDir, dir, variant, home string, progress Progress) (InstallResult, error) {
+// Warn receives a warning, text for people, that must be read before
+// dotai writes, as soon as it is known.
+type Warn = func(text string)
+
+func install(ctx context.Context, d executeFS, fetch fetchFunc, run runFunc, cacheDir, dir, variant, home string, progress Progress, warn Warn) (InstallResult, error) {
 	if !filepath.IsAbs(home) {
 		return InstallResult{}, fmt.Errorf("home directory %q is not absolute", home)
 	}
@@ -188,6 +194,9 @@ func install(ctx context.Context, d executeFS, fetch fetchFunc, run runFunc, cac
 		}
 		if w := settingsWarning(p); w != "" {
 			res.Warnings = append(res.Warnings, w)
+			if warn != nil {
+				warn(w)
+			}
 		}
 		r := runner{ctx: ctx, d: d, home: home, p: p, pack: state.Pack{Name: p.plan.Pack.Name, Version: p.plan.Pack.Version, Path: packPath}}
 		return r.run(&res)

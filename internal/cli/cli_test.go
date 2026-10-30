@@ -21,7 +21,7 @@ import (
 // fakes it, so that no test writes to a home directory.
 func testEnv(stdout, stderr *bytes.Buffer) cli.Env {
 	return cli.Env{Stdout: stdout, Stderr: stderr, Version: fixedVersion, Validate: app.Validate, Stage: app.Stage, PlanInstall: app.PlanInstall,
-		Install: func(context.Context, string, string, string, string, app.Progress) (app.InstallResult, error) {
+		Install: func(context.Context, string, string, string, string, app.Progress, app.Warn) (app.InstallResult, error) {
 			return app.InstallResult{}, errors.New("install is not faked in this test")
 		}}
 }
