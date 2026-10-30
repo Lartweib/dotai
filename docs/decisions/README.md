@@ -43,6 +43,7 @@ Records were renumbered on 2026-10-26, when the records about the reference pack
 | [0033](0033-restore-from-the-install-history.md) | Restore follows the install history kept in the backups (partially superseded by 0035) | accepted | 2026-10-30 |
 | [0034](0034-replace-mode-in-v1.md) | The replace install mode is part of v1 | accepted | 2026-10-30 |
 | [0035](0035-settings-files-owned-by-key.md) | dotai owns only its keys in a harness's settings file | accepted | 2026-10-30 |
+| [0036](0036-shared-skills-per-variant.md) | A variant can share the user's skills folder in isolated mode | accepted | 2026-10-31 |
 
 ## Superseded (history only)
 
