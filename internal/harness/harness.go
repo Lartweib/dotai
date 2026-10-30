@@ -46,6 +46,7 @@ type Pointer struct {
 	Mechanism Mechanism
 	Name      string
 	Path      string
+	Make      bool // dotai run creates the directory, empty, when it is missing
 }
 
 // Relogin is whether the user must log in again in the isolated mode.
@@ -75,6 +76,31 @@ type Isolation struct {
 	Relogin  map[string]Relogin
 	Leaks    []Leak // shown before installing and launching
 	Pointers []Pointer
+	Vars     []Var       // set by dotai run after the pointers
+	Flags    []AddedFlag // added by dotai run to the user's arguments
+}
+
+// Var is an environment variable that dotai run sets to a fixed value.
+type Var struct {
+	Name  string
+	Value string
+}
+
+// AddedFlag is a flag that dotai run adds to the user's arguments when the
+// command they run takes it, right after its subcommands. A command is a
+// path of subcommand names separated by spaces, "" for the harness's
+// default command.
+type AddedFlag struct {
+	Name     string
+	Commands []string // the commands that take Name
+	// Subcommands are the commands of the harness that start with a
+	// subcommand, which tell a subcommand from an argument of the default
+	// command, such as a directory.
+	Subcommands []string
+	// Unless are flags of the user's that take Name's place: with one of
+	// them, or Name itself, Name is not added.
+	Unless []string
+	Note   string // why Name is added, text for people
 }
 
 // ReloginOn is whether the user must log in again on goos.
@@ -123,9 +149,13 @@ type Adapter struct {
 	// since the harness writes into it too (decision 0035).
 	Settings string
 	// Command is the executable dotai run looks up on PATH and launches
-	// isolated; "" until dotai run supports the harness (roadmap PR 9).
-	Command   string
-	Isolation Isolation
+	// isolated; "" while dotai run does not support the harness.
+	Command string
+	// BatchTarget is the executable, relative to the directory of a Windows
+	// batch file found for Command, that the batch file runs, as npm
+	// installs it; dotai run launches it instead when it is there.
+	BatchTarget string
+	Isolation   Isolation
 }
 
 var adapters = []Adapter{
@@ -158,20 +188,43 @@ var adapters = []Adapter{
 	},
 	{
 		ID: "opencode", Target: "opencode", Dir: "opencode", Staging: ".config/opencode", Install: "config/opencode", Settings: "opencode.jsonc",
+		Command: "opencode", BatchTarget: "node_modules/@opencode/cli/bin/opencode.exe",
 		Isolation: Isolation{
 			Level:   Partial,
 			Relogin: map[string]Relogin{"": ReloginYes},
 			Leaks: []Leak{
-				{Text: "~/.agents/skills still loads"},
-				{Text: "it needs its own service port while your own OpenCode service runs"},
 				{Text: "provider credentials do not carry over"},
+				{Text: "AGENTS.md, .agents and .opencode still load from the working directory and the directories above it, the home directory included"},
+				{Text: "~/.agents/skills is hidden through OPENCODE_TEST_HOME, which OpenCode does not document, so a later OpenCode may load it again"},
+				{Text: "with --server, OpenCode reaches a server that runs with its own configuration"},
+				{Text: "a command that does not take --standalone, such as debug config, starts a background service on the port of your own OpenCode service and leaves it running"},
+				{Text: `the temporary directory %TEMP%\opencode is shared`, GOOS: "windows"},
 			},
 			Pointers: []Pointer{
 				{Mechanism: Env, Name: "XDG_CONFIG_HOME", Path: "config"},
 				{Mechanism: Env, Name: "XDG_DATA_HOME", Path: "data"},
 				{Mechanism: Env, Name: "XDG_STATE_HOME", Path: "state"},
 				{Mechanism: Env, Name: "XDG_CACHE_HOME", Path: "cache"},
+				// os.homedir() for ~/.agents/skills, which loads whatever
+				// else is set; an empty directory hides it.
+				// OpenCode's background service starts in it, so it must exist.
+				{Mechanism: Env, Name: "OPENCODE_TEST_HOME", Path: "home", Make: true},
 			},
+			// Drops ~/.claude and the .claude directories above the working
+			// directory.
+			Vars: []Var{{Name: "OPENCODE_DISABLE_CLAUDE_CODE", Value: "1"}},
+			// Checked on 2.0.30: the commands that take --standalone, and the
+			// subcommands of its help.
+			Flags: []AddedFlag{{
+				Name: "--standalone",
+				Commands: []string{"", "api", "auth list", "auth login", "mini", "models", "reload", "run",
+					"session delete", "session export", "session import", "session list", "stats"},
+				Subcommands: []string{"acp", "api", "auth", "auth export", "auth import", "auth list", "auth login", "auth logout", "auth switch",
+					"debug", "mcp", "mini", "models", "pair", "plugin", "reload", "run", "serve", "service",
+					"session", "session delete", "session export", "session import", "session list", "stats", "uninstall", "update", "upgrade"},
+				Unless: []string{"--server"},
+				Note:   "OpenCode runs a private server instead of attaching to a background service, which may be your own with your own configuration",
+			}},
 		},
 	},
 }
@@ -192,6 +245,12 @@ func All() []Adapter {
 		out[i].Isolation.Relogin = maps.Clone(out[i].Isolation.Relogin)
 		out[i].Isolation.Leaks = slices.Clone(out[i].Isolation.Leaks)
 		out[i].Isolation.Pointers = slices.Clone(out[i].Isolation.Pointers)
+		out[i].Isolation.Vars = slices.Clone(out[i].Isolation.Vars)
+		out[i].Isolation.Flags = slices.Clone(out[i].Isolation.Flags)
+		for j := range out[i].Isolation.Flags {
+			f := &out[i].Isolation.Flags[j]
+			f.Commands, f.Subcommands, f.Unless = slices.Clone(f.Commands), slices.Clone(f.Subcommands), slices.Clone(f.Unless)
+		}
 	}
 	return out
 }

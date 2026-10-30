@@ -79,3 +79,5 @@ Backup format:
 
 - Internal research (not published): harness install modes verification, 2026-10-24.
 - Internal research (not published): isolation runtime verification, 2026-10-25.
+
+Update 2026-10-30: OpenCode v2 has no `OPENCODE_DISABLE_EXTERNAL_SKILLS`. `dotai run opencode` sets the `XDG_*` directories, `OPENCODE_DISABLE_CLAUDE_CODE=1` and the undocumented `OPENCODE_TEST_HOME`, set to an empty directory of the isolated install, so that `~/.agents/skills` does not load; instead of its own service port it adds `--standalone`, a private server, to every command that takes it. The leaks it shows are in the OpenCode adapter and in [HARNESS-NOTES](../HARNESS-NOTES.md). `dotai run antigravity-cli` passes `--gemini_dir=<abs>` first; the check that agy still accepts the flag is not implemented yet.

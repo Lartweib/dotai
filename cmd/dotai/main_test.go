@@ -74,22 +74,29 @@ type launched struct {
 // PATH made of it.
 func buildFakes(t *testing.T) string {
 	t.Helper()
-	src, bin := t.TempDir(), t.TempDir()
-	if err := os.WriteFile(filepath.Join(src, "main.go"), []byte(fakeHarness), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	bin := t.TempDir()
 	for _, name := range []string{"claude", "agy", "opencode"} {
 		if runtime.GOOS == "windows" {
 			name += ".exe"
 		}
-		build := exec.Command("go", "build", "-o", filepath.Join(bin, name), "main.go")
-		build.Dir = src
-		build.Env = append(os.Environ(), "GOFLAGS=", "GO111MODULE=off")
-		if out, err := build.CombinedOutput(); err != nil {
-			t.Fatalf("building the fake %s: %v\n%s", name, err, out)
-		}
+		buildFake(t, filepath.Join(bin, name))
 	}
 	return bin
+}
+
+// buildFake builds the fake harness at dst.
+func buildFake(t *testing.T, dst string) {
+	t.Helper()
+	src := t.TempDir()
+	if err := os.WriteFile(filepath.Join(src, "main.go"), []byte(fakeHarness), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	build := exec.Command("go", "build", "-o", dst, "main.go")
+	build.Dir = src
+	build.Env = append(os.Environ(), "GOFLAGS=", "GO111MODULE=off")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("building the fake %s: %v\n%s", dst, err, out)
+	}
 }
 
 // launch decodes what the fake harness printed.
@@ -209,7 +216,8 @@ func TestRunFailsBeforeLaunching(t *testing.T) {
 		{name: "pending journal", home: installedHome(t, &state.Pending{Backup: "20261030T100000.000Z_install", Ops: []state.PendingOp{}}), path: bin,
 			args: []string{"run", "claudecode"}, want: 1, inErr: "was interrupted"},
 		{name: "claude missing on PATH", home: installedHome(t, nil), path: t.TempDir(), args: []string{"run", "claudecode"}, want: 1, inErr: "claude was not found on PATH"},
-		{name: "opencode", home: installedHome(t, nil), path: bin, args: []string{"run", "opencode"}, want: 2, inErr: "not supported yet"},
+		{name: "opencode not installed", home: installedHome(t, nil), path: bin, args: []string{"run", "opencode"}, want: 1, inErr: "opencode is not installed"},
+		{name: "unknown harness", home: installedHome(t, nil), path: bin, args: []string{"run", "codex"}, want: 2, inErr: `unknown harness "codex"`},
 		{name: "json", home: installedHome(t, nil), path: bin, args: []string{"--json", "run", "claudecode"}, want: 2, inErr: ""},
 	}
 	for _, tt := range tests {
@@ -249,5 +257,76 @@ func TestRunLaunchesAgyIsolated(t *testing.T) {
 	exit, stdout, stderr = dotai(t, home, bin, t.TempDir(), nil, "run", "antigravity-cli", "--gemini_dir=/elsewhere")
 	if exit != 2 || stdout != "" || !strings.Contains(stderr, "sets --gemini_dir itself") {
 		t.Errorf("with the user's --gemini_dir: exit code = %d, stdout = %q, stderr = %q, want a usage error and nothing launched", exit, stdout, stderr)
+	}
+}
+
+func TestRunLaunchesOpenCodeIsolated(t *testing.T) {
+	bin := buildFakes(t)
+	home := installedHome(t, nil, "opencode")
+	extra := []string{"XDG_CONFIG_HOME=" + filepath.Join(home, "inherited"), "OPENCODE_DISABLE_CLAUDE_CODE=0", "OPENCODE_TEST_HOME=" + home}
+	exit, stdout, stderr := dotai(t, home, bin, t.TempDir(), extra, "run", "opencode", "run", "hi there")
+	if exit != 0 {
+		t.Fatalf("exit code = %d; stderr = %q", exit, stderr)
+	}
+	dir := filepath.Join(home, ".dotai", "isolated", "opencode")
+	got := launch(t, stdout)
+	if want := []string{"run", "--standalone", "hi there"}; !slices.Equal(got.Args, want) {
+		t.Errorf("args = %q, want %q", got.Args, want)
+	}
+	want := map[string]string{
+		"XDG_CONFIG_HOME": filepath.Join(dir, "config"), "XDG_DATA_HOME": filepath.Join(dir, "data"),
+		"XDG_STATE_HOME": filepath.Join(dir, "state"), "XDG_CACHE_HOME": filepath.Join(dir, "cache"),
+		"OPENCODE_TEST_HOME": filepath.Join(dir, "home"), "OPENCODE_DISABLE_CLAUDE_CODE": "1",
+	}
+	for name, value := range want {
+		if got.Env[name] != value || got.Counts[name] != 1 {
+			t.Errorf("%s = %q (%d times), want only %q", name, got.Env[name], got.Counts[name], value)
+		}
+	}
+	if _, ok := got.Env["CLAUDE_CONFIG_DIR"]; !ok {
+		t.Error("CLAUDE_CONFIG_DIR was dropped, want the rest of the environment kept")
+	}
+	if info, err := os.Stat(filepath.Join(dir, "home")); err != nil || !info.IsDir() {
+		t.Errorf("the home of OPENCODE_TEST_HOME: %v, want a directory", err)
+	}
+	for _, line := range []string{
+		"dotai: opencode · partial isolation · XDG_CONFIG_HOME=" + filepath.Join(dir, "config"),
+		", OPENCODE_TEST_HOME=" + filepath.Join(dir, "home") + ", OPENCODE_DISABLE_CLAUDE_CODE=1\n",
+		"dotai: login: you must log in again in the isolated configuration\n",
+		"dotai: leaks: provider credentials do not carry over\n",
+		"dotai: note: --standalone added: ",
+	} {
+		if !strings.Contains(stderr, line) {
+			t.Errorf("stderr = %q, want %q", stderr, line)
+		}
+	}
+	exit, stdout, _ = dotai(t, home, bin, t.TempDir(), nil, "run", "opencode", "debug", "paths")
+	if got := launch(t, stdout); exit != 0 || !slices.Equal(got.Args, []string{"debug", "paths"}) {
+		t.Errorf("debug paths: exit code = %d, args = %q, want them untouched", exit, got.Args)
+	}
+}
+
+// TestRunLaunchesTheExecutableOfOpenCodesShim lays out OpenCode as npm
+// installs it on Windows: opencode.cmd, which runs the opencode.exe in
+// node_modules next to it.
+func TestRunLaunchesTheExecutableOfOpenCodesShim(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("batch shims are a Windows lookup")
+	}
+	npm := t.TempDir()
+	if err := os.WriteFile(filepath.Join(npm, "opencode.cmd"), []byte("@exit /b 9"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	buildFake(t, filepath.Join(npm, "node_modules", "@opencode", "cli", "bin", "opencode.exe"))
+	home := installedHome(t, nil, "opencode")
+	exit, stdout, stderr := dotai(t, home, npm, t.TempDir(), nil, "run", "opencode", "--", "models", "a&b")
+	if exit != 0 {
+		t.Fatalf("exit code = %d, stderr = %q, want the fake run instead of the batch file", exit, stderr)
+	}
+	if got := launch(t, stdout); !slices.Equal(got.Args, []string{"models", "--standalone", "a&b"}) {
+		t.Errorf("args = %q, want models --standalone a&b", got.Args)
+	}
+	if strings.Contains(stderr, "batch file") {
+		t.Errorf("stderr = %q, want no note about a batch file", stderr)
 	}
 }

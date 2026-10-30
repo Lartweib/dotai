@@ -206,7 +206,7 @@ func TestRunRunReal(t *testing.T) {
 		inErr   string
 	}{
 		{harness: "antigravity-cli", want: cli.ExitInternal, inErr: "no install state"},
-		{harness: "opencode", want: cli.ExitUsage, inErr: "not supported yet"},
+		{harness: "opencode", want: cli.ExitInternal, inErr: "no install state"},
 		{harness: "agy", want: cli.ExitUsage, inErr: `unknown harness "agy"`},
 		{harness: "claudecode", want: cli.ExitInternal, inErr: "no install state"},
 	}
@@ -259,6 +259,33 @@ func TestRunRunSaysWhenTheLoginIsUnknown(t *testing.T) {
 		t.Errorf("exit code = %d, want %d", code, cli.ExitOK)
 	}
 	if want := "dotai: login: you may need to log in again in the isolated configuration (not verified on this OS)\n"; !strings.Contains(stderr.String(), want) {
+		t.Errorf("stderr = %q, want %q", stderr.String(), want)
+	}
+}
+
+// TestRunRunShowsTheFixedVariablesWithThePointers checks OpenCode's first
+// line, which ends with the variables set to a fixed value, and the note
+// about --standalone.
+func TestRunRunShowsTheFixedVariablesWithThePointers(t *testing.T) {
+	restoreHome(t)
+	p := runPlan
+	p.Harness = app.HarnessPlan{
+		ID: "opencode", Level: "partial", Dir: "/home/u/.dotai/isolated/opencode", Relogin: "yes",
+		Pointers: []app.PointerPlan{{Mechanism: "env", Name: "XDG_CONFIG_HOME", Dir: "/home/u/.dotai/isolated/opencode/config"}},
+		Leaks:    []string{"provider credentials do not carry over"},
+	}
+	p.Vars = []string{"OPENCODE_DISABLE_CLAUDE_CODE=1"}
+	p.Notes = []string{"--standalone added: OpenCode runs a private server"}
+	f := &fakeRun{res: p}
+	var stderr bytes.Buffer
+	if code := cli.Run([]string{"run", "opencode"}, f.env(&bytes.Buffer{}, &stderr)); code != cli.ExitOK {
+		t.Errorf("exit code = %d, want %d", code, cli.ExitOK)
+	}
+	want := "dotai: opencode · partial isolation · XDG_CONFIG_HOME=/home/u/.dotai/isolated/opencode/config, OPENCODE_DISABLE_CLAUDE_CODE=1\n" +
+		"dotai: login: you must log in again in the isolated configuration\n" +
+		"dotai: leaks: provider credentials do not carry over\n" +
+		"dotai: note: --standalone added: OpenCode runs a private server\n"
+	if stderr.String() != want {
 		t.Errorf("stderr = %q, want %q", stderr.String(), want)
 	}
 }

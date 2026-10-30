@@ -152,8 +152,6 @@ func TestPlanRunErrors(t *testing.T) {
 	}{
 		{name: "unknown harness", home: func(t *testing.T) string { return t.TempDir() }, id: "codex", usage: true,
 			wantInErr: []string{`unknown harness "codex"`, "claudecode, antigravity-cli, opencode"}},
-		{name: "opencode not supported yet", home: func(t *testing.T) string { return t.TempDir() }, id: "opencode", usage: true,
-			wantInErr: []string{"opencode is not supported yet", "only claudecode, antigravity-cli"}},
 		{name: "no install state", home: func(t *testing.T) string { return t.TempDir() }, id: "claudecode",
 			wantInErr: []string{"no install state", "dotai install"}},
 		{name: "pending journal", home: func(t *testing.T) string {
@@ -356,5 +354,135 @@ func TestPlanRunShowsTheIsolationOfTheOS(t *testing.T) {
 		if p.Harness.Relogin != tt.relogin || len(p.Harness.Leaks) != tt.leaks {
 			t.Errorf("%s: relogin = %q, leaks = %q, want %q and %d leaks", tt.goos, p.Harness.Relogin, p.Harness.Leaks, tt.relogin, tt.leaks)
 		}
+	}
+}
+
+func TestPlanRunOpenCode(t *testing.T) {
+	home := runHome(t, app.ModeIsolated, []string{"opencode"}, nil)
+	bin := t.TempDir()
+	environ := []string{"PATH=" + bin, "XDG_CONFIG_HOME=/elsewhere", "OPENCODE_TEST_HOME=/x", "OPENCODE_DISABLE_CLAUDE_CODE=0", "KEEP=1"}
+	p, err := app.PlanRunWith(home, "opencode", []string{"run", "hi"}, environ, lookPathAt(bin), runtime.GOOS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := at(home, ".dotai/isolated/opencode")
+	if p.Command != "opencode" || p.Program != filepath.Join(bin, "opencode") {
+		t.Errorf("Command, Program = %q, %q, want opencode found in %s", p.Command, p.Program, bin)
+	}
+	want := []string{"PATH=" + bin, "KEEP=1",
+		"XDG_CONFIG_HOME=" + filepath.Join(dir, "config"), "XDG_DATA_HOME=" + filepath.Join(dir, "data"),
+		"XDG_STATE_HOME=" + filepath.Join(dir, "state"), "XDG_CACHE_HOME=" + filepath.Join(dir, "cache"),
+		"OPENCODE_TEST_HOME=" + filepath.Join(dir, "home"), "OPENCODE_DISABLE_CLAUDE_CODE=1"}
+	if !reflect.DeepEqual(p.Env, want) {
+		t.Errorf("Env = %q, want %q", p.Env, want)
+	}
+	if want := []string{"OPENCODE_DISABLE_CLAUDE_CODE=1"}; !reflect.DeepEqual(p.Vars, want) {
+		t.Errorf("Vars = %q, want %q", p.Vars, want)
+	}
+	if want := []string{"run", "--standalone", "hi"}; !reflect.DeepEqual(p.Args, want) {
+		t.Errorf("Args = %q, want %q", p.Args, want)
+	}
+	if len(p.Notes) != 1 || !strings.Contains(p.Notes[0], "--standalone") || !strings.Contains(p.Notes[0], "private server") {
+		t.Errorf("Notes = %q, want one about --standalone", p.Notes)
+	}
+	// OpenCode's background service starts in its home, which must exist.
+	if entries, err := os.ReadDir(filepath.Join(dir, "home")); err != nil || len(entries) != 0 {
+		t.Errorf("the home directory of OPENCODE_TEST_HOME: %v, %v, want it created empty", entries, err)
+	}
+}
+
+func TestPlanRunReplacesOpenCodeVariablesInAnyCaseOnWindows(t *testing.T) {
+	home := runHome(t, app.ModeIsolated, []string{"opencode"}, nil)
+	environ := []string{"xdg_cache_home=x", "Opencode_Disable_Claude_Code=0", "opencode_test_home=y", "Path=z"}
+	p, err := app.PlanRunWith(home, "opencode", nil, environ, lookPathAt(home), "windows")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Env) != 7 || p.Env[0] != "Path=z" {
+		t.Errorf("Env = %q, want Path and the six variables of OpenCode's launch only", p.Env)
+	}
+}
+
+// TestPlanRunAddsStandalone checks where --standalone goes: right after
+// the subcommands of a command that takes it, and nowhere else.
+func TestPlanRunAddsStandalone(t *testing.T) {
+	home := runHome(t, app.ModeIsolated, []string{"opencode"}, nil)
+	tests := []struct {
+		args, want []string
+	}{
+		{args: nil, want: []string{"--standalone"}},
+		{args: []string{"-c"}, want: []string{"--standalone", "-c"}},
+		{args: []string{"myproject", "--prompt", "hi"}, want: []string{"--standalone", "myproject", "--prompt", "hi"}},
+		{args: []string{"run", "hi", "there"}, want: []string{"run", "--standalone", "hi", "there"}},
+		{args: []string{"api", "skill.list"}, want: []string{"api", "--standalone", "skill.list"}},
+		{args: []string{"models"}, want: []string{"models", "--standalone"}},
+		{args: []string{"session", "list", "-n", "5"}, want: []string{"session", "list", "--standalone", "-n", "5"}},
+		{args: []string{"auth", "login"}, want: []string{"auth", "login", "--standalone"}},
+		{args: []string{"session"}, want: []string{"session"}},
+		{args: []string{"auth", "logout"}, want: []string{"auth", "logout"}},
+		{args: []string{"debug", "paths"}, want: []string{"debug", "paths"}},
+		{args: []string{"debug", "config"}, want: []string{"debug", "config"}},
+		{args: []string{"serve"}, want: []string{"serve"}},
+		{args: []string{"run", "--standalone", "hi"}, want: []string{"run", "--standalone", "hi"}},
+		{args: []string{"run", "--server", "http://127.0.0.1:1", "hi"}, want: []string{"run", "--server", "http://127.0.0.1:1", "hi"}},
+		{args: []string{"--server=http://127.0.0.1:1"}, want: []string{"--server=http://127.0.0.1:1"}},
+		{args: []string{"run", "--", "--server"}, want: []string{"run", "--standalone", "--", "--server"}},
+	}
+	for _, tt := range tests {
+		t.Run(strings.Join(tt.args, " "), func(t *testing.T) {
+			p, err := app.PlanRunWith(home, "opencode", tt.args, nil, lookPathAt(home), runtime.GOOS)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(p.Args, tt.want) {
+				t.Errorf("Args = %q, want %q", p.Args, tt.want)
+			}
+			if added := len(p.Args) > len(tt.args); added != (len(p.Notes) == 1) {
+				t.Errorf("Notes = %q, want a note exactly when --standalone is added", p.Notes)
+			}
+		})
+	}
+}
+
+func TestPlanRunRefusesALinkedOpenCodeHome(t *testing.T) {
+	home := runHome(t, app.ModeIsolated, []string{"opencode"}, nil)
+	dir := at(home, ".dotai/isolated/opencode/home")
+	if err := os.Symlink(t.TempDir(), dir); err != nil {
+		t.Skipf("cannot create a link: %v", err)
+	}
+	_, err := app.PlanRunWith(home, "opencode", nil, nil, lookPathAt(home), runtime.GOOS)
+	var notRegular *app.NotRegularError
+	if !errors.As(err, &notRegular) || notRegular.Path != dir {
+		t.Errorf("PlanRun() error = %v, want %s refused as a link", err, dir)
+	}
+}
+
+// TestPlanRunLaunchesTheExecutableOfOpenCodesShim checks that npm's
+// opencode.cmd gives way to the opencode.exe it runs, next to it in
+// node_modules, before an opencode.exe further on PATH.
+func TestPlanRunLaunchesTheExecutableOfOpenCodesShim(t *testing.T) {
+	home := runHome(t, app.ModeIsolated, []string{"opencode"}, nil)
+	npm := t.TempDir()
+	shim := filepath.Join(npm, "opencode.cmd")
+	exe := filepath.Join(npm, "node_modules", "@opencode", "cli", "bin", "opencode.exe")
+	found := map[string]string{"opencode": shim, "opencode.exe": `C:\other\opencode.exe`}
+	p, err := app.PlanRunWith(home, "opencode", []string{"run", "a&b"}, nil, lookPathFiles(found), "windows")
+	if err != nil || p.Program != found["opencode.exe"] {
+		t.Errorf("without the shim's executable: Program = %q, %v, want %s on PATH", p.Program, err, found["opencode.exe"])
+	}
+	if err := os.MkdirAll(filepath.Dir(exe), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(exe, nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p, err = app.PlanRunWith(home, "opencode", []string{"run", "a&b"}, nil, lookPathFiles(found), "windows")
+	if err != nil || p.Program != exe || len(p.Notes) != 1 {
+		t.Errorf("Program = %q, Notes = %q, %v, want %s with the --standalone note only", p.Program, p.Notes, err, exe)
+	}
+	// Outside Windows, a .cmd is no batch file.
+	p, err = app.PlanRunWith(home, "opencode", nil, nil, lookPathFiles(found), "linux")
+	if err != nil || p.Program != shim {
+		t.Errorf("on linux: Program = %q, %v, want %s as found", p.Program, err, shim)
 	}
 }
