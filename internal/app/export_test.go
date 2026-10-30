@@ -40,7 +40,13 @@ type ExecuteFS = executeFS
 // InstallWith is Install through d, fetching through fetch and running
 // rulesync through run.
 func InstallWith(ctx context.Context, d executeFS, fetch fetchFunc, run runFunc, dir, variant, home string) (InstallResult, error) {
-	return install(ctx, d, fetch, run, "cache", dir, variant, home, nil)
+	return install(ctx, d, fetch, run, "cache", dir, variant, home, nil, nil)
+}
+
+// InstallWarnWith is InstallWith giving the warnings to read before it
+// writes to warn.
+func InstallWarnWith(ctx context.Context, d executeFS, fetch fetchFunc, run runFunc, dir, variant, home string, warn Warn) (InstallResult, error) {
+	return install(ctx, d, fetch, run, "cache", dir, variant, home, nil, warn)
 }
 
 // RetryWith, Transient and NarrowMode are the retry of a move or a removal,
@@ -53,7 +59,13 @@ var (
 
 // RestoreWith is Restore through d.
 func RestoreWith(ctx context.Context, d executeFS, home, id string, overwrite func(RestoreResult) (bool, error)) (RestoreResult, error) {
-	return restore(ctx, d, home, id, overwrite)
+	return restore(ctx, d, home, id, nil, overwrite)
+}
+
+// RestoreWarnWith is RestoreWith giving the warnings to read before it
+// writes to warn.
+func RestoreWarnWith(ctx context.Context, d executeFS, home, id string, warn Warn, overwrite func(RestoreResult) (bool, error)) (RestoreResult, error) {
+	return restore(ctx, d, home, id, warn, overwrite)
 }
 
 // PlanRunWith is PlanRun with environ as the current environment, lookPath

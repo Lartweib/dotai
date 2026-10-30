@@ -25,6 +25,8 @@ func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
 		Long: "Install the user scope (base and variant) of the pack in path (default: current directory) isolated, under\n" +
 			"~/.dotai/isolated, and print the plan: how each harness runs isolated, what still leaks from your own setup,\n" +
 			"and each file it creates, replaces, removes or leaves unchanged. Without --variant, the default variant is used.\n" +
+			"In each harness's settings file dotai owns only the keys the pack puts there: the keys the harness writes stay,\n" +
+			"and a key dotai owns that was changed since is named and not overwritten.\n" +
 			"The pack is staged as by stage, into a temporary directory that is removed. Before the first write, each file\n" +
 			"that is replaced or removed is copied into a backup under ~/.dotai/backups; a failure rolls back from it.\n" +
 			"The install state is written last, to ~/.dotai/state.json. With --dry-run, nothing but the rulesync cache is written.",
@@ -66,7 +68,8 @@ func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
 			}
 			return writePlan(env.Stdout, res, useColor(env.Stdout), "dry run, nothing was written\n")
 		}
-		res, err := env.Install(ctx, cache, packDir(args), variant, home, progress)
+		warn, warned := earlyWarnings(env, *jsonOut)
+		res, err := env.Install(ctx, cache, packDir(args), variant, home, progress, warn)
 		if err != nil {
 			return err
 		}
@@ -84,11 +87,31 @@ func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
 			return err
 		}
 		for _, w := range res.Warnings {
-			fmt.Fprintf(env.Stderr, "warning: %s\n", w)
+			if !warned[w] {
+				fmt.Fprintf(env.Stderr, "warning: %s\n", w)
+			}
 		}
 		return nil
 	}
 	return cmd
+}
+
+// earlyWarnings is the warn port of install and restore: without --json, it
+// prints each warning on stderr as soon as the use case gives it, before
+// anything is written, and records it in warned, so that it is not printed
+// again with the warnings that come after. With --json it is nil: the
+// warnings are in data.
+func earlyWarnings(env Env, jsonOut bool) (app.Warn, map[string]bool) {
+	warned := map[string]bool{}
+	if jsonOut {
+		return nil, warned
+	}
+	return func(text string) {
+		if !warned[text] {
+			warned[text] = true
+			fmt.Fprintf(env.Stderr, "warning: %s\n", text)
+		}
+	}, warned
 }
 
 // writePlan prints an install plan: the pack and mode, how each harness
@@ -160,6 +183,7 @@ func writePlan(w io.Writer, p app.InstallPlan, color bool, footer string) error 
 		for _, op := range ops {
 			count[op.Action]++
 			fmt.Fprintf(&b, "  %s  %s\n", paintAction(color, op.Action), op.Target)
+			writeKeys(&b, color, len("  "+string(plan.Unchanged)+"  "), op.Keys)
 		}
 	}
 	fmt.Fprintf(&b, "\n%d create, %d replace, %d remove, %d unchanged · %s", count[plan.Create], count[plan.Replace], count[plan.Remove], count[plan.Unchanged], footer)
@@ -167,11 +191,28 @@ func writePlan(w io.Writer, p app.InstallPlan, color bool, footer string) error 
 	return err
 }
 
+// writeKeys prints the keys an operation writes into or deletes from a
+// settings file, on one line under its target, indented by indent.
+func writeKeys(b *strings.Builder, color bool, indent int, keys []plan.KeyChange) {
+	if len(keys) == 0 {
+		return
+	}
+	items := make([]string, len(keys))
+	for i, k := range keys {
+		items[i] = paint(color, actionStyle[k.Action], string(k.Action)) + " " + k.Key
+	}
+	fmt.Fprintf(b, "%skeys: %s\n", strings.Repeat(" ", indent), strings.Join(items, ", "))
+}
+
+// actionStyle is the style of each action: a create green, a replace
+// bold, a remove red, an unchanged file dim.
+var actionStyle = map[plan.Action]string{plan.Create: styleGreen, plan.Replace: styleBold, plan.Remove: styleRed, plan.Unchanged: styleDim}
+
 // paintAction pads action to the widest action and colors it: a create
 // green, a replace bold, a remove red, an unchanged file dim.
 func paintAction(color bool, a plan.Action) string {
 	pad := strings.Repeat(" ", len(plan.Unchanged)-len(a))
-	style := map[plan.Action]string{plan.Create: styleGreen, plan.Replace: styleBold, plan.Remove: styleRed, plan.Unchanged: styleDim}[a]
+	style := actionStyle[a]
 	if style == "" {
 		return string(a) + pad
 	}

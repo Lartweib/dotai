@@ -83,17 +83,28 @@
         "exec": false,
         "before": "",
         "after": "aa",
-        "beforeExec": false
+        "beforeExec": false,
+        "keys": []
       },
       {
-        "action": "unchanged",
+        "action": "replace",
         "harness": "claudecode",
         "source": ".claude/settings.json",
         "target": "/home/u/.dotai/isolated/claude/settings.json",
         "exec": false,
         "before": "bb",
-        "after": "bb",
-        "beforeExec": false
+        "after": "b2",
+        "beforeExec": false,
+        "keys": [
+          {
+            "key": "env.DOTAI_TERMINAL",
+            "action": "create"
+          },
+          {
+            "key": "model",
+            "action": "replace"
+          }
+        ]
       },
       {
         "action": "remove",
@@ -103,7 +114,8 @@
         "exec": false,
         "before": "ff",
         "after": "",
-        "beforeExec": false
+        "beforeExec": false,
+        "keys": []
       },
       {
         "action": "replace",
@@ -113,7 +125,8 @@
         "exec": false,
         "before": "cc",
         "after": "dd",
-        "beforeExec": false
+        "beforeExec": false,
+        "keys": []
       },
       {
         "action": "create",
@@ -123,7 +136,8 @@
         "exec": true,
         "before": "",
         "after": "ee",
-        "beforeExec": false
+        "beforeExec": false,
+        "keys": []
       }
     ],
     "diagnostics": [],

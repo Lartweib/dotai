@@ -35,7 +35,8 @@ type Document struct {
 	indent string        // one indentation level: spaces or a tab
 }
 
-// Parse parses src, which must be empty or hold a single object, and
+// Parse parses src, which must be empty or hold a single object that
+// encoding/json can read too, so not nested deeper than it allows, and
 // detects the style that new lines follow. The first line break decides the
 // line ending, so a file with mixed endings gets the first one's. The indent
 // unit is the indent of the first top-level key, or two spaces when there is
@@ -56,6 +57,9 @@ func Parse(src []byte) (*Document, error) {
 	obj, ok := v.Value.(*hujson.Object)
 	if !ok {
 		return nil, errors.New("top-level value is not an object")
+	}
+	if _, err := decodeValue(v); err != nil {
+		return nil, fmt.Errorf("not readable as JSON, such as nested too deeply: %w", err)
 	}
 	if len(obj.Members) > 0 {
 		if ind, ok := lineIndent(obj.Members[0].Name.BeforeExtra); ok && ind != "" {
@@ -85,7 +89,42 @@ func (d *Document) Get(path []string) ([]byte, bool) {
 	if v == nil {
 		return nil, false
 	}
-	return compactJSON(*v), true
+	b, err := compactJSON(*v)
+	if err != nil { // Parse checked the document
+		return nil, false
+	}
+	return b, true
+}
+
+// Keys returns the names of the members of the object at path, in the order
+// they first appear, each once, and whether there is an object there. An
+// empty document is an empty object.
+func (d *Document) Keys(path []string) ([]string, bool) {
+	if d.root == nil && len(path) == 0 {
+		return nil, true
+	}
+	v := d.lookup(path)
+	if v == nil {
+		return nil, false
+	}
+	obj, ok := v.Value.(*hujson.Object)
+	if !ok {
+		return nil, false
+	}
+	var names []string
+	for _, m := range obj.Members {
+		if name := m.Name.Value.(hujson.Literal).String(); !slices.Contains(names, name) {
+			names = append(names, name)
+		}
+	}
+	return names, true
+}
+
+// Canonical returns valid JSON, such as a value Get returns, in a form where
+// equal values are equal bytes; see equalityKey.
+func Canonical(value []byte) ([]byte, error) {
+	k, err := equalityKey(value)
+	return []byte(k), err
 }
 
 // lookup returns the value at path, or nil when a key is missing or a value
@@ -116,14 +155,27 @@ func findMember(v *hujson.Value, key string) (int, *hujson.Value) {
 	return -1, nil
 }
 
-// compactJSON returns v as compact JSON without comments or trailing commas.
-func compactJSON(v hujson.Value) []byte {
+// compactJSON returns v as compact JSON without comments or trailing
+// commas. A standardized value is valid JSON, unless it nests deeper than
+// encoding/json reads.
+func compactJSON(v hujson.Value) ([]byte, error) {
 	c := v.Clone()
 	c.BeforeExtra, c.AfterExtra = nil, nil
 	c.Standardize()
 	var b bytes.Buffer
-	_ = json.Compact(&b, c.Pack()) // a standardized value is valid JSON
-	return b.Bytes()
+	if err := json.Compact(&b, c.Pack()); err != nil {
+		return nil, err
+	}
+	return b.Bytes(), nil
+}
+
+// decodeValue decodes v as decodeJSON does.
+func decodeValue(v hujson.Value) (any, error) {
+	b, err := compactJSON(v)
+	if err != nil {
+		return nil, err
+	}
+	return decodeJSON(b)
 }
 
 // lineIndent returns the whitespace after the last line break of x, and
@@ -149,8 +201,9 @@ func (d *Document) Set(path []string, value []byte) error {
 		if parent == nil {
 			return false
 		}
-		parent[path[len(path)-1]] = decodeJSON(value)
-		return true
+		x, err := decodeJSON(value)
+		parent[path[len(path)-1]] = x
+		return err == nil
 	})
 }
 
@@ -193,7 +246,10 @@ func (d *Document) Union(path []string, elems ...[]byte) error {
 			}
 		}
 		for _, e := range elems {
-			x := decodeJSON(e)
+			x, err := decodeJSON(e)
+			if err != nil {
+				return false
+			}
 			if !slices.ContainsFunc(arr, func(y any) bool { return keyOf(y) == keyOf(x) }) {
 				arr = append(arr, x)
 			}
@@ -217,7 +273,11 @@ func (d *Document) verified(edit func() error, model func(top map[string]any) bo
 	top := map[string]any{}
 	if d.root != nil {
 		saved = d.root.Pack()
-		top = decodeJSON(compactJSON(*d.root)).(map[string]any)
+		x, err := decodeValue(*d.root)
+		var ok bool
+		if top, ok = x.(map[string]any); err != nil || !ok { // Parse checked it
+			return errors.New("the document cannot be read as a JSON object")
+		}
 	}
 	err := edit()
 	if err == nil && !(model(top) && d.matches(top)) {
@@ -242,7 +302,11 @@ func (d *Document) matches(want map[string]any) bool {
 	}
 	got := keyOf(map[string]any{})
 	if after.root != nil {
-		got = equalityKey(compactJSON(*after.root))
+		x, err := decodeValue(*after.root)
+		if err != nil {
+			return false
+		}
+		got = keyOf(x)
 	}
 	return got == keyOf(want)
 }
@@ -296,8 +360,8 @@ func (d *Document) set(path []string, value []byte) error {
 			parent = v
 			continue
 		}
-		if equalityKey(compactJSON(*v)) == equalityKey(value) {
-			return nil
+		if same, err := equalJSON(*v, value); err != nil || same {
+			return err
 		}
 		next, _ := hujson.Parse(slices.Clone(value))
 		oldObj, wasObj := v.Value.(*hujson.Object)
@@ -323,7 +387,11 @@ func (d *Document) setObject(path []string, old, value *hujson.Object) error {
 	for _, m := range value.Members {
 		key := m.Name.Value.(hujson.Literal).String()
 		gone = slices.DeleteFunc(gone, func(k string) bool { return k == key })
-		if err := d.set(append(slices.Clip(path), key), compactJSON(m.Value)); err != nil {
+		b, err := compactJSON(m.Value)
+		if err != nil {
+			return err
+		}
+		if err := d.set(append(slices.Clip(path), key), b); err != nil {
 			return err
 		}
 	}
@@ -404,8 +472,15 @@ func (d *Document) union(path []string, elems ...[]byte) error {
 		return fmt.Errorf("%q is not an array", path)
 	}
 	for _, e := range elems {
-		held := func(x hujson.Value) bool { return equalityKey(compactJSON(x)) == equalityKey(e) }
-		if !slices.ContainsFunc(arr.Elements, held) {
+		held := false
+		for _, x := range arr.Elements {
+			same, err := equalJSON(x, e)
+			if err != nil {
+				return err
+			}
+			held = held || same
+		}
+		if !held {
 			d.appendElement(arr, len(path)+1, e)
 		}
 	}
@@ -513,7 +588,24 @@ func nest(keys []string, value []byte) []byte {
 // equalityKey returns valid JSON in a form where equal values are equal
 // strings: compact, with object keys sorted. Numbers stay as written, so
 // 1.0 and 1 are different.
-func equalityKey(b []byte) string { return keyOf(decodeJSON(b)) }
+func equalityKey(b []byte) (string, error) {
+	x, err := decodeJSON(b)
+	if err != nil {
+		return "", err
+	}
+	return keyOf(x), nil
+}
+
+// equalJSON reports whether v and the valid JSON b are equal as canonical
+// JSON.
+func equalJSON(v hujson.Value, b []byte) (bool, error) {
+	x, err := decodeValue(v)
+	if err != nil {
+		return false, err
+	}
+	k, err := equalityKey(b)
+	return err == nil && keyOf(x) == k, err
+}
 
 // keyOf returns the equality key of a decoded value; see equalityKey.
 func keyOf(x any) string {
@@ -521,14 +613,15 @@ func keyOf(x any) string {
 	return string(out)
 }
 
-// decodeJSON decodes valid JSON into maps, slices and json.Number values,
-// so numbers keep the text they were written with.
-func decodeJSON(b []byte) any {
+// decodeJSON decodes JSON into maps, slices and json.Number values, so
+// numbers keep the text they were written with. Valid JSON fails only when
+// it nests deeper than encoding/json reads.
+func decodeJSON(b []byte) (any, error) {
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.UseNumber()
 	var x any
-	_ = dec.Decode(&x)
-	return x
+	err := dec.Decode(&x)
+	return x, err
 }
 
 // lineBreaks returns the offsets of the line breaks in x, the whitespace and

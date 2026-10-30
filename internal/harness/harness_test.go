@@ -117,6 +117,23 @@ func TestCommands(t *testing.T) {
 	}
 }
 
+// TestSettings checks where each harness keeps its settings file, whose
+// keys dotai owns rather than the whole file (decision 0035): in the
+// staging tree and in its isolated install, relative to the home
+// directory.
+func TestSettings(t *testing.T) {
+	want := map[string][2]string{
+		"claudecode":      {".claude/settings.json", ".dotai/isolated/claude/settings.json"},
+		"antigravity-cli": {".gemini/antigravity-cli/settings.json", ".dotai/isolated/gemini/antigravity-cli/settings.json"},
+		"opencode":        {".config/opencode/opencode.jsonc", ".dotai/isolated/opencode/config/opencode/opencode.jsonc"},
+	}
+	for _, a := range harness.All() {
+		if got := [2]string{a.SettingsSource(), a.SettingsTarget()}; got != want[a.ID] {
+			t.Errorf("%s: settings = %q, want %q", a.ID, got, want[a.ID])
+		}
+	}
+}
+
 // TestIsolationPerOS checks the login and the leaks of each harness by OS:
 // decision 0018 verified Claude Code's new login on Windows only, where
 // its credentials live in the configuration directory.

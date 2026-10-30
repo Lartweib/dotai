@@ -25,10 +25,13 @@ func newRestoreCmd(env Env, jsonOut *bool) *cobra.Command {
 		Short: "Undo the last install, or every install down to backup-id, from the backups",
 		Long: "Undo the last install that wrote files, from the backup it took under ~/.dotai/backups: each file it created is\n" +
 			"deleted and each file it replaced or removed is put back, with its exec bit, and the install state is put back\n" +
-			"as it was before. With backup-id, every install from the last one down to the one that took backup-id is undone,\n" +
-			"newest first, so the disk ends as it was before that install; the oldest backup undoes everything dotai installed.\n" +
-			"Every backup and every file is checked before anything is written. A file changed after the install is a conflict:\n" +
-			"on a terminal you are asked once whether to overwrite it; otherwise, and with --json, the restore is refused unless\n" +
+			"as it was before. In a harness's settings file, only the keys an install wrote or deleted are put back; the keys\n" +
+			"the harness wrote stay, and the file is deleted only when no key is left. With backup-id, every install from the\n" +
+			"last one down to the one that took backup-id is undone, newest first, so the disk ends as it was before that install;\n" +
+			"the oldest backup undoes everything dotai installed.\n" +
+			"Every backup and every file is checked before anything is written. A file, or a key of dotai's in a settings file,\n" +
+			"changed after the install is a conflict: on a terminal you are asked once whether to overwrite it; otherwise, and\n" +
+			"with --json, the restore is refused unless\n" +
 			"--yes is given. What the restore overwrites or deletes is first copied into a new backup. Close the harnesses first.",
 		Args: cobra.MaximumNArgs(1),
 	}
@@ -45,7 +48,7 @@ func newRestoreCmd(env Env, jsonOut *bool) *cobra.Command {
 			id = args[0]
 		}
 		color := useColor(env.Stdout)
-		warned := map[string]bool{}
+		warn, warned := earlyWarnings(env, *jsonOut)
 		asked := false
 		overwrite := func(p app.RestoreResult) (bool, error) {
 			if yes {
@@ -54,11 +57,7 @@ func newRestoreCmd(env Env, jsonOut *bool) *cobra.Command {
 			if *jsonOut || env.Prompt == nil {
 				return false, nil
 			}
-			asked = true
-			for _, w := range p.Warnings {
-				fmt.Fprintf(env.Stderr, "warning: %s\n", w)
-				warned[w] = true
-			}
+			asked = true // the warnings of the plan were printed before
 			if err := writeConflicts(env.Stdout, p.Conflicts); err != nil {
 				return false, err
 			}
@@ -68,7 +67,7 @@ func newRestoreCmd(env Env, jsonOut *bool) *cobra.Command {
 			}
 			return env.Prompt(ctx, q)
 		}
-		res, err := env.Restore(ctx, home, id, overwrite)
+		res, err := env.Restore(ctx, home, id, warn, overwrite)
 		if _, ok := errors.AsType[*app.ConflictError](err); ok && asked {
 			return errors.New("the restore was cancelled: nothing was written")
 		}
@@ -91,16 +90,27 @@ func newRestoreCmd(env Env, jsonOut *bool) *cobra.Command {
 	return cmd
 }
 
-// writeConflicts prints the files a restore would overwrite or delete
-// although they changed after the install, before the question.
+// writeConflicts prints the files, and the keys of settings files, that a
+// restore would overwrite or delete although they changed after the
+// install, before the question.
 func writeConflicts(w io.Writer, conflicts []app.RestoreConflict) error {
 	var b strings.Builder
-	if len(conflicts) == 1 {
+	keys := slices.ContainsFunc(conflicts, func(c app.RestoreConflict) bool { return c.Key != "" })
+	switch {
+	case keys && len(conflicts) == 1:
+		b.WriteString("1 key was changed after dotai installed it; the restore overwrites or deletes it, after copying its file into a new backup:\n")
+	case keys:
+		fmt.Fprintf(&b, "%d files or keys were changed after dotai installed them; the restore overwrites or deletes them, after copying their files into a new backup:\n", len(conflicts))
+	case len(conflicts) == 1:
 		b.WriteString("1 file was changed after dotai installed it; the restore overwrites or deletes it, after copying it into a new backup:\n")
-	} else {
+	default:
 		fmt.Fprintf(&b, "%d files were changed after dotai installed them; the restore overwrites or deletes them, after copying them into a new backup:\n", len(conflicts))
 	}
 	for _, c := range conflicts {
+		if c.Key != "" {
+			fmt.Fprintf(&b, "  key %s in %s\n", c.Key, c.Target)
+			continue
+		}
 		fmt.Fprintf(&b, "  %s\n", c.Target)
 	}
 	_, err := io.WriteString(w, b.String())
@@ -161,6 +171,7 @@ func writeRestore(w io.Writer, r app.RestoreResult, color bool) error {
 				changed = "  " + paint(color, styleDim, "(changed after the install, kept in the restore backup)")
 			}
 			fmt.Fprintf(&b, "  %s  %s%s\n", verb, op.Target, changed)
+			writeKeys(&b, color, len("  restore  "), op.Keys)
 		}
 	}
 	backup := "none, no file was written"

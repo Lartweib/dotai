@@ -12,6 +12,7 @@ import (
 	"github.com/tailscale/hujson"
 	"go.yaml.in/yaml/v3"
 
+	"github.com/lartweib/dotai/internal/harness"
 	"github.com/lartweib/dotai/internal/merge"
 	"github.com/lartweib/dotai/internal/pack"
 )
@@ -42,12 +43,26 @@ func (e *SettingsConflict) diagnostic() Diagnostic {
 		WithHint("remove %s from this file, or the rulesync source that writes it from the pack", e.Key)
 }
 
-// settingsFiles is where each harness keeps its settings in a scope's
-// staging tree (decision 0025). A missing scope has no settings file.
-var settingsFiles = map[string]map[string]string{
-	"claudecode":      {ScopeUser: ".claude/settings.json", ScopeProject: ".claude/settings.json"},
-	"antigravity-cli": {ScopeUser: ".gemini/antigravity-cli/settings.json"},
-	"opencode":        {ScopeUser: ".config/opencode/opencode.jsonc", ScopeProject: "opencode.jsonc"},
+// projectSettingsFiles is where each harness keeps its settings in the
+// project scope's staging tree (decision 0025); a harness missing here has
+// none.
+var projectSettingsFiles = map[string]string{
+	"claudecode": ".claude/settings.json",
+	"opencode":   "opencode.jsonc",
+}
+
+// settingsFile is where harness h keeps its settings in a scope's staging
+// tree: in the user scope, where its adapter says (decision 0035).
+func settingsFile(h, scope string) (string, bool) {
+	if scope == ScopeProject {
+		name, ok := projectSettingsFiles[h]
+		return name, ok
+	}
+	a, err := harness.Lookup([]string{h})
+	if err != nil || a[0].Settings == "" {
+		return "", false
+	}
+	return a[0].SettingsSource(), true
 }
 
 // renderSettings writes the merged settings of a scope into the settings
@@ -58,7 +73,7 @@ var settingsFiles = map[string]map[string]string{
 func renderSettings(w stageFS, dir, scope string, harnesses []string, settings map[string][]merge.Setting, tools ToolPaths) ([]StagedFile, error) {
 	var out []StagedFile
 	for _, h := range harnesses {
-		name, ok := settingsFiles[h][scope]
+		name, ok := settingsFile(h, scope)
 		if !ok || len(settings[h]) == 0 {
 			continue
 		}

@@ -126,9 +126,6 @@ func (e *stagingError) Unwrap() error { return e.err }
 // written, not even through a link or a junction.
 type executeFS interface {
 	installFS
-	// Read reads the regular file name, which is absolute, as Hash does,
-	// and gives its content with its state.
-	Read(ctx context.Context, name string) ([]byte, plan.Current, error)
 	// WriteIn writes data through a temporary file next to name moved over
 	// it, with at most the permissions of mode and of a file already there,
 	// and the exec bits of mode where the file system has them.
@@ -169,12 +166,18 @@ type executeFS interface {
 // journal, so that the next install owns what it wrote. An install that
 // writes no file takes no backup, and leaves the state as it was when it
 // records the same install. Failures after the install succeeded are
-// warnings.
-func Install(ctx context.Context, cacheDir, dir, variant, home string, progress Progress) (InstallResult, error) {
-	return install(ctx, osInstallFS{}, download, generate, cacheDir, dir, variant, home, progress)
+// warnings. A warning the user must read before the install writes, such
+// as to close a harness, is also given to warn, when it is not nil, once
+// the plan is known and before the lock, the backup or any write.
+func Install(ctx context.Context, cacheDir, dir, variant, home string, progress Progress, warn Warn) (InstallResult, error) {
+	return install(ctx, osInstallFS{}, download, generate, cacheDir, dir, variant, home, progress, warn)
 }
 
-func install(ctx context.Context, d executeFS, fetch fetchFunc, run runFunc, cacheDir, dir, variant, home string, progress Progress) (InstallResult, error) {
+// Warn receives a warning, text for people, that must be read before
+// dotai writes, as soon as it is known.
+type Warn = func(text string)
+
+func install(ctx context.Context, d executeFS, fetch fetchFunc, run runFunc, cacheDir, dir, variant, home string, progress Progress, warn Warn) (InstallResult, error) {
 	if !filepath.IsAbs(home) {
 		return InstallResult{}, fmt.Errorf("home directory %q is not absolute", home)
 	}
@@ -189,6 +192,12 @@ func install(ctx context.Context, d executeFS, fetch fetchFunc, run runFunc, cac
 		if len(p.plan.Diagnostics) > 0 {
 			return nil
 		}
+		if w := settingsWarning(p); w != "" {
+			res.Warnings = append(res.Warnings, w)
+			if warn != nil {
+				warn(w)
+			}
+		}
 		r := runner{ctx: ctx, d: d, home: home, p: p, pack: state.Pack{Name: p.plan.Pack.Name, Version: p.plan.Pack.Version, Path: packPath}}
 		return r.run(&res)
 	})
@@ -200,6 +209,24 @@ func install(ctx context.Context, d executeFS, fetch fetchFunc, run runFunc, cac
 		return InstallResult{}, err
 	}
 	return res, nil
+}
+
+// settingsWarning asks to close each harness whose settings file the plan
+// p replaces or removes, since a harness that is running writes there too
+// (decision 0035), or is "" when there is none. A settings file the plan
+// creates was missing, so no harness was writing it. dotai does not detect
+// a running harness (decision 0018, rule 5).
+func settingsWarning(p planned) string {
+	var harnesses []string
+	for _, op := range p.ops {
+		if op.Settings && (op.Action == plan.Replace || op.Action == plan.Remove) && !slices.Contains(harnesses, op.Harness) {
+			harnesses = append(harnesses, op.Harness)
+		}
+	}
+	if len(harnesses) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("close %s before installing: a harness that is running may rewrite its settings file while dotai writes its keys there", strings.Join(harnesses, ", "))
 }
 
 // runner carries out one install plan.
@@ -267,7 +294,7 @@ func (r runner) write(res *InstallResult, writes []plan.Op, next state.State) er
 	base := state.State{Schema: state.Schema, Pack: next.Pack, Variant: next.Variant, Mode: next.Mode, Harnesses: next.Harnesses, Files: []state.File{}}
 	var prior *state.State // what the backup records as the state before
 	if prev != nil {
-		base = prev.Settled(r.p.owned)
+		base = prev.Settled(r.p.owned, r.p.keys)
 		base.Backup = settledBackup(*prev)
 		prior = &base
 	}
@@ -551,9 +578,11 @@ func (r runner) apply(op plan.Op) (applied, error) {
 		}
 		return a, nil
 	}
-	data, err := r.d.ReadFile(r.p.tree, op.Source)
-	if err != nil {
-		return a, err
+	data := op.Data // a settings file with dotai's keys written into it
+	if data == nil {
+		if data, err = r.d.ReadFile(r.p.tree, op.Source); err != nil {
+			return a, err
+		}
 	}
 	if h := sha256.Sum256(data); hex.EncodeToString(h[:]) != op.After {
 		return a, fmt.Errorf("%s changed after the plan was made", filepath.Join(r.p.tree, filepath.FromSlash(op.Source)))

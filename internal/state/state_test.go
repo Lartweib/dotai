@@ -161,10 +161,75 @@ func TestJournal(t *testing.T) {
 	}
 }
 
+// TestSettingsKeys checks the record of a settings file, whose keys dotai
+// owns (decision 0035): the keys it owns once an install writes it, none
+// for a file it releases, the keys the journal records, and how the plan
+// reads them.
+func TestSettingsKeys(t *testing.T) {
+	home := t.TempDir()
+	settings := filepath.Join(home, ".dotai", "isolated", "claude", "settings.json")
+	released := filepath.Join(home, ".dotai", "isolated", "gemini", "antigravity-cli", "settings.json")
+	k0 := []plan.Key{{Path: []string{"model"}, SHA256: "sonnet"}}
+	k1 := []plan.Key{{Path: []string{"model"}, SHA256: "opus"}, {Path: []string{"env", "DOTAI_TERMINAL"}, SHA256: "tmux"}}
+	ops := []plan.Op{
+		{Action: plan.Replace, Harness: "claudecode", Source: ".claude/settings.json", Target: settings, Before: "s0", After: "s1", Settings: true, Keys: k1},
+		{Action: plan.Replace, Harness: "antigravity-cli", Target: released, Before: "r0", After: "r1", Settings: true},
+	}
+	s := state.New(state.Pack{Name: "p"}, "tmux", "isolated", at, []string{"claudecode"}, "b1", ops)
+	if want := []state.File{{Target: settings, Harness: "claudecode", SHA256: "s1", Keys: k1}}; !reflect.DeepEqual(s.Files, want) {
+		t.Errorf("New() files = %+v, want %+v", s.Files, want)
+	}
+	if got := s.Owned()[settings]; !reflect.DeepEqual(got, plan.Owned{Harness: "claudecode", Hash: "s1", Keys: k1}) {
+		t.Errorf("Owned() = %+v, want the keys", got)
+	}
+	data, err := state.Encode(s)
+	if err != nil || !strings.Contains(string(data), `"keys": [`) || !strings.Contains(string(data), `"path": [`) {
+		t.Errorf("Encode() = %s, %v, want the keys with their paths", data, err)
+	}
+	if back, err := state.Decode(data); err != nil || !reflect.DeepEqual(back, s) {
+		t.Errorf("Decode(Encode()) = %+v, %v, want %+v", back, err, s)
+	}
+
+	base := state.State{Schema: state.Schema, Harnesses: []string{}, Files: []state.File{
+		{Target: released, Harness: "antigravity-cli", SHA256: "r0", Keys: k0},
+		{Target: settings, Harness: "claudecode", SHA256: "s0", Keys: k0},
+	}}
+	j := state.Journal(base, "b2", ops)
+	if got := j.Pending.Ops[0]; !reflect.DeepEqual(got.Keys, k1) {
+		t.Errorf("Journal() op = %+v, want the keys after", got)
+	}
+	if got := j.Owned()[settings]; !reflect.DeepEqual(got, plan.Owned{Harness: "claudecode", Hash: "s0", Keys: k0, Also: []plan.Current{{Hash: "s1"}}, AlsoKeys: k1}) {
+		t.Errorf("Owned() of a settings file being written = %+v, want the keys before and after", got)
+	}
+	j.Files = nil
+	if got := j.Owned()[settings]; !reflect.DeepEqual(got, plan.Owned{Harness: "claudecode", Hash: "s1", Keys: k1, Foreign: []plan.Current{{Hash: "s0"}}}) {
+		t.Errorf("Owned() of a settings file dotai did not own = %+v, want the keys it was writing", got)
+	}
+
+	settled := state.Journal(base, "b2", ops).Settled(
+		map[string]plan.Current{settings: {Hash: "s9"}},
+		map[string][]plan.Key{settings: k1},
+	)
+	if want := []state.File{{Target: settings, Harness: "claudecode", SHA256: "s9", Keys: k1}}; !reflect.DeepEqual(settled.Files, want) {
+		t.Errorf("Settled() files = %+v, want %+v", settled.Files, want)
+	}
+
+	bad := s
+	bad.Files = []state.File{{Target: settings, SHA256: "x", Keys: []plan.Key{{SHA256: "y"}}}}
+	if _, err := state.Decode([]byte(encode(t, bad))); err == nil || !strings.Contains(err.Error(), "key") {
+		t.Errorf("Decode() of a key without a path error = %v, want one", err)
+	}
+	bad = state.Journal(base, "b2", ops)
+	bad.Pending.Ops[0].Keys = []plan.Key{{Path: []string{}, SHA256: "y"}}
+	if _, err := state.Decode([]byte(encode(t, bad))); err == nil || !strings.Contains(err.Error(), "key") || !strings.Contains(err.Error(), "pending") {
+		t.Errorf("Decode() of a pending key without a path error = %v, want one", err)
+	}
+}
+
 func TestSettled(t *testing.T) {
 	s, ops := sample(t)
 	j := state.Journal(s, "b2", ops)
-	got := j.Settled(map[string]plan.Current{ops[0].Target: {Hash: "x"}, ops[2].Target: {Hash: "h1", Exec: true}})
+	got := j.Settled(map[string]plan.Current{ops[0].Target: {Hash: "x"}, ops[2].Target: {Hash: "h1", Exec: true}}, nil)
 	want := []state.File{{Target: ops[0].Target, Harness: "claudecode", SHA256: "x"}, {Target: ops[2].Target, SHA256: "h1", Exec: true}}
 	if got.Pending != nil || !reflect.DeepEqual(got.Files, want) || got.Backup != s.Backup {
 		t.Errorf("Settled() = %+v, want files %+v and no pending", got, want)

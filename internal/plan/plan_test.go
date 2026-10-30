@@ -118,7 +118,7 @@ func TestBuildActions(t *testing.T) {
 			}
 			want := plan.Op{Action: tt.action, Scope: plan.ScopeUser, Harness: "claudecode", Source: ".claude/CLAUDE.md", Target: target,
 				Exec: tt.exec, Before: tt.before, BeforeExec: tt.beforeExec, After: hash}
-			if len(got.Ops) != 1 || got.Ops[0] != want {
+			if len(got.Ops) != 1 || !reflect.DeepEqual(got.Ops[0], want) {
 				t.Errorf("Build() = %+v, want [%+v]", got.Ops, want)
 			}
 		})

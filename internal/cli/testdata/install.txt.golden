@@ -16,7 +16,8 @@ opencode · partial isolation · needs a new login
 
 claudecode
   create     /home/u/.dotai/isolated/claude/CLAUDE.md
-  unchanged  /home/u/.dotai/isolated/claude/settings.json
+  replace    /home/u/.dotai/isolated/claude/settings.json
+             keys: create env.DOTAI_TERMINAL, replace model
   remove     /home/u/.dotai/isolated/claude/rules/old.md
 
 antigravity-cli
@@ -25,6 +26,6 @@ antigravity-cli
 tools
   create     /home/u/.dotai/tools/hello.sh
 
-2 create, 1 replace, 1 remove, 1 unchanged · installed
+2 create, 2 replace, 1 remove, 0 unchanged · installed
 backup: /home/u/.dotai/backups/20261029T101500.000Z_install
 state:  /home/u/.dotai/state.json

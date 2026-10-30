@@ -34,8 +34,8 @@ type Env struct {
 	Stage          func(ctx context.Context, cacheDir, dir, out string, sel app.Selection, tools app.ToolPaths, force bool, progress app.Progress) (app.StageResult, error)
 	FetchRulesync  func(ctx context.Context, cacheDir, dir string, progress app.Progress) (app.RulesyncResult, error)
 	PlanInstall    func(ctx context.Context, cacheDir, dir, variant, home string, progress app.Progress) (app.InstallPlan, error)
-	Install        func(ctx context.Context, cacheDir, dir, variant, home string, progress app.Progress) (app.InstallResult, error)
-	Restore        func(ctx context.Context, home, id string, overwrite func(app.RestoreResult) (bool, error)) (app.RestoreResult, error)
+	Install        func(ctx context.Context, cacheDir, dir, variant, home string, progress app.Progress, warn app.Warn) (app.InstallResult, error)
+	Restore        func(ctx context.Context, home, id string, warn app.Warn, overwrite func(app.RestoreResult) (bool, error)) (app.RestoreResult, error)
 	// PlanRun and Launch are dotai run: Launch gives the harness's exit
 	// code, and on Unix replaces dotai with the harness.
 	PlanRun func(home, id string, args []string) (app.RunPlan, error)

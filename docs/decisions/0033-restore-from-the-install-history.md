@@ -6,6 +6,8 @@ tags: [engine, restore, backup, state]
 
 # 0033 · Restore follows the install history kept in the backups
 
+> **Partially superseded by [0035](0035-settings-files-owned-by-key.md): a harness's settings file is restored key by key,** keeping the keys the harness wrote, and a changed dotai key is a conflict on that key. Everything else is still in force.
+
 ## Context
 
 [0018](0018-install-modes-and-mandatory-backup.md) says `dotai restore` brings a backup back, checking hashes first and asking before it overwrites a file changed after the install. [0032](0032-install-state-backup-and-isolated-launch.md) fixed the backup and state formats and left restore to roadmap PR 8b. The backups of PR 8a record each operation and what was installed, but not the ownership record the install replaced, so a restore could put files back and still leave `state.json` describing the install it undid.

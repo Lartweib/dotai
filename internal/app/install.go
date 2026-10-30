@@ -74,16 +74,19 @@ type PointerPlan struct {
 }
 
 // InstallOp is one operation of the plan; see plan.Op. Harness is empty
-// for a tool.
+// for a tool. Keys are the keys it writes into or deletes from a harness's
+// settings file, whose keys dotai owns (decision 0035); never nil, and
+// empty for any other file.
 type InstallOp struct {
-	Action     plan.Action `json:"action"`
-	Harness    string      `json:"harness"`
-	Source     string      `json:"source"`
-	Target     string      `json:"target"`
-	Exec       bool        `json:"exec"`
-	Before     string      `json:"before"`
-	After      string      `json:"after"`
-	BeforeExec bool        `json:"beforeExec"`
+	Action     plan.Action      `json:"action"`
+	Harness    string           `json:"harness"`
+	Source     string           `json:"source"`
+	Target     string           `json:"target"`
+	Exec       bool             `json:"exec"`
+	Before     string           `json:"before"`
+	After      string           `json:"after"`
+	BeforeExec bool             `json:"beforeExec"`
+	Keys       []plan.KeyChange `json:"keys"`
 }
 
 // NotRegularError is a path on the way to a target that the install would
@@ -128,6 +131,9 @@ type installFS interface {
 	// fs.ErrNotExist error when name is missing and a *NotRegularError
 	// when it is not a regular file.
 	Hash(ctx context.Context, name string) (plan.Current, error)
+	// Read reads the regular file name, which is absolute, as Hash does,
+	// and gives its content with its state.
+	Read(ctx context.Context, name string) ([]byte, plan.Current, error)
 	ExecBit() bool // whether the file system keeps an exec bit
 }
 
@@ -138,7 +144,10 @@ type installFS interface {
 // then compares each staged file with its target. A file the previous
 // install owned, by its state in ~/.dotai/state.json, that the pack no
 // longer stages is removed; an owned file the user edited fails the plan
-// with a *plan.EditedError. Apart from fetching rulesync, it writes
+// with a *plan.EditedError. A harness's settings file is planned key by
+// key (decision 0035): the keys dotai owns there are checked, not the
+// whole file, which the harness writes too. Apart from fetching rulesync,
+// it writes
 // nothing else. A pack with problems, including a staged file that
 // nothing installs, gives diagnostics. rulesync is fetched into cacheDir
 // as FetchRulesync does; progress may be nil.
@@ -170,6 +179,7 @@ type planned struct {
 	prev       *state.State
 	harnesses  []string
 	owned      map[string]plan.Current // the targets the previous install owns, as they are
+	keys       map[string][]plan.Key   // the keys it owns in each settings file of owned
 	ignoreExec bool
 }
 
@@ -231,18 +241,20 @@ func withPlan(ctx context.Context, d installFS, fetch fetchFunc, run runFunc, ca
 	for _, op := range p.Ops {
 		res.Ops = append(res.Ops, InstallOp{
 			Action: op.Action, Harness: op.Harness, Source: op.Source, Target: op.Target,
-			Exec: op.Exec, Before: op.Before, After: op.After, BeforeExec: op.BeforeExec,
+			Exec: op.Exec, Before: op.Before, After: op.After, BeforeExec: op.BeforeExec, Keys: append([]plan.KeyChange{}, op.Changes...),
 		})
 	}
-	return then(planned{plan: res, ops: p.Ops, tree: tree, prev: prev, harnesses: s.Pack.Harnesses, owned: p.Owned, ignoreExec: !d.ExecBit()})
+	return then(planned{plan: res, ops: p.Ops, tree: tree, prev: prev, harnesses: s.Pack.Harnesses, owned: p.Owned, keys: p.Keys, ignoreExec: !d.ExecBit()})
 }
 
 // buildPlan plans the user-scope staging tree tree into home. A first
 // plan from the names alone checks every staged path and maps every file
 // before anything is read; the plan is then built again with the hash of
 // each staged file, the state of each target and of each file the previous
-// install owned, and that install's ownership record. It also returns the
-// previous install's state, nil when there is none.
+// install owned, and that install's ownership record. A harness's settings
+// file, staged or as its target holds it, is read whole, since it is
+// planned key by key. It also returns the previous install's state, nil
+// when there is none.
 func buildPlan(ctx context.Context, d installFS, tree, home string, adapters []harness.Adapter) (plan.Plan, *state.State, error) {
 	names, err := d.Files(tree)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -260,14 +272,21 @@ func buildPlan(ctx context.Context, d installFS, tree, home string, adapters []h
 	if err != nil {
 		return plan.Plan{}, nil, err
 	}
-	in.Files, in.Disk = nil, map[string]plan.Current{}
+	in.Files, in.Disk, in.Content = nil, map[string]plan.Current{}, map[string][]byte{}
 	var targets []string
 	for _, op := range first.Ops {
-		staged, err := d.Hash(ctx, filepath.Join(tree, filepath.FromSlash(op.Source)))
+		name := filepath.Join(tree, filepath.FromSlash(op.Source))
+		var data []byte
+		var staged plan.Current
+		if _, ok := plan.SettingsOf(home, op.Target); ok {
+			data, staged, err = d.Read(ctx, name)
+		} else {
+			staged, err = d.Hash(ctx, name)
+		}
 		if err != nil {
 			return plan.Plan{}, nil, err
 		}
-		in.Files = append(in.Files, plan.File{Path: op.Source, Hash: staged.Hash, Exec: staged.Exec})
+		in.Files = append(in.Files, plan.File{Path: op.Source, Hash: staged.Hash, Exec: staged.Exec, Data: data})
 		targets = append(targets, op.Target)
 	}
 	if prev != nil {
@@ -280,12 +299,16 @@ func buildPlan(ctx context.Context, d installFS, tree, home string, adapters []h
 	}
 	dirs := map[string]error{} // the outcome of checkDir for each directory checked
 	for _, target := range targets {
-		cur, ok, err := inspectTarget(ctx, d, home, target, dirs)
+		_, settings := plan.SettingsOf(home, target)
+		cur, data, ok, err := inspectTarget(ctx, d, home, target, dirs, settings)
 		if err != nil {
 			return plan.Plan{}, nil, err
 		}
 		if ok {
 			in.Disk[target] = cur
+		}
+		if ok && settings {
+			in.Content[target] = data
 		}
 	}
 	p, err := plan.Build(in)
@@ -326,14 +349,15 @@ func readState(d installFS, home string) (*state.State, error) {
 	return &s, nil
 }
 
-// inspectTarget gives the state of target, a path under home, and whether
-// it exists. Each directory between home and target must be a real
-// directory or missing; a missing one means target is missing too. dirs
-// caches the outcome of each directory across targets.
-func inspectTarget(ctx context.Context, d installFS, home, target string, dirs map[string]error) (plan.Current, bool, error) {
+// inspectTarget gives the state of target, a path under home, with its
+// content when read is set, and whether it exists. Each directory between
+// home and target must be a real directory or missing; a missing one means
+// target is missing too. dirs caches the outcome of each directory across
+// targets.
+func inspectTarget(ctx context.Context, d installFS, home, target string, dirs map[string]error, read bool) (plan.Current, []byte, bool, error) {
 	rel, err := filepath.Rel(home, filepath.Dir(target))
 	if err != nil || !filepath.IsLocal(rel) && rel != "." {
-		return plan.Current{}, false, fmt.Errorf("target %s is not under the home directory %s", target, home)
+		return plan.Current{}, nil, false, fmt.Errorf("target %s is not under the home directory %s", target, home)
 	}
 	dir := home
 	if rel != "." {
@@ -345,21 +369,27 @@ func inspectTarget(ctx context.Context, d installFS, home, target string, dirs m
 				dirs[dir] = err
 			}
 			if errors.Is(err, fs.ErrNotExist) {
-				return plan.Current{}, false, nil
+				return plan.Current{}, nil, false, nil
 			}
 			if err != nil {
-				return plan.Current{}, false, err
+				return plan.Current{}, nil, false, err
 			}
 		}
 	}
-	cur, err := d.Hash(ctx, target)
+	var data []byte
+	var cur plan.Current
+	if read {
+		data, cur, err = d.Read(ctx, target)
+	} else {
+		cur, err = d.Hash(ctx, target)
+	}
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		return plan.Current{}, false, nil
+		return plan.Current{}, nil, false, nil
 	case err != nil:
-		return plan.Current{}, false, err
+		return plan.Current{}, nil, false, err
 	}
-	return cur, true, nil
+	return cur, data, true, nil
 }
 
 // checkDir reports a dir that is missing, with an fs.ErrNotExist error,

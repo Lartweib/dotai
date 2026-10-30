@@ -247,8 +247,8 @@ func TestRestoreRefusesAChangedFileWithoutConsent(t *testing.T) {
 	if _, err := quiet(t).install(newClockFS(t), examplePack, home); err != nil {
 		t.Fatal(err)
 	}
-	edited := at(home, ".dotai/isolated/claude/settings.json")
-	writeFile(t, edited, "{\"mine\": true}\n")
+	edited := at(home, ".dotai/tools/hello.sh")
+	writeFile(t, edited, "echo mine\n")
 	before, stateBefore := tree(t, home), snapshot(t, home)
 	var asked app.RestoreResult
 	for name, overwrite := range map[string]func(app.RestoreResult) (bool, error){
@@ -281,17 +281,17 @@ func TestRestoreWithConsentKeepsTheChangedFileInItsBackup(t *testing.T) {
 	if _, err := quiet(t).install(newClockFS(t), examplePack, home); err != nil {
 		t.Fatal(err)
 	}
-	edited := at(home, ".dotai/isolated/claude/settings.json")
-	writeFile(t, edited, "{\"mine\": true}\n")
+	edited := at(home, ".dotai/tools/hello.sh")
+	writeFile(t, edited, "echo mine\n")
 	res, err := restore(newClockFS(t), home, "", func(app.RestoreResult) (bool, error) { return true, nil })
 	if err != nil {
 		t.Fatalf("Restore() error = %v", err)
 	}
 	if _, err := os.Stat(edited); !errors.Is(err, fs.ErrNotExist) {
-		t.Errorf("settings.json = %v, want it deleted", err)
+		t.Errorf("hello.sh = %v, want it deleted", err)
 	}
-	copied, err := os.ReadFile(filepath.Join(res.Backup.Path, "files", ".dotai", "isolated", "claude", "settings.json"))
-	if err != nil || string(copied) != "{\"mine\": true}\n" {
+	copied, err := os.ReadFile(filepath.Join(res.Backup.Path, "files", ".dotai", "tools", "hello.sh"))
+	if err != nil || string(copied) != "echo mine\n" {
 		t.Errorf("restore backup copy = %q, %v, want the user's change", copied, err)
 	}
 	if len(res.Conflicts) != 1 || res.Conflicts[0].Target != edited {
@@ -558,7 +558,7 @@ func TestRestoreAsksBeforeItLocks(t *testing.T) {
 	if _, err := quiet(t).install(newClockFS(t), examplePack, home); err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, at(home, ".dotai/isolated/claude/settings.json"), "{\"mine\": true}\n")
+	writeFile(t, at(home, ".dotai/isolated/claude/settings.json"), "{\"model\": \"haiku\"}\n")
 	before := snapshot(t, home)
 	_, err := restore(newClockFS(t), home, "", func(app.RestoreResult) (bool, error) {
 		if _, err := os.Stat(at(home, ".dotai/lock")); !errors.Is(err, fs.ErrNotExist) {

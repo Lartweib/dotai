@@ -39,9 +39,10 @@ Records were renumbered on 2026-10-26, when the records about the reference pack
 | [0029](0029-rulesync-checksums-embedded-in-the-engine.md) | rulesync checksums are embedded in the engine | accepted | 2026-10-28 |
 | [0030](0030-tools-paths-and-project-config.md) | Tool paths, one tools directory, settings overrides and project config | accepted | 2026-10-28 |
 | [0031](0031-isolated-install-root.md) | Isolated installs live under `~/.dotai/isolated/` (partially superseded by 0034) | accepted | 2026-10-29 |
-| [0032](0032-install-state-backup-and-isolated-launch.md) | Install state, backup layout and the isolated launch command | accepted | 2026-10-29 |
-| [0033](0033-restore-from-the-install-history.md) | Restore follows the install history kept in the backups | accepted | 2026-10-30 |
+| [0032](0032-install-state-backup-and-isolated-launch.md) | Install state, backup layout and the isolated launch command (partially superseded by 0035) | accepted | 2026-10-29 |
+| [0033](0033-restore-from-the-install-history.md) | Restore follows the install history kept in the backups (partially superseded by 0035) | accepted | 2026-10-30 |
 | [0034](0034-replace-mode-in-v1.md) | The replace install mode is part of v1 | accepted | 2026-10-30 |
+| [0035](0035-settings-files-owned-by-key.md) | dotai owns only its keys in a harness's settings file | accepted | 2026-10-30 |
 
 ## Superseded (history only)
 

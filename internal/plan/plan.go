@@ -5,14 +5,16 @@
 // It covers the user scope of an isolated install (decision 0031): each
 // staged file is created, replaced or left unchanged at its install path,
 // and each file an earlier install owned that the pack no longer stages is
-// removed (decision 0032). Key-level merges into files other tools also
-// write come with the project scope.
+// removed (decision 0032). A harness's settings file is planned key by key
+// instead (decision 0035): the harness writes into it too, so dotai owns
+// only the keys the pack puts there.
 package plan
 
 import (
 	"cmp"
 	"fmt"
 	"io/fs"
+	"maps"
 	"path"
 	"path/filepath"
 	"slices"
@@ -49,6 +51,10 @@ type File struct {
 	Path string
 	Hash string
 	Exec bool
+	// Data is the content of a harness's settings file, which is planned
+	// key by key. A settings file without it is planned whole from its
+	// hash, as when nothing is read yet.
+	Data []byte
 }
 
 // Current is the state of a target that exists: the SHA-256 of its
@@ -65,12 +71,19 @@ type Current struct {
 // other contents that are dotai's too, such as what that install was
 // writing, and Foreign the contents that mean the target is still the
 // file dotai found there and never owned.
+//
+// Keys are the keys dotai owns in a settings file, nil for a file it owns
+// whole, which is how an install before decision 0035 recorded a settings
+// file too; AlsoKeys are those it owns when the file holds a content of
+// Also, or holds those keys after the harness wrote more.
 type Owned struct {
-	Harness string
-	Hash    string
-	Exec    bool
-	Also    []Current
-	Foreign []Current
+	Harness  string
+	Hash     string
+	Exec     bool
+	Also     []Current
+	Foreign  []Current
+	Keys     []Key
+	AlsoKeys []Key
 }
 
 // Input is what Build plans from. Disk holds the current state of each
@@ -80,21 +93,26 @@ type Owned struct {
 // previous install, by absolute target; it is empty before the first one.
 // IgnoreExec leaves the exec bit out of the comparison, for a file system
 // that has none, such as on Windows; the caller decides it, so that Build
-// behaves the same on every OS.
+// behaves the same on every OS. Content holds the content of each settings
+// target in Disk that is staged with its Data or owned.
 type Input struct {
 	Home       string            // the absolute home directory
 	Adapters   []harness.Adapter // the harnesses of the pack's manifest
 	Files      []File
 	Disk       map[string]Current
+	Content    map[string][]byte
 	Owned      map[string]Owned
 	IgnoreExec bool
 }
 
 // Plan is the list of operations, in target order, and the targets of
-// Input.Owned that exist and are dotai's, with their current state.
+// Input.Owned that exist and are dotai's, with their current state. Keys
+// are the keys dotai owns now in each settings target of Owned; a settings
+// file in which it owns none is not in Owned.
 type Plan struct {
 	Ops   []Op
 	Owned map[string]Current
+	Keys  map[string][]Key
 }
 
 // Op is one file operation. Harness is empty for a tool, which is not
@@ -103,6 +121,13 @@ type Plan struct {
 // execution and backup can check that it did not change after planning.
 // After and Exec are what it will have; a Remove has no Source, After or
 // Exec.
+//
+// Settings marks a harness's settings file planned key by key (decision
+// 0035). Data is then what the target gets when that is not the staged
+// file as it is: the target's own content with dotai's keys written into
+// it. Keys are the keys dotai owns in the target once the op is carried
+// out, none when it no longer owns the file, and Changes the keys the op
+// writes or deletes.
 type Op struct {
 	Action     Action
 	Scope      string
@@ -113,6 +138,10 @@ type Op struct {
 	Before     string
 	BeforeExec bool
 	After      string
+	Settings   bool
+	Data       []byte
+	Keys       []Key
+	Changes    []KeyChange
 }
 
 // UnmappedError is a staged file that no harness of the pack and no tools
@@ -126,19 +155,37 @@ func (e *UnmappedError) Error() string {
 }
 
 // EditedError is a target the previous install owned whose content or
-// exec bit is no longer what it wrote: the user edited it, and the plan
-// neither replaces nor removes it. Targets lists every such target, sorted.
+// exec bit is no longer what it wrote, or a key it owns in a settings file
+// whose value is no longer what it wrote: the user edited it, and the plan
+// neither replaces nor removes it. Targets lists every such target, sorted,
+// and Keys the name of every such key by settings file, sorted.
 type EditedError struct {
 	Targets []string
+	Keys    map[string][]string
 }
 
 func (e *EditedError) Error() string {
-	if len(e.Targets) == 1 {
-		return "the installed file " + e.Targets[0] + " was changed after dotai installed it, and dotai does not overwrite or remove it: " +
-			"move it away or put back what dotai installed, then install again"
+	var parts []string
+	switch len(e.Targets) {
+	case 0:
+	case 1:
+		parts = append(parts, "the installed file "+e.Targets[0]+" was changed after dotai installed it, and dotai does not overwrite or remove it: "+
+			"move it away or put back what dotai installed, then install again")
+	default:
+		parts = append(parts, "the installed files "+strings.Join(e.Targets, ", ")+" were changed after dotai installed them, and dotai does not overwrite or remove them: "+
+			"move them away or put back what dotai installed, then install again")
 	}
-	return "the installed files " + strings.Join(e.Targets, ", ") + " were changed after dotai installed them, and dotai does not overwrite or remove them: " +
-		"move them away or put back what dotai installed, then install again"
+	for _, target := range slices.Sorted(maps.Keys(e.Keys)) {
+		keys := e.Keys[target]
+		if len(keys) == 1 {
+			parts = append(parts, "the key "+keys[0]+" in "+target+" was changed after dotai installed it, and dotai does not overwrite it: "+
+				"put back the value dotai installed, or delete the key to take the pack's, then install again")
+			continue
+		}
+		parts = append(parts, "the keys "+strings.Join(keys, ", ")+" in "+target+" were changed after dotai installed them, and dotai does not overwrite them: "+
+			"put back the values dotai installed, or delete the keys to take the pack's, then install again")
+	}
+	return strings.Join(parts, "; ")
 }
 
 // Build plans the install of the user-scope staging tree. A file under
@@ -156,6 +203,9 @@ func (e *EditedError) Error() string {
 // records nor in its Also or Foreign: an EditedError, so that nothing the
 // user changed is overwritten or removed. A target in its Foreign is not
 // dotai's: it is neither removed nor in Plan.Owned.
+//
+// A harness's settings file that is staged with its Data, or owned with
+// Keys, is planned key by key instead, as planSettings describes.
 func Build(in Input) (Plan, error) {
 	if !filepath.IsAbs(in.Home) {
 		return Plan{}, fmt.Errorf("home directory %q is not absolute", in.Home)
@@ -172,7 +222,8 @@ func Build(in Input) (Plan, error) {
 	}
 	var p Plan
 	var unmapped []string
-	sources := map[string]string{} // the source of each target
+	sources := map[string]string{}         // the source of each target
+	settings := map[string]*settingsFile{} // the targets planned key by key
 	for _, f := range in.Files {
 		if err := checkPath(f.Path); err != nil {
 			return Plan{}, err
@@ -189,6 +240,10 @@ func Build(in Input) (Plan, error) {
 			return Plan{}, fmt.Errorf("staged files %s and %s install to the same target %s", prev, f.Path, target)
 		}
 		sources[target] = f.Path
+		if sh, ok := SettingsOf(in.Home, target); ok && f.Data != nil {
+			settings[target] = &settingsFile{harness: sh, staged: &f}
+			continue
+		}
 		op := Op{Action: Create, Scope: ScopeUser, Harness: h, Source: f.Path, Target: target, Exec: f.Exec, After: f.Hash}
 		if cur, ok := in.Disk[target]; ok {
 			op.Before, op.BeforeExec, op.Action = cur.Hash, cur.Exec, Replace
@@ -202,11 +257,21 @@ func Build(in Input) (Plan, error) {
 		slices.Sort(unmapped)
 		return Plan{}, &UnmappedError{Paths: unmapped}
 	}
-	var edited []string
+	edited := &EditedError{}
 	for target, o := range in.Owned {
 		if !installed(in.Home, target) {
 			return Plan{}, fmt.Errorf("owned target %s is not under %s or %s, where an install writes", target,
 				filepath.Join(in.Home, filepath.FromSlash(harness.IsolatedDir)), filepath.Join(in.Home, filepath.FromSlash(merge.ToolsDir)))
+		}
+		if st, ok := settings[target]; ok {
+			st.owned = &o
+			continue
+		}
+		if sh, ok := SettingsOf(in.Home, target); ok && o.Keys != nil {
+			if _, staged := sources[target]; !staged {
+				settings[target] = &settingsFile{harness: sh, owned: &o}
+				continue
+			}
 		}
 		cur, ok := in.Disk[target]
 		if !ok {
@@ -217,7 +282,7 @@ func Build(in Input) (Plan, error) {
 			continue
 		}
 		if !mine {
-			edited = append(edited, target)
+			edited.Targets = append(edited.Targets, target)
 			continue
 		}
 		if p.Owned == nil {
@@ -228,9 +293,27 @@ func Build(in Input) (Plan, error) {
 			p.Ops = append(p.Ops, Op{Action: Remove, Scope: ScopeUser, Harness: o.Harness, Target: target, Before: cur.Hash, BeforeExec: cur.Exec})
 		}
 	}
-	if len(edited) > 0 {
-		slices.Sort(edited)
-		return Plan{}, &EditedError{Targets: edited}
+	for target, st := range settings {
+		op, keys, err := in.planSettings(target, st, edited)
+		if err != nil {
+			return Plan{}, err
+		}
+		if op != nil {
+			p.Ops = append(p.Ops, *op)
+		}
+		if len(keys) > 0 {
+			if p.Owned == nil {
+				p.Owned = map[string]Current{}
+			}
+			if p.Keys == nil {
+				p.Keys = map[string][]Key{}
+			}
+			p.Owned[target], p.Keys[target] = in.Disk[target], keys
+		}
+	}
+	if len(edited.Targets) > 0 || len(edited.Keys) > 0 {
+		slices.Sort(edited.Targets)
+		return Plan{}, edited
 	}
 	slices.SortFunc(p.Ops, func(a, b Op) int { return cmp.Compare(a.Target, b.Target) })
 	return p, nil

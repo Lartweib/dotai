@@ -28,10 +28,11 @@ var restoreResult = app.RestoreResult{
 			Pack: backup.Pack{Name: "minimal-pack", Version: "0.1.0", Path: "/home/u/packs/minimal-pack"}, Variant: "standalone", Harnesses: []string{"claudecode", "opencode"}},
 	},
 	Ops: []app.RestoreOp{
-		{Action: plan.Replace, Harness: "claudecode", Target: "/home/u/.dotai/isolated/claude/settings.json", From: "20261029T101500.000Z_install", Before: "aa", After: "bb"},
-		{Action: plan.Remove, Harness: "claudecode", Target: "/home/u/.dotai/isolated/claude/agents/reviewer.md", Before: "cc", Conflict: true},
-		{Action: plan.Create, Harness: "opencode", Target: "/home/u/.dotai/isolated/opencode/config/opencode/opencode.jsonc", From: "20261029T103000.000Z_install", After: "dd"},
-		{Action: plan.Remove, Target: "/home/u/.dotai/tools/hello.sh", Before: "ee", BeforeExec: true},
+		{Action: plan.Replace, Harness: "claudecode", Target: "/home/u/.dotai/isolated/claude/settings.json", From: "20261029T101500.000Z_install", Before: "aa", After: "bb",
+			Keys: []plan.KeyChange{{Key: "env.DOTAI_TERMINAL", Action: plan.Remove}, {Key: "model", Action: plan.Replace}}},
+		{Action: plan.Remove, Harness: "claudecode", Target: "/home/u/.dotai/isolated/claude/agents/reviewer.md", Before: "cc", Conflict: true, Keys: []plan.KeyChange{}},
+		{Action: plan.Create, Harness: "opencode", Target: "/home/u/.dotai/isolated/opencode/config/opencode/opencode.jsonc", From: "20261029T103000.000Z_install", After: "dd", Keys: []plan.KeyChange{}},
+		{Action: plan.Remove, Target: "/home/u/.dotai/tools/hello.sh", Before: "ee", BeforeExec: true, Keys: []plan.KeyChange{}},
 	},
 	Conflicts: []app.RestoreConflict{{Target: "/home/u/.dotai/isolated/claude/agents/reviewer.md", Harness: "claudecode", Backup: "20261029T103000.000Z_install", Expected: "c0", Current: "cc"}},
 	Harnesses: []string{"claudecode", "opencode"},
@@ -50,11 +51,16 @@ type fakeRestore struct {
 	asked bool
 }
 
-func (f *fakeRestore) restore(ctx context.Context, home, id string, overwrite func(app.RestoreResult) (bool, error)) (app.RestoreResult, error) {
+func (f *fakeRestore) restore(ctx context.Context, home, id string, warn app.Warn, overwrite func(app.RestoreResult) (bool, error)) (app.RestoreResult, error) {
 	if ctx == nil || overwrite == nil {
 		f.t.Error("Restore called without a context or an overwrite function")
 	}
 	f.home, f.id = home, id
+	if warn != nil { // as the real one does, before it asks or writes
+		for _, w := range f.res.Warnings {
+			warn(w)
+		}
+	}
 	if len(f.res.Conflicts) > 0 {
 		f.asked = true
 		ok, err := overwrite(f.res)
@@ -207,7 +213,7 @@ func TestRunRestoreConflicts(t *testing.T) {
 				if err := json.Unmarshal(stdout.Bytes(), &e); err != nil {
 					t.Fatal(err)
 				}
-				want := map[string]string{"target": conflict, "harness": "claudecode", "backup": "20261029T103000.000Z_install", "expected": "c0", "current": "cc"}
+				want := map[string]string{"target": conflict, "harness": "claudecode", "backup": "20261029T103000.000Z_install", "key": "", "expected": "c0", "current": "cc"}
 				if len(e.Data.Conflicts) != 1 || !reflect.DeepEqual(e.Data.Conflicts[0], want) {
 					t.Errorf("data conflicts = %v, want %v", e.Data.Conflicts, want)
 				}
@@ -217,6 +223,49 @@ func TestRunRestoreConflicts(t *testing.T) {
 				t.Errorf("stderr = %q, want %q", stderr.String(), tt.wantErr)
 			}
 		})
+	}
+}
+
+// TestRunRestoreWarnsBeforeItWrites checks that the warning to close the
+// harnesses is printed when the restore gives it, before it writes and so
+// before the summary, once.
+func TestRunRestoreWarnsBeforeItWrites(t *testing.T) {
+	restoreHome(t)
+	var out bytes.Buffer // stdout and stderr, in the order they are written
+	env := testEnv(&out, &out)
+	res := restoreResult
+	res.Conflicts = []app.RestoreConflict{}
+	env.Restore = (&fakeRestore{t: t, res: res}).restore
+	if code := cli.Run([]string{"restore"}, env); code != cli.ExitOK {
+		t.Fatalf("exit code = %d", code)
+	}
+	w := "warning: " + restoreResult.Warnings[0] + "\n"
+	if got := out.String(); !strings.HasPrefix(got, w+"Restore · ") || strings.Count(got, w) != 1 {
+		t.Errorf("output = %q, want the warning first and once", got)
+	}
+}
+
+// TestRunRestoreAsksAboutAChangedKey checks that a key of a settings file
+// that changed after the install is listed by name before the question.
+func TestRunRestoreAsksAboutAChangedKey(t *testing.T) {
+	restoreHome(t)
+	settings := "/home/u/.dotai/isolated/claude/settings.json"
+	res := restoreResult
+	res.Conflicts = []app.RestoreConflict{
+		restoreResult.Conflicts[0],
+		{Target: settings, Harness: "claudecode", Backup: "20261029T103000.000Z_install", Key: "model", Expected: "m0", Current: "m1"},
+	}
+	var stdout, stderr bytes.Buffer
+	env := testEnv(&stdout, &stderr)
+	env.Restore = (&fakeRestore{t: t, res: res}).restore
+	p := &prompter{}
+	env.Prompt = p.prompt
+	cli.Run([]string{"restore"}, env)
+	want := "2 files or keys were changed after dotai installed them; the restore overwrites or deletes them, after copying their files into a new backup:\n" +
+		"  " + restoreResult.Conflicts[0].Target + "\n" +
+		"  key model in " + settings + "\n"
+	if stdout.String() != want || p.question != "Overwrite them? [y/N] " {
+		t.Errorf("stdout = %q, question %q, want %q", stdout.String(), p.question, want)
 	}
 }
 
@@ -237,7 +286,7 @@ func TestRunRestoreUsageErrors(t *testing.T) {
 	restoreHome(t)
 	var stdout bytes.Buffer
 	env := testEnv(&stdout, &bytes.Buffer{})
-	env.Restore = func(context.Context, string, string, func(app.RestoreResult) (bool, error)) (app.RestoreResult, error) {
+	env.Restore = func(context.Context, string, string, app.Warn, func(app.RestoreResult) (bool, error)) (app.RestoreResult, error) {
 		t.Error("Restore called on a usage error")
 		return app.RestoreResult{}, nil
 	}

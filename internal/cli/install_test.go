@@ -35,10 +35,11 @@ var installPlan = app.InstallPlan{
 			Leaks: []string{}},
 	},
 	Ops: []app.InstallOp{
-		{Action: plan.Create, Harness: "claudecode", Source: ".claude/CLAUDE.md", Target: "/home/u/.dotai/isolated/claude/CLAUDE.md", After: "aa"},
-		{Action: plan.Unchanged, Harness: "claudecode", Source: ".claude/settings.json", Target: "/home/u/.dotai/isolated/claude/settings.json", Before: "bb", After: "bb"},
-		{Action: plan.Replace, Harness: "antigravity-cli", Source: ".gemini/GEMINI.md", Target: "/home/u/.dotai/isolated/gemini/GEMINI.md", Before: "cc", After: "dd"},
-		{Action: plan.Create, Source: ".dotai/tools/hello.sh", Target: "/home/u/.dotai/tools/hello.sh", Exec: true, After: "ee"},
+		{Action: plan.Create, Harness: "claudecode", Source: ".claude/CLAUDE.md", Target: "/home/u/.dotai/isolated/claude/CLAUDE.md", After: "aa", Keys: []plan.KeyChange{}},
+		{Action: plan.Replace, Harness: "claudecode", Source: ".claude/settings.json", Target: "/home/u/.dotai/isolated/claude/settings.json", Before: "bb", After: "b2",
+			Keys: []plan.KeyChange{{Key: "env.DOTAI_TERMINAL", Action: plan.Create}, {Key: "model", Action: plan.Replace}}},
+		{Action: plan.Replace, Harness: "antigravity-cli", Source: ".gemini/GEMINI.md", Target: "/home/u/.dotai/isolated/gemini/GEMINI.md", Before: "cc", After: "dd", Keys: []plan.KeyChange{}},
+		{Action: plan.Create, Source: ".dotai/tools/hello.sh", Target: "/home/u/.dotai/tools/hello.sh", Exec: true, After: "ee", Keys: []plan.KeyChange{}},
 	},
 	Diagnostics: []app.Diagnostic{},
 }
@@ -132,7 +133,7 @@ func TestRunInstallUsageErrors(t *testing.T) {
 				t.Error("PlanInstall called on a usage error")
 				return app.InstallPlan{}, nil
 			}
-			env.Install = func(context.Context, string, string, string, string, app.Progress) (app.InstallResult, error) {
+			env.Install = func(context.Context, string, string, string, string, app.Progress, app.Warn) (app.InstallResult, error) {
 				t.Error("Install called on a usage error")
 				return app.InstallResult{}, nil
 			}
@@ -213,7 +214,7 @@ func TestRunInstallWithoutAHomeDirectory(t *testing.T) {
 var installResult = func() app.InstallResult {
 	p := installPlan
 	p.Ops = append(append([]app.InstallOp{}, installPlan.Ops[:2]...),
-		app.InstallOp{Action: plan.Remove, Harness: "claudecode", Target: "/home/u/.dotai/isolated/claude/rules/old.md", Before: "ff"})
+		app.InstallOp{Action: plan.Remove, Harness: "claudecode", Target: "/home/u/.dotai/isolated/claude/rules/old.md", Before: "ff", Keys: []plan.KeyChange{}})
 	p.Ops = append(p.Ops, installPlan.Ops[2:]...)
 	return app.InstallResult{
 		InstallPlan: p,
@@ -249,7 +250,7 @@ func TestRunInstall(t *testing.T) {
 				t.Error("PlanInstall called without --dry-run")
 				return app.InstallPlan{}, nil
 			}
-			env.Install = func(ctx context.Context, cacheDir, dir, variant, gotHome string, progress app.Progress) (app.InstallResult, error) {
+			env.Install = func(ctx context.Context, cacheDir, dir, variant, gotHome string, progress app.Progress, warn app.Warn) (app.InstallResult, error) {
 				if ctx == nil || cacheDir != wantCache || dir != examplePack || variant != tt.wantVariant || gotHome != home || (progress != nil) != tt.wantProgress {
 					t.Errorf("Install(%q, %q, %q, %q, progress %v), want the cache, the pack, %q, the home and progress %v",
 						cacheDir, dir, variant, gotHome, progress != nil, tt.wantVariant, tt.wantProgress)
@@ -267,7 +268,7 @@ func TestRunInstall(t *testing.T) {
 func TestRunInstallJSONShapeWithoutDryRun(t *testing.T) {
 	var stdout bytes.Buffer
 	env := testEnv(&stdout, &bytes.Buffer{})
-	env.Install = func(context.Context, string, string, string, string, app.Progress) (app.InstallResult, error) {
+	env.Install = func(context.Context, string, string, string, string, app.Progress, app.Warn) (app.InstallResult, error) {
 		return installResult, nil
 	}
 	if code := cli.Run([]string{"install", "--json"}, env); code != cli.ExitOK {
@@ -301,7 +302,7 @@ func TestRunInstallThatWroteNothing(t *testing.T) {
 	var stdout bytes.Buffer
 	env := testEnv(&stdout, &bytes.Buffer{})
 	res := app.InstallResult{InstallPlan: installPlan, State: "/home/u/.dotai/state.json"}
-	env.Install = func(context.Context, string, string, string, string, app.Progress) (app.InstallResult, error) {
+	env.Install = func(context.Context, string, string, string, string, app.Progress, app.Warn) (app.InstallResult, error) {
 		return res, nil
 	}
 	if code := cli.Run([]string{"install"}, env); code != cli.ExitOK || !strings.HasSuffix(stdout.String(), "installed\nbackup: none, no file was written\nstate:  /home/u/.dotai/state.json\n") {
@@ -316,7 +317,7 @@ func TestRunInstallThatWroteNothing(t *testing.T) {
 func TestRunInstallInvalidPackWithoutDryRun(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	env := testEnv(&stdout, &stderr)
-	env.Install = func(context.Context, string, string, string, string, app.Progress) (app.InstallResult, error) {
+	env.Install = func(context.Context, string, string, string, string, app.Progress, app.Warn) (app.InstallResult, error) {
 		return app.InstallResult{InstallPlan: app.InstallPlan{
 			Pack: &app.PackSummary{Name: "p", Version: "1.0.0"}, Mode: app.ModeIsolated, Harnesses: []app.HarnessPlan{}, Ops: []app.InstallOp{},
 			Diagnostics: []app.Diagnostic{{File: "dotai.yaml", Code: "layer-selection", Message: "variant \"nope\" is not defined"}},
@@ -338,11 +339,52 @@ func TestRunInstallFailureWithoutDryRun(t *testing.T) {
 	} {
 		var stdout, stderr bytes.Buffer
 		env := testEnv(&stdout, &stderr)
-		env.Install = func(context.Context, string, string, string, string, app.Progress) (app.InstallResult, error) {
+		env.Install = func(context.Context, string, string, string, string, app.Progress, app.Warn) (app.InstallResult, error) {
 			return app.InstallResult{}, err
 		}
 		if code := cli.Run([]string{"install"}, env); code != cli.ExitInternal || stdout.Len() != 0 || !strings.Contains(stderr.String(), err.Error()) {
 			t.Errorf("exit code = %d, stdout = %q, stderr = %q, want an internal error with %q", code, stdout.String(), stderr.String(), err)
+		}
+	}
+}
+
+// TestRunInstallWarnsBeforeItWrites checks that the warning to close a
+// harness is printed when the install gives it, before it writes and so
+// before the plan, once, while the other warnings follow the summary; with
+// --json it is only in data.
+func TestRunInstallWarnsBeforeItWrites(t *testing.T) {
+	const closing = "close claudecode before installing: a harness that is running may rewrite its settings file while dotai writes its keys there"
+	res := installResult
+	res.Warnings = []string{closing, "older backups could not be pruned: busy"}
+	for _, jsonOut := range []bool{false, true} {
+		var out bytes.Buffer // stdout and stderr, in the order they are written
+		env := testEnv(&out, &out)
+		env.Install = func(_ context.Context, _, _, _, _ string, _ app.Progress, warn app.Warn) (app.InstallResult, error) {
+			if (warn == nil) != jsonOut {
+				t.Errorf("json %v: warn = %v, want one only for text", jsonOut, warn != nil)
+			}
+			if warn != nil {
+				warn(closing)
+			}
+			return res, nil
+		}
+		args := []string{"install"}
+		if jsonOut {
+			args = append(args, "--json")
+		}
+		if code := cli.Run(args, env); code != cli.ExitOK {
+			t.Fatalf("json %v: exit code = %d", jsonOut, code)
+		}
+		got := out.String()
+		if jsonOut {
+			if !strings.Contains(got, closing) || strings.Contains(got, "warning: ") {
+				t.Errorf("output = %s, want the warning in data only", got)
+			}
+			continue
+		}
+		if !strings.HasPrefix(got, "warning: "+closing+"\nInstall plan") || strings.Count(got, closing) != 1 ||
+			!strings.HasSuffix(got, "state:  /home/u/.dotai/state.json\nwarning: older backups could not be pruned: busy\n") {
+			t.Errorf("output = %q, want the close warning first and once, and the other one after the summary", got)
 		}
 	}
 }
@@ -353,7 +395,7 @@ func TestRunInstallWithWarnings(t *testing.T) {
 	for _, jsonOut := range []bool{false, true} {
 		var stdout, stderr bytes.Buffer
 		env := testEnv(&stdout, &stderr)
-		env.Install = func(context.Context, string, string, string, string, app.Progress) (app.InstallResult, error) {
+		env.Install = func(context.Context, string, string, string, string, app.Progress, app.Warn) (app.InstallResult, error) {
 			return res, nil
 		}
 		args := []string{"install"}

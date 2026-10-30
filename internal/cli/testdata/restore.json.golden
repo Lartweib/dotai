@@ -45,7 +45,17 @@
         "before": "aa",
         "beforeExec": false,
         "after": "bb",
-        "conflict": false
+        "conflict": false,
+        "keys": [
+          {
+            "key": "env.DOTAI_TERMINAL",
+            "action": "remove"
+          },
+          {
+            "key": "model",
+            "action": "replace"
+          }
+        ]
       },
       {
         "action": "remove",
@@ -56,7 +66,8 @@
         "before": "cc",
         "beforeExec": false,
         "after": "",
-        "conflict": true
+        "conflict": true,
+        "keys": []
       },
       {
         "action": "create",
@@ -67,7 +78,8 @@
         "before": "",
         "beforeExec": false,
         "after": "dd",
-        "conflict": false
+        "conflict": false,
+        "keys": []
       },
       {
         "action": "remove",
@@ -78,7 +90,8 @@
         "before": "ee",
         "beforeExec": true,
         "after": "",
-        "conflict": false
+        "conflict": false,
+        "keys": []
       }
     ],
     "conflicts": [
@@ -86,6 +99,7 @@
         "target": "/home/u/.dotai/isolated/claude/agents/reviewer.md",
         "harness": "claudecode",
         "backup": "20261029T103000.000Z_install",
+        "key": "",
         "expected": "c0",
         "current": "cc"
       }
