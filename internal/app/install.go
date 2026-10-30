@@ -236,7 +236,7 @@ func withPlan(ctx context.Context, d installFS, fetch fetchFunc, run runFunc, ca
 		return err
 	}
 	for _, a := range adapters {
-		res.Harnesses = append(res.Harnesses, harnessPlan(res.Root, a, runtime.GOOS))
+		res.Harnesses = append(res.Harnesses, harnessPlan(res.Root, a, runtime.GOOS, false))
 	}
 	for _, op := range p.Ops {
 		res.Ops = append(res.Ops, InstallOp{
@@ -429,14 +429,15 @@ func unmappedDiagnostics(u *plan.UnmappedError) []Diagnostic {
 }
 
 // harnessPlan is the isolation of a on goos, with its directory under
-// root.
-func harnessPlan(root string, a harness.Adapter, goos string) HarnessPlan {
+// root, for an install whose variant shares the user's skills or not
+// (decision 0036).
+func harnessPlan(root string, a harness.Adapter, goos string, shared bool) HarnessPlan {
 	dir := filepath.Join(root, filepath.FromSlash(a.Dir))
 	h := HarnessPlan{
 		ID: a.ID, Level: string(a.Isolation.Level), Dir: dir, Pointers: []PointerPlan{},
-		Relogin: string(a.Isolation.ReloginOn(goos)), Leaks: a.Isolation.LeaksOn(goos),
+		Relogin: string(a.Isolation.ReloginOn(goos)), Leaks: a.Isolation.LeaksOn(goos, shared),
 	}
-	for _, ptr := range a.Isolation.Pointers {
+	for _, ptr := range a.Isolation.PointersFor(shared) {
 		h.Pointers = append(h.Pointers, PointerPlan{Mechanism: string(ptr.Mechanism), Name: ptr.Name, Dir: filepath.Join(dir, filepath.FromSlash(ptr.Path))})
 	}
 	return h
