@@ -96,7 +96,7 @@ func planRun(d executeFS, lookPath func(string) (string, error), goos, home, id 
 		return RunPlan{}, fmt.Errorf("%s is not installed (installed: %s): add it to the pack's harnesses and run dotai install", id, installed)
 	}
 	root := filepath.Join(home, filepath.FromSlash(harness.IsolatedDir))
-	h := harnessPlan(root, a)
+	h := harnessPlan(root, a, goos)
 	for _, dir := range []string{root, h.Dir} {
 		if err := checkDir(d, dir); errors.Is(err, fs.ErrNotExist) {
 			return RunPlan{}, fmt.Errorf("the isolated directory %s is missing: run dotai install", dir)

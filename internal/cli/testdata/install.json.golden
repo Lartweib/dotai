@@ -33,7 +33,7 @@
             "dir": "/home/u/.dotai/isolated/claude"
           }
         ],
-        "relogin": true,
+        "relogin": "unknown",
         "leaks": [
           "~/.claude/CLAUDE.md still loads when the working directory is under the home directory"
         ]
@@ -49,7 +49,7 @@
             "dir": "/home/u/.dotai/isolated/gemini"
           }
         ],
-        "relogin": false,
+        "relogin": "no",
         "leaks": [
           "authentication is shared through the OS keyring"
         ]
@@ -70,7 +70,7 @@
             "dir": "/home/u/.dotai/isolated/opencode/data"
           }
         ],
-        "relogin": true,
+        "relogin": "yes",
         "leaks": []
       }
     ],

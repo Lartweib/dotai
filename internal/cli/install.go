@@ -12,6 +12,7 @@ import (
 
 	"github.com/lartweib/dotai/internal/app"
 	"github.com/lartweib/dotai/internal/cli/output"
+	"github.com/lartweib/dotai/internal/harness"
 	"github.com/lartweib/dotai/internal/plan"
 )
 
@@ -107,9 +108,12 @@ func writePlan(w io.Writer, p app.InstallPlan, color bool, footer string) error 
 	fmt.Fprintf(&b, "root: %s\n", p.Root)
 
 	for _, h := range p.Harnesses {
-		login := "keeps your login"
-		if h.Relogin {
+		login := "may need a new login"
+		switch h.Relogin {
+		case string(harness.ReloginYes):
 			login = "needs a new login"
+		case string(harness.ReloginNo):
+			login = "keeps your login"
 		}
 		fmt.Fprintf(&b, "\n%s · %s isolation · %s\n", paint(color, styleBold, h.ID), h.Level, login)
 		for _, ptr := range h.Pointers {

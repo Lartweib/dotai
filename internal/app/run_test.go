@@ -63,7 +63,7 @@ func TestPlanRunClaudeCode(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := at(home, ".dotai/isolated/claude")
-	if p.Harness.ID != "claudecode" || p.Harness.Level != "partial" || !p.Harness.Relogin || len(p.Harness.Leaks) != 2 || p.Harness.Dir != dir {
+	if p.Harness.ID != "claudecode" || p.Harness.Level != "partial" || p.Harness.Dir != dir {
 		t.Errorf("Harness = %+v, want claudecode's isolation at %s", p.Harness, dir)
 	}
 	if p.Command != "claude" || p.Program != filepath.Join(bin, "claude") {
@@ -295,6 +295,29 @@ func TestPlanRunReleasesTheLockBeforeLaunching(t *testing.T) {
 	for _, e := range entries {
 		if e.Name() != "state.json" && e.Name() != "isolated" {
 			t.Errorf("%s left in .dotai, want only the state and the isolated root", e.Name())
+		}
+	}
+}
+
+// TestPlanRunShowsTheIsolationOfTheOS checks Claude Code's login and leaks
+// per OS: the new login is verified on Windows only.
+func TestPlanRunShowsTheIsolationOfTheOS(t *testing.T) {
+	home := runHome(t, app.ModeIsolated, []string{"claudecode"}, nil)
+	tests := []struct {
+		goos, relogin string
+		leaks         int
+	}{
+		{"windows", "yes", 2},
+		{"linux", "unknown", 1},
+		{"darwin", "unknown", 1},
+	}
+	for _, tt := range tests {
+		p, err := app.PlanRunWith(home, "claudecode", nil, nil, lookPathAt(home), tt.goos)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p.Harness.Relogin != tt.relogin || len(p.Harness.Leaks) != tt.leaks {
+			t.Errorf("%s: relogin = %q, leaks = %q, want %q and %d leaks", tt.goos, p.Harness.Relogin, p.Harness.Leaks, tt.relogin, tt.leaks)
 		}
 	}
 }

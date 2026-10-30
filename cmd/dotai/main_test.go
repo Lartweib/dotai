@@ -151,9 +151,14 @@ func TestRunLaunchesClaudeCodeIsolated(t *testing.T) {
 		} else if b, _ := os.Stat(cwd); !os.SameFile(a, b) {
 			t.Errorf("cwd = %q, want %s", got.Cwd, cwd)
 		}
+		// The new login is verified on Windows only.
+		login := "dotai: login: you may need to log in again in the isolated configuration (not verified on this OS)\n"
+		if runtime.GOOS == "windows" {
+			login = "dotai: login: you must log in again in the isolated configuration\n"
+		}
 		for _, line := range []string{
 			"dotai: claudecode · partial isolation · CLAUDE_CONFIG_DIR=" + filepath.Join(home, ".dotai", "isolated", "claude") + "\n",
-			"dotai: login: you must log in again in the isolated configuration\n",
+			login,
 			"dotai: leaks: ~/.claude/CLAUDE.md still loads when the working directory is under the home directory\n",
 		} {
 			if !strings.Contains(stderr, line) {

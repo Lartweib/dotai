@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/lartweib/dotai/internal/app"
+	"github.com/lartweib/dotai/internal/harness"
 )
 
 // exitCodeError ends dotai with the exit code of the harness it ran, and
@@ -84,10 +85,13 @@ func writeLaunch(w io.Writer, p app.RunPlan) error {
 		pointers = append(pointers, ptr.Name+sep+ptr.Dir)
 	}
 	fmt.Fprintf(&b, "dotai: %s · %s isolation · %s\n", h.ID, h.Level, strings.Join(pointers, ", "))
-	if h.Relogin {
+	switch h.Relogin {
+	case string(harness.ReloginYes):
 		b.WriteString("dotai: login: you must log in again in the isolated configuration\n")
-	} else {
+	case string(harness.ReloginNo):
 		b.WriteString("dotai: login: keeps your login\n")
+	default:
+		b.WriteString("dotai: login: you may need to log in again in the isolated configuration (not verified on this OS)\n")
 	}
 	if len(h.Leaks) == 0 {
 		b.WriteString("dotai: leaks: nothing known\n")

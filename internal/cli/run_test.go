@@ -16,7 +16,7 @@ import (
 // reads the same on every OS.
 var runPlan = app.RunPlan{
 	Harness: app.HarnessPlan{
-		ID: "claudecode", Level: "partial", Dir: "/home/u/.dotai/isolated/claude", Relogin: true,
+		ID: "claudecode", Level: "partial", Dir: "/home/u/.dotai/isolated/claude", Relogin: "yes",
 		Pointers: []app.PointerPlan{{Mechanism: "env", Name: "CLAUDE_CONFIG_DIR", Dir: "/home/u/.dotai/isolated/claude"}},
 		Leaks:    []string{"~/.claude/CLAUDE.md still loads when the working directory is under the home directory", "credentials do not carry over"},
 	},
@@ -96,7 +96,7 @@ func TestRunRunPrintsTheNotesAfterTheLeaks(t *testing.T) {
 func TestRunRunLinesWithoutReloginOrLeaks(t *testing.T) {
 	restoreHome(t)
 	p := runPlan
-	p.Harness.Relogin, p.Harness.Leaks = false, []string{}
+	p.Harness.Relogin, p.Harness.Leaks = "no", []string{}
 	f := &fakeRun{res: p}
 	var stderr bytes.Buffer
 	if code := cli.Run([]string{"run", "claudecode"}, f.env(&bytes.Buffer{}, &stderr)); code != cli.ExitOK {
@@ -223,5 +223,19 @@ func TestRunRunReal(t *testing.T) {
 				t.Errorf("exit code = %d, stderr = %q, want %d and %q", code, stderr.String(), tt.want, tt.inErr)
 			}
 		})
+	}
+}
+
+func TestRunRunSaysWhenTheLoginIsUnknown(t *testing.T) {
+	restoreHome(t)
+	p := runPlan
+	p.Harness.Relogin = "unknown"
+	f := &fakeRun{res: p}
+	var stderr bytes.Buffer
+	if code := cli.Run([]string{"run", "claudecode"}, f.env(&bytes.Buffer{}, &stderr)); code != cli.ExitOK {
+		t.Errorf("exit code = %d, want %d", code, cli.ExitOK)
+	}
+	if want := "dotai: login: you may need to log in again in the isolated configuration (not verified on this OS)\n"; !strings.Contains(stderr.String(), want) {
+		t.Errorf("stderr = %q, want %q", stderr.String(), want)
 	}
 }
