@@ -6,7 +6,7 @@ claudecode · partial isolation · may need a new login
   leaks: ~/.claude/CLAUDE.md still loads when the working directory is under the home directory
 
 antigravity-cli · partial isolation · keeps your login
-  --gemini_dir /home/u/.dotai/isolated/gemini
+  --gemini_dir=/home/u/.dotai/isolated/gemini
   leaks: authentication is shared through the OS keyring
 
 opencode · partial isolation · needs a new login

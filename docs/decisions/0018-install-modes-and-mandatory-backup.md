@@ -22,7 +22,7 @@ A runtime check of the v1 harnesses (2026-10-25) found that none isolates fully:
 |---|---|---|---|
 | Claude Code | `CLAUDE_CONFIG_DIR` | partial | The real `~/.claude/CLAUDE.md` loads when the working directory is under the home folder, through parent-directory discovery. On Windows, credentials live in the config dir, so the user must log in again. |
 | agy | `--gemini_dir` | partial | Only authentication is shared, through the OS keyring, which is desired. |
-| OpenCode v2 | `XDG_*` plus `OPENCODE_DISABLE_CLAUDE_CODE` and `OPENCODE_DISABLE_EXTERNAL_SKILLS` | partial | `~/.agents/skills` still loads. It needs its own service port while the user's service runs. Provider credentials do not carry over. |
+| OpenCode v2 | `XDG_*` plus `OPENCODE_DISABLE_CLAUDE_CODE` and `OPENCODE_DISABLE_EXTERNAL_SKILLS` (which v2 does not have; see the update of 2026-10-30) | partial | `~/.agents/skills` still loads. It needs its own service port while the user's service runs. Provider credentials do not carry over. |
 | OpenCode v1 | same | full for configuration | Provider credentials do not carry over. v1 and v2 cannot share a data directory. |
 
 ## Decision
@@ -79,3 +79,5 @@ Backup format:
 
 - Internal research (not published): harness install modes verification, 2026-10-24.
 - Internal research (not published): isolation runtime verification, 2026-10-25.
+
+Update 2026-10-30: OpenCode v2 has no `OPENCODE_DISABLE_EXTERNAL_SKILLS`. `dotai run opencode` sets the `XDG_*` directories, `OPENCODE_DISABLE_CLAUDE_CODE=1` and the undocumented `OPENCODE_TEST_HOME`, set to an empty directory of the isolated install, which hides `~/.agents/skills` only for a working directory outside the home directory: OpenCode's walk-up from the working directory reaches the root of the file system, so under the home directory `~/.agents/skills` still loads. It removes inherited variables that point OpenCode at another configuration (`OPENCODE_CONFIG`, `OPENCODE_CONFIG_DIR`, `OPENCODE_CONFIG_CONTENT`, `OPENCODE_CLI_CONFIG_CONTENT`, `OPENCODE_DB`). Instead of its own service port it adds `--standalone`, a private server, to every command that takes it, and warns on a command it does not know. The logins of agy and OpenCode are recorded for Windows only, where they were checked. The leaks it shows are in the OpenCode adapter and in [HARNESS-NOTES](../HARNESS-NOTES.md). `dotai run antigravity-cli` passes `--gemini_dir=<abs>` first; the check that agy still accepts the flag is not implemented yet.

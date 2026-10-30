@@ -301,6 +301,9 @@ func buildPlan(ctx context.Context, d installFS, tree, home string, adapters []h
 	for _, target := range targets {
 		_, settings := plan.SettingsOf(home, target)
 		cur, data, ok, err := inspectTarget(ctx, d, home, target, dirs, settings)
+		if movedAway(home, target, err) {
+			continue
+		}
 		if err != nil {
 			return plan.Plan{}, nil, err
 		}
@@ -390,6 +393,15 @@ func inspectTarget(ctx context.Context, d installFS, home, target string, dirs m
 		return plan.Current{}, nil, false, err
 	}
 	return cur, data, true, nil
+}
+
+// movedAway reports an error of inspectTarget for a target on the old
+// side of an adapter's move (plan.MovedFrom) that is not a real path, such
+// as a link the harness left there when it moved the directory: such a
+// target is gone, and nothing is read or removed through the link.
+func movedAway(home, target string, err error) bool {
+	_, ok := errors.AsType[*NotRegularError](err)
+	return ok && plan.MovedFrom(home, target)
 }
 
 // checkDir reports a dir that is missing, with an fs.ErrNotExist error,

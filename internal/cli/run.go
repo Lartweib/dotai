@@ -28,11 +28,13 @@ func newRunCmd(env Env, jsonOut, parsed *bool) *cobra.Command {
 		Use:   "run <harness> [-- args...]",
 		Short: "Launch a harness against its isolated install",
 		Long: "Launch the harness against the isolated install of dotai install, with the variables or flags that point it\n" +
-			"there (for claudecode, CLAUDE_CONFIG_DIR=~/.dotai/isolated/claude), the terminal, the current directory and\n" +
-			"the rest of the environment, and exit with its exit code. Everything after the harness goes to it untouched;\n" +
-			"a -- right after the harness is dropped. Before launching, the isolation level, the login and what the user's\n" +
-			"own setup still provides are printed to stderr. Only claudecode can be launched so far. --json is not\n" +
-			"supported: the harness takes over the terminal.",
+			"there (for claudecode, CLAUDE_CONFIG_DIR=~/.dotai/isolated/claude; for antigravity-cli, a first\n" +
+			"--gemini_dir=~/.dotai/isolated/gemini; for opencode, the XDG_* directories, OPENCODE_TEST_HOME and\n" +
+			"OPENCODE_DISABLE_CLAUDE_CODE=1), the terminal, the current directory and the rest of the environment, and\n" +
+			"exit with its exit code. Everything after the harness goes to it, untouched but for opencode's --standalone,\n" +
+			"which is added to the commands that take it; a -- right after the harness is dropped. Before launching, the\n" +
+			"isolation level, the login and what the user's own setup still provides are printed to stderr. --json is\n" +
+			"not supported: the harness takes over the terminal.",
 		Args: func(cmd *cobra.Command, args []string) error {
 			*parsed = true
 			if *jsonOut {
@@ -71,19 +73,17 @@ func newRunCmd(env Env, jsonOut, parsed *bool) *cobra.Command {
 }
 
 // writeLaunch prints, before the harness starts, what decision 0018
-// requires to show of its isolation: its level and pointers, the login
-// and each leak, then each note about the launch, one line each.
+// requires to show of its isolation: its level, pointers and fixed
+// variables, the login and each leak, then each note about the launch, one
+// line each.
 func writeLaunch(w io.Writer, p app.RunPlan) error {
 	h := p.Harness
 	var b strings.Builder
-	pointers := make([]string, 0, len(h.Pointers))
+	pointers := make([]string, 0, len(h.Pointers)+len(p.Vars))
 	for _, ptr := range h.Pointers {
-		sep := "="
-		if ptr.Mechanism == "flag" {
-			sep = " "
-		}
-		pointers = append(pointers, ptr.Name+sep+ptr.Dir)
+		pointers = append(pointers, ptr.Name+"="+ptr.Dir)
 	}
+	pointers = append(pointers, p.Vars...)
 	fmt.Fprintf(&b, "dotai: %s · %s isolation · %s\n", h.ID, h.Level, strings.Join(pointers, ", "))
 	switch h.Relogin {
 	case string(harness.ReloginYes):
@@ -101,6 +101,9 @@ func writeLaunch(w io.Writer, p app.RunPlan) error {
 	}
 	for _, note := range p.Notes {
 		fmt.Fprintf(&b, "dotai: note: %s\n", note)
+	}
+	for _, warning := range p.Warnings {
+		fmt.Fprintf(&b, "dotai: warning: %s\n", warning)
 	}
 	_, err := io.WriteString(w, b.String())
 	return err

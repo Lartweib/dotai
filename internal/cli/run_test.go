@@ -205,8 +205,8 @@ func TestRunRunReal(t *testing.T) {
 		want    int
 		inErr   string
 	}{
-		{harness: "antigravity-cli", want: cli.ExitUsage, inErr: "not supported yet"},
-		{harness: "opencode", want: cli.ExitUsage, inErr: "not supported yet"},
+		{harness: "antigravity-cli", want: cli.ExitInternal, inErr: "no install state"},
+		{harness: "opencode", want: cli.ExitInternal, inErr: "no install state"},
 		{harness: "agy", want: cli.ExitUsage, inErr: `unknown harness "agy"`},
 		{harness: "claudecode", want: cli.ExitInternal, inErr: "no install state"},
 	}
@@ -226,6 +226,29 @@ func TestRunRunReal(t *testing.T) {
 	}
 }
 
+// TestRunRunShowsAFlagPointerAsItIsPassed checks that a flag pointer
+// reads as the one argument the harness gets.
+func TestRunRunShowsAFlagPointerAsItIsPassed(t *testing.T) {
+	restoreHome(t)
+	p := runPlan
+	p.Harness = app.HarnessPlan{
+		ID: "antigravity-cli", Level: "partial", Dir: "/home/u/.dotai/isolated/gemini", Relogin: "no",
+		Pointers: []app.PointerPlan{{Mechanism: "flag", Name: "--gemini_dir", Dir: "/home/u/.dotai/isolated/gemini"}},
+		Leaks:    []string{"authentication is shared through the OS keyring"},
+	}
+	f := &fakeRun{res: p}
+	var stderr bytes.Buffer
+	if code := cli.Run([]string{"run", "antigravity-cli"}, f.env(&bytes.Buffer{}, &stderr)); code != cli.ExitOK {
+		t.Errorf("exit code = %d, want %d", code, cli.ExitOK)
+	}
+	want := "dotai: antigravity-cli · partial isolation · --gemini_dir=/home/u/.dotai/isolated/gemini\n" +
+		"dotai: login: keeps your login\n" +
+		"dotai: leaks: authentication is shared through the OS keyring\n"
+	if stderr.String() != want {
+		t.Errorf("stderr = %q, want %q", stderr.String(), want)
+	}
+}
+
 func TestRunRunSaysWhenTheLoginIsUnknown(t *testing.T) {
 	restoreHome(t)
 	p := runPlan
@@ -237,5 +260,47 @@ func TestRunRunSaysWhenTheLoginIsUnknown(t *testing.T) {
 	}
 	if want := "dotai: login: you may need to log in again in the isolated configuration (not verified on this OS)\n"; !strings.Contains(stderr.String(), want) {
 		t.Errorf("stderr = %q, want %q", stderr.String(), want)
+	}
+}
+
+// TestRunRunShowsTheFixedVariablesWithThePointers checks OpenCode's first
+// line, which ends with the variables set to a fixed value, and the note
+// about --standalone.
+func TestRunRunShowsTheFixedVariablesWithThePointers(t *testing.T) {
+	restoreHome(t)
+	p := runPlan
+	p.Harness = app.HarnessPlan{
+		ID: "opencode", Level: "partial", Dir: "/home/u/.dotai/isolated/opencode", Relogin: "yes",
+		Pointers: []app.PointerPlan{{Mechanism: "env", Name: "XDG_CONFIG_HOME", Dir: "/home/u/.dotai/isolated/opencode/config"}},
+		Leaks:    []string{"provider credentials do not carry over"},
+	}
+	p.Vars = []string{"OPENCODE_DISABLE_CLAUDE_CODE=1"}
+	p.Notes = []string{"--standalone added: OpenCode runs a private server"}
+	f := &fakeRun{res: p}
+	var stderr bytes.Buffer
+	if code := cli.Run([]string{"run", "opencode"}, f.env(&bytes.Buffer{}, &stderr)); code != cli.ExitOK {
+		t.Errorf("exit code = %d, want %d", code, cli.ExitOK)
+	}
+	want := "dotai: opencode · partial isolation · XDG_CONFIG_HOME=/home/u/.dotai/isolated/opencode/config, OPENCODE_DISABLE_CLAUDE_CODE=1\n" +
+		"dotai: login: you must log in again in the isolated configuration\n" +
+		"dotai: leaks: provider credentials do not carry over\n" +
+		"dotai: note: --standalone added: OpenCode runs a private server\n"
+	if stderr.String() != want {
+		t.Errorf("stderr = %q, want %q", stderr.String(), want)
+	}
+}
+
+func TestRunRunPrintsTheWarningsAfterTheNotes(t *testing.T) {
+	restoreHome(t)
+	p := runPlan
+	p.Notes = []string{"a note"}
+	p.Warnings = []string{`"newcommand" is not a command known to take --standalone`}
+	f := &fakeRun{res: p}
+	var stderr bytes.Buffer
+	if code := cli.Run([]string{"run", "claudecode"}, f.env(&bytes.Buffer{}, &stderr)); code != cli.ExitOK {
+		t.Errorf("exit code = %d, want %d", code, cli.ExitOK)
+	}
+	if want := "dotai: note: a note\ndotai: warning: " + p.Warnings[0] + "\n"; !strings.HasSuffix(stderr.String(), want) {
+		t.Errorf("stderr = %q, want it to end with %q", stderr.String(), want)
 	}
 }

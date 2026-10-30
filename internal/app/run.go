@@ -25,7 +25,10 @@ type RunPlan struct {
 	Program string   // the path it was found at
 	Args    []string // the arguments after the program name
 	Env     []string // the whole environment of the harness, as KEY=value
+	Vars    []string // the variables set to a fixed value, as KEY=value, which Env ends with
 	Notes   []string // what the user should know about the launch, text for people
+	// Warnings are what may go wrong in the launch, text for people.
+	Warnings []string
 }
 
 // batchUnsafe are the characters cmd.exe reads in a batch file's command
@@ -35,17 +38,21 @@ const batchUnsafe = "&|<>^%\"!\r\n"
 
 // PlanRun plans launching the harness id isolated, with args passed
 // through after the flags its pointers need, from the install state in the
-// absolute home directory home. The install state must record an isolated
+// absolute home directory home. An argument that sets one of those flags
+// is a *UsageError, and each flag the harness adds goes into args where
+// the command they run takes it. The install state must record an isolated
 // install that includes id and no journal, and the harness's isolated
 // directory must be a real directory. While it checks them, it holds
 // ~/.dotai/lock, which it takes without waiting, so that it refuses to run
 // while an install or a restore writes, and releases it before returning:
 // the harness runs without it. The harness's environment is the current one
-// without the variables its pointers set, which are then set to its
-// isolated directories. On Windows, a batch file (.cmd or .bat) found
-// first on PATH gives way to the harness's .exe further on PATH; launched
-// on its own, it gets a note, and an argument that cmd.exe would read is
-// refused. Apart from the lock, it writes nothing.
+// without the variables its pointers and its fixed variables set, which
+// are then set to its isolated directories and their values. On Windows, a
+// batch file (.cmd or .bat) found first on PATH gives way to the
+// executable it runs, when the harness names it, or to the harness's .exe
+// further on PATH; launched on its own, it gets a note, and an argument
+// that cmd.exe would read is refused. Apart from the lock and the empty
+// directory of a pointer that must exist, it writes nothing.
 func PlanRun(home, id string, args []string) (RunPlan, error) {
 	return planRun(osInstallFS{}, exec.LookPath, runtime.GOOS, home, id, args, os.Environ())
 }
@@ -53,6 +60,9 @@ func PlanRun(home, id string, args []string) (RunPlan, error) {
 func planRun(d executeFS, lookPath func(string) (string, error), goos, home, id string, args, environ []string) (p RunPlan, err error) {
 	a, err := launchable(id)
 	if err != nil {
+		return RunPlan{}, err
+	}
+	if err := checkFlags(a, args); err != nil {
 		return RunPlan{}, err
 	}
 	if !filepath.IsAbs(home) {
@@ -97,38 +107,66 @@ func planRun(d executeFS, lookPath func(string) (string, error), goos, home, id 
 	}
 	root := filepath.Join(home, filepath.FromSlash(harness.IsolatedDir))
 	h := harnessPlan(root, a, goos)
-	for _, dir := range []string{root, h.Dir} {
+	dirs := []string{root, h.Dir}
+	if a.Install != "" {
+		dir := h.Dir
+		for seg := range strings.SplitSeq(a.Install, "/") {
+			dir = filepath.Join(dir, seg)
+			dirs = append(dirs, dir)
+		}
+	}
+	for _, dir := range dirs {
 		if err := checkDir(d, dir); errors.Is(err, fs.ErrNotExist) {
 			return RunPlan{}, fmt.Errorf("the isolated directory %s is missing: run dotai install", dir)
 		} else if err != nil {
 			return RunPlan{}, err
 		}
 	}
-	program, err := findProgram(lookPath, goos, a.Command)
+	program, err := findProgram(d, lookPath, goos, a)
 	if err != nil {
 		return RunPlan{}, err
 	}
-	p = RunPlan{Harness: h, Command: a.Command, Program: program, Args: []string{}, Env: []string{}, Notes: []string{}}
-	set := map[string]bool{}
+	p = RunPlan{Harness: h, Command: a.Command, Program: program, Args: []string{}, Env: []string{}, Vars: []string{}, Notes: []string{}, Warnings: []string{}}
+	set, drop := map[string]bool{}, map[string]bool{}
+	for _, name := range a.Isolation.Drop {
+		drop[envKey(goos, name)] = true
+	}
 	for _, ptr := range h.Pointers {
 		if ptr.Mechanism == string(harness.Flag) {
-			p.Args = append(p.Args, ptr.Name, ptr.Dir)
+			p.Args = append(p.Args, ptr.Name+"="+ptr.Dir)
 		} else {
 			set[envKey(goos, ptr.Name)] = true
 		}
 	}
+	for _, v := range a.Isolation.Vars {
+		set[envKey(goos, v.Name)] = true
+		p.Vars = append(p.Vars, v.Name+"="+v.Value)
+	}
+	isDir := func(name string) bool {
+		mode, err := d.Lstat(name)
+		return err == nil && mode.IsDir()
+	}
+	args, p.Notes, p.Warnings = addFlags(a.Isolation.Flags, args, isDir)
 	p.Args = append(p.Args, args...)
+	var dropped []string
 	for _, kv := range environ {
 		name, _, _ := strings.Cut(kv, "=")
-		if !set[envKey(goos, name)] {
+		switch key := envKey(goos, name); {
+		case drop[key]:
+			dropped = append(dropped, name)
+		case !set[key]:
 			p.Env = append(p.Env, kv)
 		}
+	}
+	if len(dropped) > 0 {
+		p.Notes = append(p.Notes, fmt.Sprintf("removed %s from the environment, since each points %s at another configuration", strings.Join(dropped, ", "), a.ID))
 	}
 	for _, ptr := range h.Pointers {
 		if ptr.Mechanism == string(harness.Env) {
 			p.Env = append(p.Env, ptr.Name+"="+ptr.Dir)
 		}
 	}
+	p.Env = append(p.Env, p.Vars...)
 	if isBatch(goos, program) {
 		for _, arg := range p.Args {
 			if strings.ContainsAny(arg, batchUnsafe) {
@@ -137,14 +175,113 @@ func planRun(d executeFS, lookPath func(string) (string, error), goos, home, id 
 		}
 		p.Notes = append(p.Notes, fmt.Sprintf("%s resolves to the batch file %s: Ctrl-C may show cmd's \"Terminate batch job (Y/N)?\" prompt after the harness exits; the native %s.exe avoids it", a.Command, program, a.Command))
 	}
+	for _, ptr := range a.Isolation.Pointers {
+		if ptr.Make {
+			if err := makeDir(d, h.Dir, ptr.Path); err != nil {
+				return RunPlan{}, err
+			}
+		}
+	}
 	return p, nil
 }
 
-// findProgram looks command up on PATH. A command found only in the
+// checkFlags refuses an argument that sets a flag pointer of a, which
+// dotai run sets itself: the flag with one or two dashes, alone or with
+// =value, wherever it is, since a harness may read it past a --.
+func checkFlags(a harness.Adapter, args []string) error {
+	for _, ptr := range a.Isolation.Pointers {
+		if ptr.Mechanism != harness.Flag {
+			continue
+		}
+		bare := strings.TrimLeft(ptr.Name, "-")
+		for _, arg := range args {
+			name, _, _ := strings.Cut(arg, "=")
+			if strings.HasPrefix(name, "-") && strings.TrimPrefix(strings.TrimPrefix(name, "-"), "-") == bare {
+				return &UsageError{fmt.Sprintf("dotai run %s sets %s itself, to the isolated install: leave out %q", a.ID, ptr.Name, arg)}
+			}
+		}
+	}
+	return nil
+}
+
+// makeDir creates the directory rel, a slash path, in dir when it is
+// missing, and refuses it when it is not a real directory.
+func makeDir(d executeFS, dir, rel string) error {
+	name := filepath.Join(dir, filepath.FromSlash(rel))
+	err := checkDir(d, name)
+	if !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	if err := d.MkdirIn(dir, filepath.FromSlash(rel)); err != nil {
+		return err
+	}
+	return checkDir(d, name)
+}
+
+// addFlags adds each flag to args right after the global flags and the
+// subcommands they start with, when the command they run takes it and
+// args do not have it or a flag that takes its place before a --; a note
+// says why for each flag it adds. A word that is neither a subcommand nor,
+// first, a directory for the default command, makes the command unknown:
+// the flag is not added and a warning says what may happen. isDir reports
+// a directory. Notes and warnings are never nil.
+func addFlags(flags []harness.AddedFlag, args []string, isDir func(string) bool) ([]string, []string, []string) {
+	notes, warnings := []string{}, []string{}
+	for _, f := range flags {
+		end := slices.Index(args, "--")
+		if end < 0 {
+			end = len(args)
+		}
+		if slices.ContainsFunc(args[:end], func(arg string) bool {
+			name, _, _ := strings.Cut(arg, "=")
+			return name == f.Name || slices.Contains(f.Unless, name)
+		}) {
+			continue
+		}
+		command, i, unknown := "", 0, ""
+		for i < end {
+			arg := args[i]
+			if name, _, hasValue := strings.Cut(arg, "="); strings.HasPrefix(arg, "-") {
+				value, global := f.Globals[name]
+				if !global {
+					break
+				}
+				i++
+				if value && !hasValue {
+					i++
+				}
+				continue
+			}
+			next := strings.TrimSpace(command + " " + arg)
+			if slices.Contains(f.Subcommands, next) {
+				command, i = next, i+1
+				continue
+			}
+			parent := command != "" && slices.ContainsFunc(f.Subcommands, func(c string) bool { return strings.HasPrefix(c, command+" ") })
+			if command == "" && !isDir(arg) || parent {
+				unknown = next
+			}
+			break
+		}
+		i = min(i, end)
+		switch {
+		case unknown != "":
+			warnings = append(warnings, fmt.Sprintf("%q is not a command known to take %s, so it is not added: %s", unknown, f.Name, f.Warning))
+		case slices.Contains(f.Commands, command):
+			args = slices.Insert(slices.Clone(args), i, f.Name)
+			notes = append(notes, fmt.Sprintf("%s added: %s", f.Name, f.Note))
+		}
+	}
+	return args, notes, warnings
+}
+
+// findProgram looks a's command up on PATH. A command found only in the
 // current directory or through a relative PATH entry is refused, as
-// exec.LookPath reports it. On Windows, a batch file gives way to
-// command.exe when PATH has one further on.
-func findProgram(lookPath func(string) (string, error), goos, command string) (string, error) {
+// exec.LookPath reports it. On Windows, a batch file gives way to the
+// executable it runs, a's BatchTarget next to it, when it is there, or
+// else to command.exe when PATH has one further on.
+func findProgram(d installFS, lookPath func(string) (string, error), goos string, a harness.Adapter) (string, error) {
+	command := a.Command
 	program, err := lookPath(command)
 	switch {
 	case errors.Is(err, exec.ErrDot):
@@ -153,6 +290,12 @@ func findProgram(lookPath func(string) (string, error), goos, command string) (s
 		return "", fmt.Errorf("%s was not found on PATH, install it or add its directory to PATH: %w", command, err)
 	}
 	if isBatch(goos, program) {
+		if a.BatchTarget != "" {
+			exe := filepath.Join(filepath.Dir(program), filepath.FromSlash(a.BatchTarget))
+			if mode, err := d.Lstat(exe); err == nil && mode.IsRegular() {
+				return exe, nil
+			}
+		}
 		if exe, err := lookPath(command + ".exe"); err == nil {
 			return exe, nil
 		}

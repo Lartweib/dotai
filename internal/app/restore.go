@@ -603,6 +603,9 @@ func (r *restorer) plan(res *RestoreResult, s state.State, chain []undone) error
 			v, ok := virtual[op.Target]
 			if !ok {
 				cur, _, exists, err := inspectTarget(r.ctx, r.d, r.home, op.Target, dirs, false)
+				if movedAway(r.home, op.Target, err) {
+					err = nil
+				}
 				if err != nil {
 					return err
 				}

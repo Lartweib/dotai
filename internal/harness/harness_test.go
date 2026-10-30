@@ -3,6 +3,7 @@ package harness_test
 import (
 	"path"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -59,6 +60,8 @@ func TestAdapters(t *testing.T) {
 			{Mechanism: harness.Env, Name: "XDG_DATA_HOME", Path: "data"},
 			{Mechanism: harness.Env, Name: "XDG_STATE_HOME", Path: "state"},
 			{Mechanism: harness.Env, Name: "XDG_CACHE_HOME", Path: "cache"},
+			// An empty home, so that ~/.agents/skills does not load.
+			{Mechanism: harness.Env, Name: "OPENCODE_TEST_HOME", Path: "home", Make: true},
 		}},
 	}
 	all := harness.All()
@@ -106,10 +109,75 @@ func TestAllIsACopy(t *testing.T) {
 	}
 }
 
+// TestMoves checks the staged directories that install elsewhere in a
+// harness's isolated directory: agy moves antigravity-cli/skills to
+// config/skills on its first run, and cannot link it back on Windows.
+func TestMoves(t *testing.T) {
+	want := map[string][]harness.Move{"antigravity-cli": {{From: "antigravity-cli/skills", To: "config/skills"}}}
+	for _, a := range harness.All() {
+		if got := a.Moves; !reflect.DeepEqual(got, want[a.ID]) {
+			t.Errorf("%s: Moves = %+v, want %+v", a.ID, got, want[a.ID])
+		}
+	}
+}
+
+// TestOpenCodeLaunch checks what dotai run adds to OpenCode's launch
+// besides its pointers: the variable that drops ~/.claude and the .claude
+// directories, and --standalone, so that OpenCode runs a private server
+// instead of attaching to a background service that may be the user's own,
+// with the user's configuration, for every command of 2.0.30 that takes it.
+func TestOpenCodeLaunch(t *testing.T) {
+	a, err := harness.Lookup([]string{"opencode"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []harness.Var{{Name: "OPENCODE_DISABLE_CLAUDE_CODE", Value: "1"}}; !reflect.DeepEqual(a[0].Isolation.Vars, want) {
+		t.Errorf("Vars = %+v, want %+v", a[0].Isolation.Vars, want)
+	}
+	if len(a[0].Isolation.Flags) != 1 {
+		t.Fatalf("Flags = %+v, want --standalone only", a[0].Isolation.Flags)
+	}
+	f := a[0].Isolation.Flags[0]
+	commands := []string{"", "api", "auth export", "auth import", "auth list", "auth login", "auth logout", "auth switch", "mini", "models", "reload", "run",
+		"session delete", "session export", "session import", "session list", "stats"}
+	if f.Name != "--standalone" || !reflect.DeepEqual(f.Commands, commands) || !reflect.DeepEqual(f.Unless, []string{"--server"}) || f.Note == "" || f.Warning == "" {
+		t.Errorf("flag = %+v, want --standalone for %q unless --server, with a note and a warning", f, commands)
+	}
+	// The global flags of 2.0.30's help, and whether each takes a value.
+	globals := map[string]bool{"--help": false, "-h": false, "--version": false, "-v": false, "--wizard": false,
+		"--completions": true, "--log-level": true, "--print-logs": false}
+	if !reflect.DeepEqual(f.Globals, globals) {
+		t.Errorf("Globals = %v, want %v", f.Globals, globals)
+	}
+	for _, c := range []string{"debug paths", "mcp list", "plugin add", "service status", "auth switch"} {
+		if !slices.Contains(f.Subcommands, c) {
+			t.Errorf("subcommand %q is missing", c)
+		}
+	}
+	// Variables that would point the isolated OpenCode at another
+	// configuration or database.
+	if want := []string{"OPENCODE_CONFIG", "OPENCODE_CONFIG_DIR", "OPENCODE_CONFIG_CONTENT", "OPENCODE_CLI_CONFIG_CONTENT", "OPENCODE_DB"}; !reflect.DeepEqual(a[0].Isolation.Drop, want) {
+		t.Errorf("Drop = %q, want %q", a[0].Isolation.Drop, want)
+	}
+	for _, c := range f.Commands {
+		if c != "" && !slices.Contains(f.Subcommands, c) {
+			t.Errorf("command %q is not one of the subcommands", c)
+		}
+	}
+	for _, c := range []string{"debug", "debug paths", "mcp", "serve", "upgrade", "update", "session", "auth"} {
+		if slices.Contains(f.Commands, c) {
+			t.Errorf("command %q does not take --standalone", c)
+		}
+	}
+	if got := a[0].BatchTarget; got != "node_modules/@opencode/cli/bin/opencode.exe" {
+		t.Errorf("BatchTarget = %q, want the executable npm's opencode.cmd runs", got)
+	}
+}
+
 // TestCommands checks the executable dotai run launches for each harness:
-// only Claude Code so far, agy and OpenCode come with roadmap PR 9.
+// all three since roadmap PR 9.
 func TestCommands(t *testing.T) {
-	want := map[string]string{"claudecode": "claude", "antigravity-cli": "", "opencode": ""}
+	want := map[string]string{"claudecode": "claude", "antigravity-cli": "agy", "opencode": "opencode"}
 	for _, a := range harness.All() {
 		if got := a.Command; got != want[a.ID] {
 			t.Errorf("%s: Command = %q, want %q", a.ID, got, want[a.ID])
@@ -136,8 +204,16 @@ func TestSettings(t *testing.T) {
 
 // TestIsolationPerOS checks the login and the leaks of each harness by OS:
 // decision 0018 verified Claude Code's new login on Windows only, where
-// its credentials live in the configuration directory.
+// its credentials live in the configuration directory, and the logins of
+// agy and OpenCode were checked on Windows only too.
 func TestIsolationPerOS(t *testing.T) {
+	openCodeLeaks := []string{
+		"provider credentials do not carry over",
+		"AGENTS.md, .agents and .opencode load from the working directory and every directory above it, so under your home directory your ~/.agents/skills, ~/.opencode and ~/AGENTS.md still load",
+		"OPENCODE_TEST_HOME, which OpenCode does not document, hides ~/.agents/skills only outside your home directory, and a later OpenCode may drop it",
+		"with --server, OpenCode reaches a server that runs with its own configuration",
+		"a command that does not take --standalone, such as debug config, starts a background service on the port of your own OpenCode service and leaves it running",
+	}
 	claudeMD := "~/.claude/CLAUDE.md still loads when the working directory is under the home directory"
 	credentials := "credentials live in the configuration directory, so you must log in again"
 	tests := []struct {
@@ -149,8 +225,10 @@ func TestIsolationPerOS(t *testing.T) {
 		{"claudecode", "linux", harness.ReloginUnknown, []string{claudeMD}},
 		{"claudecode", "darwin", harness.ReloginUnknown, []string{claudeMD}},
 		{"antigravity-cli", "windows", harness.ReloginNo, []string{"authentication is shared through the OS keyring"}},
-		{"antigravity-cli", "linux", harness.ReloginNo, []string{"authentication is shared through the OS keyring"}},
-		{"opencode", "darwin", harness.ReloginYes, []string{"~/.agents/skills still loads", "it needs its own service port while your own OpenCode service runs", "provider credentials do not carry over"}},
+		{"antigravity-cli", "linux", harness.ReloginUnknown, []string{"authentication is shared through the OS keyring"}},
+		{"opencode", "darwin", harness.ReloginUnknown, openCodeLeaks},
+		{"opencode", "linux", harness.ReloginUnknown, openCodeLeaks},
+		{"opencode", "windows", harness.ReloginYes, append(slices.Clone(openCodeLeaks), `the temporary directory %TEMP%\opencode is shared`)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.id+"/"+tt.goos, func(t *testing.T) {

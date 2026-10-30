@@ -140,11 +140,7 @@ func writePlan(w io.Writer, p app.InstallPlan, color bool, footer string) error 
 		}
 		fmt.Fprintf(&b, "\n%s · %s isolation · %s\n", paint(color, styleBold, h.ID), h.Level, login)
 		for _, ptr := range h.Pointers {
-			sep := "="
-			if ptr.Mechanism == "flag" {
-				sep = " "
-			}
-			fmt.Fprintf(&b, "  %s%s%s\n", ptr.Name, sep, ptr.Dir)
+			fmt.Fprintf(&b, "  %s=%s\n", ptr.Name, ptr.Dir)
 		}
 		if len(h.Leaks) == 0 {
 			fmt.Fprintf(&b, "  leaks: nothing known\n")
