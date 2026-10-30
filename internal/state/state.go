@@ -7,6 +7,7 @@ package state
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"path/filepath"
@@ -210,6 +211,9 @@ func Decode(data []byte) (State, error) {
 			if !filepath.IsAbs(op.Target) {
 				return State{}, fmt.Errorf("install state: pending target %q is not absolute", op.Target)
 			}
+			if err := checkKeys(op.Keys); err != nil {
+				return State{}, fmt.Errorf("install state: pending %s: %w", op.Target, err)
+			}
 		}
 	}
 	seen := map[string]bool{}
@@ -221,10 +225,8 @@ func Decode(data []byte) (State, error) {
 			return State{}, fmt.Errorf("install state: target %s is owned twice", f.Target)
 		}
 		seen[f.Target] = true
-		for _, k := range f.Keys {
-			if len(k.Path) == 0 {
-				return State{}, fmt.Errorf("install state: a key of %s has no path", f.Target)
-			}
+		if err := checkKeys(f.Keys); err != nil {
+			return State{}, fmt.Errorf("install state: %s: %w", f.Target, err)
 		}
 	}
 	if s.Harnesses == nil {
@@ -234,4 +236,14 @@ func Decode(data []byte) (State, error) {
 		s.Files = []File{}
 	}
 	return s, nil
+}
+
+// checkKeys rejects a key of a settings file that has no path.
+func checkKeys(keys []plan.Key) error {
+	for _, k := range keys {
+		if len(k.Path) == 0 {
+			return errors.New("a key has no path")
+		}
+	}
+	return nil
 }

@@ -219,6 +219,11 @@ func TestSettingsKeys(t *testing.T) {
 	if _, err := state.Decode([]byte(encode(t, bad))); err == nil || !strings.Contains(err.Error(), "key") {
 		t.Errorf("Decode() of a key without a path error = %v, want one", err)
 	}
+	bad = state.Journal(base, "b2", ops)
+	bad.Pending.Ops[0].Keys = []plan.Key{{Path: []string{}, SHA256: "y"}}
+	if _, err := state.Decode([]byte(encode(t, bad))); err == nil || !strings.Contains(err.Error(), "key") || !strings.Contains(err.Error(), "pending") {
+		t.Errorf("Decode() of a pending key without a path error = %v, want one", err)
+	}
 }
 
 func TestSettled(t *testing.T) {
