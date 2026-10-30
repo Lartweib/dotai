@@ -88,6 +88,34 @@ func (d *Document) Get(path []string) ([]byte, bool) {
 	return compactJSON(*v), true
 }
 
+// Keys returns the names of the members of the object at path, in the order
+// they first appear, each once, and whether there is an object there. An
+// empty document is an empty object.
+func (d *Document) Keys(path []string) ([]string, bool) {
+	if d.root == nil && len(path) == 0 {
+		return nil, true
+	}
+	v := d.lookup(path)
+	if v == nil {
+		return nil, false
+	}
+	obj, ok := v.Value.(*hujson.Object)
+	if !ok {
+		return nil, false
+	}
+	var names []string
+	for _, m := range obj.Members {
+		if name := m.Name.Value.(hujson.Literal).String(); !slices.Contains(names, name) {
+			names = append(names, name)
+		}
+	}
+	return names, true
+}
+
+// Canonical returns valid JSON, such as a value Get returns, in a form where
+// equal values are equal bytes; see equalityKey.
+func Canonical(value []byte) []byte { return []byte(equalityKey(value)) }
+
 // lookup returns the value at path, or nil when a key is missing or a value
 // on the way is not an object. With duplicate keys the last one wins.
 func (d *Document) lookup(path []string) *hujson.Value {

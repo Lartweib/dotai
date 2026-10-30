@@ -199,6 +199,61 @@ func TestGet(t *testing.T) {
 	}
 }
 
+func TestKeys(t *testing.T) {
+	doc, err := jsonc.Parse([]byte(`{
+  "a": 1, // one
+  "b": {"c": 1, /* two */ "d": 2, "c": 3},
+  "e": [],
+  "a": 4
+}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		path []string
+		want []string
+		ok   bool
+	}{
+		{nil, []string{"a", "b", "e"}, true},
+		{[]string{"b"}, []string{"c", "d"}, true},
+		{[]string{"e"}, nil, false},
+		{[]string{"a"}, nil, false},
+		{[]string{"missing"}, nil, false},
+	}
+	for _, tt := range tests {
+		got, ok := doc.Keys(tt.path)
+		if !slices.Equal(got, tt.want) || ok != tt.ok {
+			t.Errorf("Keys(%q) = %q, %v; want %q, %v", tt.path, got, ok, tt.want, tt.ok)
+		}
+	}
+	empty, err := jsonc.Parse([]byte("  \n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := empty.Keys(nil); len(got) != 0 || !ok {
+		t.Errorf("Keys(nil) of an empty document = %q, %v; want no key", got, ok)
+	}
+}
+
+func TestCanonical(t *testing.T) {
+	tests := []struct{ a, b string }{
+		{`{"b": 1, "a": [1, 2]}`, `{"a":[1,2],"b":1}`},
+		{`"x"`, ` "x" `},
+		{`{"a": {"d": null, "c": true}}`, `{"a":{"c":true,"d":null}}`},
+	}
+	for _, tt := range tests {
+		if a, b := jsonc.Canonical([]byte(tt.a)), jsonc.Canonical([]byte(tt.b)); !bytes.Equal(a, b) {
+			t.Errorf("Canonical(%s) = %s, Canonical(%s) = %s; want them equal", tt.a, a, tt.b, b)
+		}
+	}
+	if a, b := jsonc.Canonical([]byte(`1.0`)), jsonc.Canonical([]byte(`1`)); bytes.Equal(a, b) {
+		t.Errorf("Canonical(1.0) = Canonical(1) = %s; want numbers as written", a)
+	}
+	if a, b := jsonc.Canonical([]byte(`[1, 2]`)), jsonc.Canonical([]byte(`[2, 1]`)); bytes.Equal(a, b) {
+		t.Errorf("Canonical() = %s for arrays in another order; want them different", a)
+	}
+}
+
 func set(path []string, value string) func(*jsonc.Document) error {
 	return func(d *jsonc.Document) error { return d.Set(path, []byte(value)) }
 }
