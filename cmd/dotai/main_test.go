@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lartweib/dotai/internal/harness"
 	"github.com/lartweib/dotai/internal/state"
 )
 
@@ -26,76 +27,105 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// fakeClaude prints what it was launched with as JSON and exits with the
-// code in FAKE_CLAUDE_EXIT.
-const fakeClaude = `package main
+// fakeHarness prints what it was launched with as JSON: its arguments,
+// the current directory and each variable of the isolated launches that is
+// set, with how many times its name appears in any case; then it exits
+// with the code in FAKE_HARNESS_EXIT. It is built as claude, agy and
+// opencode.
+const fakeHarness = `package main
 
 import (
 	"encoding/json"
 	"os"
 	"strconv"
+	"strings"
 )
 
 func main() {
 	cwd, _ := os.Getwd()
-	dir, set := os.LookupEnv("CLAUDE_CONFIG_DIR")
-	n := 0
-	for _, kv := range os.Environ() {
-		if len(kv) >= 18 && (kv[:18] == "CLAUDE_CONFIG_DIR=" || kv[:18] == "claude_config_dir=") {
-			n++
+	env, counts := map[string]string{}, map[string]int{}
+	for _, name := range []string{"CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME",
+		"OPENCODE_TEST_HOME", "OPENCODE_DISABLE_CLAUDE_CODE"} {
+		if v, ok := os.LookupEnv(name); ok {
+			env[name] = v
+		}
+		for _, kv := range os.Environ() {
+			if k, _, _ := strings.Cut(kv, "="); strings.EqualFold(k, name) {
+				counts[name]++
+			}
 		}
 	}
-	json.NewEncoder(os.Stdout).Encode(map[string]any{"configDir": dir, "set": set, "count": n, "args": os.Args[1:], "cwd": cwd})
-	code, _ := strconv.Atoi(os.Getenv("FAKE_CLAUDE_EXIT"))
+	json.NewEncoder(os.Stdout).Encode(map[string]any{"args": os.Args[1:], "cwd": cwd, "env": env, "counts": counts})
+	code, _ := strconv.Atoi(os.Getenv("FAKE_HARNESS_EXIT"))
 	os.Exit(code)
 }
 `
 
-// launched is what the fake claude prints.
+// launched is what the fake harness prints.
 type launched struct {
-	ConfigDir string   `json:"configDir"`
-	Set       bool     `json:"set"`
-	Count     int      `json:"count"`
-	Args      []string `json:"args"`
-	Cwd       string   `json:"cwd"`
+	Args   []string          `json:"args"`
+	Cwd    string            `json:"cwd"`
+	Env    map[string]string `json:"env"`
+	Counts map[string]int    `json:"counts"`
 }
 
-// buildFakeClaude builds the fake claude into a new directory, which it
-// returns, so that it is the only claude on a PATH made of it.
-func buildFakeClaude(t *testing.T) string {
+// buildFakes builds the fake harness as claude, agy and opencode into a
+// new directory, which it returns, so that they are the only ones on a
+// PATH made of it.
+func buildFakes(t *testing.T) string {
 	t.Helper()
 	src, bin := t.TempDir(), t.TempDir()
-	if err := os.WriteFile(filepath.Join(src, "main.go"), []byte(fakeClaude), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(src, "main.go"), []byte(fakeHarness), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	name := "claude"
-	if runtime.GOOS == "windows" {
-		name += ".exe"
-	}
-	build := exec.Command("go", "build", "-o", filepath.Join(bin, name), "main.go")
-	build.Dir = src
-	build.Env = append(os.Environ(), "GOFLAGS=", "GO111MODULE=off")
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("building the fake claude: %v\n%s", err, out)
+	for _, name := range []string{"claude", "agy", "opencode"} {
+		if runtime.GOOS == "windows" {
+			name += ".exe"
+		}
+		build := exec.Command("go", "build", "-o", filepath.Join(bin, name), "main.go")
+		build.Dir = src
+		build.Env = append(os.Environ(), "GOFLAGS=", "GO111MODULE=off")
+		if out, err := build.CombinedOutput(); err != nil {
+			t.Fatalf("building the fake %s: %v\n%s", name, err, out)
+		}
 	}
 	return bin
 }
 
-// installedHome is a temporary home with an isolated install of Claude
-// Code, as dotai install records it.
-func installedHome(t *testing.T, pending *state.Pending) string {
+// launch decodes what the fake harness printed.
+func launch(t *testing.T, stdout string) launched {
 	t.Helper()
+	var got launched
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("stdout = %q: %v", stdout, err)
+	}
+	return got
+}
+
+// installedHome is a temporary home with an isolated install of
+// harnesses, Claude Code when there is none, as dotai install records it.
+func installedHome(t *testing.T, pending *state.Pending, harnesses ...string) string {
+	t.Helper()
+	if len(harnesses) == 0 {
+		harnesses = []string{"claudecode"}
+	}
 	home := t.TempDir()
 	s := state.State{
 		Schema: state.Schema, Pack: state.Pack{Name: "minimal-pack", Version: "0.1.0", Path: filepath.Join(home, "pack")}, Mode: "isolated",
-		InstalledAt: time.Date(2026, 10, 30, 10, 0, 0, 0, time.UTC), Harnesses: []string{"claudecode"}, Files: []state.File{}, Pending: pending,
+		InstalledAt: time.Date(2026, 10, 30, 10, 0, 0, 0, time.UTC), Harnesses: harnesses, Files: []state.File{}, Pending: pending,
 	}
 	data, err := state.Encode(s)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(home, ".dotai", "isolated", "claude"), 0o755); err != nil {
+	adapters, err := harness.Lookup(harnesses)
+	if err != nil {
 		t.Fatal(err)
+	}
+	for _, a := range adapters {
+		if err := os.MkdirAll(filepath.Join(home, ".dotai", "isolated", a.Dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := os.WriteFile(filepath.Join(home, ".dotai", "state.json"), data, 0o600); err != nil {
 		t.Fatal(err)
@@ -127,21 +157,18 @@ func dotai(t *testing.T, home, path, cwd string, extra []string, args ...string)
 }
 
 func TestRunLaunchesClaudeCodeIsolated(t *testing.T) {
-	bin := buildFakeClaude(t)
+	bin := buildFakes(t)
 	home := installedHome(t, nil)
 	cwd := t.TempDir()
 	args := []string{"--model", "opus", "-p", "hi there", "--json", "--", "x"}
 	for _, code := range []int{0, 3} {
-		exit, stdout, stderr := dotai(t, home, bin, cwd, []string{"FAKE_CLAUDE_EXIT=" + string(rune('0'+code))}, append([]string{"run", "claudecode", "--"}, args...)...)
+		exit, stdout, stderr := dotai(t, home, bin, cwd, []string{"FAKE_HARNESS_EXIT=" + string(rune('0'+code))}, append([]string{"run", "claudecode", "--"}, args...)...)
 		if exit != code {
 			t.Fatalf("exit code = %d, want the harness's %d; stderr = %q", exit, code, stderr)
 		}
-		var got launched
-		if err := json.Unmarshal([]byte(stdout), &got); err != nil {
-			t.Fatalf("stdout = %q: %v", stdout, err)
-		}
-		if want := filepath.Join(home, ".dotai", "isolated", "claude"); !got.Set || got.ConfigDir != want || got.Count != 1 {
-			t.Errorf("CLAUDE_CONFIG_DIR = %q (set %t, %d times), want only %s", got.ConfigDir, got.Set, got.Count, want)
+		got := launch(t, stdout)
+		if want := filepath.Join(home, ".dotai", "isolated", "claude"); got.Env["CLAUDE_CONFIG_DIR"] != want || got.Counts["CLAUDE_CONFIG_DIR"] != 1 {
+			t.Errorf("CLAUDE_CONFIG_DIR = %q (%d times), want only %s", got.Env["CLAUDE_CONFIG_DIR"], got.Counts["CLAUDE_CONFIG_DIR"], want)
 		}
 		if !slices.Equal(got.Args, args) {
 			t.Errorf("args = %q, want %q", got.Args, args)
@@ -169,7 +196,7 @@ func TestRunLaunchesClaudeCodeIsolated(t *testing.T) {
 }
 
 func TestRunFailsBeforeLaunching(t *testing.T) {
-	bin := buildFakeClaude(t)
+	bin := buildFakes(t)
 	tests := []struct {
 		name  string
 		home  string
@@ -191,9 +218,36 @@ func TestRunFailsBeforeLaunching(t *testing.T) {
 			if exit != tt.want || !strings.Contains(stderr, tt.inErr) {
 				t.Errorf("exit code = %d, stderr = %q, want %d and %q", exit, stderr, tt.want, tt.inErr)
 			}
-			if strings.Contains(stdout, "configDir") {
+			if strings.Contains(stdout, `"args"`) {
 				t.Errorf("stdout = %q, want the harness not launched", stdout)
 			}
 		})
+	}
+}
+
+func TestRunLaunchesAgyIsolated(t *testing.T) {
+	bin := buildFakes(t)
+	home := installedHome(t, nil, "antigravity-cli")
+	args := []string{"agents", "-p", "hi there"}
+	exit, stdout, stderr := dotai(t, home, bin, t.TempDir(), nil, append([]string{"run", "antigravity-cli", "--"}, args...)...)
+	if exit != 0 {
+		t.Fatalf("exit code = %d; stderr = %q", exit, stderr)
+	}
+	dir := filepath.Join(home, ".dotai", "isolated", "gemini")
+	if got := launch(t, stdout); !slices.Equal(got.Args, append([]string{"--gemini_dir=" + dir}, args...)) {
+		t.Errorf("args = %q, want --gemini_dir=%s before %q", got.Args, dir, args)
+	}
+	for _, line := range []string{
+		"dotai: antigravity-cli · partial isolation · --gemini_dir=" + dir + "\n",
+		"dotai: login: keeps your login\n",
+		"dotai: leaks: authentication is shared through the OS keyring\n",
+	} {
+		if !strings.Contains(stderr, line) {
+			t.Errorf("stderr = %q, want the line %q", stderr, line)
+		}
+	}
+	exit, stdout, stderr = dotai(t, home, bin, t.TempDir(), nil, "run", "antigravity-cli", "--gemini_dir=/elsewhere")
+	if exit != 2 || stdout != "" || !strings.Contains(stderr, "sets --gemini_dir itself") {
+		t.Errorf("with the user's --gemini_dir: exit code = %d, stdout = %q, stderr = %q, want a usage error and nothing launched", exit, stdout, stderr)
 	}
 }

@@ -205,7 +205,7 @@ func TestRunRunReal(t *testing.T) {
 		want    int
 		inErr   string
 	}{
-		{harness: "antigravity-cli", want: cli.ExitUsage, inErr: "not supported yet"},
+		{harness: "antigravity-cli", want: cli.ExitInternal, inErr: "no install state"},
 		{harness: "opencode", want: cli.ExitUsage, inErr: "not supported yet"},
 		{harness: "agy", want: cli.ExitUsage, inErr: `unknown harness "agy"`},
 		{harness: "claudecode", want: cli.ExitInternal, inErr: "no install state"},
@@ -223,6 +223,29 @@ func TestRunRunReal(t *testing.T) {
 				t.Errorf("exit code = %d, stderr = %q, want %d and %q", code, stderr.String(), tt.want, tt.inErr)
 			}
 		})
+	}
+}
+
+// TestRunRunShowsAFlagPointerAsItIsPassed checks that a flag pointer
+// reads as the one argument the harness gets.
+func TestRunRunShowsAFlagPointerAsItIsPassed(t *testing.T) {
+	restoreHome(t)
+	p := runPlan
+	p.Harness = app.HarnessPlan{
+		ID: "antigravity-cli", Level: "partial", Dir: "/home/u/.dotai/isolated/gemini", Relogin: "no",
+		Pointers: []app.PointerPlan{{Mechanism: "flag", Name: "--gemini_dir", Dir: "/home/u/.dotai/isolated/gemini"}},
+		Leaks:    []string{"authentication is shared through the OS keyring"},
+	}
+	f := &fakeRun{res: p}
+	var stderr bytes.Buffer
+	if code := cli.Run([]string{"run", "antigravity-cli"}, f.env(&bytes.Buffer{}, &stderr)); code != cli.ExitOK {
+		t.Errorf("exit code = %d, want %d", code, cli.ExitOK)
+	}
+	want := "dotai: antigravity-cli · partial isolation · --gemini_dir=/home/u/.dotai/isolated/gemini\n" +
+		"dotai: login: keeps your login\n" +
+		"dotai: leaks: authentication is shared through the OS keyring\n"
+	if stderr.String() != want {
+		t.Errorf("stderr = %q, want %q", stderr.String(), want)
 	}
 }
 

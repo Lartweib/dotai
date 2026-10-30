@@ -28,11 +28,12 @@ func newRunCmd(env Env, jsonOut, parsed *bool) *cobra.Command {
 		Use:   "run <harness> [-- args...]",
 		Short: "Launch a harness against its isolated install",
 		Long: "Launch the harness against the isolated install of dotai install, with the variables or flags that point it\n" +
-			"there (for claudecode, CLAUDE_CONFIG_DIR=~/.dotai/isolated/claude), the terminal, the current directory and\n" +
-			"the rest of the environment, and exit with its exit code. Everything after the harness goes to it untouched;\n" +
-			"a -- right after the harness is dropped. Before launching, the isolation level, the login and what the user's\n" +
-			"own setup still provides are printed to stderr. Only claudecode can be launched so far. --json is not\n" +
-			"supported: the harness takes over the terminal.",
+			"there (for claudecode, CLAUDE_CONFIG_DIR=~/.dotai/isolated/claude; for antigravity-cli, a first\n" +
+			"--gemini_dir=~/.dotai/isolated/gemini), the terminal, the current directory and the rest of the environment,\n" +
+			"and exit with its exit code. Everything after the harness goes to it untouched; a -- right after the harness\n" +
+			"is dropped. Before launching, the isolation level, the login and what the user's own setup still provides are\n" +
+			"printed to stderr. claudecode and antigravity-cli can be launched so far. --json is not supported: the\n" +
+			"harness takes over the terminal.",
 		Args: func(cmd *cobra.Command, args []string) error {
 			*parsed = true
 			if *jsonOut {
@@ -78,11 +79,7 @@ func writeLaunch(w io.Writer, p app.RunPlan) error {
 	var b strings.Builder
 	pointers := make([]string, 0, len(h.Pointers))
 	for _, ptr := range h.Pointers {
-		sep := "="
-		if ptr.Mechanism == "flag" {
-			sep = " "
-		}
-		pointers = append(pointers, ptr.Name+sep+ptr.Dir)
+		pointers = append(pointers, ptr.Name+"="+ptr.Dir)
 	}
 	fmt.Fprintf(&b, "dotai: %s · %s isolation · %s\n", h.ID, h.Level, strings.Join(pointers, ", "))
 	switch h.Relogin {

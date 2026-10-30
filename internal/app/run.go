@@ -55,6 +55,9 @@ func planRun(d executeFS, lookPath func(string) (string, error), goos, home, id 
 	if err != nil {
 		return RunPlan{}, err
 	}
+	if err := checkFlags(a, args); err != nil {
+		return RunPlan{}, err
+	}
 	if !filepath.IsAbs(home) {
 		return RunPlan{}, fmt.Errorf("home directory %q is not absolute", home)
 	}
@@ -112,7 +115,7 @@ func planRun(d executeFS, lookPath func(string) (string, error), goos, home, id 
 	set := map[string]bool{}
 	for _, ptr := range h.Pointers {
 		if ptr.Mechanism == string(harness.Flag) {
-			p.Args = append(p.Args, ptr.Name, ptr.Dir)
+			p.Args = append(p.Args, ptr.Name+"="+ptr.Dir)
 		} else {
 			set[envKey(goos, ptr.Name)] = true
 		}
@@ -138,6 +141,25 @@ func planRun(d executeFS, lookPath func(string) (string, error), goos, home, id 
 		p.Notes = append(p.Notes, fmt.Sprintf("%s resolves to the batch file %s: Ctrl-C may show cmd's \"Terminate batch job (Y/N)?\" prompt after the harness exits; the native %s.exe avoids it", a.Command, program, a.Command))
 	}
 	return p, nil
+}
+
+// checkFlags refuses an argument that sets a flag pointer of a, which
+// dotai run sets itself: the flag with one or two dashes, alone or with
+// =value, wherever it is, since a harness may read it past a --.
+func checkFlags(a harness.Adapter, args []string) error {
+	for _, ptr := range a.Isolation.Pointers {
+		if ptr.Mechanism != harness.Flag {
+			continue
+		}
+		bare := strings.TrimLeft(ptr.Name, "-")
+		for _, arg := range args {
+			name, _, _ := strings.Cut(arg, "=")
+			if strings.HasPrefix(name, "-") && strings.TrimPrefix(strings.TrimPrefix(name, "-"), "-") == bare {
+				return &UsageError{fmt.Sprintf("dotai run %s sets %s itself, to the isolated install: leave out %q", a.ID, ptr.Name, arg)}
+			}
+		}
+	}
+	return nil
 }
 
 // findProgram looks command up on PATH. A command found only in the

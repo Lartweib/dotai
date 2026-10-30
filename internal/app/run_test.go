@@ -78,6 +78,45 @@ func TestPlanRunClaudeCode(t *testing.T) {
 	}
 }
 
+func TestPlanRunAgy(t *testing.T) {
+	home := runHome(t, app.ModeIsolated, []string{"antigravity-cli"}, nil)
+	bin := t.TempDir()
+	environ := []string{"PATH=" + bin, "KEEP=1"}
+	args := []string{"agents", "-p", "hi there"}
+	p, err := app.PlanRunWith(home, "antigravity-cli", args, environ, lookPathAt(bin), runtime.GOOS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := at(home, ".dotai/isolated/gemini")
+	if p.Harness.ID != "antigravity-cli" || p.Harness.Dir != dir || p.Command != "agy" || p.Program != filepath.Join(bin, "agy") {
+		t.Errorf("Harness, Command, Program = %+v, %q, %q, want agy's isolation at %s and agy found in %s", p.Harness, p.Command, p.Program, dir, bin)
+	}
+	if want := append([]string{"--gemini_dir=" + dir}, args...); !reflect.DeepEqual(p.Args, want) {
+		t.Errorf("Args = %q, want %q: the flag in one argument, first", p.Args, want)
+	}
+	if !reflect.DeepEqual(p.Env, environ) {
+		t.Errorf("Env = %q, want %q untouched", p.Env, environ)
+	}
+}
+
+// TestPlanRunRefusesTheFlagItSets checks that a --gemini_dir of the user's,
+// in any form agy's flags take, is refused before anything is read.
+func TestPlanRunRefusesTheFlagItSets(t *testing.T) {
+	home := t.TempDir()
+	for _, arg := range []string{"--gemini_dir", "--gemini_dir=/x", "-gemini_dir", "-gemini_dir=/x"} {
+		_, err := app.PlanRunWith(home, "antigravity-cli", []string{"-p", "hi", arg}, nil, lookPathAt(home), runtime.GOOS)
+		var usage *app.UsageError
+		if !errors.As(err, &usage) || !strings.Contains(err.Error(), "--gemini_dir") || !strings.Contains(err.Error(), fmt.Sprintf("%q", arg)) {
+			t.Errorf("argument %q: error = %v, want a usage error that names it", arg, err)
+		}
+	}
+	for _, arg := range []string{"--gemini_dirx", "gemini_dir", "--gemini"} {
+		if _, err := app.PlanRunWith(home, "antigravity-cli", []string{arg}, nil, lookPathAt(home), runtime.GOOS); err == nil || strings.Contains(err.Error(), "--gemini_dir") {
+			t.Errorf("argument %q: error = %v, want only the missing install", arg, err)
+		}
+	}
+}
+
 func TestPlanRunReplacesTheInheritedPointerInAnyCaseOnWindows(t *testing.T) {
 	home := runHome(t, app.ModeIsolated, []string{"claudecode"}, nil)
 	p, err := app.PlanRunWith(home, "claudecode", nil, []string{"claude_config_dir=x", "Path=y"}, lookPathAt(home), "windows")
@@ -113,10 +152,8 @@ func TestPlanRunErrors(t *testing.T) {
 	}{
 		{name: "unknown harness", home: func(t *testing.T) string { return t.TempDir() }, id: "codex", usage: true,
 			wantInErr: []string{`unknown harness "codex"`, "claudecode, antigravity-cli, opencode"}},
-		{name: "agy not supported yet", home: func(t *testing.T) string { return t.TempDir() }, id: "antigravity-cli", usage: true,
-			wantInErr: []string{"antigravity-cli is not supported yet", "only claudecode"}},
 		{name: "opencode not supported yet", home: func(t *testing.T) string { return t.TempDir() }, id: "opencode", usage: true,
-			wantInErr: []string{"opencode is not supported yet"}},
+			wantInErr: []string{"opencode is not supported yet", "only claudecode, antigravity-cli"}},
 		{name: "no install state", home: func(t *testing.T) string { return t.TempDir() }, id: "claudecode",
 			wantInErr: []string{"no install state", "dotai install"}},
 		{name: "pending journal", home: func(t *testing.T) string {

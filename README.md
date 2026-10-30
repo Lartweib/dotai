@@ -6,7 +6,7 @@ One source of rules, agents, skills, hooks, MCP servers and settings, rendered i
 
 dotai is split into a Go **engine** and **packs** of content. A reference pack is kept in its own repository; you can point the same binary at your own pack instead. See [0010](docs/decisions/0010-engine-and-pack-separated.md) and [0015](docs/decisions/0015-pack-in-its-own-repository.md).
 
-**Status:** early development. `dotai validate`, `dotai stage`, `dotai rulesync fetch`, `dotai install`, `dotai restore` and `dotai run` exist: `install` writes an isolated install under `~/.dotai/` with a backup and an install state, and `--dry-run` prints its plan; `restore` undoes the last install, or every install down to a backup, from those backups; `run claudecode [-- args]` launches Claude Code against the isolated install. Launching agy and OpenCode isolated does not exist yet.
+**Status:** early development. `dotai validate`, `dotai stage`, `dotai rulesync fetch`, `dotai install`, `dotai restore` and `dotai run` exist: `install` writes an isolated install under `~/.dotai/` with a backup and an install state, and `--dry-run` prints its plan; `restore` undoes the last install, or every install down to a backup, from those backups; `run claudecode [-- args]` and `run antigravity-cli [-- args]` launch Claude Code and agy against the isolated install. Launching OpenCode isolated does not exist yet.
 
 ## Docs
 

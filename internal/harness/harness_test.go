@@ -119,9 +119,9 @@ func TestMoves(t *testing.T) {
 }
 
 // TestCommands checks the executable dotai run launches for each harness:
-// only Claude Code so far, agy and OpenCode come with roadmap PR 9.
+// Claude Code and agy so far, OpenCode comes with roadmap PR 9.
 func TestCommands(t *testing.T) {
-	want := map[string]string{"claudecode": "claude", "antigravity-cli": "", "opencode": ""}
+	want := map[string]string{"claudecode": "claude", "antigravity-cli": "agy", "opencode": ""}
 	for _, a := range harness.All() {
 		if got := a.Command; got != want[a.ID] {
 			t.Errorf("%s: Command = %q, want %q", a.ID, got, want[a.ID])

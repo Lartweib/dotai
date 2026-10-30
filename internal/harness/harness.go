@@ -40,7 +40,8 @@ const (
 
 // Pointer is an environment variable or flag set to a directory of the
 // harness's isolated install: Path, a slash path relative to Adapter.Dir,
-// or Adapter.Dir itself when Path is empty.
+// or Adapter.Dir itself when Path is empty. A flag is given in one
+// argument, Name=<dir>.
 type Pointer struct {
 	Mechanism Mechanism
 	Name      string
@@ -143,7 +144,7 @@ var adapters = []Adapter{
 		},
 	},
 	{
-		ID: "antigravity-cli", Target: "antigravity-cli", Dir: "gemini", Staging: ".gemini", Settings: "antigravity-cli/settings.json",
+		ID: "antigravity-cli", Target: "antigravity-cli", Dir: "gemini", Staging: ".gemini", Settings: "antigravity-cli/settings.json", Command: "agy",
 		// agy moves antigravity-cli/skills to config/skills on its first run
 		// and then fails to link it back on Windows, so the skills install
 		// where it reads them after the move.
