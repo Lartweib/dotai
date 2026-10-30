@@ -41,7 +41,8 @@ type settingsEnd struct {
 // after it, what the file held before the install, from the copy in its
 // backup; every other key stays. A step on a file its install created
 // deletes those keys, and the file goes when no key is left; a file that
-// is missing gets its copy back. A key that holds something else, and not
+// is missing gets its copy back. A key the install owned after it that
+// holds something else, or a key it deleted that holds anything, and not
 // what the step puts back either, is a conflict; a missing key is not. An
 // install before decision 0035 owned the whole file, and its step is
 // undone whole, as plan undoes any file.
@@ -99,6 +100,17 @@ func (r *restorer) undoSettings(s state.State, chain []undone, h, target string,
 				cur, ok := keyAt(have, k.Path)
 				if prev, put := keyAt(back, k.Path); ok && cur.SHA256 != k.SHA256 && (!put || prev.SHA256 != cur.SHA256) {
 					conflict(st, k.Name(), k.SHA256, cur.SHA256)
+				}
+			}
+			// A key the install deleted, written again since with a value
+			// the restore would overwrite.
+			for _, k := range before {
+				if _, owned := keyAt(after, k.Path); owned {
+					continue
+				}
+				cur, ok := keyAt(have, k.Path)
+				if prev, put := keyAt(back, k.Path); ok && (!put || prev.SHA256 != cur.SHA256) {
+					conflict(st, k.Name(), "", cur.SHA256)
 				}
 			}
 		}
