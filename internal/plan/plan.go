@@ -343,6 +343,21 @@ func Locate(home string, adapters []harness.Adapter, source string) (h, target s
 	return "", "", false
 }
 
+// MovedFrom reports whether target, an absolute path under home, is on the
+// old side of a move of some harness: where an install before the move
+// put the files that now install elsewhere.
+func MovedFrom(home, target string) bool {
+	for _, a := range harness.All() {
+		for _, m := range a.Moves {
+			dir := filepath.Join(home, filepath.FromSlash(path.Join(harness.IsolatedDir, a.Dir, a.Install, m.From)))
+			if strings.HasPrefix(target, dir+string(filepath.Separator)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // same reports whether a and b have the same content and exec bit, unless
 // the exec bit is ignored.
 func (in Input) same(a, b Current) bool {

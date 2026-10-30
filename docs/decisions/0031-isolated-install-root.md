@@ -20,7 +20,7 @@ The isolated mode installs the user scope into one directory per harness under `
 |---|---|---|---|
 | Claude Code | `~/.dotai/isolated/claude/` | `CLAUDE_CONFIG_DIR` | `.claude/<rest>` → `<dir>/<rest>` |
 | agy | `~/.dotai/isolated/gemini/` | `--gemini_dir` | `.gemini/<rest>` → `<dir>/<rest>` |
-| OpenCode | `~/.dotai/isolated/opencode/` | `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, `XDG_CACHE_HOME` set to `<dir>/config`, `<dir>/data`, `<dir>/state`, `<dir>/cache` | `.config/opencode/<rest>` → `<dir>/config/opencode/<rest>` |
+| OpenCode | `~/.dotai/isolated/opencode/` | `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, `XDG_CACHE_HOME` set to `<dir>/config`, `<dir>/data`, `<dir>/state`, `<dir>/cache` (and `OPENCODE_TEST_HOME`; see the update of 2026-10-30) | `.config/opencode/<rest>` → `<dir>/config/opencode/<rest>` |
 
 Tools are not isolated: `.dotai/tools/<rest>` installs to `~/.dotai/tools/<rest>`, which dotai already owns ([0030](0030-tools-paths-and-project-config.md)). Each harness adapter declares its directory and mapping as data. A staged user-scope file that no harness of the pack and no tools rule maps is an error; nothing is dropped silently. rulesync's sources (`.rulesync/`) are the input of the render and are not installed.
 
@@ -43,3 +43,5 @@ The sources record no other option.
 - [0018](0018-install-modes-and-mandatory-backup.md): the relocation mechanism of each harness.
 
 Update 2026-10-30: an adapter may also move a staged directory to another path of its install, as data. agy's skills install at `<dir>/config/skills/<rest>` instead of `<dir>/antigravity-cli/skills/<rest>`, where rulesync writes them: on its first run, agy (1.4.7) moves `antigravity-cli/skills` to `config/skills`, writes `config/.migrated` and then fails to link the old path back on Windows. A pack that stages a skill at both paths is an error, since both install to the same target.
+
+Update 2026-10-30: OpenCode is also pointed at `OPENCODE_TEST_HOME=<dir>/home`, an empty directory that `dotai run` creates, as its home directory, with `OPENCODE_DISABLE_CLAUDE_CODE=1`; OpenCode v2 has no `OPENCODE_DISABLE_EXTERNAL_SKILLS` ([0018](0018-install-modes-and-mandatory-backup.md)). OpenCode's skills install at `<dir>/config/opencode/skills/`, which 2.0.30 scans. An owned file of an older install on the old side of a move, such as agy's `antigravity-cli/skills/`, that sits behind a link or another special file, as agy may leave after moving the directory, is taken as gone by install and restore: it is not read or removed through the link, and the new install no longer owns it.

@@ -467,3 +467,20 @@ func TestEditedErrorWording(t *testing.T) {
 		t.Errorf("Error() = %q, want %q", two, want)
 	}
 }
+
+// TestMovedFrom checks the targets on the old side of an adapter's move,
+// where an older install put agy's skills.
+func TestMovedFrom(t *testing.T) {
+	home := t.TempDir()
+	for rel, want := range map[string]bool{
+		".dotai/isolated/gemini/antigravity-cli/skills/a/SKILL.md": true,
+		".dotai/isolated/gemini/antigravity-cli/skills":            false,
+		".dotai/isolated/gemini/antigravity-cli/settings.json":     false,
+		".dotai/isolated/gemini/config/skills/a/SKILL.md":          false,
+		".dotai/isolated/claude/skills/a/SKILL.md":                 false,
+	} {
+		if got := plan.MovedFrom(home, under(home, rel)); got != want {
+			t.Errorf("MovedFrom(%s) = %t, want %t", rel, got, want)
+		}
+	}
+}
