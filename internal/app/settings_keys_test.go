@@ -215,3 +215,99 @@ func TestInstallReleasesTheSettingsOfADroppedHarness(t *testing.T) {
 		t.Errorf("state still owns %+v", f)
 	}
 }
+
+// TestRestoreKeepsWhatTheHarnessWroteInItsSettings checks that a restore
+// puts back the keys dotai owned before, deletes those it added and keeps
+// the keys the harness wrote; undoing every install leaves the file with
+// only those.
+func TestRestoreKeepsWhatTheHarnessWroteInItsSettings(t *testing.T) {
+	home, _ := installHome(t)
+	d := newClockFS(t)
+	first, err := installVariant(t, d, examplePack, "standalone", home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := at(home, claudeSettings)
+	harnessWrites(t, target, map[string]any{"theme": "dark"})
+	if _, err := installVariant(t, d, examplePack, "tmux", home); err != nil {
+		t.Fatal(err)
+	}
+	harnessWrites(t, target, map[string]any{"verbose": true})
+
+	res, err := restore(d, home, "", nil)
+	if err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+	if got, want := settingsOf(t, target), map[string]any{"model": "sonnet", "theme": "dark", "verbose": true}; !reflect.DeepEqual(got, want) {
+		t.Errorf("settings = %v, want %v", got, want)
+	}
+	var op app.RestoreOp
+	for _, o := range res.Ops {
+		if o.Target == target {
+			op = o
+		}
+	}
+	if want := []plan.KeyChange{{Key: "env.DOTAI_TERMINAL", Action: plan.Remove}, {Key: "model", Action: plan.Replace}}; op.Action != plan.Replace || !reflect.DeepEqual(op.Keys, want) {
+		t.Errorf("settings op = %+v, want a replace of %+v", op, want)
+	}
+	s := readJSON(t, res.State, state.Decode)
+	if f, _ := ownedFile(t, s, target); !reflect.DeepEqual(keyNames(f.Keys), []string{"model"}) {
+		t.Errorf("state record = %+v, want the key model of the standalone variant", f)
+	}
+
+	res, err = restore(d, home, first.Backup.ID, nil)
+	if err != nil {
+		t.Fatalf("Restore(%s) error = %v", first.Backup.ID, err)
+	}
+	if got, want := settingsOf(t, target), map[string]any{"theme": "dark", "verbose": true}; !res.Uninstalled || !reflect.DeepEqual(got, want) {
+		t.Errorf("settings = %v, uninstalled %v; want %v left and nothing installed", got, res.Uninstalled, want)
+	}
+	if _, err := os.Stat(at(home, ".dotai/isolated/gemini/antigravity-cli/settings.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("agy settings = %v, want a file that held only dotai's keys removed", err)
+	}
+}
+
+// TestRestoreRefusesAChangedSettingsKeyWithoutConsent checks that a key
+// dotai owns whose value changed is a conflict that names the key, and
+// that with consent the restore puts dotai's value back, after the whole
+// file is copied into its backup.
+func TestRestoreRefusesAChangedSettingsKeyWithoutConsent(t *testing.T) {
+	home, _ := installHome(t)
+	d := newClockFS(t)
+	if _, err := installVariant(t, d, examplePack, "standalone", home); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := installVariant(t, d, examplePack, "tmux", home); err != nil {
+		t.Fatal(err)
+	}
+	target := at(home, claudeSettings)
+	harnessWrites(t, target, map[string]any{"model": "haiku", "theme": "dark"})
+	before := snapshot(t, home)
+
+	_, err := restore(d, home, "", nil)
+	var ce *app.ConflictError
+	if !errors.As(err, &ce) || len(ce.Conflicts) != 1 || ce.Conflicts[0].Target != target || ce.Conflicts[0].Key != "model" ||
+		!strings.Contains(err.Error(), "the key model in "+target+" was changed") {
+		t.Fatalf("Restore() error = %v, want a conflict on the key model of %s", err, target)
+	}
+	if got := snapshot(t, home); !reflect.DeepEqual(got, before) {
+		t.Errorf("home = %v, want it unchanged", got)
+	}
+
+	res, err := restore(d, home, "", func(app.RestoreResult) (bool, error) { return true, nil })
+	if err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+	if got, want := settingsOf(t, target), map[string]any{"model": "sonnet", "theme": "dark"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("settings = %v, want %v", got, want)
+	}
+	copied, err := os.ReadFile(filepath.Join(res.Backup.Path, "files", filepath.FromSlash(claudeSettings)))
+	if err != nil || !strings.Contains(string(copied), `"haiku"`) {
+		t.Errorf("restore backup copy = %s, %v, want the file with the user's value", copied, err)
+	}
+	for _, op := range res.Ops {
+		if op.Conflict != (op.Target == target) {
+			t.Errorf("op %+v, want only %s marked as a conflict", op, target)
+		}
+	}
+}

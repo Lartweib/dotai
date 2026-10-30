@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -55,27 +56,34 @@ type UndoneInstall struct {
 // deletes it. From is the backup whose copy is put back, "" for a remove;
 // Before and BeforeExec are what the target holds, "" and false when it
 // is missing; After and Exec what it is given, "" and false for a remove.
-// Conflict marks a target that changed after the install wrote it.
+// Conflict marks a target that changed after the install wrote it. Keys
+// are the keys it writes into or deletes from a harness's settings file,
+// which restore undoes key by key (decision 0035); never nil, and empty for
+// any other file.
 type RestoreOp struct {
-	Action     plan.Action `json:"action"`
-	Harness    string      `json:"harness"`
-	Target     string      `json:"target"`
-	From       string      `json:"from"`
-	Exec       bool        `json:"exec"`
-	Before     string      `json:"before"`
-	BeforeExec bool        `json:"beforeExec"`
-	After      string      `json:"after"`
-	Conflict   bool        `json:"conflict"`
+	Action     plan.Action      `json:"action"`
+	Harness    string           `json:"harness"`
+	Target     string           `json:"target"`
+	From       string           `json:"from"`
+	Exec       bool             `json:"exec"`
+	Before     string           `json:"before"`
+	BeforeExec bool             `json:"beforeExec"`
+	After      string           `json:"after"`
+	Conflict   bool             `json:"conflict"`
+	Keys       []plan.KeyChange `json:"keys"`
 }
 
 // RestoreConflict is a target that holds neither what the install of
 // Backup wrote nor what the restore puts there: the user or a harness
 // changed it after that install. Expected is the SHA-256 that install
 // wrote, "" for a file it removed, and Current the one the target holds.
+// In a harness's settings file it is a key dotai owns, named by Key, and
+// the hashes are those of its value; Key is "" for a whole file.
 type RestoreConflict struct {
 	Target   string `json:"target"`
 	Harness  string `json:"harness"`
 	Backup   string `json:"backup"`
+	Key      string `json:"key"`
 	Expected string `json:"expected"`
 	Current  string `json:"current"`
 }
@@ -88,8 +96,20 @@ type ConflictError struct {
 
 func (e *ConflictError) Error() string {
 	targets := make([]string, len(e.Conflicts))
+	items, keys := make([]string, len(e.Conflicts)), false
 	for i, c := range e.Conflicts {
-		targets[i] = c.Target
+		targets[i], items[i] = c.Target, "the file "+c.Target
+		if c.Key != "" {
+			items[i], keys = "the key "+c.Key+" in "+c.Target, true
+		}
+	}
+	switch {
+	case keys && len(items) == 1:
+		return items[0] + " was changed after dotai installed it, and the restore would overwrite or delete it: " +
+			"nothing was written; confirm the restore (--yes) to overwrite it, after the file is copied into a new backup"
+	case keys:
+		return strings.Join(items, ", ") + " were changed after dotai installed them, and the restore would overwrite or delete them: " +
+			"nothing was written; confirm the restore (--yes) to overwrite them, after the files are copied into a new backup"
 	}
 	if len(targets) == 1 {
 		return "the file " + targets[0] + " was changed after dotai installed it, and the restore would overwrite or delete it: " +
@@ -533,7 +553,8 @@ func (r *restorer) verify(id, dir, name, hash string) error {
 // for a create); an op of an interrupted install or restore may also still
 // hold what it found. A target that holds anything else, which is also not
 // what it ends with, is a conflict. Each target whose end differs from
-// the disk is written.
+// the disk is written. A harness's settings file is followed key by key,
+// as undoSettings describes.
 func (r *restorer) plan(res *RestoreResult, s state.State, chain []undone) error {
 	harnessOf := map[string]string{}
 	if s.Pending != nil {
@@ -557,12 +578,20 @@ func (r *restorer) plan(res *RestoreResult, s state.State, chain []undone) error
 	var checks []check
 	var order []string
 	disk, virtual := map[string]vfile{}, map[string]vfile{}
+	steps := map[string][]settingsStep{} // the settings files, undone key by key
 	dirs := map[string]error{}
 	for i, u := range chain {
 		res.Undone = append(res.Undone, UndoneInstall{
 			ID: u.m.ID, Path: u.dir, CreatedAt: u.m.CreatedAt, Pack: u.m.Pack, Variant: u.m.Variant, Harnesses: u.m.Harnesses,
 		})
 		for _, op := range slices.Backward(u.m.Ops) {
+			if _, ok := plan.SettingsOf(r.home, op.Target); ok {
+				if _, seen := steps[op.Target]; !seen {
+					order = append(order, op.Target)
+				}
+				steps[op.Target] = append(steps[op.Target], settingsStep{i: i, u: u, op: op})
+				continue
+			}
 			v, ok := virtual[op.Target]
 			if !ok {
 				cur, _, exists, err := inspectTarget(r.ctx, r.d, r.home, op.Target, dirs, false)
@@ -601,10 +630,39 @@ func (r *restorer) plan(res *RestoreResult, s state.State, chain []undone) error
 		}
 		res.Conflicts = append(res.Conflicts, rc)
 	}
+	settings := map[string]settingsEnd{}
+	type read struct {
+		cur    plan.Current
+		data   []byte
+		exists bool
+	}
+	held := map[string]read{} // what each settings file holds
+	for _, target := range order {
+		if _, ok := steps[target]; !ok {
+			continue
+		}
+		h, _ := plan.SettingsOf(r.home, target)
+		cur, data, exists, err := inspectTarget(r.ctx, r.d, r.home, target, dirs, true)
+		if err != nil {
+			return err
+		}
+		held[target] = read{cur: cur, data: data, exists: exists}
+		end, err := r.undoSettings(s, chain, h, target, data, cur.Exec, steps[target])
+		if err != nil {
+			return err
+		}
+		settings[target] = end
+		res.Conflicts = append(res.Conflicts, end.conflicts...)
+		conflicted[target] = len(end.conflicts) > 0
+	}
 
 	res.Ops = []RestoreOp{}
 	r.p.ops = nil
 	for _, target := range order {
+		if end, ok := settings[target]; ok {
+			r.planSettings(res, chain, target, held[target].cur, held[target].data, held[target].exists, end, conflicted[target])
+			continue
+		}
 		cur, end := disk[target], virtual[target]
 		if !cur.exists && !end.exists || cur.exists && end.exists && r.same(cur.cur, end.cur.Hash, end.cur.Exec) {
 			continue
@@ -627,7 +685,7 @@ func (r *restorer) plan(res *RestoreResult, s state.State, chain []undone) error
 		r.p.ops = append(r.p.ops, op)
 		res.Ops = append(res.Ops, RestoreOp{
 			Action: op.Action, Harness: op.Harness, Target: target, From: end.from, Exec: op.Exec,
-			Before: op.Before, BeforeExec: op.BeforeExec, After: op.After, Conflict: conflicted[target],
+			Before: op.Before, BeforeExec: op.BeforeExec, After: op.After, Conflict: conflicted[target], Keys: []plan.KeyChange{},
 		})
 	}
 	res.Harnesses = []string{}
@@ -640,6 +698,43 @@ func (r *restorer) plan(res *RestoreResult, s state.State, chain []undone) error
 		res.Warnings = append(res.Warnings, fmt.Sprintf("close %s before restoring: a harness that is running may rewrite its files while they are put back", strings.Join(res.Harnesses, ", ")))
 	}
 	return nil
+}
+
+// planSettings adds to res and r.p.ops the write of the settings target
+// that holds data (cur, when it exists) and ends as end, unless it is
+// already so. dotai then owns there the keys that the state the restore
+// puts back records.
+func (r *restorer) planSettings(res *RestoreResult, chain []undone, target string, cur plan.Current, data []byte, exists bool, end settingsEnd, conflict bool) {
+	if end.data == nil && !exists || end.data != nil && exists && bytes.Equal(end.data, data) && r.same(cur, cur.Hash, end.exec) {
+		return
+	}
+	h, _ := plan.SettingsOf(r.home, target)
+	f, _ := fileIn(chain[len(chain)-1].prior, target)
+	op := plan.Op{Target: target, Harness: h, Settings: true, Keys: f.Keys}
+	if exists {
+		op.Before, op.BeforeExec = cur.Hash, cur.Exec
+	}
+	from := ""
+	switch {
+	case end.data == nil:
+		op.Action = plan.Remove
+	case !exists:
+		op.Action = plan.Create
+	default:
+		op.Action = plan.Replace
+	}
+	if end.data != nil {
+		op.Data, op.After, op.Exec, from = end.data, contentHash(end.data), end.exec, end.from
+	}
+	keys, err := plan.DiffKeys(h, data, end.data)
+	if err != nil {
+		keys = nil // not a JSON object any more: it is put back whole
+	}
+	r.p.ops = append(r.p.ops, op)
+	res.Ops = append(res.Ops, RestoreOp{
+		Action: op.Action, Harness: h, Target: target, From: from, Exec: op.Exec,
+		Before: op.Before, BeforeExec: op.BeforeExec, After: op.After, Conflict: conflict, Keys: append([]plan.KeyChange{}, keys...),
+	})
 }
 
 func priors(chain []undone) []*state.State {

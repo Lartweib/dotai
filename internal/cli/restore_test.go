@@ -28,10 +28,10 @@ var restoreResult = app.RestoreResult{
 			Pack: backup.Pack{Name: "minimal-pack", Version: "0.1.0", Path: "/home/u/packs/minimal-pack"}, Variant: "standalone", Harnesses: []string{"claudecode", "opencode"}},
 	},
 	Ops: []app.RestoreOp{
-		{Action: plan.Replace, Harness: "claudecode", Target: "/home/u/.dotai/isolated/claude/settings.json", From: "20261029T101500.000Z_install", Before: "aa", After: "bb"},
-		{Action: plan.Remove, Harness: "claudecode", Target: "/home/u/.dotai/isolated/claude/agents/reviewer.md", Before: "cc", Conflict: true},
-		{Action: plan.Create, Harness: "opencode", Target: "/home/u/.dotai/isolated/opencode/config/opencode/opencode.jsonc", From: "20261029T103000.000Z_install", After: "dd"},
-		{Action: plan.Remove, Target: "/home/u/.dotai/tools/hello.sh", Before: "ee", BeforeExec: true},
+		{Action: plan.Replace, Harness: "claudecode", Target: "/home/u/.dotai/isolated/claude/settings.json", From: "20261029T101500.000Z_install", Before: "aa", After: "bb", Keys: []plan.KeyChange{}},
+		{Action: plan.Remove, Harness: "claudecode", Target: "/home/u/.dotai/isolated/claude/agents/reviewer.md", Before: "cc", Conflict: true, Keys: []plan.KeyChange{}},
+		{Action: plan.Create, Harness: "opencode", Target: "/home/u/.dotai/isolated/opencode/config/opencode/opencode.jsonc", From: "20261029T103000.000Z_install", After: "dd", Keys: []plan.KeyChange{}},
+		{Action: plan.Remove, Target: "/home/u/.dotai/tools/hello.sh", Before: "ee", BeforeExec: true, Keys: []plan.KeyChange{}},
 	},
 	Conflicts: []app.RestoreConflict{{Target: "/home/u/.dotai/isolated/claude/agents/reviewer.md", Harness: "claudecode", Backup: "20261029T103000.000Z_install", Expected: "c0", Current: "cc"}},
 	Harnesses: []string{"claudecode", "opencode"},
@@ -207,7 +207,7 @@ func TestRunRestoreConflicts(t *testing.T) {
 				if err := json.Unmarshal(stdout.Bytes(), &e); err != nil {
 					t.Fatal(err)
 				}
-				want := map[string]string{"target": conflict, "harness": "claudecode", "backup": "20261029T103000.000Z_install", "expected": "c0", "current": "cc"}
+				want := map[string]string{"target": conflict, "harness": "claudecode", "backup": "20261029T103000.000Z_install", "key": "", "expected": "c0", "current": "cc"}
 				if len(e.Data.Conflicts) != 1 || !reflect.DeepEqual(e.Data.Conflicts[0], want) {
 					t.Errorf("data conflicts = %v, want %v", e.Data.Conflicts, want)
 				}
