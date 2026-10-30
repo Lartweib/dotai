@@ -198,6 +198,18 @@ func TestBuildRefusesASettingsFileItCannotRead(t *testing.T) {
 	if _, err := plan.Build(in); err == nil || !strings.Contains(err.Error(), target) {
 		t.Errorf("Build() without the content error = %v, want one naming %s", err, target)
 	}
+	// Nested deeper than encoding/json reads: an error, never a panic.
+	deep := `{"theme": ` + strings.Repeat("[", 20000) + strings.Repeat("]", 20000) + `}`
+	for _, owned := range [][]plan.Key{nil, {key(`"opus"`, "model")}} {
+		in, target = settingsInput(t, `{"model": "opus"}`, deep, owned)
+		if _, err := plan.Build(in); err == nil || !strings.Contains(err.Error(), target) || !strings.Contains(err.Error(), "nested") {
+			t.Errorf("Build() of a deeply nested file (owned %v) error = %v, want one naming %s", owned != nil, err, target)
+		}
+	}
+	in, _ = settingsInput(t, deep, "", nil)
+	if _, err := plan.Build(in); err == nil || !strings.Contains(err.Error(), ".claude/settings.json") {
+		t.Errorf("Build() of a deeply nested staged file error = %v, want one naming it", err)
+	}
 }
 
 // TestEditedErrorWordingForKeys checks the message for edited keys, which

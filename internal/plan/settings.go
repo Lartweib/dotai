@@ -59,7 +59,11 @@ func SettingsKeys(h string, data []byte) ([]Key, error) {
 	}
 	var keys []Key
 	for _, kv := range settingsValues(h, doc) {
-		keys = append(keys, Key{Path: kv.path, SHA256: valueHash(kv.value)})
+		hash, err := valueHash(kv.value)
+		if err != nil {
+			return nil, err
+		}
+		keys = append(keys, Key{Path: kv.path, SHA256: hash})
 	}
 	return keys, nil
 }
@@ -334,7 +338,11 @@ func settingsValues(h string, doc *jsonc.Document) []keyValue {
 }
 
 // valueHash is the SHA-256 in hex of a value as canonical JSON.
-func valueHash(value []byte) string {
-	h := sha256.Sum256(jsonc.Canonical(value))
-	return hex.EncodeToString(h[:])
+func valueHash(value []byte) (string, error) {
+	c, err := jsonc.Canonical(value)
+	if err != nil {
+		return "", err
+	}
+	h := sha256.Sum256(c)
+	return hex.EncodeToString(h[:]), nil
 }
