@@ -2,11 +2,13 @@
 // 0028): its rulesync target, how far it can run isolated from the user's
 // own configuration (decision 0018), and where its user scope installs in
 // isolated mode (decision 0031). Detecting a harness and launching it
-// isolated are logic, and come with the commands that need them.
+// isolated are logic, and come with the commands that need them; Command
+// names the executable that dotai run launches (decision 0032).
 package harness
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 )
@@ -44,12 +46,55 @@ type Pointer struct {
 	Path      string
 }
 
+// Relogin is whether the user must log in again in the isolated mode.
+type Relogin string
+
+// Relogin values. Unknown is an OS where it was not verified.
+const (
+	ReloginYes     Relogin = "yes"
+	ReloginNo      Relogin = "no"
+	ReloginUnknown Relogin = "unknown"
+)
+
+// Leak is something the user's own setup still provides in the isolated
+// mode, text for people, on the OS GOOS only, or on every OS when GOOS is
+// empty.
+type Leak struct {
+	Text string
+	GOOS string
+}
+
 // Isolation is what decision 0018 records for a harness's isolated mode.
+// Relogin is by GOOS, with "" for every OS it does not name; an OS that
+// neither covers is unknown. Read them for an OS with ReloginOn and
+// LeaksOn.
 type Isolation struct {
 	Level    Level
-	Relogin  bool     // the user must log in again
-	Leaks    []string // what the user's own setup still provides, shown before installing
+	Relogin  map[string]Relogin
+	Leaks    []Leak // shown before installing and launching
 	Pointers []Pointer
+}
+
+// ReloginOn is whether the user must log in again on goos.
+func (i Isolation) ReloginOn(goos string) Relogin {
+	if r, ok := i.Relogin[goos]; ok {
+		return r
+	}
+	if r, ok := i.Relogin[""]; ok {
+		return r
+	}
+	return ReloginUnknown
+}
+
+// LeaksOn is the text of each leak on goos, in order; never nil.
+func (i Isolation) LeaksOn(goos string) []string {
+	out := []string{}
+	for _, l := range i.Leaks {
+		if l.GOOS == "" || l.GOOS == goos {
+			out = append(out, l.Text)
+		}
+	}
+	return out
 }
 
 // Adapter is one harness. Staging and Install map the harness's files in
@@ -57,23 +102,28 @@ type Isolation struct {
 // installs to <home>/IsolatedDir/Dir/Install/<rest>. All paths are slash
 // paths.
 type Adapter struct {
-	ID        string // the name in the manifest's harnesses
-	Target    string // the rulesync target
-	Dir       string // the harness's directory under IsolatedDir
-	Staging   string // where rulesync writes the harness's files, relative to the home directory
-	Install   string // where Staging installs, relative to Dir; "" is Dir itself
+	ID      string // the name in the manifest's harnesses
+	Target  string // the rulesync target
+	Dir     string // the harness's directory under IsolatedDir
+	Staging string // where rulesync writes the harness's files, relative to the home directory
+	Install string // where Staging installs, relative to Dir; "" is Dir itself
+	// Command is the executable dotai run looks up on PATH and launches
+	// isolated; "" until dotai run supports the harness (roadmap PR 9).
+	Command   string
 	Isolation Isolation
 }
 
 var adapters = []Adapter{
 	{
-		ID: "claudecode", Target: "claudecode", Dir: "claude", Staging: ".claude",
+		ID: "claudecode", Target: "claudecode", Dir: "claude", Staging: ".claude", Command: "claude",
 		Isolation: Isolation{
-			Level:   Partial,
-			Relogin: true, // decision 0018 verified it on Windows only; per OS with roadmap PR 8
-			Leaks: []string{
-				"~/.claude/CLAUDE.md still loads when the working directory is under the home directory",
-				"on Windows, credentials live in the configuration directory, so you must log in again",
+			Level: Partial,
+			// Decision 0018 verified the new login on Windows only, where the
+			// credentials live in the configuration directory.
+			Relogin: map[string]Relogin{"windows": ReloginYes},
+			Leaks: []Leak{
+				{Text: "~/.claude/CLAUDE.md still loads when the working directory is under the home directory"},
+				{Text: "credentials live in the configuration directory, so you must log in again", GOOS: "windows"},
 			},
 			Pointers: []Pointer{{Mechanism: Env, Name: "CLAUDE_CONFIG_DIR"}},
 		},
@@ -82,7 +132,8 @@ var adapters = []Adapter{
 		ID: "antigravity-cli", Target: "antigravity-cli", Dir: "gemini", Staging: ".gemini",
 		Isolation: Isolation{
 			Level:    Partial,
-			Leaks:    []string{"authentication is shared through the OS keyring"},
+			Relogin:  map[string]Relogin{"": ReloginNo},
+			Leaks:    []Leak{{Text: "authentication is shared through the OS keyring"}},
 			Pointers: []Pointer{{Mechanism: Flag, Name: "--gemini_dir"}},
 		},
 	},
@@ -90,11 +141,11 @@ var adapters = []Adapter{
 		ID: "opencode", Target: "opencode", Dir: "opencode", Staging: ".config/opencode", Install: "config/opencode",
 		Isolation: Isolation{
 			Level:   Partial,
-			Relogin: true,
-			Leaks: []string{
-				"~/.agents/skills still loads",
-				"it needs its own service port while your own OpenCode service runs",
-				"provider credentials do not carry over",
+			Relogin: map[string]Relogin{"": ReloginYes},
+			Leaks: []Leak{
+				{Text: "~/.agents/skills still loads"},
+				{Text: "it needs its own service port while your own OpenCode service runs"},
+				{Text: "provider credentials do not carry over"},
 			},
 			Pointers: []Pointer{
 				{Mechanism: Env, Name: "XDG_CONFIG_HOME", Path: "config"},
@@ -110,6 +161,7 @@ var adapters = []Adapter{
 func All() []Adapter {
 	out := slices.Clone(adapters)
 	for i := range out {
+		out[i].Isolation.Relogin = maps.Clone(out[i].Isolation.Relogin)
 		out[i].Isolation.Leaks = slices.Clone(out[i].Isolation.Leaks)
 		out[i].Isolation.Pointers = slices.Clone(out[i].Isolation.Pointers)
 	}

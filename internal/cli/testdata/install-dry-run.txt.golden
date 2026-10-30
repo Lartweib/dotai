@@ -1,7 +1,7 @@
 Install plan · minimal-pack 0.1.0 · variant standalone · mode isolated
 root: /home/u/.dotai/isolated
 
-claudecode · partial isolation · needs a new login
+claudecode · partial isolation · may need a new login
   CLAUDE_CONFIG_DIR=/home/u/.dotai/isolated/claude
   leaks: ~/.claude/CLAUDE.md still loads when the working directory is under the home directory
 

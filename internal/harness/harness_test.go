@@ -82,8 +82,10 @@ func TestAdapters(t *testing.T) {
 			if a.Target != a.ID {
 				t.Errorf("Target = %q, want the harness id %q", a.Target, a.ID)
 			}
-			if len(a.Isolation.Leaks) == 0 {
-				t.Error("a partial isolation names what leaks")
+			for _, goos := range []string{"windows", "linux", "darwin"} {
+				if len(a.Isolation.LeaksOn(goos)) == 0 {
+					t.Errorf("a partial isolation names what leaks on %s", goos)
+				}
 			}
 			for _, p := range []string{a.Dir, a.Staging} {
 				if !path.IsAbs("/"+p) || path.Clean(p) != p {
@@ -96,8 +98,65 @@ func TestAdapters(t *testing.T) {
 
 // TestAllIsACopy checks that a caller cannot change the adapters.
 func TestAllIsACopy(t *testing.T) {
-	harness.All()[0].Isolation.Leaks[0] = "changed"
-	if harness.All()[0].Isolation.Leaks[0] == "changed" {
+	a := harness.All()[0]
+	a.Isolation.Leaks[0].Text = "changed"
+	a.Isolation.Relogin["windows"] = harness.ReloginNo
+	if b := harness.All()[0]; b.Isolation.Leaks[0].Text == "changed" || b.Isolation.Relogin["windows"] == harness.ReloginNo {
 		t.Error("All() shares its data with the caller")
+	}
+}
+
+// TestCommands checks the executable dotai run launches for each harness:
+// only Claude Code so far, agy and OpenCode come with roadmap PR 9.
+func TestCommands(t *testing.T) {
+	want := map[string]string{"claudecode": "claude", "antigravity-cli": "", "opencode": ""}
+	for _, a := range harness.All() {
+		if got := a.Command; got != want[a.ID] {
+			t.Errorf("%s: Command = %q, want %q", a.ID, got, want[a.ID])
+		}
+	}
+}
+
+// TestIsolationPerOS checks the login and the leaks of each harness by OS:
+// decision 0018 verified Claude Code's new login on Windows only, where
+// its credentials live in the configuration directory.
+func TestIsolationPerOS(t *testing.T) {
+	claudeMD := "~/.claude/CLAUDE.md still loads when the working directory is under the home directory"
+	credentials := "credentials live in the configuration directory, so you must log in again"
+	tests := []struct {
+		id, goos string
+		relogin  harness.Relogin
+		leaks    []string
+	}{
+		{"claudecode", "windows", harness.ReloginYes, []string{claudeMD, credentials}},
+		{"claudecode", "linux", harness.ReloginUnknown, []string{claudeMD}},
+		{"claudecode", "darwin", harness.ReloginUnknown, []string{claudeMD}},
+		{"antigravity-cli", "windows", harness.ReloginNo, []string{"authentication is shared through the OS keyring"}},
+		{"antigravity-cli", "linux", harness.ReloginNo, []string{"authentication is shared through the OS keyring"}},
+		{"opencode", "darwin", harness.ReloginYes, []string{"~/.agents/skills still loads", "it needs its own service port while your own OpenCode service runs", "provider credentials do not carry over"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.id+"/"+tt.goos, func(t *testing.T) {
+			a, err := harness.Lookup([]string{tt.id})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := a[0].Isolation.ReloginOn(tt.goos); got != tt.relogin {
+				t.Errorf("ReloginOn(%s) = %q, want %q", tt.goos, got, tt.relogin)
+			}
+			if got := a[0].Isolation.LeaksOn(tt.goos); !reflect.DeepEqual(got, tt.leaks) {
+				t.Errorf("LeaksOn(%s) = %q, want %q", tt.goos, got, tt.leaks)
+			}
+		})
+	}
+}
+
+func TestIsolationWithoutDataIsUnknown(t *testing.T) {
+	var i harness.Isolation
+	if got := i.ReloginOn("linux"); got != harness.ReloginUnknown {
+		t.Errorf("ReloginOn() = %q, want unknown", got)
+	}
+	if got := i.LeaksOn("linux"); got == nil || len(got) != 0 {
+		t.Errorf("LeaksOn() = %#v, want an empty list", got)
 	}
 }

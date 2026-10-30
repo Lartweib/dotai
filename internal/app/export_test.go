@@ -55,3 +55,9 @@ var (
 func RestoreWith(ctx context.Context, d executeFS, home, id string, overwrite func(RestoreResult) (bool, error)) (RestoreResult, error) {
 	return restore(ctx, d, home, id, overwrite)
 }
+
+// PlanRunWith is PlanRun with environ as the current environment, lookPath
+// finding the harness's executable and goos as the OS.
+func PlanRunWith(home, id string, args, environ []string, lookPath func(string) (string, error), goos string) (RunPlan, error) {
+	return planRun(osInstallFS{}, lookPath, goos, home, id, args, environ)
+}

@@ -36,6 +36,10 @@ type Env struct {
 	PlanInstall    func(ctx context.Context, cacheDir, dir, variant, home string, progress app.Progress) (app.InstallPlan, error)
 	Install        func(ctx context.Context, cacheDir, dir, variant, home string, progress app.Progress) (app.InstallResult, error)
 	Restore        func(ctx context.Context, home, id string, overwrite func(app.RestoreResult) (bool, error)) (app.RestoreResult, error)
+	// PlanRun and Launch are dotai run: Launch gives the harness's exit
+	// code, and on Unix replaces dotai with the harness.
+	PlanRun func(home, id string, args []string) (app.RunPlan, error)
+	Launch  func(app.RunPlan) (int, error)
 	// Prompt asks the user a yes or no question; nil when no one can
 	// answer, such as when stdin is not a terminal.
 	Prompt func(ctx context.Context, question string) (bool, error)
@@ -53,7 +57,9 @@ func (e *invalidError) Error() string { return e.msg }
 // Run executes dotai with args (without the program name) and returns the
 // process exit code.
 func Run(args []string, env Env) int {
-	var jsonOut, started bool
+	// parsed is set by a command that parsed its flags before started is,
+	// so that the parsed --json flag decides on an error.
+	var jsonOut, started, parsed bool
 
 	root := &cobra.Command{
 		Use:               "dotai",
@@ -69,7 +75,7 @@ func Run(args []string, env Env) int {
 	root.SetArgs(args)
 	root.SetOut(env.Stdout)
 	root.SetErr(env.Stderr)
-	root.AddCommand(newVersionCmd(env, &jsonOut), newValidateCmd(env, &jsonOut), newStageCmd(env, &jsonOut), newRulesyncCmd(env, &jsonOut), newInstallCmd(env, &jsonOut), newRestoreCmd(env, &jsonOut))
+	root.AddCommand(newVersionCmd(env, &jsonOut), newValidateCmd(env, &jsonOut), newStageCmd(env, &jsonOut), newRulesyncCmd(env, &jsonOut), newInstallCmd(env, &jsonOut), newRestoreCmd(env, &jsonOut), newRunCmd(env, &jsonOut, &parsed))
 
 	// In JSON mode help is a result like any other: one envelope whose data
 	// holds the help text.
@@ -91,6 +97,10 @@ func Run(args []string, env Env) int {
 		return ExitOK
 	}
 
+	if exitCode, ok := errors.AsType[*exitCodeError](err); ok {
+		return exitCode.code
+	}
+
 	code, exit := output.CodeInternal, ExitInternal
 	var invalid *invalidError
 	var usage *app.UsageError
@@ -100,7 +110,7 @@ func Run(args []string, env Env) int {
 	case errors.As(err, &invalid):
 		code, exit = output.CodeInvalid, ExitInvalid
 	}
-	if jsonRequested(root, args) {
+	if parsed && jsonOut || !parsed && jsonRequested(root, args) {
 		e := output.Failure(commandName(cmd), code, err.Error())
 		if conflict, ok := errors.AsType[*app.ConflictError](err); ok {
 			e.Data = map[string]any{"conflicts": conflict.Conflicts}
