@@ -186,6 +186,9 @@ func install(ctx context.Context, d executeFS, fetch fetchFunc, run runFunc, cac
 		if len(p.plan.Diagnostics) > 0 {
 			return nil
 		}
+		if w := settingsWarning(p); w != "" {
+			res.Warnings = append(res.Warnings, w)
+		}
 		r := runner{ctx: ctx, d: d, home: home, p: p, pack: state.Pack{Name: p.plan.Pack.Name, Version: p.plan.Pack.Version, Path: packPath}}
 		return r.run(&res)
 	})
@@ -197,6 +200,24 @@ func install(ctx context.Context, d executeFS, fetch fetchFunc, run runFunc, cac
 		return InstallResult{}, err
 	}
 	return res, nil
+}
+
+// settingsWarning asks to close each harness whose settings file the plan
+// p replaces or removes, since a harness that is running writes there too
+// (decision 0035), or is "" when there is none. A settings file the plan
+// creates was missing, so no harness was writing it. dotai does not detect
+// a running harness (decision 0018, rule 5).
+func settingsWarning(p planned) string {
+	var harnesses []string
+	for _, op := range p.ops {
+		if op.Settings && (op.Action == plan.Replace || op.Action == plan.Remove) && !slices.Contains(harnesses, op.Harness) {
+			harnesses = append(harnesses, op.Harness)
+		}
+	}
+	if len(harnesses) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("close %s before installing: a harness that is running may rewrite its settings file while dotai writes its keys there", strings.Join(harnesses, ", "))
 }
 
 // runner carries out one install plan.

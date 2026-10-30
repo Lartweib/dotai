@@ -8,6 +8,29 @@ import (
 	"github.com/lartweib/dotai/internal/app"
 )
 
+// TestInstallWarnsToCloseAHarnessWhoseSettingsItWrites checks the warning of
+// an install that rewrites or removes a settings file the harness may be
+// writing while it runs; creating a missing one needs none.
+func TestInstallWarnsToCloseAHarnessWhoseSettingsItWrites(t *testing.T) {
+	home, _ := installHome(t)
+	d := newClockFS(t)
+	first, err := installVariant(t, d, examplePack, "standalone", home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Warnings) != 0 {
+		t.Errorf("first install warnings = %q, want none", first.Warnings)
+	}
+	res, err := installVariant(t, d, examplePack, "tmux", home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"close claudecode before installing: a harness that is running may rewrite its settings file while dotai writes its keys there"}
+	if !reflect.DeepEqual(res.Warnings, want) {
+		t.Errorf("warnings = %q, want %q", res.Warnings, want)
+	}
+}
+
 // TestRestorePutsBackAKeyThePackDropped checks the undo of an install that
 // deleted a key the pack no longer stages: the key comes back from the
 // backup copy, unless it was written again since with another value, which
