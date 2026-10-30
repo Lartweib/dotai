@@ -46,7 +46,16 @@
         "beforeExec": false,
         "after": "bb",
         "conflict": false,
-        "keys": []
+        "keys": [
+          {
+            "key": "env.DOTAI_TERMINAL",
+            "action": "remove"
+          },
+          {
+            "key": "model",
+            "action": "replace"
+          }
+        ]
       },
       {
         "action": "remove",

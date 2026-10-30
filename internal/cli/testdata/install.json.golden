@@ -87,15 +87,24 @@
         "keys": []
       },
       {
-        "action": "unchanged",
+        "action": "replace",
         "harness": "claudecode",
         "source": ".claude/settings.json",
         "target": "/home/u/.dotai/isolated/claude/settings.json",
         "exec": false,
         "before": "bb",
-        "after": "bb",
+        "after": "b2",
         "beforeExec": false,
-        "keys": []
+        "keys": [
+          {
+            "key": "env.DOTAI_TERMINAL",
+            "action": "create"
+          },
+          {
+            "key": "model",
+            "action": "replace"
+          }
+        ]
       },
       {
         "action": "remove",

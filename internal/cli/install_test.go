@@ -36,7 +36,8 @@ var installPlan = app.InstallPlan{
 	},
 	Ops: []app.InstallOp{
 		{Action: plan.Create, Harness: "claudecode", Source: ".claude/CLAUDE.md", Target: "/home/u/.dotai/isolated/claude/CLAUDE.md", After: "aa", Keys: []plan.KeyChange{}},
-		{Action: plan.Unchanged, Harness: "claudecode", Source: ".claude/settings.json", Target: "/home/u/.dotai/isolated/claude/settings.json", Before: "bb", After: "bb", Keys: []plan.KeyChange{}},
+		{Action: plan.Replace, Harness: "claudecode", Source: ".claude/settings.json", Target: "/home/u/.dotai/isolated/claude/settings.json", Before: "bb", After: "b2",
+			Keys: []plan.KeyChange{{Key: "env.DOTAI_TERMINAL", Action: plan.Create}, {Key: "model", Action: plan.Replace}}},
 		{Action: plan.Replace, Harness: "antigravity-cli", Source: ".gemini/GEMINI.md", Target: "/home/u/.dotai/isolated/gemini/GEMINI.md", Before: "cc", After: "dd", Keys: []plan.KeyChange{}},
 		{Action: plan.Create, Source: ".dotai/tools/hello.sh", Target: "/home/u/.dotai/tools/hello.sh", Exec: true, After: "ee", Keys: []plan.KeyChange{}},
 	},

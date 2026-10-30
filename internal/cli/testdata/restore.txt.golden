@@ -4,6 +4,7 @@ Restore · undid 2 installs, newest first
 
 claudecode
   restore  /home/u/.dotai/isolated/claude/settings.json
+           keys: remove env.DOTAI_TERMINAL, replace model
   delete   /home/u/.dotai/isolated/claude/agents/reviewer.md  (changed after the install, kept in the restore backup)
 
 opencode

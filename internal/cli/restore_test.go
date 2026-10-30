@@ -28,7 +28,8 @@ var restoreResult = app.RestoreResult{
 			Pack: backup.Pack{Name: "minimal-pack", Version: "0.1.0", Path: "/home/u/packs/minimal-pack"}, Variant: "standalone", Harnesses: []string{"claudecode", "opencode"}},
 	},
 	Ops: []app.RestoreOp{
-		{Action: plan.Replace, Harness: "claudecode", Target: "/home/u/.dotai/isolated/claude/settings.json", From: "20261029T101500.000Z_install", Before: "aa", After: "bb", Keys: []plan.KeyChange{}},
+		{Action: plan.Replace, Harness: "claudecode", Target: "/home/u/.dotai/isolated/claude/settings.json", From: "20261029T101500.000Z_install", Before: "aa", After: "bb",
+			Keys: []plan.KeyChange{{Key: "env.DOTAI_TERMINAL", Action: plan.Remove}, {Key: "model", Action: plan.Replace}}},
 		{Action: plan.Remove, Harness: "claudecode", Target: "/home/u/.dotai/isolated/claude/agents/reviewer.md", Before: "cc", Conflict: true, Keys: []plan.KeyChange{}},
 		{Action: plan.Create, Harness: "opencode", Target: "/home/u/.dotai/isolated/opencode/config/opencode/opencode.jsonc", From: "20261029T103000.000Z_install", After: "dd", Keys: []plan.KeyChange{}},
 		{Action: plan.Remove, Target: "/home/u/.dotai/tools/hello.sh", Before: "ee", BeforeExec: true, Keys: []plan.KeyChange{}},
@@ -217,6 +218,30 @@ func TestRunRestoreConflicts(t *testing.T) {
 				t.Errorf("stderr = %q, want %q", stderr.String(), tt.wantErr)
 			}
 		})
+	}
+}
+
+// TestRunRestoreAsksAboutAChangedKey checks that a key of a settings file
+// that changed after the install is listed by name before the question.
+func TestRunRestoreAsksAboutAChangedKey(t *testing.T) {
+	restoreHome(t)
+	settings := "/home/u/.dotai/isolated/claude/settings.json"
+	res := restoreResult
+	res.Conflicts = []app.RestoreConflict{
+		restoreResult.Conflicts[0],
+		{Target: settings, Harness: "claudecode", Backup: "20261029T103000.000Z_install", Key: "model", Expected: "m0", Current: "m1"},
+	}
+	var stdout, stderr bytes.Buffer
+	env := testEnv(&stdout, &stderr)
+	env.Restore = (&fakeRestore{t: t, res: res}).restore
+	p := &prompter{}
+	env.Prompt = p.prompt
+	cli.Run([]string{"restore"}, env)
+	want := "2 files or keys were changed after dotai installed them; the restore overwrites or deletes them, after copying their files into a new backup:\n" +
+		"  " + restoreResult.Conflicts[0].Target + "\n" +
+		"  key model in " + settings + "\n"
+	if stdout.String() != want || p.question != "Overwrite them? [y/N] " {
+		t.Errorf("stdout = %q, question %q, want %q", stdout.String(), p.question, want)
 	}
 }
 
