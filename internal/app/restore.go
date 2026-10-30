@@ -565,7 +565,7 @@ func (r *restorer) plan(res *RestoreResult, s state.State, chain []undone) error
 		for _, op := range slices.Backward(u.m.Ops) {
 			v, ok := virtual[op.Target]
 			if !ok {
-				cur, exists, err := inspectTarget(r.ctx, r.d, r.home, op.Target, dirs)
+				cur, _, exists, err := inspectTarget(r.ctx, r.d, r.home, op.Target, dirs, false)
 				if err != nil {
 					return err
 				}

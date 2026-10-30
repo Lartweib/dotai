@@ -83,7 +83,8 @@
         "exec": false,
         "before": "",
         "after": "aa",
-        "beforeExec": false
+        "beforeExec": false,
+        "keys": []
       },
       {
         "action": "unchanged",
@@ -93,7 +94,8 @@
         "exec": false,
         "before": "bb",
         "after": "bb",
-        "beforeExec": false
+        "beforeExec": false,
+        "keys": []
       },
       {
         "action": "remove",
@@ -103,7 +105,8 @@
         "exec": false,
         "before": "ff",
         "after": "",
-        "beforeExec": false
+        "beforeExec": false,
+        "keys": []
       },
       {
         "action": "replace",
@@ -113,7 +116,8 @@
         "exec": false,
         "before": "cc",
         "after": "dd",
-        "beforeExec": false
+        "beforeExec": false,
+        "keys": []
       },
       {
         "action": "create",
@@ -123,7 +127,8 @@
         "exec": true,
         "before": "",
         "after": "ee",
-        "beforeExec": false
+        "beforeExec": false,
+        "keys": []
       }
     ],
     "diagnostics": [],

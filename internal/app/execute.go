@@ -126,9 +126,6 @@ func (e *stagingError) Unwrap() error { return e.err }
 // written, not even through a link or a junction.
 type executeFS interface {
 	installFS
-	// Read reads the regular file name, which is absolute, as Hash does,
-	// and gives its content with its state.
-	Read(ctx context.Context, name string) ([]byte, plan.Current, error)
 	// WriteIn writes data through a temporary file next to name moved over
 	// it, with at most the permissions of mode and of a file already there,
 	// and the exec bits of mode where the file system has them.
@@ -267,7 +264,7 @@ func (r runner) write(res *InstallResult, writes []plan.Op, next state.State) er
 	base := state.State{Schema: state.Schema, Pack: next.Pack, Variant: next.Variant, Mode: next.Mode, Harnesses: next.Harnesses, Files: []state.File{}}
 	var prior *state.State // what the backup records as the state before
 	if prev != nil {
-		base = prev.Settled(r.p.owned)
+		base = prev.Settled(r.p.owned, r.p.keys)
 		base.Backup = settledBackup(*prev)
 		prior = &base
 	}
@@ -551,9 +548,11 @@ func (r runner) apply(op plan.Op) (applied, error) {
 		}
 		return a, nil
 	}
-	data, err := r.d.ReadFile(r.p.tree, op.Source)
-	if err != nil {
-		return a, err
+	data := op.Data // a settings file with dotai's keys written into it
+	if data == nil {
+		if data, err = r.d.ReadFile(r.p.tree, op.Source); err != nil {
+			return a, err
+		}
 	}
 	if h := sha256.Sum256(data); hex.EncodeToString(h[:]) != op.After {
 		return a, fmt.Errorf("%s changed after the plan was made", filepath.Join(r.p.tree, filepath.FromSlash(op.Source)))

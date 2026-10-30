@@ -250,6 +250,8 @@ func (in Input) ownedKeys(target string, st *settingsFile, cur Current, exists b
 	switch {
 	case !asWritten && !held(o.Also) && held(o.Foreign):
 		return nil, true, nil // still the file dotai found there
+	case held(o.Also) && o.AlsoKeys != nil:
+		keys = o.AlsoKeys
 	case o.Keys == nil && (asWritten || held(o.Also)):
 		k, err := SettingsKeys(st.harness, data)
 		if err != nil {

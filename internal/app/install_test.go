@@ -266,6 +266,11 @@ func (s *spyInstallFS) Hash(ctx context.Context, name string) (plan.Current, err
 	return s.OSInstallFS.Hash(ctx, name)
 }
 
+func (s *spyInstallFS) Read(ctx context.Context, name string) ([]byte, plan.Current, error) {
+	s.reads++
+	return s.OSInstallFS.Read(ctx, name)
+}
+
 func (s *spyInstallFS) RemoveAll(path string) error {
 	if path == s.staging && s.removeErr != nil {
 		_ = s.OSInstallFS.RemoveAll(path)

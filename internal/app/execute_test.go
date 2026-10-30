@@ -616,9 +616,9 @@ func TestPlanInstallAfterAnInstall(t *testing.T) {
 	if last := p.Ops[len(p.Ops)-1]; last.Action != plan.Remove || last.Target != at(home, ".dotai/tools/hello.sh") {
 		t.Errorf("last op = %+v, want the remove of hello.sh", last)
 	}
-	writeFile(t, at(home, ".dotai/isolated/claude/settings.json"), "{}\n")
+	writeFile(t, at(home, ".dotai/isolated/claude/settings.json"), "{\"model\": \"haiku\"}\n")
 	if _, err := quiet(t).planInstall(dir, "", home); !errors.As(err, new(*plan.EditedError)) {
-		t.Errorf("PlanInstall() error = %v, want the edited file", err)
+		t.Errorf("PlanInstall() error = %v, want the edited key", err)
 	}
 	if got := tree(t, home); !reflect.DeepEqual(got, before) {
 		t.Errorf("home = %v, want %v", got, before)

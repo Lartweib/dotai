@@ -1,6 +1,7 @@
 // Package state is the install state of decision 0032, kept in
 // ~/.dotai/state.json: what is installed, how, and the ownership record of
-// every file the install wrote (decision 0013). It does no I/O; the caller
+// every file the install wrote (decision 0013), with the keys dotai owns in
+// each harness settings file (decision 0035). It does no I/O; the caller
 // reads and writes the file.
 package state
 
@@ -47,13 +48,16 @@ type Pending struct {
 
 // PendingOp is one operation of an install that is writing: what its
 // target had, absent for a create, and what it is given, absent for a
-// remove.
+// remove. Keys are the keys dotai owns in a settings file once the
+// operation is carried out, absent for any other file and when it owns
+// none.
 type PendingOp struct {
 	Action  plan.Action `json:"action"`
 	Target  string      `json:"target"`
 	Harness string      `json:"harness"`
 	Before  *Content    `json:"before,omitempty"`
 	After   *Content    `json:"after,omitempty"`
+	Keys    []plan.Key  `json:"keys,omitempty"`
 }
 
 // Content is a file's SHA-256 in hex and its exec bit.
@@ -71,26 +75,29 @@ type Pack struct {
 
 // File is one owned file: its absolute target, the harness it is installed
 // for ("" for a tool), and the SHA-256 in hex and exec bit it was written
-// with.
+// with. For a harness settings file, Keys are the keys dotai owns in it,
+// never empty, and the file is otherwise the harness's; a settings file
+// without Keys was recorded whole, by an install before decision 0035.
 type File struct {
-	Target  string `json:"target"`
-	Harness string `json:"harness"`
-	SHA256  string `json:"sha256"`
-	Exec    bool   `json:"exec"`
+	Target  string     `json:"target"`
+	Harness string     `json:"harness"`
+	SHA256  string     `json:"sha256"`
+	Exec    bool       `json:"exec"`
+	Keys    []plan.Key `json:"keys,omitempty"`
 }
 
 // New is the state after an install of pack that carried out ops, with
 // the backup backupID. Every target the plan leaves in place is owned,
 // whether it was written or already had the staged content; a removed one
-// is not.
+// is not, nor a settings file in which dotai keeps no key.
 func New(pack Pack, variant, mode string, t time.Time, harnesses []string, backupID string, ops []plan.Op) State {
 	s := State{
 		Schema: Schema, Pack: pack, Variant: variant, Mode: mode, InstalledAt: t.UTC(),
 		Harnesses: append([]string{}, harnesses...), Backup: backupID, Files: []File{},
 	}
 	for _, op := range ops {
-		if op.Action != plan.Remove {
-			s.Files = append(s.Files, File{Target: op.Target, Harness: op.Harness, SHA256: op.After, Exec: op.Exec})
+		if op.Action != plan.Remove && (!op.Settings || len(op.Keys) > 0) {
+			s.Files = append(s.Files, File{Target: op.Target, Harness: op.Harness, SHA256: op.After, Exec: op.Exec, Keys: op.Keys})
 		}
 	}
 	return s
@@ -111,6 +118,9 @@ func Journal(base State, backupID string, ops []plan.Op) State {
 		if op.Action != plan.Remove {
 			j.After = &Content{SHA256: op.After, Exec: op.Exec}
 		}
+		if op.Settings && len(op.Keys) > 0 {
+			j.Keys = op.Keys
+		}
 		p.Ops = append(p.Ops, j)
 	}
 	base.Files = append([]File{}, base.Files...)
@@ -121,11 +131,12 @@ func Journal(base State, backupID string, ops []plan.Op) State {
 // Owned is the ownership record as the plan reads it, by target. A target
 // of a Pending operation may also hold what that operation writes; one
 // that dotai did not own and was replacing may still hold the file it
-// found, which is then not dotai's.
+// found, which is then not dotai's. A settings file being written also
+// gives the keys dotai owns once that operation is carried out.
 func (s State) Owned() map[string]plan.Owned {
 	owned := make(map[string]plan.Owned, len(s.Files))
 	for _, f := range s.Files {
-		owned[f.Target] = plan.Owned{Harness: f.Harness, Hash: f.SHA256, Exec: f.Exec}
+		owned[f.Target] = plan.Owned{Harness: f.Harness, Hash: f.SHA256, Exec: f.Exec, Keys: f.Keys}
 	}
 	if s.Pending == nil {
 		return owned
@@ -139,9 +150,10 @@ func (s State) Owned() map[string]plan.Owned {
 			}
 		case had:
 			o.Also = append(o.Also, plan.Current{Hash: op.After.SHA256, Exec: op.After.Exec})
+			o.AlsoKeys = op.Keys
 			owned[op.Target] = o
 		default:
-			o = plan.Owned{Harness: op.Harness, Hash: op.After.SHA256, Exec: op.After.Exec}
+			o = plan.Owned{Harness: op.Harness, Hash: op.After.SHA256, Exec: op.After.Exec, Keys: op.Keys}
 			if op.Before != nil {
 				o.Foreign = []plan.Current{{Hash: op.Before.SHA256, Exec: op.Before.Exec}}
 			}
@@ -152,15 +164,16 @@ func (s State) Owned() map[string]plan.Owned {
 }
 
 // Settled is s without a journal, owning exactly the targets in onDisk
-// that its record owns, with the state onDisk gives them, in target
-// order: what dotai owns once an interrupted install is resolved.
-func (s State) Settled(onDisk map[string]plan.Current) State {
+// that its record owns, with the state onDisk gives them and, for a
+// settings file, the keys that keys gives it, in target order: what dotai
+// owns once an interrupted install is resolved.
+func (s State) Settled(onDisk map[string]plan.Current, keys map[string][]plan.Key) State {
 	owned := s.Owned()
 	s.Pending, s.Files = nil, []File{}
 	for _, target := range slices.Sorted(maps.Keys(onDisk)) {
 		if o, ok := owned[target]; ok {
 			cur := onDisk[target]
-			s.Files = append(s.Files, File{Target: target, Harness: o.Harness, SHA256: cur.Hash, Exec: cur.Exec})
+			s.Files = append(s.Files, File{Target: target, Harness: o.Harness, SHA256: cur.Hash, Exec: cur.Exec, Keys: keys[target]})
 		}
 	}
 	return s
@@ -208,6 +221,11 @@ func Decode(data []byte) (State, error) {
 			return State{}, fmt.Errorf("install state: target %s is owned twice", f.Target)
 		}
 		seen[f.Target] = true
+		for _, k := range f.Keys {
+			if len(k.Path) == 0 {
+				return State{}, fmt.Errorf("install state: a key of %s has no path", f.Target)
+			}
+		}
 	}
 	if s.Harnesses == nil {
 		s.Harnesses = []string{}

@@ -35,10 +35,10 @@ var installPlan = app.InstallPlan{
 			Leaks: []string{}},
 	},
 	Ops: []app.InstallOp{
-		{Action: plan.Create, Harness: "claudecode", Source: ".claude/CLAUDE.md", Target: "/home/u/.dotai/isolated/claude/CLAUDE.md", After: "aa"},
-		{Action: plan.Unchanged, Harness: "claudecode", Source: ".claude/settings.json", Target: "/home/u/.dotai/isolated/claude/settings.json", Before: "bb", After: "bb"},
-		{Action: plan.Replace, Harness: "antigravity-cli", Source: ".gemini/GEMINI.md", Target: "/home/u/.dotai/isolated/gemini/GEMINI.md", Before: "cc", After: "dd"},
-		{Action: plan.Create, Source: ".dotai/tools/hello.sh", Target: "/home/u/.dotai/tools/hello.sh", Exec: true, After: "ee"},
+		{Action: plan.Create, Harness: "claudecode", Source: ".claude/CLAUDE.md", Target: "/home/u/.dotai/isolated/claude/CLAUDE.md", After: "aa", Keys: []plan.KeyChange{}},
+		{Action: plan.Unchanged, Harness: "claudecode", Source: ".claude/settings.json", Target: "/home/u/.dotai/isolated/claude/settings.json", Before: "bb", After: "bb", Keys: []plan.KeyChange{}},
+		{Action: plan.Replace, Harness: "antigravity-cli", Source: ".gemini/GEMINI.md", Target: "/home/u/.dotai/isolated/gemini/GEMINI.md", Before: "cc", After: "dd", Keys: []plan.KeyChange{}},
+		{Action: plan.Create, Source: ".dotai/tools/hello.sh", Target: "/home/u/.dotai/tools/hello.sh", Exec: true, After: "ee", Keys: []plan.KeyChange{}},
 	},
 	Diagnostics: []app.Diagnostic{},
 }
@@ -213,7 +213,7 @@ func TestRunInstallWithoutAHomeDirectory(t *testing.T) {
 var installResult = func() app.InstallResult {
 	p := installPlan
 	p.Ops = append(append([]app.InstallOp{}, installPlan.Ops[:2]...),
-		app.InstallOp{Action: plan.Remove, Harness: "claudecode", Target: "/home/u/.dotai/isolated/claude/rules/old.md", Before: "ff"})
+		app.InstallOp{Action: plan.Remove, Harness: "claudecode", Target: "/home/u/.dotai/isolated/claude/rules/old.md", Before: "ff", Keys: []plan.KeyChange{}})
 	p.Ops = append(p.Ops, installPlan.Ops[2:]...)
 	return app.InstallResult{
 		InstallPlan: p,
