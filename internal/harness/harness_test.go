@@ -106,6 +106,18 @@ func TestAllIsACopy(t *testing.T) {
 	}
 }
 
+// TestMoves checks the staged directories that install elsewhere in a
+// harness's isolated directory: agy moves antigravity-cli/skills to
+// config/skills on its first run, and cannot link it back on Windows.
+func TestMoves(t *testing.T) {
+	want := map[string][]harness.Move{"antigravity-cli": {{From: "antigravity-cli/skills", To: "config/skills"}}}
+	for _, a := range harness.All() {
+		if got := a.Moves; !reflect.DeepEqual(got, want[a.ID]) {
+			t.Errorf("%s: Moves = %+v, want %+v", a.ID, got, want[a.ID])
+		}
+	}
+}
+
 // TestCommands checks the executable dotai run launches for each harness:
 // only Claude Code so far, agy and OpenCode come with roadmap PR 9.
 func TestCommands(t *testing.T) {

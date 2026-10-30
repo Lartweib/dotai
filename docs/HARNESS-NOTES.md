@@ -16,7 +16,7 @@ Verified behavior of the v1 harnesses that the adapters rely on. Each fact names
 
 - **MCP:** user servers in `~/.gemini/config/mcp_config.json`. Project servers in `.agents/mcp_config.json` are started at runtime, although `agy mcp list` does not show them.
 - **Plugins:** `~/.gemini/config/plugins/<dir>/`, marked by a `plugin.json`.
-- **Skills:** global skills are read from both `~/.gemini/config/skills/` and `~/.gemini/antigravity-cli/skills/`. In `SKILL.md`, agy ignores `allowed-tools`, `model` and unknown blocks, and honors `disable-model-invocation`.
+- **Skills:** global skills are read from both `~/.gemini/config/skills/` and `~/.gemini/antigravity-cli/skills/`. On its first run in a configuration directory, agy moves `antigravity-cli/skills/` to `config/skills/` and writes `config/.migrated`; on Windows it then fails to link the old path back, so dotai installs skills at `config/skills/` ([0031](decisions/0031-isolated-install-root.md)). In `SKILL.md`, agy ignores `allowed-tools`, `model` and unknown blocks, and honors `disable-model-invocation`.
 - **Rules:** `.agents/rules/*.md` need a `trigger` in their frontmatter (`always_on`, `model_decision` or `glob` with `globs`); a rule without frontmatter is dropped with "Invalid rule trigger". agy reads both `AGENTS.md` and `GEMINI.md`, so the same content must not be in both.
 - **Subagents:** the model of an agent definition is `inherit`, `flash` or `pro`.
 - **Permissions:** a `permissions.deny` entry such as `read_file(<path>)` is enforced, even when permission prompts are skipped.

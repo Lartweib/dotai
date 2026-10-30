@@ -331,6 +331,12 @@ func Locate(home string, adapters []harness.Adapter, source string) (h, target s
 	}
 	for _, a := range adapters {
 		if rest, ok := strings.CutPrefix(source, a.Staging+"/"); ok {
+			for _, m := range a.Moves {
+				if moved, ok := strings.CutPrefix(rest, m.From+"/"); ok {
+					rest = path.Join(m.To, moved)
+					break
+				}
+			}
 			return a.ID, at(path.Join(harness.IsolatedDir, a.Dir, a.Install, rest)), true
 		}
 	}

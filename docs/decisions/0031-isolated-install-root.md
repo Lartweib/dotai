@@ -41,3 +41,5 @@ The sources record no other option.
 
 - [CLI-JSON](../CLI-JSON.md), `stage`: the paths of the user-scope staging tree.
 - [0018](0018-install-modes-and-mandatory-backup.md): the relocation mechanism of each harness.
+
+Update 2026-10-30: an adapter may also move a staged directory to another path of its install, as data. agy's skills install at `<dir>/config/skills/<rest>` instead of `<dir>/antigravity-cli/skills/<rest>`, where rulesync writes them: on its first run, agy (1.4.7) moves `antigravity-cli/skills` to `config/skills`, writes `config/.migrated` and then fails to link the old path back on Windows. A pack that stages a skill at both paths is an error, since both install to the same target.

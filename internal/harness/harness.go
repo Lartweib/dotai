@@ -98,16 +98,25 @@ func (i Isolation) LeaksOn(goos string) []string {
 	return out
 }
 
+// Move is a directory of a harness's staging tree that installs to another
+// directory of its isolated install: From/<rest>, relative to
+// Adapter.Staging, installs to To/<rest>, relative to Adapter.Install.
+type Move struct {
+	From string
+	To   string
+}
+
 // Adapter is one harness. Staging and Install map the harness's files in
 // the user-scope staging tree to its isolated install: Staging/<rest>
-// installs to <home>/IsolatedDir/Dir/Install/<rest>. All paths are slash
-// paths.
+// installs to <home>/IsolatedDir/Dir/Install/<rest>, unless <rest> is in a
+// directory of Moves. All paths are slash paths.
 type Adapter struct {
 	ID      string // the name in the manifest's harnesses
 	Target  string // the rulesync target
 	Dir     string // the harness's directory under IsolatedDir
 	Staging string // where rulesync writes the harness's files, relative to the home directory
 	Install string // where Staging installs, relative to Dir; "" is Dir itself
+	Moves   []Move // directories of Staging that install elsewhere under Install
 	// Settings is the harness's settings file in the user scope, relative to
 	// Staging: dotai owns the keys it writes there, not the whole file,
 	// since the harness writes into it too (decision 0035).
@@ -135,6 +144,10 @@ var adapters = []Adapter{
 	},
 	{
 		ID: "antigravity-cli", Target: "antigravity-cli", Dir: "gemini", Staging: ".gemini", Settings: "antigravity-cli/settings.json",
+		// agy moves antigravity-cli/skills to config/skills on its first run
+		// and then fails to link it back on Windows, so the skills install
+		// where it reads them after the move.
+		Moves: []Move{{From: "antigravity-cli/skills", To: "config/skills"}},
 		Isolation: Isolation{
 			Level:    Partial,
 			Relogin:  map[string]Relogin{"": ReloginNo},
@@ -174,6 +187,7 @@ func (a Adapter) SettingsTarget() string { return path.Join(IsolatedDir, a.Dir, 
 func All() []Adapter {
 	out := slices.Clone(adapters)
 	for i := range out {
+		out[i].Moves = slices.Clone(out[i].Moves)
 		out[i].Isolation.Relogin = maps.Clone(out[i].Isolation.Relogin)
 		out[i].Isolation.Leaks = slices.Clone(out[i].Isolation.Leaks)
 		out[i].Isolation.Pointers = slices.Clone(out[i].Isolation.Pointers)

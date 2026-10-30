@@ -66,6 +66,9 @@ func TestBuildMapsEachHarness(t *testing.T) {
 		{".claude/skills/commit-message/SKILL.md", "claudecode", ".dotai/isolated/claude/skills/commit-message/SKILL.md"},
 		{".gemini/GEMINI.md", "antigravity-cli", ".dotai/isolated/gemini/GEMINI.md"},
 		{".gemini/antigravity-cli/settings.json", "antigravity-cli", ".dotai/isolated/gemini/antigravity-cli/settings.json"},
+		// agy moves antigravity-cli/skills to config/skills on its first run.
+		{".gemini/antigravity-cli/skills/commit-message/SKILL.md", "antigravity-cli", ".dotai/isolated/gemini/config/skills/commit-message/SKILL.md"},
+		{".gemini/antigravity-cli/skillsx/a.md", "antigravity-cli", ".dotai/isolated/gemini/antigravity-cli/skillsx/a.md"},
 		{".config/opencode/AGENTS.md", "opencode", ".dotai/isolated/opencode/config/opencode/AGENTS.md"},
 		{".config/opencode/opencode.jsonc", "opencode", ".dotai/isolated/opencode/config/opencode/opencode.jsonc"},
 		{".dotai/tools/hello.sh", "", ".dotai/tools/hello.sh"},
@@ -143,9 +146,9 @@ func TestBuildExampleTree(t *testing.T) {
 		".dotai/isolated/claude/skills/commit-message/SKILL.md",
 		".dotai/isolated/gemini/GEMINI.md",
 		".dotai/isolated/gemini/antigravity-cli/settings.json",
-		".dotai/isolated/gemini/antigravity-cli/skills/commit-message/SKILL.md",
 		".dotai/isolated/gemini/config/agents/reviewer.md",
 		".dotai/isolated/gemini/config/rules/standalone.md",
+		".dotai/isolated/gemini/config/skills/commit-message/SKILL.md",
 		".dotai/isolated/opencode/config/opencode/AGENTS.md",
 		".dotai/isolated/opencode/config/opencode/agents/reviewer.md",
 		".dotai/isolated/opencode/config/opencode/memories/standalone.md",
@@ -252,6 +255,9 @@ func TestBuildRejectsBadInput(t *testing.T) {
 		{"absolute path", plan.Input{Home: t.TempDir(), Files: staged("/etc/x")}, `staged path "/etc/x" is not a slash path inside the tree`},
 		{"backslash", plan.Input{Home: t.TempDir(), Files: staged(`.dotai/tools/..\..\x`)}, `staged path ".dotai/tools/..\\..\\x" is not a slash path inside the tree`},
 		{"duplicate path", plan.Input{Home: t.TempDir(), Files: staged(".dotai/tools/a", ".dotai/tools/a")}, `staged files .dotai/tools/a and .dotai/tools/a install to the same target `},
+		{"agy skill staged at both paths", plan.Input{Home: t.TempDir(), Adapters: adapters(t, "antigravity-cli"),
+			Files: staged(".gemini/antigravity-cli/skills/a/SKILL.md", ".gemini/config/skills/a/SKILL.md")},
+			`staged files .gemini/antigravity-cli/skills/a/SKILL.md and .gemini/config/skills/a/SKILL.md install to the same target `},
 		{"duplicate harness", plan.Input{Home: t.TempDir(), Adapters: slices.Concat(adapters(t, "claudecode"), adapters(t, "claudecode"))}, `harness "claudecode" is given twice`},
 	}
 	for _, tt := range tests {
