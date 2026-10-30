@@ -239,7 +239,8 @@ func (in Input) planSettings(target string, st *settingsFile, edited *EditedErro
 
 // ownedKeys gives the keys dotai owns in the settings target as it is,
 // those its record names that it still holds, and false when the target is
-// edited, which it adds to edited. A record from before decision 0035 owns
+// edited, which it adds to edited. A key that holds the value the pack now
+// stages is not edited, whatever its record says. A record from before decision 0035 owns
 // every key of the file as it wrote it.
 func (in Input) ownedKeys(target string, st *settingsFile, cur Current, exists bool, data []byte, edited *EditedError) ([]Key, bool, error) {
 	o := st.owned
@@ -272,9 +273,15 @@ func (in Input) ownedKeys(target string, st *settingsFile, cur Current, exists b
 	if err != nil {
 		return nil, false, fmt.Errorf("%s: %w; fix it or move it away, then install again", target, err)
 	}
-	present, changed := heldKeys(have, keys)
+	var staged []Key
+	if st.staged != nil {
+		if staged, err = SettingsKeys(st.harness, st.staged.Data); err != nil {
+			return nil, false, fmt.Errorf("staged settings file %s: %w", st.staged.Path, err)
+		}
+	}
+	present, changed := heldKeys(have, keys, staged)
 	if len(changed) > 0 && o.AlsoKeys != nil && !held(o.Also) {
-		if p, c := heldKeys(have, o.AlsoKeys); len(c) == 0 {
+		if p, c := heldKeys(have, o.AlsoKeys, staged); len(c) == 0 {
 			present, changed = p, nil
 		}
 	}
@@ -291,19 +298,32 @@ func (in Input) ownedKeys(target string, st *settingsFile, cur Current, exists b
 
 // heldKeys splits keys, as a record holds them, by what have holds: the
 // keys it holds with the same value, and the names of those it holds with
-// another. A key it does not hold is in neither.
-func heldKeys(have, keys []Key) (present []Key, changed []string) {
+// another. A key it does not hold is in neither. A key changed to the
+// value staged gives it, the value the install would write, is no change:
+// it is present with that value.
+func heldKeys(have, keys, staged []Key) (present []Key, changed []string) {
 	for _, k := range keys {
-		i := slices.IndexFunc(have, func(h Key) bool { return slices.Equal(h.Path, k.Path) })
+		cur, ok := keyAt(have, k.Path)
 		switch {
-		case i < 0:
-		case have[i].SHA256 == k.SHA256:
+		case !ok:
+		case cur.SHA256 == k.SHA256:
 			present = append(present, k)
+		case slices.ContainsFunc(staged, func(s Key) bool { return slices.Equal(s.Path, cur.Path) && s.SHA256 == cur.SHA256 }):
+			present = append(present, cur)
 		default:
 			changed = append(changed, k.Name())
 		}
 	}
 	return present, changed
+}
+
+// keyAt is the key of keys at path.
+func keyAt(keys []Key, path []string) (Key, bool) {
+	i := slices.IndexFunc(keys, func(k Key) bool { return slices.Equal(k.Path, path) })
+	if i < 0 {
+		return Key{}, false
+	}
+	return keys[i], true
 }
 
 // claudeCode is the harness whose env is owned per variable.

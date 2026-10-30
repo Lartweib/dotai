@@ -154,6 +154,21 @@ func TestBuildRefusesEditedSettingsKeys(t *testing.T) {
 	}
 }
 
+// TestBuildAcceptsAnEditedKeyThatHoldsWhatThePackStages checks that a key
+// dotai owns, changed to the value the pack now stages, is no edit: the
+// install has nothing to overwrite there, and dotai owns it with that value.
+func TestBuildAcceptsAnEditedKeyThatHoldsWhatThePackStages(t *testing.T) {
+	const disk = `{"model": "opus", "theme": "dark"}`
+	in, target := settingsInput(t, `{"model": "opus"}`, disk, []plan.Key{key(`"sonnet"`, "model")})
+	got, err := plan.Build(in)
+	if err != nil || len(got.Ops) != 1 || got.Ops[0].Action != plan.Unchanged {
+		t.Fatalf("Build() = %+v, %v, want the file unchanged", got.Ops, err)
+	}
+	if want := []plan.Key{key(`"opus"`, "model")}; !reflect.DeepEqual(got.Keys[target], want) {
+		t.Errorf("Keys = %+v, want the key with the value it holds", got.Keys[target])
+	}
+}
+
 // TestBuildReadsAnOlderSettingsRecord checks a settings file that an
 // install before decision 0035 owned whole: as written, dotai owns every
 // key in it; changed, it is an edited file.
