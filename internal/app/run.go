@@ -159,7 +159,7 @@ func planRun(d executeFS, lookPath func(string) (string, error), goos, home, id 
 		}
 	}
 	if len(dropped) > 0 {
-		p.Notes = append(p.Notes, fmt.Sprintf("removed %s from the environment: they would point %s at another configuration", strings.Join(dropped, ", "), a.ID))
+		p.Notes = append(p.Notes, fmt.Sprintf("removed %s from the environment, since each points %s at another configuration", strings.Join(dropped, ", "), a.ID))
 	}
 	for _, ptr := range h.Pointers {
 		if ptr.Mechanism == string(harness.Env) {
