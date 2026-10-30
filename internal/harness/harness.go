@@ -78,6 +78,9 @@ type Isolation struct {
 	Pointers []Pointer
 	Vars     []Var       // set by dotai run after the pointers
 	Flags    []AddedFlag // added by dotai run to the user's arguments
+	// Drop are variables of the user's environment that point the harness
+	// at another configuration; dotai run removes them and says so.
+	Drop []string
 }
 
 // Var is an environment variable that dotai run sets to a fixed value.
@@ -100,7 +103,13 @@ type AddedFlag struct {
 	// Unless are flags of the user's that take Name's place: with one of
 	// them, or Name itself, Name is not added.
 	Unless []string
-	Note   string // why Name is added, text for people
+	// Globals are the flags every command takes, which may come before a
+	// subcommand, and whether each takes a value as the next argument.
+	Globals map[string]bool
+	Note    string // why Name is added, text for people
+	// Warning is what may happen when the command is not one dotai knows,
+	// so that Name is not added, text for people.
+	Warning string
 }
 
 // ReloginOn is whether the user must log in again on goos.
@@ -180,8 +189,9 @@ var adapters = []Adapter{
 		// where it reads them after the move.
 		Moves: []Move{{From: "antigravity-cli/skills", To: "config/skills"}},
 		Isolation: Isolation{
-			Level:    Partial,
-			Relogin:  map[string]Relogin{"": ReloginNo},
+			Level: Partial,
+			// Verified on Windows only.
+			Relogin:  map[string]Relogin{"windows": ReloginNo},
 			Leaks:    []Leak{{Text: "authentication is shared through the OS keyring"}},
 			Pointers: []Pointer{{Mechanism: Flag, Name: "--gemini_dir"}},
 		},
@@ -190,12 +200,13 @@ var adapters = []Adapter{
 		ID: "opencode", Target: "opencode", Dir: "opencode", Staging: ".config/opencode", Install: "config/opencode", Settings: "opencode.jsonc",
 		Command: "opencode", BatchTarget: "node_modules/@opencode/cli/bin/opencode.exe",
 		Isolation: Isolation{
-			Level:   Partial,
-			Relogin: map[string]Relogin{"": ReloginYes},
+			Level: Partial,
+			// Verified on Windows only.
+			Relogin: map[string]Relogin{"windows": ReloginYes},
 			Leaks: []Leak{
 				{Text: "provider credentials do not carry over"},
-				{Text: "AGENTS.md, .agents and .opencode still load from the working directory and the directories above it, the home directory included"},
-				{Text: "~/.agents/skills is hidden through OPENCODE_TEST_HOME, which OpenCode does not document, so a later OpenCode may load it again"},
+				{Text: "AGENTS.md, .agents and .opencode load from the working directory and every directory above it, so under your home directory your ~/.agents/skills, ~/.opencode and ~/AGENTS.md still load"},
+				{Text: "OPENCODE_TEST_HOME, which OpenCode does not document, hides ~/.agents/skills only outside your home directory, and a later OpenCode may drop it"},
 				{Text: "with --server, OpenCode reaches a server that runs with its own configuration"},
 				{Text: "a command that does not take --standalone, such as debug config, starts a background service on the port of your own OpenCode service and leaves it running"},
 				{Text: `the temporary directory %TEMP%\opencode is shared`, GOOS: "windows"},
@@ -217,14 +228,23 @@ var adapters = []Adapter{
 			// subcommands of its help.
 			Flags: []AddedFlag{{
 				Name: "--standalone",
-				Commands: []string{"", "api", "auth list", "auth login", "mini", "models", "reload", "run",
-					"session delete", "session export", "session import", "session list", "stats"},
+				Commands: []string{"", "api", "auth export", "auth import", "auth list", "auth login", "auth logout", "auth switch",
+					"mini", "models", "reload", "run", "session delete", "session export", "session import", "session list", "stats"},
 				Subcommands: []string{"acp", "api", "auth", "auth export", "auth import", "auth list", "auth login", "auth logout", "auth switch",
-					"debug", "mcp", "mini", "models", "pair", "plugin", "reload", "run", "serve", "service",
-					"session", "session delete", "session export", "session import", "session list", "stats", "uninstall", "update", "upgrade"},
+					"debug", "debug agents", "debug config", "debug paths", "mcp", "mcp add", "mcp auth", "mcp list", "mcp logout",
+					"mini", "models", "pair", "plugin", "plugin add", "plugin check", "plugin list", "plugin remove", "plugin update",
+					"reload", "run", "serve", "service", "service get", "service restart", "service set", "service start", "service status",
+					"service stop", "service unset", "session", "session delete", "session export", "session import", "session list",
+					"stats", "uninstall", "update", "upgrade"},
 				Unless: []string{"--server"},
-				Note:   "OpenCode runs a private server instead of attaching to a background service, which may be your own with your own configuration",
+				Globals: map[string]bool{"--help": false, "-h": false, "--version": false, "-v": false, "--wizard": false,
+					"--completions": true, "--log-level": true, "--print-logs": false},
+				Note:    "OpenCode runs a private server instead of attaching to a background service, which may be your own with your own configuration",
+				Warning: "OpenCode may attach to a background service that is already running with another configuration, such as your own",
 			}},
+			// Checked on 2.0.30: each points OpenCode at a configuration or a
+			// database of its own.
+			Drop: []string{"OPENCODE_CONFIG", "OPENCODE_CONFIG_DIR", "OPENCODE_CONFIG_CONTENT", "OPENCODE_CLI_CONFIG_CONTENT", "OPENCODE_DB"},
 		},
 	},
 }
@@ -247,9 +267,11 @@ func All() []Adapter {
 		out[i].Isolation.Pointers = slices.Clone(out[i].Isolation.Pointers)
 		out[i].Isolation.Vars = slices.Clone(out[i].Isolation.Vars)
 		out[i].Isolation.Flags = slices.Clone(out[i].Isolation.Flags)
+		out[i].Isolation.Drop = slices.Clone(out[i].Isolation.Drop)
 		for j := range out[i].Isolation.Flags {
 			f := &out[i].Isolation.Flags[j]
 			f.Commands, f.Subcommands, f.Unless = slices.Clone(f.Commands), slices.Clone(f.Subcommands), slices.Clone(f.Unless)
+			f.Globals = maps.Clone(f.Globals)
 		}
 	}
 	return out

@@ -99,6 +99,15 @@ func buildFake(t *testing.T, dst string) {
 	}
 }
 
+// loginLine is the login line verified on Windows, or the one of an OS
+// where the login was not verified.
+func loginLine(windows string) string {
+	if runtime.GOOS == "windows" {
+		return windows
+	}
+	return "dotai: login: you may need to log in again in the isolated configuration (not verified on this OS)\n"
+}
+
 // launch decodes what the fake harness printed.
 func launch(t *testing.T, stdout string) launched {
 	t.Helper()
@@ -130,7 +139,7 @@ func installedHome(t *testing.T, pending *state.Pending, harnesses ...string) st
 		t.Fatal(err)
 	}
 	for _, a := range adapters {
-		if err := os.MkdirAll(filepath.Join(home, ".dotai", "isolated", a.Dir), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(home, ".dotai", "isolated", a.Dir, filepath.FromSlash(a.Install)), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -247,7 +256,7 @@ func TestRunLaunchesAgyIsolated(t *testing.T) {
 	}
 	for _, line := range []string{
 		"dotai: antigravity-cli · partial isolation · --gemini_dir=" + dir + "\n",
-		"dotai: login: keeps your login\n",
+		loginLine("dotai: login: keeps your login\n"),
 		"dotai: leaks: authentication is shared through the OS keyring\n",
 	} {
 		if !strings.Contains(stderr, line) {
@@ -292,7 +301,7 @@ func TestRunLaunchesOpenCodeIsolated(t *testing.T) {
 	for _, line := range []string{
 		"dotai: opencode · partial isolation · XDG_CONFIG_HOME=" + filepath.Join(dir, "config"),
 		", OPENCODE_TEST_HOME=" + filepath.Join(dir, "home") + ", OPENCODE_DISABLE_CLAUDE_CODE=1\n",
-		"dotai: login: you must log in again in the isolated configuration\n",
+		loginLine("dotai: login: you must log in again in the isolated configuration\n"),
 		"dotai: leaks: provider credentials do not carry over\n",
 		"dotai: note: --standalone added: ",
 	} {

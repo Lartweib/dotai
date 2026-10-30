@@ -138,10 +138,26 @@ func TestOpenCodeLaunch(t *testing.T) {
 		t.Fatalf("Flags = %+v, want --standalone only", a[0].Isolation.Flags)
 	}
 	f := a[0].Isolation.Flags[0]
-	commands := []string{"", "api", "auth list", "auth login", "mini", "models", "reload", "run",
+	commands := []string{"", "api", "auth export", "auth import", "auth list", "auth login", "auth logout", "auth switch", "mini", "models", "reload", "run",
 		"session delete", "session export", "session import", "session list", "stats"}
-	if f.Name != "--standalone" || !reflect.DeepEqual(f.Commands, commands) || !reflect.DeepEqual(f.Unless, []string{"--server"}) || f.Note == "" {
-		t.Errorf("flag = %+v, want --standalone for %q unless --server, with a note", f, commands)
+	if f.Name != "--standalone" || !reflect.DeepEqual(f.Commands, commands) || !reflect.DeepEqual(f.Unless, []string{"--server"}) || f.Note == "" || f.Warning == "" {
+		t.Errorf("flag = %+v, want --standalone for %q unless --server, with a note and a warning", f, commands)
+	}
+	// The global flags of 2.0.30's help, and whether each takes a value.
+	globals := map[string]bool{"--help": false, "-h": false, "--version": false, "-v": false, "--wizard": false,
+		"--completions": true, "--log-level": true, "--print-logs": false}
+	if !reflect.DeepEqual(f.Globals, globals) {
+		t.Errorf("Globals = %v, want %v", f.Globals, globals)
+	}
+	for _, c := range []string{"debug paths", "mcp list", "plugin add", "service status", "auth switch"} {
+		if !slices.Contains(f.Subcommands, c) {
+			t.Errorf("subcommand %q is missing", c)
+		}
+	}
+	// Variables that would point the isolated OpenCode at another
+	// configuration or database.
+	if want := []string{"OPENCODE_CONFIG", "OPENCODE_CONFIG_DIR", "OPENCODE_CONFIG_CONTENT", "OPENCODE_CLI_CONFIG_CONTENT", "OPENCODE_DB"}; !reflect.DeepEqual(a[0].Isolation.Drop, want) {
+		t.Errorf("Drop = %q, want %q", a[0].Isolation.Drop, want)
 	}
 	for _, c := range f.Commands {
 		if c != "" && !slices.Contains(f.Subcommands, c) {
@@ -188,12 +204,13 @@ func TestSettings(t *testing.T) {
 
 // TestIsolationPerOS checks the login and the leaks of each harness by OS:
 // decision 0018 verified Claude Code's new login on Windows only, where
-// its credentials live in the configuration directory.
+// its credentials live in the configuration directory, and the logins of
+// agy and OpenCode were checked on Windows only too.
 func TestIsolationPerOS(t *testing.T) {
 	openCodeLeaks := []string{
 		"provider credentials do not carry over",
-		"AGENTS.md, .agents and .opencode still load from the working directory and the directories above it, the home directory included",
-		"~/.agents/skills is hidden through OPENCODE_TEST_HOME, which OpenCode does not document, so a later OpenCode may load it again",
+		"AGENTS.md, .agents and .opencode load from the working directory and every directory above it, so under your home directory your ~/.agents/skills, ~/.opencode and ~/AGENTS.md still load",
+		"OPENCODE_TEST_HOME, which OpenCode does not document, hides ~/.agents/skills only outside your home directory, and a later OpenCode may drop it",
 		"with --server, OpenCode reaches a server that runs with its own configuration",
 		"a command that does not take --standalone, such as debug config, starts a background service on the port of your own OpenCode service and leaves it running",
 	}
@@ -208,9 +225,9 @@ func TestIsolationPerOS(t *testing.T) {
 		{"claudecode", "linux", harness.ReloginUnknown, []string{claudeMD}},
 		{"claudecode", "darwin", harness.ReloginUnknown, []string{claudeMD}},
 		{"antigravity-cli", "windows", harness.ReloginNo, []string{"authentication is shared through the OS keyring"}},
-		{"antigravity-cli", "linux", harness.ReloginNo, []string{"authentication is shared through the OS keyring"}},
-		{"opencode", "darwin", harness.ReloginYes, openCodeLeaks},
-		{"opencode", "linux", harness.ReloginYes, openCodeLeaks},
+		{"antigravity-cli", "linux", harness.ReloginUnknown, []string{"authentication is shared through the OS keyring"}},
+		{"opencode", "darwin", harness.ReloginUnknown, openCodeLeaks},
+		{"opencode", "linux", harness.ReloginUnknown, openCodeLeaks},
 		{"opencode", "windows", harness.ReloginYes, append(slices.Clone(openCodeLeaks), `the temporary directory %TEMP%\opencode is shared`)},
 	}
 	for _, tt := range tests {

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -41,7 +42,7 @@ func runHome(t *testing.T, mode string, harnesses []string, pending *state.Pendi
 		t.Fatal(err)
 	}
 	for _, a := range adapters {
-		if err := os.MkdirAll(filepath.Join(home, filepath.FromSlash(harness.IsolatedDir), a.Dir), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(home, filepath.FromSlash(harness.IsolatedDir), a.Dir, filepath.FromSlash(a.Install)), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -404,22 +405,25 @@ func TestPlanRunReplacesOpenCodeVariablesInAnyCaseOnWindows(t *testing.T) {
 }
 
 // TestPlanRunAddsStandalone checks where --standalone goes: right after
-// the subcommands of a command that takes it, and nowhere else.
+// the global flags and the subcommands of a command that takes it, and
+// nowhere else; a command dotai does not know gets a warning instead.
 func TestPlanRunAddsStandalone(t *testing.T) {
 	home := runHome(t, app.ModeIsolated, []string{"opencode"}, nil)
+	project := t.TempDir()
 	tests := []struct {
 		args, want []string
+		warn       bool
 	}{
 		{args: nil, want: []string{"--standalone"}},
 		{args: []string{"-c"}, want: []string{"--standalone", "-c"}},
-		{args: []string{"myproject", "--prompt", "hi"}, want: []string{"--standalone", "myproject", "--prompt", "hi"}},
+		{args: []string{project, "--prompt", "hi"}, want: []string{"--standalone", project, "--prompt", "hi"}},
 		{args: []string{"run", "hi", "there"}, want: []string{"run", "--standalone", "hi", "there"}},
 		{args: []string{"api", "skill.list"}, want: []string{"api", "--standalone", "skill.list"}},
 		{args: []string{"models"}, want: []string{"models", "--standalone"}},
 		{args: []string{"session", "list", "-n", "5"}, want: []string{"session", "list", "--standalone", "-n", "5"}},
 		{args: []string{"auth", "login"}, want: []string{"auth", "login", "--standalone"}},
+		{args: []string{"auth", "logout"}, want: []string{"auth", "logout", "--standalone"}},
 		{args: []string{"session"}, want: []string{"session"}},
-		{args: []string{"auth", "logout"}, want: []string{"auth", "logout"}},
 		{args: []string{"debug", "paths"}, want: []string{"debug", "paths"}},
 		{args: []string{"debug", "config"}, want: []string{"debug", "config"}},
 		{args: []string{"serve"}, want: []string{"serve"}},
@@ -427,6 +431,16 @@ func TestPlanRunAddsStandalone(t *testing.T) {
 		{args: []string{"run", "--server", "http://127.0.0.1:1", "hi"}, want: []string{"run", "--server", "http://127.0.0.1:1", "hi"}},
 		{args: []string{"--server=http://127.0.0.1:1"}, want: []string{"--server=http://127.0.0.1:1"}},
 		{args: []string{"run", "--", "--server"}, want: []string{"run", "--standalone", "--", "--server"}},
+		// Global flags before the subcommand, with their values.
+		{args: []string{"--print-logs", "mcp", "list"}, want: []string{"--print-logs", "mcp", "list"}},
+		{args: []string{"--log-level", "DEBUG", "serve"}, want: []string{"--log-level", "DEBUG", "serve"}},
+		{args: []string{"--log-level", "DEBUG", "run", "hi"}, want: []string{"--log-level", "DEBUG", "run", "--standalone", "hi"}},
+		{args: []string{"--log-level=debug", "models"}, want: []string{"--log-level=debug", "models", "--standalone"}},
+		{args: []string{"--print-logs"}, want: []string{"--print-logs", "--standalone"}},
+		// A word that is neither a subcommand nor a directory.
+		{args: []string{"newcommand", "x"}, want: []string{"newcommand", "x"}, warn: true},
+		{args: []string{"--print-logs", "newcommand"}, want: []string{"--print-logs", "newcommand"}, warn: true},
+		{args: []string{"session", "newsub"}, want: []string{"session", "newsub"}, warn: true},
 	}
 	for _, tt := range tests {
 		t.Run(strings.Join(tt.args, " "), func(t *testing.T) {
@@ -440,7 +454,63 @@ func TestPlanRunAddsStandalone(t *testing.T) {
 			if added := len(p.Args) > len(tt.args); added != (len(p.Notes) == 1) {
 				t.Errorf("Notes = %q, want a note exactly when --standalone is added", p.Notes)
 			}
+			if tt.warn != (len(p.Warnings) == 1) || tt.warn && (!strings.Contains(p.Warnings[0], "--standalone") || !strings.Contains(p.Warnings[0], "background service")) {
+				t.Errorf("Warnings = %q, want a warning about the background service: %t", p.Warnings, tt.warn)
+			}
 		})
+	}
+}
+
+// TestPlanRunDropsVariablesThatPointOpenCodeElsewhere checks that an
+// inherited configuration or database of OpenCode's is removed, in any
+// case on Windows, and named in a note.
+func TestPlanRunDropsVariablesThatPointOpenCodeElsewhere(t *testing.T) {
+	home := runHome(t, app.ModeIsolated, []string{"opencode"}, nil)
+	environ := []string{"OPENCODE_CONFIG=/x.json", "opencode_config_dir=/x", "OPENCODE_DB=/x.db", "OPENCODE_CONFIG_CONTENT={}", "KEEP=1"}
+	p, err := app.PlanRunWith(home, "opencode", []string{"debug", "paths"}, environ, lookPathAt(home), "windows")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kv := range p.Env {
+		if name, _, _ := strings.Cut(kv, "="); strings.HasPrefix(strings.ToUpper(name), "OPENCODE_CONFIG") || strings.EqualFold(name, "OPENCODE_DB") {
+			t.Errorf("Env has %q, want it removed", kv)
+		}
+	}
+	if !slices.Contains(p.Env, "KEEP=1") {
+		t.Errorf("Env = %q, want the rest kept", p.Env)
+	}
+	if len(p.Notes) != 1 || !strings.Contains(p.Notes[0], "OPENCODE_CONFIG, opencode_config_dir, OPENCODE_DB, OPENCODE_CONFIG_CONTENT") {
+		t.Errorf("Notes = %q, want one naming the removed variables", p.Notes)
+	}
+	p, err = app.PlanRunWith(home, "opencode", []string{"debug", "paths"}, []string{"opencode_config_dir=/x"}, lookPathAt(home), "linux")
+	if err != nil || !slices.Contains(p.Env, "opencode_config_dir=/x") || len(p.Notes) != 0 {
+		t.Errorf("on linux: Env = %q, Notes = %q, %v, want a variable of another case kept", p.Env, p.Notes, err)
+	}
+}
+
+// TestPlanRunRefusesAMissingInstallDirectory checks the directory the
+// harness's files install to inside its isolated directory, config/opencode
+// for OpenCode.
+func TestPlanRunRefusesAMissingInstallDirectory(t *testing.T) {
+	home := runHome(t, app.ModeIsolated, []string{"opencode"}, nil)
+	dir := at(home, ".dotai/isolated/opencode/config/opencode")
+	if err := os.Remove(dir); err != nil {
+		t.Fatal(err)
+	}
+	_, err := app.PlanRunWith(home, "opencode", nil, nil, lookPathAt(home), runtime.GOOS)
+	if err == nil || !strings.Contains(err.Error(), dir) || !strings.Contains(err.Error(), "dotai install") {
+		t.Errorf("PlanRun() error = %v, want %s named as missing", err, dir)
+	}
+	if _, err := os.Stat(at(home, ".dotai/isolated/opencode/home")); err == nil {
+		t.Error("the home of OPENCODE_TEST_HOME was created for a launch that was refused")
+	}
+	if err := os.WriteFile(dir, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err = app.PlanRunWith(home, "opencode", nil, nil, lookPathAt(home), runtime.GOOS)
+	var notRegular *app.NotRegularError
+	if !errors.As(err, &notRegular) || notRegular.Path != dir {
+		t.Errorf("PlanRun() error = %v, want the file %s refused", err, dir)
 	}
 }
 

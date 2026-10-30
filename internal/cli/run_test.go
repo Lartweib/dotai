@@ -289,3 +289,18 @@ func TestRunRunShowsTheFixedVariablesWithThePointers(t *testing.T) {
 		t.Errorf("stderr = %q, want %q", stderr.String(), want)
 	}
 }
+
+func TestRunRunPrintsTheWarningsAfterTheNotes(t *testing.T) {
+	restoreHome(t)
+	p := runPlan
+	p.Notes = []string{"a note"}
+	p.Warnings = []string{`"newcommand" is not a command known to take --standalone`}
+	f := &fakeRun{res: p}
+	var stderr bytes.Buffer
+	if code := cli.Run([]string{"run", "claudecode"}, f.env(&bytes.Buffer{}, &stderr)); code != cli.ExitOK {
+		t.Errorf("exit code = %d, want %d", code, cli.ExitOK)
+	}
+	if want := "dotai: note: a note\ndotai: warning: " + p.Warnings[0] + "\n"; !strings.HasSuffix(stderr.String(), want) {
+		t.Errorf("stderr = %q, want it to end with %q", stderr.String(), want)
+	}
+}

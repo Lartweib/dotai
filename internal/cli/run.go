@@ -102,6 +102,9 @@ func writeLaunch(w io.Writer, p app.RunPlan) error {
 	for _, note := range p.Notes {
 		fmt.Fprintf(&b, "dotai: note: %s\n", note)
 	}
+	for _, warning := range p.Warnings {
+		fmt.Fprintf(&b, "dotai: warning: %s\n", warning)
+	}
 	_, err := io.WriteString(w, b.String())
 	return err
 }

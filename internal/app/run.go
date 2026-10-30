@@ -27,6 +27,8 @@ type RunPlan struct {
 	Env     []string // the whole environment of the harness, as KEY=value
 	Vars    []string // the variables set to a fixed value, as KEY=value, which Env ends with
 	Notes   []string // what the user should know about the launch, text for people
+	// Warnings are what may go wrong in the launch, text for people.
+	Warnings []string
 }
 
 // batchUnsafe are the characters cmd.exe reads in a batch file's command
@@ -105,7 +107,15 @@ func planRun(d executeFS, lookPath func(string) (string, error), goos, home, id 
 	}
 	root := filepath.Join(home, filepath.FromSlash(harness.IsolatedDir))
 	h := harnessPlan(root, a, goos)
-	for _, dir := range []string{root, h.Dir} {
+	dirs := []string{root, h.Dir}
+	if a.Install != "" {
+		dir := h.Dir
+		for seg := range strings.SplitSeq(a.Install, "/") {
+			dir = filepath.Join(dir, seg)
+			dirs = append(dirs, dir)
+		}
+	}
+	for _, dir := range dirs {
 		if err := checkDir(d, dir); errors.Is(err, fs.ErrNotExist) {
 			return RunPlan{}, fmt.Errorf("the isolated directory %s is missing: run dotai install", dir)
 		} else if err != nil {
@@ -116,8 +126,11 @@ func planRun(d executeFS, lookPath func(string) (string, error), goos, home, id 
 	if err != nil {
 		return RunPlan{}, err
 	}
-	p = RunPlan{Harness: h, Command: a.Command, Program: program, Args: []string{}, Env: []string{}, Vars: []string{}, Notes: []string{}}
-	set := map[string]bool{}
+	p = RunPlan{Harness: h, Command: a.Command, Program: program, Args: []string{}, Env: []string{}, Vars: []string{}, Notes: []string{}, Warnings: []string{}}
+	set, drop := map[string]bool{}, map[string]bool{}
+	for _, name := range a.Isolation.Drop {
+		drop[envKey(goos, name)] = true
+	}
 	for _, ptr := range h.Pointers {
 		if ptr.Mechanism == string(harness.Flag) {
 			p.Args = append(p.Args, ptr.Name+"="+ptr.Dir)
@@ -129,13 +142,24 @@ func planRun(d executeFS, lookPath func(string) (string, error), goos, home, id 
 		set[envKey(goos, v.Name)] = true
 		p.Vars = append(p.Vars, v.Name+"="+v.Value)
 	}
-	args, p.Notes = addFlags(a.Isolation.Flags, args)
+	isDir := func(name string) bool {
+		mode, err := d.Lstat(name)
+		return err == nil && mode.IsDir()
+	}
+	args, p.Notes, p.Warnings = addFlags(a.Isolation.Flags, args, isDir)
 	p.Args = append(p.Args, args...)
+	var dropped []string
 	for _, kv := range environ {
 		name, _, _ := strings.Cut(kv, "=")
-		if !set[envKey(goos, name)] {
+		switch key := envKey(goos, name); {
+		case drop[key]:
+			dropped = append(dropped, name)
+		case !set[key]:
 			p.Env = append(p.Env, kv)
 		}
+	}
+	if len(dropped) > 0 {
+		p.Notes = append(p.Notes, fmt.Sprintf("removed %s from the environment: they would point %s at another configuration", strings.Join(dropped, ", "), a.ID))
 	}
 	for _, ptr := range h.Pointers {
 		if ptr.Mechanism == string(harness.Env) {
@@ -194,12 +218,15 @@ func makeDir(d executeFS, dir, rel string) error {
 	return checkDir(d, name)
 }
 
-// addFlags adds each flag to args right after the subcommands they start
-// with, when the command they run takes it and args do not have it or a
-// flag that takes its place before a --; a note says why for each flag it
-// adds. Notes are never nil.
-func addFlags(flags []harness.AddedFlag, args []string) ([]string, []string) {
-	notes := []string{}
+// addFlags adds each flag to args right after the global flags and the
+// subcommands they start with, when the command they run takes it and
+// args do not have it or a flag that takes its place before a --; a note
+// says why for each flag it adds. A word that is neither a subcommand nor,
+// first, a directory for the default command, makes the command unknown:
+// the flag is not added and a warning says what may happen. isDir reports
+// a directory. Notes and warnings are never nil.
+func addFlags(flags []harness.AddedFlag, args []string, isDir func(string) bool) ([]string, []string, []string) {
+	notes, warnings := []string{}, []string{}
 	for _, f := range flags {
 		end := slices.Index(args, "--")
 		if end < 0 {
@@ -211,21 +238,41 @@ func addFlags(flags []harness.AddedFlag, args []string) ([]string, []string) {
 		}) {
 			continue
 		}
-		command, i := "", 0
-		for ; i < end && !strings.HasPrefix(args[i], "-"); i++ {
-			next := strings.TrimSpace(command + " " + args[i])
-			if !slices.Contains(f.Subcommands, next) {
-				break
+		command, i, unknown := "", 0, ""
+		for i < end {
+			arg := args[i]
+			if name, _, hasValue := strings.Cut(arg, "="); strings.HasPrefix(arg, "-") {
+				value, global := f.Globals[name]
+				if !global {
+					break
+				}
+				i++
+				if value && !hasValue {
+					i++
+				}
+				continue
 			}
-			command = next
+			next := strings.TrimSpace(command + " " + arg)
+			if slices.Contains(f.Subcommands, next) {
+				command, i = next, i+1
+				continue
+			}
+			parent := command != "" && slices.ContainsFunc(f.Subcommands, func(c string) bool { return strings.HasPrefix(c, command+" ") })
+			if command == "" && !isDir(arg) || parent {
+				unknown = next
+			}
+			break
 		}
-		if !slices.Contains(f.Commands, command) {
-			continue
+		i = min(i, end)
+		switch {
+		case unknown != "":
+			warnings = append(warnings, fmt.Sprintf("%q is not a command known to take %s, so it is not added: %s", unknown, f.Name, f.Warning))
+		case slices.Contains(f.Commands, command):
+			args = slices.Insert(slices.Clone(args), i, f.Name)
+			notes = append(notes, fmt.Sprintf("%s added: %s", f.Name, f.Note))
 		}
-		args = slices.Insert(slices.Clone(args), i, f.Name)
-		notes = append(notes, fmt.Sprintf("%s added: %s", f.Name, f.Note))
 	}
-	return args, notes
+	return args, notes, warnings
 }
 
 // findProgram looks a's command up on PATH. A command found only in the
