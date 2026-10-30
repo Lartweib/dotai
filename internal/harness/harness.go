@@ -9,6 +9,7 @@ package harness
 import (
 	"fmt"
 	"maps"
+	"path"
 	"slices"
 	"strings"
 )
@@ -107,6 +108,10 @@ type Adapter struct {
 	Dir     string // the harness's directory under IsolatedDir
 	Staging string // where rulesync writes the harness's files, relative to the home directory
 	Install string // where Staging installs, relative to Dir; "" is Dir itself
+	// Settings is the harness's settings file in the user scope, relative to
+	// Staging: dotai owns the keys it writes there, not the whole file,
+	// since the harness writes into it too (decision 0035).
+	Settings string
 	// Command is the executable dotai run looks up on PATH and launches
 	// isolated; "" until dotai run supports the harness (roadmap PR 9).
 	Command   string
@@ -115,7 +120,7 @@ type Adapter struct {
 
 var adapters = []Adapter{
 	{
-		ID: "claudecode", Target: "claudecode", Dir: "claude", Staging: ".claude", Command: "claude",
+		ID: "claudecode", Target: "claudecode", Dir: "claude", Staging: ".claude", Settings: "settings.json", Command: "claude",
 		Isolation: Isolation{
 			Level: Partial,
 			// Decision 0018 verified the new login on Windows only, where the
@@ -129,7 +134,7 @@ var adapters = []Adapter{
 		},
 	},
 	{
-		ID: "antigravity-cli", Target: "antigravity-cli", Dir: "gemini", Staging: ".gemini",
+		ID: "antigravity-cli", Target: "antigravity-cli", Dir: "gemini", Staging: ".gemini", Settings: "antigravity-cli/settings.json",
 		Isolation: Isolation{
 			Level:    Partial,
 			Relogin:  map[string]Relogin{"": ReloginNo},
@@ -138,7 +143,7 @@ var adapters = []Adapter{
 		},
 	},
 	{
-		ID: "opencode", Target: "opencode", Dir: "opencode", Staging: ".config/opencode", Install: "config/opencode",
+		ID: "opencode", Target: "opencode", Dir: "opencode", Staging: ".config/opencode", Install: "config/opencode", Settings: "opencode.jsonc",
 		Isolation: Isolation{
 			Level:   Partial,
 			Relogin: map[string]Relogin{"": ReloginYes},
@@ -156,6 +161,14 @@ var adapters = []Adapter{
 		},
 	},
 }
+
+// SettingsSource is the slash path of the harness's settings file in the
+// user-scope staging tree.
+func (a Adapter) SettingsSource() string { return path.Join(a.Staging, a.Settings) }
+
+// SettingsTarget is the slash path, relative to the home directory, of the
+// harness's settings file in its isolated install.
+func (a Adapter) SettingsTarget() string { return path.Join(IsolatedDir, a.Dir, a.Install, a.Settings) }
 
 // All returns every adapter, in a copy the caller may change.
 func All() []Adapter {
