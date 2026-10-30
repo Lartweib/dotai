@@ -216,6 +216,67 @@ func TestInstallReleasesTheSettingsOfADroppedHarness(t *testing.T) {
 	}
 }
 
+// finalStateCrashFS kills an install when it writes its final state, after
+// every target is written: the state keeps the journal.
+type finalStateCrashFS struct {
+	*clockFS
+	states int
+}
+
+func (f *finalStateCrashFS) WriteIn(root, name string, data []byte, mode os.FileMode) error {
+	if name == "state.json" {
+		if f.states++; f.states == 2 { // the journal, then the final state
+			panic(errCrash)
+		}
+	}
+	return f.clockFS.WriteIn(root, name, data, mode)
+}
+
+// TestInstallAndRestoreSettleAKilledSettingsWrite checks an install of
+// another variant killed before it wrote the settings file, or after it,
+// with the harness writing a key in between: the next install converges
+// and a restore undoes it, both keeping the harness's keys.
+func TestInstallAndRestoreSettleAKilledSettingsWrite(t *testing.T) {
+	for name, kill := range map[string]func(*clockFS) app.ExecuteFS{
+		"before the write": func(c *clockFS) app.ExecuteFS { return &crashFS{clockFS: c, crashAt: 1} },
+		"after the write":  func(c *clockFS) app.ExecuteFS { return &finalStateCrashFS{clockFS: c} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			for _, then := range []string{"install", "restore"} {
+				t.Run(then, func(t *testing.T) {
+					home, _ := installHome(t)
+					c := newClockFS(t)
+					if _, err := installVariant(t, c, examplePack, "standalone", home); err != nil {
+						t.Fatal(err)
+					}
+					target := at(home, claudeSettings)
+					harnessWrites(t, target, map[string]any{"theme": "dark"})
+					crash(t, kill(c), examplePack, "tmux", home)
+					if s := readJSON(t, at(home, ".dotai/state.json"), state.Decode); s.Pending == nil {
+						t.Fatal("the killed install left no journal")
+					}
+					harnessWrites(t, target, map[string]any{"verbose": true})
+					want := map[string]any{"model": "opus", "theme": "dark", "verbose": true, "env": map[string]any{"DOTAI_TERMINAL": "tmux"}}
+					if then == "install" {
+						if _, err := installVariant(t, c, examplePack, "tmux", home); err != nil {
+							t.Fatalf("Install() error = %v", err)
+						}
+						assertConverged(t, examplePack, "tmux", home)
+					} else {
+						if _, err := restore(c, home, "", nil); err != nil {
+							t.Fatalf("Restore() error = %v", err)
+						}
+						want = map[string]any{"model": "sonnet", "theme": "dark", "verbose": true}
+					}
+					if got := settingsOf(t, target); !reflect.DeepEqual(got, want) {
+						t.Errorf("settings = %v, want %v", got, want)
+					}
+				})
+			}
+		})
+	}
+}
+
 // TestRestoreKeepsWhatTheHarnessWroteInItsSettings checks that a restore
 // puts back the keys dotai owned before, deletes those it added and keeps
 // the keys the harness wrote; undoing every install leaves the file with
