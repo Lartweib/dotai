@@ -85,7 +85,7 @@ func renderSettings(w stageFS, dir, scope string, harnesses []string, settings m
 		case !errors.Is(err, fs.ErrNotExist):
 			return nil, err
 		}
-		data, err := encodeSettings(existing, settings[h], tools)
+		data, err := encodeSettings(existing, settings[h], tools.inScope(scope))
 		if c, ok := errors.AsType[*SettingsConflict](err); ok {
 			c.Harness, c.File = h, scope+"/"+name
 		}
@@ -110,8 +110,8 @@ func renderSettings(w stageFS, dir, scope string, harnesses []string, settings m
 
 // encodeSettings returns the settings file made of the top-level keys of
 // existing, a JSON or JSONC object or empty, followed by settings: JSON with
-// 2-space indentation and a final newline. The path variables of string
-// values are expanded before they are encoded.
+// 2-space indentation and a final newline. The tool commands and path
+// variables of string values are expanded before they are encoded.
 func encodeSettings(existing []byte, settings []merge.Setting, tools ToolPaths) ([]byte, error) {
 	var b bytes.Buffer
 	b.WriteByte('{')
@@ -205,11 +205,11 @@ func encodeNode(b *bytes.Buffer, n *yaml.Node, tools ToolPaths) error {
 		}
 		return encodeJSON(b, v)
 	case "!!str":
-		s, err := expandPaths([]byte(n.Value), tools)
+		s, err := expandSetting(n.Value, tools)
 		if err != nil {
 			return err
 		}
-		return encodeJSON(b, string(s))
+		return encodeJSON(b, s)
 	}
 	return encodeJSON(b, n.Value)
 }

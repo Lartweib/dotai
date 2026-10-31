@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -399,6 +400,11 @@ func TestStageRulesyncFailureLeavesOutAsItWas(t *testing.T) {
 }
 
 func TestStageRendersSettingsAfterRulesync(t *testing.T) {
+	// agy's statusLine runs the tool hello (decision 0037), in JSON.
+	statusLine := `sh \"home/.dotai/tools/hello.sh\"`
+	if runtime.GOOS == "windows" {
+		statusLine = `powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"home\\.dotai\\tools\\hello.ps1\"`
+	}
 	out := filepath.Join(t.TempDir(), "staging")
 	f := &fakeRulesync{t: t, quiet: true, settings: "{\n  \"hooks\": {}\n}\n", tools: app.ToolsIn("home", "project")}
 	res, err := f.stage(examplePack, out, app.Selection{Variant: "tmux"}, false)
@@ -412,7 +418,7 @@ func TestStageRendersSettingsAfterRulesync(t *testing.T) {
 		{app.StagedFile{Scope: app.ScopeUser, Path: ".claude/settings.json", Origins: map[string]string{"model": "variants/tmux", "env.DOTAI_TERMINAL": "variants/tmux"}, Generator: app.GeneratorRulesyncDotai},
 			"{\n  \"hooks\": {},\n  \"model\": \"opus\",\n  \"env\": {\n    \"DOTAI_TERMINAL\": \"tmux\"\n  }\n}\n"},
 		{app.StagedFile{Scope: app.ScopeUser, Path: ".gemini/antigravity-cli/settings.json", Origins: map[string]string{"statusLine": "base"}, Generator: app.GeneratorDotai},
-			"{\n  \"statusLine\": {\n    \"type\": \"command\",\n    \"command\": \"home/.dotai/tools/hello.sh\"\n  }\n}\n"},
+			"{\n  \"statusLine\": {\n    \"type\": \"command\",\n    \"command\": \"" + statusLine + "\"\n  }\n}\n"},
 	} {
 		if !slices.ContainsFunc(res.Files, func(f app.StagedFile) bool { return reflect.DeepEqual(f, want.file) }) {
 			t.Errorf("files = %+v, want %+v", res.Files, want.file)

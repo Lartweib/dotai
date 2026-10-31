@@ -72,6 +72,21 @@ func copyPack(t *testing.T) string {
 	return dst
 }
 
+// copyPackWithoutToolCommand is copyPack with agy's statusLine running
+// hello.sh by its path instead of as a tool command (decision 0037), so
+// that a test can drop hello.sh from the pack.
+func copyPackWithoutToolCommand(t *testing.T) string {
+	t.Helper()
+	dir := copyPack(t)
+	name := filepath.Join(dir, "base", "dotai", "settings.yaml")
+	data, err := os.ReadFile(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, name, strings.ReplaceAll(string(data), "${DOTAI_TOOL:hello}", "${DOTAI_TOOLS}/hello.sh"))
+	return dir
+}
+
 func readJSON[T any](t *testing.T, name string, decode func([]byte) (T, error)) T {
 	t.Helper()
 	data, err := os.ReadFile(name)
@@ -121,8 +136,8 @@ func TestInstallInAFreshHomeWritesEveryFile(t *testing.T) {
 	if err != nil || len(res.Diagnostics) != 0 {
 		t.Fatalf("Install() = %+v, %v", res, err)
 	}
-	if len(res.Ops) != 5 || res.Backup == nil || res.State != at(home, ".dotai/state.json") {
-		t.Fatalf("Install() = %+v, want five ops, a backup and the state path", res)
+	if len(res.Ops) != 6 || res.Backup == nil || res.State != at(home, ".dotai/state.json") {
+		t.Fatalf("Install() = %+v, want six ops, a backup and the state path", res)
 	}
 	for _, op := range res.Ops {
 		if op.Action != plan.Create {
@@ -137,8 +152,8 @@ func TestInstallInAFreshHomeWritesEveryFile(t *testing.T) {
 			t.Errorf("%s mode = %v, want exec %v", op.Target, info.Mode(), op.Exec)
 		}
 	}
-	if got := at(home, ".dotai/tools/hello.sh"); runtime.GOOS != "windows" && !res.Ops[4].Exec || res.Ops[4].Target != got {
-		t.Errorf("last op = %+v, want the executable tool %s", res.Ops[4], got)
+	if got := at(home, ".dotai/tools/hello.sh"); runtime.GOOS != "windows" && !res.Ops[5].Exec || res.Ops[5].Target != got {
+		t.Errorf("last op = %+v, want the executable tool %s", res.Ops[5], got)
 	}
 
 	id := "20261029T100100.000Z_install"
@@ -147,8 +162,8 @@ func TestInstallInAFreshHomeWritesEveryFile(t *testing.T) {
 	}
 	m := readJSON(t, filepath.Join(res.Backup.Path, "manifest.json"), backup.Decode)
 	if m.ID != id || m.Operation != "install" || m.Mode != "isolated" || m.Pack.Name != "minimal-pack" || m.Pack.Version != "0.1.0" ||
-		!filepath.IsAbs(m.Pack.Path) || m.Variant != "standalone" || len(m.Harnesses) != 3 || m.Home != home || len(m.Ops) != 5 {
-		t.Errorf("manifest = %+v, want the install of minimal-pack with five ops", m)
+		!filepath.IsAbs(m.Pack.Path) || m.Variant != "standalone" || len(m.Harnesses) != 3 || m.Home != home || len(m.Ops) != 6 {
+		t.Errorf("manifest = %+v, want the install of minimal-pack with six ops", m)
 	}
 	for i, op := range m.Ops {
 		if op.Action != plan.Create || op.Target != res.Ops[i].Target || op.File != "" || op.Before != nil || op.After == nil || op.After.SHA256 != res.Ops[i].After {
@@ -164,8 +179,8 @@ func TestInstallInAFreshHomeWritesEveryFile(t *testing.T) {
 		!s.InstalledAt.Equal(time.Date(2026, 10, 29, 10, 2, 0, 0, time.UTC)) || s.Backup != id || !reflect.DeepEqual(s.Harnesses, []string{"claudecode", "antigravity-cli", "opencode"}) {
 		t.Errorf("state = %+v, want minimal-pack installed after its backup", s)
 	}
-	if len(s.Files) != 5 {
-		t.Fatalf("state files = %+v, want five", s.Files)
+	if len(s.Files) != 6 {
+		t.Fatalf("state files = %+v, want six", s.Files)
 	}
 	for i, f := range s.Files {
 		if f.Target != res.Ops[i].Target || f.Harness != res.Ops[i].Harness || f.SHA256 != res.Ops[i].After || f.Exec != res.Ops[i].Exec {
@@ -263,7 +278,7 @@ func TestInstallReplacesAChangedFileWithABackup(t *testing.T) {
 
 func TestInstallRemovesAFileThePackDropped(t *testing.T) {
 	home, _ := installHome(t)
-	dir := copyPack(t)
+	dir := copyPackWithoutToolCommand(t)
 	d := newClockFS(t)
 	if _, err := quiet(t).install(d, dir, home); err != nil {
 		t.Fatal(err)
@@ -304,7 +319,7 @@ func TestInstallRemovesAFileThePackDropped(t *testing.T) {
 
 func TestInstallRefusesAnOwnedFileTheUserEdited(t *testing.T) {
 	home, _ := installHome(t)
-	dir := copyPack(t)
+	dir := copyPackWithoutToolCommand(t)
 	d := newClockFS(t)
 	first, err := (&fakeRulesync{t: t}).install(d, dir, home)
 	if err != nil {
@@ -342,7 +357,7 @@ func TestInstallTakesOwnershipOfAFileThatAlreadyMatches(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := readJSON(t, res.State, state.Decode)
-	if len(s.Files) != 5 || s.Files[0].Target != at(home, ".dotai/isolated/claude/CLAUDE.md") {
+	if len(s.Files) != 6 || s.Files[0].Target != at(home, ".dotai/isolated/claude/CLAUDE.md") {
 		t.Errorf("state files = %+v, want every planned file, unchanged ones too", s.Files)
 	}
 }
@@ -364,7 +379,7 @@ func TestInstallRecordsAFirstInstallThatWritesNothing(t *testing.T) {
 	if res.Backup != nil {
 		t.Errorf("backup = %+v, want none when nothing is written", res.Backup)
 	}
-	if s := readJSON(t, res.State, state.Decode); len(s.Files) != 4 || s.Backup != "" {
+	if s := readJSON(t, res.State, state.Decode); len(s.Files) != 5 || s.Backup != "" {
 		t.Errorf("state = %+v, want the files and no backup", s)
 	}
 }
@@ -601,7 +616,7 @@ func TestInstallKeepsTheFirstAndTheLastTenBackups(t *testing.T) {
 // ownership record as the install does, and still writes nothing.
 func TestPlanInstallAfterAnInstall(t *testing.T) {
 	home, _ := installHome(t)
-	dir := copyPack(t)
+	dir := copyPackWithoutToolCommand(t)
 	if _, err := quiet(t).install(newClockFS(t), dir, home); err != nil {
 		t.Fatal(err)
 	}

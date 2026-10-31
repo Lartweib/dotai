@@ -32,6 +32,9 @@ type StageResult struct {
 	Files       []StagedFile `json:"files"`
 	Diagnostics []Diagnostic `json:"diagnostics"`
 	Pack        *PackSummary `json:"-"` // names the pack in the text report; nil when the manifest cannot be read
+	// ToolCommands are the tool commands the settings run (decision 0037),
+	// which an install plan shows.
+	ToolCommands []ToolCommand `json:"-"`
 }
 
 // StagedFile is one written file: its scope, its path inside the scope's
@@ -109,6 +112,16 @@ func stage(ctx context.Context, w stageFS, fetch fetchFunc, run runFunc, cacheDi
 	if len(diags) > 0 {
 		res.Diagnostics = diags
 		return res, nil
+	}
+	for _, t := range []struct {
+		scope    string
+		settings map[string][]merge.Setting
+	}{{ScopeUser, s.UserSettings}, {ScopeProject, s.ProjectSettings}} {
+		commands, err := toolCommands(t.scope, p.Manifest.Harnesses, t.settings, tools)
+		if err != nil {
+			return StageResult{}, err
+		}
+		res.ToolCommands = append(res.ToolCommands, commands...)
 	}
 	replace, err := checkTarget(w, out, force)
 	if err != nil {

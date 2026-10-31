@@ -152,6 +152,9 @@ func writePlan(w io.Writer, p app.InstallPlan, color bool, footer string) error 
 		for _, leak := range h.Leaks {
 			fmt.Fprintf(&b, "  leaks: %s\n", leak)
 		}
+		for _, c := range h.Tools {
+			fmt.Fprintf(&b, "  %s runs tool %s: %s\n", c.Key, c.Tool, c.Command)
+		}
 	}
 
 	groups := make([]string, 0, len(p.Harnesses)+1)

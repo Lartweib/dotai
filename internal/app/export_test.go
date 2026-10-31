@@ -25,6 +25,12 @@ var ExpandPaths = expandPaths
 // EncodeSettings is the settings file of one harness.
 var EncodeSettings = encodeSettings
 
+// ExpandSettingIn is the expansion of a string value of the settings of
+// scope.
+func ExpandSettingIn(s string, tools ToolPaths, scope string) (string, error) {
+	return expandSetting(s, tools.inScope(scope))
+}
+
 // OSInstallFS is the real file system port of PlanInstall.
 type OSInstallFS = osInstallFS
 

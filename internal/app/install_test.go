@@ -66,6 +66,7 @@ func TestPlanInstallInAFreshHomeCreatesEveryFile(t *testing.T) {
 		{"antigravity-cli", ".gemini/antigravity-cli/settings.json", ".dotai/isolated/gemini/antigravity-cli/settings.json", false},
 		{"opencode", ".config/opencode/opencode.jsonc", ".dotai/isolated/opencode/config/opencode/opencode.jsonc", false},
 		// A pack read on Windows has no exec bit (pack.File.Exec).
+		{"", ".dotai/tools/hello.ps1", ".dotai/tools/hello.ps1", false},
 		{"", ".dotai/tools/hello.sh", ".dotai/tools/hello.sh", runtime.GOOS != "windows"},
 	}
 	if len(p.Ops) != len(want) {

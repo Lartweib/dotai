@@ -1,7 +1,9 @@
 package app_test
 
 import (
+	"encoding/json"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -112,5 +114,115 @@ func TestStageInstallsToolsAndExpandsPaths(t *testing.T) {
 		if err != nil || (info.Mode().Perm()&0o111 != 0) != exec {
 			t.Errorf("%s mode = %v, %v, want executable %v", name, info, err, exec)
 		}
+	}
+}
+
+// TestToolCommands checks the tool command variable of decision 0037 on
+// each OS: PowerShell runs the .ps1 on Windows and sh the .sh elsewhere,
+// from the tools of the settings' scope, with the absolute path in double
+// quotes, so that spaces work; a directory with a character the quotes do
+// not protect is refused, and ${DOTAI_TOOLS} still expands beside it.
+func TestToolCommands(t *testing.T) {
+	tests := []struct {
+		name, os, user, project, scope, in, want, err string
+	}{
+		{"windows", "windows", `C:\Users\Ana\.dotai\tools`, "", app.ScopeUser, "${DOTAI_TOOL:hello}",
+			`powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Users\Ana\.dotai\tools\hello.ps1"`, ""},
+		{"windows with spaces", "windows", `C:\Users\Ana Maria\.dotai\tools`, "", app.ScopeUser, "${DOTAI_TOOL:hello} --short",
+			`powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Users\Ana Maria\.dotai\tools\hello.ps1" --short`, ""},
+		{"linux", "linux", "/home/ana/.dotai/tools", "", app.ScopeUser, "${DOTAI_TOOL:hello}", `sh "/home/ana/.dotai/tools/hello.sh"`, ""},
+		{"macos with spaces", "darwin", "/Users/Ana Maria/.dotai/tools", "", app.ScopeUser, "${DOTAI_TOOL:hello}", `sh "/Users/Ana Maria/.dotai/tools/hello.sh"`, ""},
+		{"project scope", "linux", "/home/ana/.dotai/tools", "/work/p/.dotai/tools", app.ScopeProject, "${DOTAI_TOOL:lint}", `sh "/work/p/.dotai/tools/lint.sh"`, ""},
+		{"beside the path variable", "linux", "/home/ana/.dotai/tools", "", app.ScopeUser, "${DOTAI_TOOL:a} ${DOTAI_TOOLS}/b.conf",
+			`sh "/home/ana/.dotai/tools/a.sh" /home/ana/.dotai/tools/b.conf`, ""},
+		{"a dollar on linux", "linux", "/home/$ana/.dotai/tools", "", app.ScopeUser, "${DOTAI_TOOL:hello}", "", `holds '$'`},
+		{"a backslash on linux", "linux", `/home/a\b/.dotai/tools`, "", app.ScopeUser, "${DOTAI_TOOL:hello}", "", `holds '\\'`},
+		{"a percent on windows", "windows", `C:\Users\100%\.dotai\tools`, "", app.ScopeUser, "${DOTAI_TOOL:hello}", "", `holds '%'`},
+		{"not a tool name", "linux", "/home/ana/.dotai/tools", "", app.ScopeUser, "${DOTAI_TOOL:../x}", "", "does not name a tool"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tools := app.ToolPaths{User: tt.user, Project: tt.project, OS: tt.os}
+			got, err := app.ExpandSettingIn(tt.in, tools, tt.scope)
+			switch {
+			case tt.err != "" && (err == nil || !strings.Contains(err.Error(), tt.err)):
+				t.Errorf("ExpandSettingIn(%q) error = %v, want one with %q", tt.in, err, tt.err)
+			case tt.err == "" && (err != nil || got != tt.want):
+				t.Errorf("ExpandSettingIn(%q) = %q, %v, want %q", tt.in, got, err, tt.want)
+			}
+		})
+	}
+	cause := errors.New("$HOME is not defined")
+	if _, err := app.ExpandSettingIn("${DOTAI_TOOL:hello}", app.ToolPaths{UserErr: cause}, app.ScopeUser); !errors.Is(err, cause) {
+		t.Errorf("ExpandSettingIn() without a home error = %v, want %v", err, cause)
+	}
+}
+
+// TestInstallRunsAToolCommandFromAHomeWithSpaces checks the example pack's
+// agy statusLine (decision 0037) in a home directory with a space: the
+// installed settings run the script for this OS by its absolute path, in
+// quotes, and the dry run shows the same command.
+func TestInstallRunsAToolCommandFromAHomeWithSpaces(t *testing.T) {
+	home, _ := installHome(t)
+	home = filepath.Join(home, "Ana Maria")
+	tools := filepath.Join(home, ".dotai", "tools")
+	want := `sh "` + filepath.ToSlash(tools) + `/hello.sh"`
+	if runtime.GOOS == "windows" {
+		want = `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "` + tools + `\hello.ps1"`
+	}
+	p, err := quiet(t).planInstall(examplePack, "", home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantTool := []app.ToolCommand{{Scope: app.ScopeUser, Harness: "antigravity-cli", Key: "statusLine", Tool: "hello", Command: want}}
+	for _, h := range p.Harnesses {
+		if h.ID == "antigravity-cli" && !reflect.DeepEqual(h.Tools, wantTool) || h.ID != "antigravity-cli" && len(h.Tools) != 0 {
+			t.Errorf("%s tools in the dry run = %+v, want agy's statusLine only: %+v", h.ID, h.Tools, wantTool)
+		}
+	}
+	if _, err := quiet(t).install(newClockFS(t), examplePack, home); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(at(home, ".dotai/isolated/gemini/antigravity-cli/settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var settings struct {
+		StatusLine struct{ Command string } `json:"statusLine"`
+	}
+	if err := json.Unmarshal(data, &settings); err != nil {
+		t.Fatal(err)
+	}
+	if settings.StatusLine.Command != want {
+		t.Errorf("agy's statusLine command = %q, want %q", settings.StatusLine.Command, want)
+	}
+	for _, script := range []string{"hello.sh", "hello.ps1"} {
+		if _, err := os.Stat(filepath.Join(tools, script)); err != nil {
+			t.Errorf("%s: %v, want it installed", script, err)
+		}
+	}
+}
+
+// TestAToolCommandWithoutItsScriptWritesNothing checks that a pack whose
+// settings run a tool it ships for one OS only fails the dry run and the
+// install with a diagnostic naming the missing script, before anything is
+// written.
+func TestAToolCommandWithoutItsScriptWritesNothing(t *testing.T) {
+	home, _ := installHome(t)
+	dir := copyPack(t)
+	if err := os.Remove(filepath.Join(dir, "base", "dotai", "tools", "hello.ps1")); err != nil {
+		t.Fatal(err)
+	}
+	want := "base/dotai/settings.yaml:6:41: tool-missing: setting antigravity-cli.statusLine runs tool hello, but no layer of its scope provides dotai/tools/hello.ps1"
+	p, err := quiet(t).planInstall(dir, "", home)
+	if err != nil || len(p.Diagnostics) != 1 || !strings.HasPrefix(p.Diagnostics[0].String(), want) {
+		t.Errorf("PlanInstall() = %+v, %v, want %q", p.Diagnostics, err, want)
+	}
+	res, err := quiet(t).install(newClockFS(t), dir, home)
+	if err != nil || len(res.Diagnostics) != 1 || res.Diagnostics[0].Code != "tool-missing" {
+		t.Errorf("Install() = %+v, %v, want the diagnostic", res.Diagnostics, err)
+	}
+	if _, err := os.Lstat(at(home, ".dotai")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("~/.dotai = %v, want nothing written", err)
 	}
 }

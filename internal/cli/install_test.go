@@ -23,16 +23,17 @@ var installPlan = app.InstallPlan{
 	Harnesses: []app.HarnessPlan{
 		{ID: "claudecode", Level: "partial", Dir: "/home/u/.dotai/isolated/claude", Relogin: "unknown",
 			Pointers: []app.PointerPlan{{Mechanism: "env", Name: "CLAUDE_CONFIG_DIR", Dir: "/home/u/.dotai/isolated/claude"}},
-			Leaks:    []string{"~/.claude/CLAUDE.md still loads when the working directory is under the home directory"}},
+			Leaks:    []string{"~/.claude/CLAUDE.md still loads when the working directory is under the home directory"}, Tools: []app.ToolCommand{}},
 		{ID: "antigravity-cli", Level: "partial", Dir: "/home/u/.dotai/isolated/gemini", Relogin: "no",
 			Pointers: []app.PointerPlan{{Mechanism: "flag", Name: "--gemini_dir", Dir: "/home/u/.dotai/isolated/gemini"}},
-			Leaks:    []string{"authentication is shared through the OS keyring"}},
+			Leaks:    []string{"authentication is shared through the OS keyring"},
+			Tools:    []app.ToolCommand{{Key: "statusLine", Tool: "hello", Command: `sh "/home/u/.dotai/tools/hello.sh"`}}},
 		{ID: "opencode", Level: "partial", Dir: "/home/u/.dotai/isolated/opencode", Relogin: "yes",
 			Pointers: []app.PointerPlan{
 				{Mechanism: "env", Name: "XDG_CONFIG_HOME", Dir: "/home/u/.dotai/isolated/opencode/config"},
 				{Mechanism: "env", Name: "XDG_DATA_HOME", Dir: "/home/u/.dotai/isolated/opencode/data"},
 			},
-			Leaks: []string{}},
+			Leaks: []string{}, Tools: []app.ToolCommand{}},
 	},
 	Ops: []app.InstallOp{
 		{Action: plan.Create, Harness: "claudecode", Source: ".claude/CLAUDE.md", Target: "/home/u/.dotai/isolated/claude/CLAUDE.md", After: "aa", Keys: []plan.KeyChange{}},

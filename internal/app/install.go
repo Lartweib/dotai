@@ -65,6 +65,9 @@ type HarnessPlan struct {
 	Pointers []PointerPlan `json:"pointers"`
 	Relogin  string        `json:"relogin"`
 	Leaks    []string      `json:"leaks"`
+	// Tools are the tool commands its settings run (decision 0037), as
+	// resolved for this OS.
+	Tools []ToolCommand `json:"tools"`
 }
 
 // PointerPlan is an environment variable (env) or a flag (flag) set to an
@@ -260,7 +263,13 @@ func withPlan(ctx context.Context, d installFS, fetch fetchFunc, run runFunc, ca
 	}
 	res.SharedSkills = sp
 	for _, a := range adapters {
-		res.Harnesses = append(res.Harnesses, harnessPlan(res.Root, a, runtime.GOOS, shared))
+		h := harnessPlan(res.Root, a, runtime.GOOS, shared)
+		for _, c := range s.ToolCommands {
+			if c.Scope == ScopeUser && c.Harness == a.ID {
+				h.Tools = append(h.Tools, c)
+			}
+		}
+		res.Harnesses = append(res.Harnesses, h)
 	}
 	for _, op := range p.Ops {
 		res.Ops = append(res.Ops, InstallOp{
@@ -559,7 +568,7 @@ func harnessPlan(root string, a harness.Adapter, goos string, shared bool) Harne
 	dir := filepath.Join(root, filepath.FromSlash(a.Dir))
 	h := HarnessPlan{
 		ID: a.ID, Level: string(a.Isolation.Level), Dir: dir, Pointers: []PointerPlan{},
-		Relogin: string(a.Isolation.ReloginOn(goos)), Leaks: a.Isolation.LeaksOn(goos, shared),
+		Relogin: string(a.Isolation.ReloginOn(goos)), Leaks: a.Isolation.LeaksOn(goos, shared), Tools: []ToolCommand{},
 	}
 	for _, ptr := range a.Isolation.PointersFor(shared) {
 		h.Pointers = append(h.Pointers, PointerPlan{Mechanism: string(ptr.Mechanism), Name: ptr.Name, Dir: filepath.Join(dir, filepath.FromSlash(ptr.Path))})

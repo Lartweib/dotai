@@ -3,8 +3,10 @@ package app_test
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -32,6 +34,7 @@ func TestStageWithRealRulesync(t *testing.T) {
 	for _, want := range []string{
 		"user/.claude/CLAUDE.md",
 		"user/.dotai/tools/hello.sh",
+		"user/.dotai/tools/hello.ps1",
 		"user/.claude/agents/reviewer.md",
 		"user/.claude/skills/commit-message/SKILL.md",
 		"user/.gemini/GEMINI.md",
@@ -47,9 +50,18 @@ func TestStageWithRealRulesync(t *testing.T) {
 	if want := filepath.ToSlash(tools.User) + "/hello.sh"; err != nil || !strings.Contains(string(claude), want) {
 		t.Errorf("CLAUDE.md = %q, %v, want it to name %s", claude, err, want)
 	}
+	// agy's statusLine runs the tool hello (decision 0037).
+	statusLine := `sh "` + filepath.ToSlash(tools.User) + `/hello.sh"`
+	if runtime.GOOS == "windows" {
+		statusLine = `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "` + tools.User + `\hello.ps1"`
+	}
+	command, err := json.Marshal(statusLine)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for name, want := range map[string]string{
 		".claude/settings.json":                 "{\n  \"model\": \"sonnet\"\n}\n",
-		".gemini/antigravity-cli/settings.json": "{\n  \"statusLine\": {\n    \"type\": \"command\",\n    \"command\": \"" + filepath.ToSlash(tools.User) + "/hello.sh\"\n  }\n}\n",
+		".gemini/antigravity-cli/settings.json": "{\n  \"statusLine\": {\n    \"type\": \"command\",\n    \"command\": " + string(command) + "\n  }\n}\n",
 	} {
 		if got, err := os.ReadFile(filepath.Join(out, "user", filepath.FromSlash(name))); err != nil || string(got) != want {
 			t.Errorf("%s = %q, %v, want %q", name, got, err, want)

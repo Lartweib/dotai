@@ -38,7 +38,8 @@
         "relogin": "unknown",
         "leaks": [
           "~/.claude/CLAUDE.md still loads when the working directory is under the home directory"
-        ]
+        ],
+        "tools": []
       },
       {
         "id": "antigravity-cli",
@@ -54,6 +55,13 @@
         "relogin": "no",
         "leaks": [
           "authentication is shared through the OS keyring"
+        ],
+        "tools": [
+          {
+            "key": "statusLine",
+            "tool": "hello",
+            "command": "sh \"/home/u/.dotai/tools/hello.sh\""
+          }
         ]
       },
       {
@@ -73,7 +81,8 @@
           }
         ],
         "relogin": "yes",
-        "leaks": []
+        "leaks": [],
+        "tools": []
       }
     ],
     "ops": [
