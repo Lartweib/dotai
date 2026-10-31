@@ -12,6 +12,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -222,7 +223,8 @@ func Decode(data []byte) (Manifest, error) {
 // backup id taken into home: another id, operation or home directory, an
 // op whose before, after and copy do not fit its action, a copy that is
 // not at its target's path under FilesDir, a link with a copy, a hash or a
-// destination that is not absolute, a target that is not under home
+// destination other than the shared skill of its name (plan.LinkDest), a
+// target that is not under home
 // or that is named twice, or a prior state that is neither none nor
 // StateName. It does not check where under home a target is.
 func Check(m Manifest, id, home string) error {
@@ -265,6 +267,11 @@ func Check(m Manifest, id, home string) error {
 		for _, c := range []*Content{o.Before, o.After} {
 			if c != nil && (c.Link != "" && (c.SHA256 != "" || c.Exec || !filepath.IsAbs(c.Link)) || c.Link == "" && c.SHA256 == "") {
 				return fmt.Errorf("backup manifest %s: %s needs a SHA-256, or the absolute destination of a link and nothing else", id, o.Target)
+			}
+			if c != nil && c.Link != "" {
+				if err := plan.CheckLinkDest(home, o.Target, c.Link, plan.FoldsCase(runtime.GOOS)); err != nil {
+					return fmt.Errorf("backup manifest %s: %w", id, err)
+				}
 			}
 		}
 		want := path.Join(FilesDir, rel)

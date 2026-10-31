@@ -548,6 +548,16 @@ func (r runner) current(target string, link bool) (plan.Current, error) {
 	return r.d.Hash(r.ctx, target)
 }
 
+// link makes the link name in root, at target, to dest, once dest is
+// checked again to be the shared skill of its name (decision 0036), so
+// that an edited record never makes a link anywhere else.
+func (r runner) link(root, name, target, dest string) error {
+	if err := plan.CheckLinkDest(r.home, target, dest, foldCase); err != nil {
+		return err
+	}
+	return r.d.LinkIn(root, name, dest)
+}
+
 // apply carries out one operation once the directories above its target
 // are real directories and the target is still as the plan found it. A
 // remove also removes the directories it leaves empty, up to the root. A
@@ -604,7 +614,7 @@ func (r runner) apply(op plan.Op) (applied, error) {
 				return a, err
 			}
 		}
-		return a, r.d.LinkIn(root, name, op.Link)
+		return a, r.link(root, name, op.Target, op.Link)
 	}
 	data := op.Data // a settings file with dotai's keys written into it
 	if data == nil {
@@ -733,7 +743,7 @@ func (r runner) undo(dir string, a applied) error {
 				return err
 			}
 		}
-		return r.d.LinkIn(a.root, name, op.BeforeLink)
+		return r.link(a.root, name, op.Target, op.BeforeLink)
 	}
 	rel, err := backup.Rel(r.home, op.Target)
 	if err != nil {

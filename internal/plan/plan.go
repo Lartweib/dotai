@@ -124,6 +124,9 @@ type Input struct {
 	Content    map[string][]byte
 	Owned      map[string]Owned
 	IgnoreExec bool
+	// FoldCase compares link destinations without case, for a file system
+	// that ignores it, such as on Windows and macOS (FoldsCase).
+	FoldCase bool
 }
 
 // Plan is the list of operations, in target order, and the targets of
@@ -177,11 +180,15 @@ type Op struct {
 type KindError struct {
 	Target string
 	Link   bool
+	Dest   string // where a link that dotai did not make points, if it is one
 }
 
 func (e *KindError) Error() string {
 	is, want := "a link", "a file"
-	if e.Link {
+	switch {
+	case e.Link && e.Dest != "":
+		is, want = "a link to "+e.Dest, "its own link to a shared skill"
+	case e.Link:
 		is, want = "not a link", "a link"
 	}
 	return fmt.Sprintf("%s is %s where the install needs %s; dotai never replaces what it did not write: move or remove it, then plan again", e.Target, is, want)
@@ -275,12 +282,14 @@ func Build(in Input) (Plan, error) {
 			continue
 		}
 		if f.Link != "" {
-			if !filepath.IsAbs(f.Link) {
-				return Plan{}, fmt.Errorf("the link %s points at %q, which is not absolute", f.Path, f.Link)
-			}
 			f.Hash, f.Exec, f.Data = LinkHash(f.Link), false, nil
 		}
 		h, target, ok := Locate(in.Home, in.Adapters, f.Path)
+		if ok && f.Link != "" {
+			if err := CheckLinkDest(in.Home, target, f.Link, in.FoldCase); err != nil {
+				return Plan{}, err
+			}
+		}
 		if !ok {
 			unmapped = append(unmapped, f.Path)
 			continue
@@ -297,6 +306,12 @@ func Build(in Input) (Plan, error) {
 		if cur, ok := in.Disk[target]; ok {
 			if (cur.Link != "") != (f.Link != "") {
 				return Plan{}, &KindError{Target: target, Link: f.Link != ""}
+			}
+			if _, owned := in.Owned[target]; !owned && cur.Link != "" && CheckLinkDest(in.Home, target, cur.Link, in.FoldCase) != nil {
+				// A link dotai did not make, to somewhere else: never
+				// replaced, so that no backup records a destination
+				// restore could not put back.
+				return Plan{}, &KindError{Target: target, Link: true, Dest: cur.Link}
 			}
 			op.Before, op.BeforeExec, op.BeforeLink, op.Action = cur.Hash, cur.Exec, cur.Link, Replace
 			if cur.Hash == f.Hash && (in.IgnoreExec || cur.Exec == f.Exec) {
@@ -459,4 +474,36 @@ func checkPath(name string) error {
 // file name every OS dotai supports can store.
 func ValidName(name string) bool {
 	return !strings.Contains(name, "/") && checkPath(name) == nil
+}
+
+// FoldsCase reports whether the file systems of goos usually compare
+// names without case, as on Windows and macOS.
+func FoldsCase(goos string) bool { return goos == "windows" || goos == "darwin" }
+
+// LinkDestError is a link whose destination is not the one dotai links
+// there: the entry of the shared skills folder named as the link (decision
+// 0036). A state or a backup that records one was edited.
+type LinkDestError struct {
+	Target, Dest, Want string
+}
+
+func (e *LinkDestError) Error() string {
+	return fmt.Sprintf("the link %s points at %q, but dotai links it only to %s: it was edited or is not one dotai made, so dotai stops", e.Target, e.Dest, e.Want)
+}
+
+// LinkDest is the only destination of a link at target under home: the
+// entry of the shared skills folder of its name.
+func LinkDest(home, target string) string {
+	return filepath.Join(home, filepath.FromSlash(harness.SharedSkillsDir), filepath.Base(target))
+}
+
+// CheckLinkDest refuses dest, the destination of a link at target, with a
+// *LinkDestError unless it is LinkDest(home, target), clean, compared
+// without case when fold is set.
+func CheckLinkDest(home, target, dest string, fold bool) error {
+	want := LinkDest(home, target)
+	if filepath.IsAbs(dest) && filepath.Clean(dest) == dest && (dest == want || fold && strings.EqualFold(dest, want)) {
+		return nil
+	}
+	return &LinkDestError{Target: target, Dest: dest, Want: want}
 }

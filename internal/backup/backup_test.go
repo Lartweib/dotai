@@ -284,12 +284,12 @@ func TestCheck(t *testing.T) {
 func TestNewRecordsLinks(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "home")
 	target := func(rel string) string { return filepath.Join(home, filepath.FromSlash(rel)) }
-	a, b := target(".agents/skills/a"), target(".agents/skills/b")
+	a, b, c := target(".agents/skills/a"), target(".agents/skills/b"), target(".agents/skills/c")
 	ops := []plan.Op{
 		{Action: plan.Create, Harness: "claudecode", Source: ".claude/skills/a", Target: target(".dotai/isolated/claude/skills/a"), After: plan.LinkHash(a), Link: a},
 		{Action: plan.Replace, Harness: "claudecode", Source: ".claude/skills/b", Target: target(".dotai/isolated/claude/skills/b"),
-			Before: plan.LinkHash(a), BeforeLink: a, After: plan.LinkHash(b), Link: b},
-		{Action: plan.Remove, Harness: "claudecode", Target: target(".dotai/isolated/claude/skills/c"), Before: plan.LinkHash(b), BeforeLink: b},
+			Before: plan.LinkHash(b), BeforeLink: b, After: plan.LinkHash(b), Link: b},
+		{Action: plan.Remove, Harness: "claudecode", Target: target(".dotai/isolated/claude/skills/c"), Before: plan.LinkHash(c), BeforeLink: c},
 	}
 	m, err := backup.New("20261029T131500.123Z_install", backup.OperationInstall, at, home, backup.Info{}, ops)
 	if err != nil {
@@ -297,8 +297,8 @@ func TestNewRecordsLinks(t *testing.T) {
 	}
 	want := []backup.Op{
 		{Action: plan.Create, Target: ops[0].Target, After: &backup.Content{Link: a}},
-		{Action: plan.Replace, Target: ops[1].Target, Before: &backup.Content{Link: a}, After: &backup.Content{Link: b}},
-		{Action: plan.Remove, Target: ops[2].Target, Before: &backup.Content{Link: b}},
+		{Action: plan.Replace, Target: ops[1].Target, Before: &backup.Content{Link: b}, After: &backup.Content{Link: b}},
+		{Action: plan.Remove, Target: ops[2].Target, Before: &backup.Content{Link: c}},
 	}
 	if !reflect.DeepEqual(m.Ops, want) {
 		t.Errorf("New() ops = %+v, want %+v", m.Ops, want)
@@ -317,6 +317,8 @@ func TestNewRecordsLinks(t *testing.T) {
 		"a link with a copy":            func(m *backup.Manifest) { m.Ops[2].File = "files/.dotai/isolated/claude/skills/c" },
 		"a link that is not absolute":   func(m *backup.Manifest) { m.Ops[0].After.Link = "a" },
 		"a link with a hash":            func(m *backup.Manifest) { m.Ops[0].After.SHA256 = "h" },
+		"a link to another skill":       func(m *backup.Manifest) { m.Ops[0].After.Link = b },
+		"a link out of the folder":      func(m *backup.Manifest) { m.Ops[2].Before.Link = filepath.Join(home, ".ssh") },
 		"a file without a hash or link": func(m *backup.Manifest) { m.Ops[0].After = &backup.Content{} },
 	} {
 		t.Run(name, func(t *testing.T) {

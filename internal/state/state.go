@@ -296,6 +296,32 @@ func Decode(data []byte) (State, error) {
 	return s, nil
 }
 
+// CheckLinks refuses, with a *plan.LinkDestError, a link of s, owned or in
+// its journal, whose destination is not the shared skill of its name under
+// home (plan.CheckLinkDest), as only an edited state can hold.
+func (s State) CheckLinks(home string, fold bool) error {
+	for _, f := range s.Files {
+		if f.Kind == KindLink {
+			if err := plan.CheckLinkDest(home, f.Target, f.Link, fold); err != nil {
+				return fmt.Errorf("install state: %w", err)
+			}
+		}
+	}
+	if s.Pending == nil {
+		return nil
+	}
+	for _, op := range s.Pending.Ops {
+		for _, c := range []*Content{op.Before, op.After} {
+			if c != nil && c.Link != "" {
+				if err := plan.CheckLinkDest(home, op.Target, c.Link, fold); err != nil {
+					return fmt.Errorf("install state: pending: %w", err)
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // checkKind rejects a file of an unknown kind, a link without an absolute
 // destination or with a hash, exec bit or keys, and a file with a
 // destination.

@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 
@@ -15,6 +16,10 @@ import (
 // link's own then have to run in an order the target allows: the files of
 // the directory go before the link is made there, and the link goes
 // before the files are written there.
+
+// foldCase is whether paths are compared without case, as the file
+// systems of this OS usually do.
+var foldCase = plan.FoldsCase(runtime.GOOS)
 
 // realDirAt reports an error of inspectTarget for a link target that is a
 // real directory, which a plan that removes what it holds may still turn

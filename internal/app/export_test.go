@@ -76,3 +76,9 @@ func PlanRunWith(home, id string, args, environ []string, lookPath func(string) 
 
 // OrderLinks is the order an install or a restore carries out its ops in.
 var OrderLinks = orderLinks
+
+// MakeLinkWith is how an install, a restore and a rollback make the link
+// name in root at target: checked to point at its shared skill first.
+func MakeLinkWith(d executeFS, home, root, name, target, dest string) error {
+	return runner{d: d, home: home}.link(root, name, target, dest)
+}

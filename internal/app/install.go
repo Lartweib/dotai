@@ -285,7 +285,7 @@ func buildPlan(ctx context.Context, d installFS, tree, home string, adapters []h
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return plan.Plan{}, nil, nil, err
 	}
-	in := plan.Input{Home: home, Adapters: adapters, IgnoreExec: !d.ExecBit()}
+	in := plan.Input{Home: home, Adapters: adapters, IgnoreExec: !d.ExecBit(), FoldCase: foldCase}
 	for _, name := range names {
 		in.Files = append(in.Files, plan.File{Path: name})
 	}
@@ -415,6 +415,9 @@ func readState(d installFS, home string) (*state.State, error) {
 		return nil, err
 	}
 	s, err := state.Decode(data)
+	if err == nil {
+		err = s.CheckLinks(home, foldCase)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", name, err)
 	}

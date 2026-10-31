@@ -2,6 +2,7 @@ package state_test
 
 import (
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -334,4 +335,25 @@ func jsonString(t *testing.T, s string) string {
 		t.Fatal(err)
 	}
 	return string(data)
+}
+
+// TestCheckLinks checks that a state whose link points at anything but the
+// shared skill of its name, owned or in the journal, is refused.
+func TestCheckLinks(t *testing.T) {
+	home := t.TempDir()
+	target := filepath.Join(home, ".dotai", "isolated", "claude", "skills", "a")
+	good, bad := filepath.Join(home, ".agents", "skills", "a"), filepath.Join(home, ".ssh")
+	ok := state.State{Files: []state.File{{Target: target, Kind: state.KindLink, Link: good}},
+		Pending: &state.Pending{Ops: []state.PendingOp{{Action: plan.Create, Target: target, After: &state.Content{Link: good}}}}}
+	if err := ok.CheckLinks(home, false); err != nil {
+		t.Errorf("CheckLinks() = %v, want the shared skill accepted", err)
+	}
+	owned := state.State{Files: []state.File{{Target: target, Kind: state.KindLink, Link: bad}}}
+	pending := state.State{Pending: &state.Pending{Ops: []state.PendingOp{{Action: plan.Remove, Target: target, Before: &state.Content{Link: bad}}}}}
+	for name, s := range map[string]state.State{"owned": owned, "pending": pending} {
+		var e *plan.LinkDestError
+		if err := s.CheckLinks(home, false); !errors.As(err, &e) || e.Dest != bad {
+			t.Errorf("CheckLinks() of a link %s elsewhere = %v, want it refused", name, err)
+		}
+	}
 }

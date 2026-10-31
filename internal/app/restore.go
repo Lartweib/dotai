@@ -530,6 +530,9 @@ func (r *restorer) load(id string, restoreBackup bool) (undone, error) {
 		return undone{}, err
 	}
 	prior, err := state.Decode(data)
+	if err == nil {
+		err = prior.CheckLinks(r.home, foldCase)
+	}
 	if err != nil {
 		return undone{}, fmt.Errorf("%s: %w", filepath.Join(dir, m.PriorState.File), err)
 	}
@@ -653,6 +656,10 @@ func (r *restorer) plan(res *RestoreResult, s state.State, chain []undone) error
 			c.expect != nil && r.same(c.seen.cur, expect.Hash, expect.Exec) ||
 			c.found != nil && r.same(c.seen.cur, found.Hash, found.Exec) || end.exists && r.same(c.seen.cur, end.cur.Hash, end.cur.Exec) {
 			continue
+		}
+		if c.seen.cur.Link != "" && plan.CheckLinkDest(r.home, c.target, c.seen.cur.Link, foldCase) != nil {
+			// Its backup could record a link restore must never make.
+			return fmt.Errorf("%s was changed after dotai installed it into a link to %s, which restore does not overwrite: remove it or point it back, then restore again", c.target, c.seen.cur.Link)
 		}
 		conflicted[c.target] = true
 		rc := RestoreConflict{Target: c.target, Harness: harnessOf[c.target], Backup: c.backup, Current: c.seen.cur.Hash}

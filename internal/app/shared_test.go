@@ -346,8 +346,9 @@ func TestSwitchingVariantsAddsAndRemovesTheLinks(t *testing.T) {
 }
 
 // TestInstallRefusesALinkChangedByHand checks that a link dotai owns that
-// points elsewhere is an edit: install refuses it, and restore takes it as
-// a conflict, which it overwrites only with consent, after a backup.
+// points elsewhere is an edit: install refuses it, and so does restore,
+// even with consent, since its backup would record a link restore must
+// never make; once it is removed by hand, restore works.
 func TestInstallRefusesALinkChangedByHand(t *testing.T) {
 	home := sharedHome(t)
 	d := newClockFS(t)
@@ -364,26 +365,88 @@ func TestInstallRefusesALinkChangedByHand(t *testing.T) {
 	if !errors.As(err, &e) || !slices.Equal(e.Targets, []string{link}) {
 		t.Fatalf("Install() error = %v, want the changed link refused", err)
 	}
-	_, err = app.RestoreWith(context.Background(), d, home, "", nil)
-	var c *app.ConflictError
-	if !errors.As(err, &c) || len(c.Conflicts) != 1 || c.Conflicts[0].Target != link || c.Conflicts[0].Current != plan.LinkHash(elsewhere) {
-		t.Fatalf("Restore() error = %v, want the changed link as the conflict", err)
+	_, err = app.RestoreWith(context.Background(), d, home, "", func(app.RestoreResult) (bool, error) { return true, nil })
+	if err == nil || !strings.Contains(err.Error(), "which restore does not overwrite") {
+		t.Fatalf("Restore() with consent error = %v, want the changed link refused", err)
 	}
-	res, err := app.RestoreWith(context.Background(), d, home, "", func(app.RestoreResult) (bool, error) { return true, nil })
-	if err != nil {
-		t.Fatalf("Restore() with consent error = %v", err)
+	if cur, err := (app.OSInstallFS{}).Link(link); err != nil || cur.Link != elsewhere {
+		t.Errorf("the changed link = %+v, %v, want it left as it is", cur, err)
 	}
-	if _, err := os.Lstat(link); !errors.Is(err, fs.ErrNotExist) {
-		t.Errorf("the changed link = %v, want it removed", err)
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
 	}
+	if _, err := app.RestoreWith(context.Background(), d, home, "", nil); err != nil {
+		t.Fatalf("Restore() once the link is gone error = %v", err)
+	}
+	assertLinks(t, home)
 	if entries, err := os.ReadDir(elsewhere); err != nil || len(entries) != 0 {
 		t.Errorf("what the changed link pointed at = %v, %v, want it untouched", entries, err)
 	}
-	m := manifest(t, home, res.Backup.ID)
-	if !slices.ContainsFunc(m.Ops, func(op backup.Op) bool {
-		return op.Target == link && op.Action == plan.Remove && op.File == "" && op.Before != nil && op.Before.Link == elsewhere
-	}) {
-		t.Errorf("restore backup ops = %+v, want the changed link recorded without a copy", m.Ops)
+}
+
+// TestRestoreRefusesATamperedLink checks that a backup or a state edited to
+// make a link to anything but its shared skill is refused before anything
+// is written.
+func TestRestoreRefusesATamperedLink(t *testing.T) {
+	for _, what := range []string{"manifest", "state"} {
+		t.Run(what, func(t *testing.T) {
+			home := sharedHome(t)
+			d := newClockFS(t)
+			if _, err := installShared(t, d, home, "shared"); err != nil {
+				t.Fatal(err)
+			}
+			second, err := installShared(t, d, home, "standalone")
+			if err != nil {
+				t.Fatal(err)
+			}
+			evil := at(home, ".ssh")
+			link := at(home, ".dotai/isolated/claude/skills/alpha")
+			if what == "manifest" {
+				m := manifest(t, home, second.Backup.ID)
+				for i := range m.Ops {
+					if m.Ops[i].Target == link {
+						m.Ops[i].Before.Link = evil
+					}
+				}
+				data, err := backup.Encode(m)
+				if err != nil {
+					t.Fatal(err)
+				}
+				writeFile(t, filepath.Join(second.Backup.Path, "manifest.json"), string(data))
+			} else {
+				if _, err := app.RestoreWith(context.Background(), d, home, "", nil); err != nil {
+					t.Fatal(err)
+				}
+				s := readJSON(t, at(home, ".dotai/state.json"), state.Decode)
+				for i := range s.Files {
+					if s.Files[i].Target == link {
+						s.Files[i].Link = evil
+					}
+				}
+				data, err := state.Encode(s)
+				if err != nil {
+					t.Fatal(err)
+				}
+				writeFile(t, at(home, ".dotai/state.json"), string(data))
+				_, err = installShared(t, d, home, "shared")
+				var e *plan.LinkDestError
+				if !errors.As(err, &e) || e.Dest != evil {
+					t.Errorf("Install() over the tampered state error = %v, want it refused", err)
+				}
+			}
+			before := listing(t, at(home, ".dotai/isolated"))
+			_, err = app.RestoreWith(context.Background(), d, home, "", func(app.RestoreResult) (bool, error) { return true, nil })
+			var e *plan.LinkDestError
+			if !errors.As(err, &e) || e.Dest != evil {
+				t.Fatalf("Restore() error = %v, want the tampered link refused", err)
+			}
+			if after := listing(t, at(home, ".dotai/isolated")); !slices.Equal(after, before) {
+				t.Errorf("isolated = %v, want nothing written: %v", after, before)
+			}
+			if _, err := os.Lstat(evil); !errors.Is(err, fs.ErrNotExist) {
+				t.Errorf("%s = %v, want no link made there", evil, err)
+			}
+		})
 	}
 }
 
@@ -512,5 +575,26 @@ func TestInstallRollsBackTheLinksItMade(t *testing.T) {
 	assertLinks(t, home)
 	if after := listing(t, at(home, ".agents")); !slices.Equal(after, before) {
 		t.Errorf("~/.agents = %v, want it as it was: %v", after, before)
+	}
+}
+
+// TestMakeLinkChecksTheDestinationAgain checks the last check before a link
+// is made, which an install, a restore and a rollback all go through.
+func TestMakeLinkChecksTheDestinationAgain(t *testing.T) {
+	home, _ := installHome(t)
+	root := at(home, ".dotai/isolated/claude")
+	if err := os.MkdirAll(filepath.Join(root, "skills"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(root, "skills", "alpha")
+	var e *plan.LinkDestError
+	if err := app.MakeLinkWith(app.OSInstallFS{}, home, root, "skills/alpha", target, at(home, ".ssh")); !errors.As(err, &e) {
+		t.Fatalf("MakeLinkWith() error = %v, want the destination refused", err)
+	}
+	if _, err := os.Lstat(target); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the link = %v, want none made", err)
+	}
+	if err := app.MakeLinkWith(app.OSInstallFS{}, home, root, "skills/alpha", target, at(home, ".agents/skills/alpha")); err != nil {
+		t.Errorf("MakeLinkWith() of the shared skill error = %v", err)
 	}
 }

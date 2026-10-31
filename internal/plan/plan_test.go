@@ -499,6 +499,8 @@ func TestBuildPlansLinks(t *testing.T) {
 		{Path: ".claude/skills/same", Link: dest("same")},
 		{Path: ".claude/skills/foreign", Link: dest("foreign")},
 	}
+	// A link dotai did not make to the shared skill itself is replaced; one
+	// to anywhere else is refused (below).
 	owned := map[string]plan.Owned{
 		link("same"): {Harness: "claudecode", Hash: plan.LinkHash(dest("same"))},
 		link("gone"): {Harness: "claudecode", Hash: plan.LinkHash(dest("gone"))},
@@ -506,15 +508,15 @@ func TestBuildPlansLinks(t *testing.T) {
 	disk := map[string]plan.Current{
 		link("same"):    plan.LinkCurrent(dest("same")),
 		link("gone"):    plan.LinkCurrent(dest("gone")),
-		link("foreign"): plan.LinkCurrent(under(home, "elsewhere")), // a link dotai did not make
+		link("foreign"): plan.LinkCurrent(dest("foreign")), // a link dotai did not make
 	}
 	got, err := plan.Build(plan.Input{Home: home, Adapters: adapters(t, "claudecode"), Files: files, Owned: owned, Disk: disk})
 	if err != nil {
 		t.Fatalf("Build() error = %v", err)
 	}
 	want := []plan.Op{
-		{Action: plan.Replace, Scope: plan.ScopeUser, Harness: "claudecode", Source: ".claude/skills/foreign", Target: link("foreign"),
-			Before: plan.LinkHash(under(home, "elsewhere")), BeforeLink: under(home, "elsewhere"), After: plan.LinkHash(dest("foreign")), Link: dest("foreign")},
+		{Action: plan.Unchanged, Scope: plan.ScopeUser, Harness: "claudecode", Source: ".claude/skills/foreign", Target: link("foreign"),
+			Before: plan.LinkHash(dest("foreign")), BeforeLink: dest("foreign"), After: plan.LinkHash(dest("foreign")), Link: dest("foreign")},
 		{Action: plan.Remove, Scope: plan.ScopeUser, Harness: "claudecode", Target: link("gone"), Before: plan.LinkHash(dest("gone")), BeforeLink: dest("gone")},
 		{Action: plan.Create, Scope: plan.ScopeUser, Harness: "claudecode", Source: ".claude/skills/new", Target: link("new"), After: plan.LinkHash(dest("new")), Link: dest("new")},
 		{Action: plan.Unchanged, Scope: plan.ScopeUser, Harness: "claudecode", Source: ".claude/skills/same", Target: link("same"),
@@ -524,17 +526,44 @@ func TestBuildPlansLinks(t *testing.T) {
 		t.Errorf("Build() =\n%+v\nwant\n%+v", got.Ops, want)
 	}
 
+	disk[link("foreign")] = plan.LinkCurrent(under(home, "elsewhere"))
+	var ke *plan.KindError
+	if _, err := plan.Build(plan.Input{Home: home, Adapters: adapters(t, "claudecode"), Files: files, Owned: owned, Disk: disk}); !errors.As(err, &ke) || ke.Dest != under(home, "elsewhere") {
+		t.Errorf("Build() error = %v, want a link dotai did not make to elsewhere refused", err)
+	}
+	disk[link("foreign")] = plan.LinkCurrent(dest("foreign"))
 	disk[link("same")] = plan.LinkCurrent(under(home, "changed"))
 	if _, err := plan.Build(plan.Input{Home: home, Adapters: adapters(t, "claudecode"), Files: files, Owned: owned, Disk: disk}); !errors.As(err, new(*plan.EditedError)) {
 		t.Errorf("Build() error = %v, want an owned link that points elsewhere refused as edited", err)
 	}
 }
 
-func TestBuildRefusesARelativeLink(t *testing.T) {
+func TestBuildRefusesALinkToAnythingButItsSharedSkill(t *testing.T) {
 	home := t.TempDir()
-	files := []plan.File{{Path: ".claude/skills/a", Link: "relative/a"}}
-	if _, err := plan.Build(plan.Input{Home: home, Adapters: adapters(t, "claudecode"), Files: files}); err == nil || !strings.Contains(err.Error(), "not absolute") {
-		t.Errorf("Build() error = %v, want a link whose destination is not absolute refused", err)
+	for _, dest := range []string{"relative/a", under(home, ".agents/skills/b"), under(home, "elsewhere/a"), home + string(filepath.Separator) + filepath.FromSlash(".agents/skills/x/../a")} {
+		files := []plan.File{{Path: ".claude/skills/a", Link: dest}}
+		var e *plan.LinkDestError
+		if _, err := plan.Build(plan.Input{Home: home, Adapters: adapters(t, "claudecode"), Files: files}); !errors.As(err, &e) || e.Want != under(home, ".agents/skills/a") {
+			t.Errorf("Build() of a link to %s error = %v, want it refused", dest, err)
+		}
+	}
+}
+
+func TestCheckLinkDest(t *testing.T) {
+	home := t.TempDir()
+	target := under(home, ".dotai/isolated/claude/skills/alpha")
+	if err := plan.CheckLinkDest(home, target, under(home, ".agents/skills/alpha"), false); err != nil {
+		t.Errorf("CheckLinkDest() = %v, want the shared skill accepted", err)
+	}
+	upper := under(home, ".agents/skills/ALPHA")
+	if err := plan.CheckLinkDest(home, target, upper, false); err == nil {
+		t.Error("CheckLinkDest() of another case = nil, want it refused where case counts")
+	}
+	if err := plan.CheckLinkDest(home, target, upper, true); err != nil {
+		t.Errorf("CheckLinkDest() of another case, folding = %v, want it accepted", err)
+	}
+	if !plan.FoldsCase("windows") || !plan.FoldsCase("darwin") || plan.FoldsCase("linux") {
+		t.Error("FoldsCase() wrong")
 	}
 }
 
