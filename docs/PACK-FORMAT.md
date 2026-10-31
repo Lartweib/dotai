@@ -57,6 +57,8 @@ variants:
   orca:
     path: variants/orca
     detect: { command: orca }
+  shared:
+    path: variants/shared
     shared-skills: true
 ```
 

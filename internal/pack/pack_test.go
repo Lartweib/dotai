@@ -62,13 +62,13 @@ func file(s string) *fstest.MapFile { return &fstest.MapFile{Data: []byte(s)} }
 
 func TestLoadSharedSkills(t *testing.T) {
 	f := validPack()
-	editManifest("{ command: orca }", "{ command: orca }\n    shared-skills: true")(f)
+	editManifest("    default: true", "    default: true\n    shared-skills: true")(f)
 	p, diags, err := pack.Load(f)
 	if err != nil || len(diags) != 0 {
 		t.Fatalf("Load() = %v, %v, want no diagnostics", diags, err)
 	}
-	if got := []bool{p.Manifest.Variants[0].SharedSkills, p.Manifest.Variants[1].SharedSkills}; !reflect.DeepEqual(got, []bool{false, true}) {
-		t.Errorf("shared skills = %v, want only orca's (absent is false)", got)
+	if got := []bool{p.Manifest.Variants[0].SharedSkills, p.Manifest.Variants[1].SharedSkills}; !reflect.DeepEqual(got, []bool{true, false}) {
+		t.Errorf("shared skills = %v, want only standalone's (absent is false)", got)
 	}
 }
 
@@ -283,8 +283,8 @@ func TestLoadDiagnostics(t *testing.T) {
 		},
 		{
 			name:   "shared-skills is not a boolean",
-			mutate: editManifest("{ command: orca }", "{ command: orca }\n    shared-skills: [all]"),
-			want:   []string{`dotai.yaml:19:20: field-type: variant orca: "shared-skills" must be true or false`},
+			mutate: editManifest("    default: true", "    default: true\n    shared-skills: [all]"),
+			want:   []string{`dotai.yaml:16:20: field-type: variant standalone: "shared-skills" must be true or false`},
 		},
 		{
 			name:   "shared-skills on a profile",
