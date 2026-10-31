@@ -130,8 +130,11 @@ type executeFS interface {
 	// it, with at most the permissions of mode and of a file already there,
 	// and the exec bits of mode where the file system has them.
 	WriteIn(root, name string, data []byte, mode fs.FileMode) error
-	RemoveIn(root, name string) error // a file or an empty directory
+	RemoveIn(root, name string) error // a file, a link or an empty directory
 	MkdirIn(root, name string) error  // with the missing ones above it
+	// LinkIn creates the link name to the absolute dest, a junction on
+	// Windows and a symbolic link elsewhere; name must be missing.
+	LinkIn(root, name, dest string) error
 	// WriteSynced writes a new file inside dir, as WriteFile does, and
 	// syncs it to the disk.
 	WriteSynced(dir, name string, data []byte, perm fs.FileMode) error
@@ -529,9 +532,22 @@ func (r runner) execute(writes []plan.Op) ([]applied, error) {
 	return done, nil
 }
 
+// isLink reports an operation on a link (decision 0036).
+func isLink(op plan.Op) bool { return op.Link != "" || op.BeforeLink != "" }
+
+// current gives the state of target, a link when link is set, without
+// following it.
+func (r runner) current(target string, link bool) (plan.Current, error) {
+	if link {
+		return r.d.Link(target)
+	}
+	return r.d.Hash(r.ctx, target)
+}
+
 // apply carries out one operation once the directories above its target
 // are real directories and the target is still as the plan found it. A
-// remove also removes the directories it leaves empty, up to the root.
+// remove also removes the directories it leaves empty, up to the root. A
+// link is replaced by removing it and making the new one.
 func (r runner) apply(op plan.Op) (applied, error) {
 	a := applied{op: op}
 	if err := r.ctx.Err(); err != nil {
@@ -557,7 +573,7 @@ func (r runner) apply(op plan.Op) (applied, error) {
 			}
 		}
 	}
-	cur, err := r.d.Hash(r.ctx, op.Target)
+	cur, err := r.current(op.Target, isLink(op))
 	switch {
 	case op.Action == plan.Create && errors.Is(err, fs.ErrNotExist):
 	case op.Action == plan.Create && err == nil, op.Action != plan.Create && errors.Is(err, fs.ErrNotExist):
@@ -577,6 +593,14 @@ func (r runner) apply(op plan.Op) (applied, error) {
 			}
 		}
 		return a, nil
+	}
+	if op.Link != "" {
+		if op.Action == plan.Replace {
+			if err := r.d.RemoveIn(root, name); err != nil {
+				return a, err
+			}
+		}
+		return a, r.d.LinkIn(root, name, op.Link)
 	}
 	data := op.Data // a settings file with dotai's keys written into it
 	if data == nil {
@@ -673,7 +697,7 @@ func (r runner) undo(dir string, a applied) error {
 	if err != nil {
 		return err
 	}
-	cur, err := r.d.Hash(r.ctx, op.Target)
+	cur, err := r.current(op.Target, isLink(op))
 	exists := err == nil
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
@@ -693,6 +717,19 @@ func (r runner) undo(dir string, a applied) error {
 		return nil // already what was there
 	case exists && (op.Action == plan.Remove || !r.same(cur, op.After, op.Exec)):
 		return changed
+	}
+	if op.BeforeLink != "" { // a link has no copy: it is made again
+		if exists {
+			if err := r.d.RemoveIn(a.root, name); err != nil {
+				return err
+			}
+		}
+		if d := path.Dir(name); d != "." {
+			if err := r.d.MkdirIn(a.root, d); err != nil {
+				return err
+			}
+		}
+		return r.d.LinkIn(a.root, name, op.BeforeLink)
 	}
 	rel, err := backup.Rel(r.home, op.Target)
 	if err != nil {

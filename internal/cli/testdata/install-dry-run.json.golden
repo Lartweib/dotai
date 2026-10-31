@@ -85,7 +85,9 @@
         "before": "",
         "after": "aa",
         "beforeExec": false,
-        "keys": []
+        "keys": [],
+        "link": "",
+        "beforeLink": ""
       },
       {
         "action": "replace",
@@ -105,7 +107,9 @@
             "key": "model",
             "action": "replace"
           }
-        ]
+        ],
+        "link": "",
+        "beforeLink": ""
       },
       {
         "action": "replace",
@@ -116,7 +120,9 @@
         "before": "cc",
         "after": "dd",
         "beforeExec": false,
-        "keys": []
+        "keys": [],
+        "link": "",
+        "beforeLink": ""
       },
       {
         "action": "create",
@@ -127,7 +133,9 @@
         "before": "",
         "after": "ee",
         "beforeExec": false,
-        "keys": []
+        "keys": [],
+        "link": "",
+        "beforeLink": ""
       }
     ],
     "diagnostics": []

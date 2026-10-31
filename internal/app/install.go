@@ -76,7 +76,8 @@ type PointerPlan struct {
 // InstallOp is one operation of the plan; see plan.Op. Harness is empty
 // for a tool. Keys are the keys it writes into or deletes from a harness's
 // settings file, whose keys dotai owns (decision 0035); never nil, and
-// empty for any other file.
+// empty for any other file. Link and BeforeLink are the destinations of
+// the link the target becomes and is (decision 0036), "" for a file.
 type InstallOp struct {
 	Action     plan.Action      `json:"action"`
 	Harness    string           `json:"harness"`
@@ -87,16 +88,20 @@ type InstallOp struct {
 	After      string           `json:"after"`
 	BeforeExec bool             `json:"beforeExec"`
 	Keys       []plan.KeyChange `json:"keys"`
+	Link       string           `json:"link"`
+	BeforeLink string           `json:"beforeLink"`
 }
 
 // NotRegularError is a path on the way to a target that the install would
 // have to follow or replace: a target that is not a regular file, or a
 // directory above it that is a link, a junction or another reparse point,
-// or not a directory at all. Dir is set for such a directory.
+// or not a directory at all. Dir is set for such a directory, and Link for
+// a target where the install needs a link (decision 0036) that is not one.
 type NotRegularError struct {
 	Path string
 	Mode fs.FileMode
 	Dir  bool
+	Link bool
 }
 
 func (e *NotRegularError) Error() string {
@@ -114,8 +119,11 @@ func (e *NotRegularError) Error() string {
 		kind = "not a regular file"
 	}
 	want := "a regular file"
-	if e.Dir {
+	switch {
+	case e.Dir:
 		want = "a directory"
+	case e.Link:
+		want = "a link"
 	}
 	return fmt.Sprintf("%s is %s where the install needs %s; dotai never follows links or replaces what it did not write: move or remove it, then plan again", e.Path, kind, want)
 }
@@ -134,6 +142,11 @@ type installFS interface {
 	// Read reads the regular file name, which is absolute, as Hash does,
 	// and gives its content with its state.
 	Read(ctx context.Context, name string) ([]byte, plan.Current, error)
+	// Link reads the link name, which is absolute, without following it,
+	// and gives its state, plan.LinkCurrent of its destination: a symbolic
+	// link, or on Windows a junction. It gives an fs.ErrNotExist error when
+	// name is missing and a *NotRegularError when it is not a link.
+	Link(name string) (plan.Current, error)
 	ExecBit() bool // whether the file system keeps an exec bit
 }
 
@@ -242,6 +255,7 @@ func withPlan(ctx context.Context, d installFS, fetch fetchFunc, run runFunc, ca
 		res.Ops = append(res.Ops, InstallOp{
 			Action: op.Action, Harness: op.Harness, Source: op.Source, Target: op.Target,
 			Exec: op.Exec, Before: op.Before, After: op.After, BeforeExec: op.BeforeExec, Keys: append([]plan.KeyChange{}, op.Changes...),
+			Link: op.Link, BeforeLink: op.BeforeLink,
 		})
 	}
 	return then(planned{plan: res, ops: p.Ops, tree: tree, prev: prev, harnesses: s.Pack.Harnesses, owned: p.Owned, keys: p.Keys, ignoreExec: !d.ExecBit()})
@@ -274,7 +288,13 @@ func buildPlan(ctx context.Context, d installFS, tree, home string, adapters []h
 	}
 	in.Files, in.Disk, in.Content = nil, map[string]plan.Current{}, map[string][]byte{}
 	var targets []string
+	links, staged := map[string]bool{}, map[string]bool{} // the targets that are links, owned or staged, and staged
 	for _, op := range first.Ops {
+		if op.Link != "" {
+			in.Files = append(in.Files, plan.File{Path: op.Source, Link: op.Link})
+			targets, links[op.Target], staged[op.Target] = append(targets, op.Target), true, true
+			continue
+		}
 		name := filepath.Join(tree, filepath.FromSlash(op.Source))
 		var data []byte
 		var staged plan.Current
@@ -289,6 +309,8 @@ func buildPlan(ctx context.Context, d installFS, tree, home string, adapters []h
 		in.Files = append(in.Files, plan.File{Path: op.Source, Hash: staged.Hash, Exec: staged.Exec, Data: data})
 		targets = append(targets, op.Target)
 	}
+	dirs := map[string]error{}     // the outcome of checkDir for each directory checked
+	realDirs := map[string]error{} // the staged links whose target is a real directory
 	if prev != nil {
 		in.Owned = prev.Owned()
 		for _, f := range prev.Files {
@@ -296,12 +318,33 @@ func buildPlan(ctx context.Context, d installFS, tree, home string, adapters []h
 				targets = append(targets, f.Target)
 			}
 		}
+		for target := range ownedLinks(*prev) {
+			if !staged[target] {
+				// The plan removes it, so a file the pack now stages below
+				// it, such as a skill of the same name, is missing: it is
+				// created once the link is gone, which comes first in
+				// target order. A link that is not what dotai made is an
+				// edit, which stops the plan anyway.
+				dirs[target] = fs.ErrNotExist
+			}
+			links[target] = true
+		}
 	}
-	dirs := map[string]error{} // the outcome of checkDir for each directory checked
 	for _, target := range targets {
 		_, settings := plan.SettingsOf(home, target)
-		cur, data, ok, err := inspectTarget(ctx, d, home, target, dirs, settings)
+		how := inspectHash
+		switch {
+		case links[target]:
+			how = inspectLink
+		case settings:
+			how = inspectRead
+		}
+		cur, data, ok, err := inspectTarget(ctx, d, home, target, dirs, how)
 		if movedAway(home, target, err) {
+			continue
+		}
+		if staged[target] && realDirAt(target, err) {
+			realDirs[target] = err // taken as missing, if the plan empties it
 			continue
 		}
 		if err != nil {
@@ -318,6 +361,10 @@ func buildPlan(ctx context.Context, d installFS, tree, home string, adapters []h
 	if err != nil {
 		return plan.Plan{}, nil, err
 	}
+	if err := checkLinkDirs(p.Ops, realDirs); err != nil {
+		return plan.Plan{}, nil, err
+	}
+	p.Ops = permute(p.Ops, orderLinks(p.Ops))
 	return p, prev, nil
 }
 
@@ -352,12 +399,40 @@ func readState(d installFS, home string) (*state.State, error) {
 	return &s, nil
 }
 
+// ownedLinks is the targets s records as links, in its files and in its
+// journal.
+func ownedLinks(s state.State) map[string]bool {
+	out := map[string]bool{}
+	for _, f := range s.Files {
+		if f.Kind == state.KindLink {
+			out[f.Target] = true
+		}
+	}
+	if s.Pending != nil {
+		for _, op := range s.Pending.Ops {
+			if op.Before != nil && op.Before.Link != "" || op.After != nil && op.After.Link != "" {
+				out[op.Target] = true
+			}
+		}
+	}
+	return out
+}
+
+// inspection is how inspectTarget reads a target.
+type inspection int
+
+const (
+	inspectHash inspection = iota // the hash of a regular file
+	inspectRead                   // the content of a regular file too
+	inspectLink                   // the destination of a link
+)
+
 // inspectTarget gives the state of target, a path under home, with its
-// content when read is set, and whether it exists. Each directory between
+// content for inspectRead, and whether it exists. Each directory between
 // home and target must be a real directory or missing; a missing one means
 // target is missing too. dirs caches the outcome of each directory across
 // targets.
-func inspectTarget(ctx context.Context, d installFS, home, target string, dirs map[string]error, read bool) (plan.Current, []byte, bool, error) {
+func inspectTarget(ctx context.Context, d installFS, home, target string, dirs map[string]error, how inspection) (plan.Current, []byte, bool, error) {
 	rel, err := filepath.Rel(home, filepath.Dir(target))
 	if err != nil || !filepath.IsLocal(rel) && rel != "." {
 		return plan.Current{}, nil, false, fmt.Errorf("target %s is not under the home directory %s", target, home)
@@ -381,9 +456,12 @@ func inspectTarget(ctx context.Context, d installFS, home, target string, dirs m
 	}
 	var data []byte
 	var cur plan.Current
-	if read {
+	switch how {
+	case inspectRead:
 		data, cur, err = d.Read(ctx, target)
-	} else {
+	case inspectLink:
+		cur, err = d.Link(target)
+	default:
 		cur, err = d.Hash(ctx, target)
 	}
 	switch {

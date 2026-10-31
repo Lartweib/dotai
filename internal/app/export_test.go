@@ -73,3 +73,6 @@ func RestoreWarnWith(ctx context.Context, d executeFS, home, id string, warn War
 func PlanRunWith(home, id string, args, environ []string, lookPath func(string) (string, error), goos string) (RunPlan, error) {
 	return planRun(osInstallFS{}, lookPath, goos, home, id, args, environ)
 }
+
+// OrderLinks is the order an install or a restore carries out its ops in.
+var OrderLinks = orderLinks

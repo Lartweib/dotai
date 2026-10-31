@@ -53,7 +53,8 @@ type UndoneInstall struct {
 
 // RestoreOp is one file a restore writes: a create puts back a file that
 // is missing, a replace puts back the file over what is there and a remove
-// deletes it. From is the backup whose copy is put back, "" for a remove;
+// deletes it. Link and BeforeLink are the destinations of the link it puts
+// back and of the link the target is (decision 0036), "" for a file. From is the backup whose copy is put back, "" for a remove;
 // Before and BeforeExec are what the target holds, "" and false when it
 // is missing; After and Exec what it is given, "" and false for a remove.
 // Conflict marks a target that changed after the install wrote it. Keys
@@ -71,6 +72,8 @@ type RestoreOp struct {
 	After      string           `json:"after"`
 	Conflict   bool             `json:"conflict"`
 	Keys       []plan.KeyChange `json:"keys"`
+	Link       string           `json:"link"`
+	BeforeLink string           `json:"beforeLink"`
 }
 
 // RestoreConflict is a target that holds neither what the install of
@@ -588,6 +591,10 @@ func (r *restorer) plan(res *RestoreResult, s state.State, chain []undone) error
 	disk, virtual := map[string]vfile{}, map[string]vfile{}
 	steps := map[string][]settingsStep{} // the settings files, undone key by key
 	dirs := map[string]error{}
+	linked, realDirs, err := r.inspectLinks(chain, dirs)
+	if err != nil {
+		return err
+	}
 	for i, u := range chain {
 		res.Undone = append(res.Undone, UndoneInstall{
 			ID: u.m.ID, Path: u.dir, CreatedAt: u.m.CreatedAt, Pack: u.m.Pack, Variant: u.m.Variant, Harnesses: u.m.Harnesses,
@@ -602,14 +609,16 @@ func (r *restorer) plan(res *RestoreResult, s state.State, chain []undone) error
 			}
 			v, ok := virtual[op.Target]
 			if !ok {
-				cur, _, exists, err := inspectTarget(r.ctx, r.d, r.home, op.Target, dirs, false)
-				if movedAway(r.home, op.Target, err) {
-					err = nil
+				if v, ok = linked[op.Target]; !ok {
+					cur, _, exists, err := inspectTarget(r.ctx, r.d, r.home, op.Target, dirs, inspectHash)
+					if movedAway(r.home, op.Target, err) {
+						err = nil
+					}
+					if err != nil {
+						return err
+					}
+					v = vfile{exists: exists, cur: cur}
 				}
-				if err != nil {
-					return err
-				}
-				v = vfile{exists: exists, cur: cur}
 				disk[op.Target] = v
 				order = append(order, op.Target)
 			}
@@ -620,7 +629,11 @@ func (r *restorer) plan(res *RestoreResult, s state.State, chain []undone) error
 			checks = append(checks, c)
 			virtual[op.Target] = vfile{}
 			if op.Before != nil {
-				virtual[op.Target] = vfile{exists: true, cur: plan.Current{Hash: op.Before.SHA256, Exec: op.Before.Exec}, src: u.m.ID + "/" + op.File, from: u.m.ID}
+				v := vfile{exists: true, cur: op.Before.Current(), from: u.m.ID}
+				if op.Before.Link == "" {
+					v.src = u.m.ID + "/" + op.File
+				}
+				virtual[op.Target] = v
 			}
 		}
 	}
@@ -629,15 +642,22 @@ func (r *restorer) plan(res *RestoreResult, s state.State, chain []undone) error
 	res.Conflicts = []RestoreConflict{}
 	for _, c := range checks {
 		end := virtual[c.target]
+		var expect, found plan.Current
+		if c.expect != nil {
+			expect = c.expect.Current()
+		}
+		if c.found != nil {
+			found = c.found.Current()
+		}
 		if !c.seen.exists || conflicted[c.target] ||
-			c.expect != nil && r.same(c.seen.cur, c.expect.SHA256, c.expect.Exec) ||
-			c.found != nil && r.same(c.seen.cur, c.found.SHA256, c.found.Exec) || end.exists && r.same(c.seen.cur, end.cur.Hash, end.cur.Exec) {
+			c.expect != nil && r.same(c.seen.cur, expect.Hash, expect.Exec) ||
+			c.found != nil && r.same(c.seen.cur, found.Hash, found.Exec) || end.exists && r.same(c.seen.cur, end.cur.Hash, end.cur.Exec) {
 			continue
 		}
 		conflicted[c.target] = true
 		rc := RestoreConflict{Target: c.target, Harness: harnessOf[c.target], Backup: c.backup, Current: c.seen.cur.Hash}
 		if c.expect != nil {
-			rc.Expected = c.expect.SHA256
+			rc.Expected = expect.Hash
 		}
 		res.Conflicts = append(res.Conflicts, rc)
 	}
@@ -653,7 +673,7 @@ func (r *restorer) plan(res *RestoreResult, s state.State, chain []undone) error
 			continue
 		}
 		h, _ := plan.SettingsOf(r.home, target)
-		cur, data, exists, err := inspectTarget(r.ctx, r.d, r.home, target, dirs, true)
+		cur, data, exists, err := inspectTarget(r.ctx, r.d, r.home, target, dirs, inspectRead)
 		if err != nil {
 			return err
 		}
@@ -691,14 +711,21 @@ func (r *restorer) plan(res *RestoreResult, s state.State, chain []undone) error
 			op.Action = plan.Replace
 		}
 		if end.exists {
-			op.Source, op.After, op.Exec = end.src, end.cur.Hash, end.cur.Exec
+			op.Source, op.After, op.Exec, op.Link = end.src, end.cur.Hash, end.cur.Exec, end.cur.Link
 		}
+		op.BeforeLink = cur.cur.Link
 		r.p.ops = append(r.p.ops, op)
 		res.Ops = append(res.Ops, RestoreOp{
 			Action: op.Action, Harness: op.Harness, Target: target, From: end.from, Exec: op.Exec,
 			Before: op.Before, BeforeExec: op.BeforeExec, After: op.After, Conflict: conflicted[target], Keys: []plan.KeyChange{},
+			Link: op.Link, BeforeLink: op.BeforeLink,
 		})
 	}
+	if err := checkLinkDirs(r.p.ops, realDirs); err != nil {
+		return err
+	}
+	links := orderLinks(r.p.ops)
+	r.p.ops, res.Ops = permute(r.p.ops, links), permute(res.Ops, links)
 	res.Harnesses = []string{}
 	for _, h := range slices.Concat(s.Harnesses, harnessesOf(chain)) {
 		if !slices.Contains(res.Harnesses, h) && slices.ContainsFunc(res.Ops, func(op RestoreOp) bool { return op.Harness == h }) {
@@ -709,6 +736,35 @@ func (r *restorer) plan(res *RestoreResult, s state.State, chain []undone) error
 		res.Warnings = append(res.Warnings, fmt.Sprintf("close %s before restoring: a harness that is running may rewrite its files while they are put back", strings.Join(res.Harnesses, ", ")))
 	}
 	return nil
+}
+
+// inspectLinks reads, before any other target of chain, each one an op of
+// it records as a link (decision 0036), and gives what each holds. A link
+// on disk makes what is below it missing in dirs, since the restore
+// removes it before it writes there; a real directory, such as the pack's
+// skill of the same name, is taken as missing too, in realDirs, when the
+// restore empties it (checkLinkDirs).
+func (r *restorer) inspectLinks(chain []undone, dirs map[string]error) (map[string]vfile, map[string]error, error) {
+	linked, realDirs := map[string]vfile{}, map[string]error{}
+	for _, u := range chain {
+		for _, op := range u.m.Ops {
+			if _, seen := linked[op.Target]; seen || (op.Before == nil || op.Before.Link == "") && (op.After == nil || op.After.Link == "") {
+				continue
+			}
+			cur, _, exists, err := inspectTarget(r.ctx, r.d, r.home, op.Target, dirs, inspectLink)
+			switch {
+			case realDirAt(op.Target, err):
+				realDirs[op.Target], err = err, nil
+			case err == nil && exists:
+				dirs[op.Target] = fs.ErrNotExist
+			}
+			if err != nil {
+				return nil, nil, err
+			}
+			linked[op.Target] = vfile{exists: exists, cur: cur}
+		}
+	}
+	return linked, realDirs, nil
 }
 
 // planSettings adds to res and r.p.ops the write of the settings target
