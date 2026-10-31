@@ -55,7 +55,9 @@
             "key": "model",
             "action": "replace"
           }
-        ]
+        ],
+        "link": "",
+        "beforeLink": ""
       },
       {
         "action": "remove",
@@ -67,7 +69,9 @@
         "beforeExec": false,
         "after": "",
         "conflict": true,
-        "keys": []
+        "keys": [],
+        "link": "",
+        "beforeLink": ""
       },
       {
         "action": "create",
@@ -79,7 +83,9 @@
         "beforeExec": false,
         "after": "dd",
         "conflict": false,
-        "keys": []
+        "keys": [],
+        "link": "",
+        "beforeLink": ""
       },
       {
         "action": "remove",
@@ -91,7 +97,9 @@
         "beforeExec": true,
         "after": "",
         "conflict": false,
-        "keys": []
+        "keys": [],
+        "link": "",
+        "beforeLink": ""
       }
     ],
     "conflicts": [

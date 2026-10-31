@@ -60,6 +60,18 @@ func validPack() fstest.MapFS {
 
 func file(s string) *fstest.MapFile { return &fstest.MapFile{Data: []byte(s)} }
 
+func TestLoadSharedSkills(t *testing.T) {
+	f := validPack()
+	editManifest("    default: true", "    default: true\n    shared-skills: true")(f)
+	p, diags, err := pack.Load(f)
+	if err != nil || len(diags) != 0 {
+		t.Fatalf("Load() = %v, %v, want no diagnostics", diags, err)
+	}
+	if got := []bool{p.Manifest.Variants[0].SharedSkills, p.Manifest.Variants[1].SharedSkills}; !reflect.DeepEqual(got, []bool{true, false}) {
+		t.Errorf("shared skills = %v, want only standalone's (absent is false)", got)
+	}
+}
+
 func TestLoadValidPack(t *testing.T) {
 	p, diags, err := pack.Load(validPack())
 	if err != nil || len(diags) != 0 {
@@ -268,6 +280,16 @@ func TestLoadDiagnostics(t *testing.T) {
 			name:   "default is not a boolean",
 			mutate: editManifest("default: true", "default: yes"),
 			want:   []string{`dotai.yaml:15:14: field-type: variant standalone: "default" must be true or false`},
+		},
+		{
+			name:   "shared-skills is not a boolean",
+			mutate: editManifest("    default: true", "    default: true\n    shared-skills: [all]"),
+			want:   []string{`dotai.yaml:16:20: field-type: variant standalone: "shared-skills" must be true or false`},
+		},
+		{
+			name:   "shared-skills on a profile",
+			mutate: editManifest("    hints: [astro.config.*]\n", "    hints: [astro.config.*]\n    shared-skills: true\n"),
+			want:   []string{`dotai.yaml:12:5: field-unknown: profile web: unknown field "shared-skills"`},
 		},
 		{
 			name:   "two default variants",

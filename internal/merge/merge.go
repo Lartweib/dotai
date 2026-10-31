@@ -49,6 +49,8 @@ const (
 	CodeMCPInvalid            = "mcp-invalid"
 	CodePathConflict          = "path-conflict"
 	CodeToolConflict          = "tool-conflict"
+	CodeToolMissing           = "tool-missing"
+	CodeToolInvalid           = "tool-invalid"
 	CodeMergePending          = "merge-pending"
 )
 
@@ -115,7 +117,21 @@ func Check(p *pack.Pack, sel Selection) []pack.Diagnostic {
 	}
 	project := newScope(profiles...)
 	cross := crossScope(users, project)
-	return slices.Concat(diags, withoutShadowed(project.diags, cross), cross)
+	return slices.Concat(diags, withoutShadowed(project.diags, cross), cross, toolDiags(append(users, project)...))
+}
+
+// toolDiags is checkTools over scopes, each problem once: a setting of the
+// base is in the user scope of every variant.
+func toolDiags(scopes ...*scope) []pack.Diagnostic {
+	var out []pack.Diagnostic
+	for _, s := range scopes {
+		for _, d := range s.checkTools() {
+			if !slices.Contains(out, d) {
+				out = append(out, d)
+			}
+		}
+	}
+	return out
 }
 
 // Stage merges the base and the selected or default variant into the user
@@ -129,7 +145,7 @@ func Stage(p *pack.Pack, sel Selection) (Staging, []pack.Diagnostic) {
 	user := newScope(append(layersOf(p, pack.LayerBase), variants...)...)
 	project := newScope(profiles...)
 	cross := crossScope([]*scope{user}, project)
-	if diags = slices.Concat(user.diags, withoutShadowed(project.diags, cross), cross); len(diags) > 0 {
+	if diags = slices.Concat(user.diags, withoutShadowed(project.diags, cross), cross, toolDiags(user, project)); len(diags) > 0 {
 		return Staging{}, diags
 	}
 	return Staging{User: user.tree(), Project: project.tree(), UserSettings: user.mergedSettings(), ProjectSettings: project.mergedSettings()}, nil

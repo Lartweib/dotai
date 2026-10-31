@@ -26,7 +26,9 @@ func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
 			"~/.dotai/isolated, and print the plan: how each harness runs isolated, what still leaks from your own setup,\n" +
 			"and each file it creates, replaces, removes or leaves unchanged. Without --variant, the default variant is used.\n" +
 			"In each harness's settings file dotai owns only the keys the pack puts there: the keys the harness writes stay,\n" +
-			"and a key dotai owns that was changed since is named and not overwritten.\n" +
+			"and a key dotai owns that was changed since is named and not overwritten. A variant with shared-skills also\n" +
+			"links each skill of ~/.agents/skills into Claude Code's and agy's isolated skills, unless the pack has a skill\n" +
+			"of that name; a skill added there later shows up after the next install.\n" +
 			"The pack is staged as by stage, into a temporary directory that is removed. Before the first write, each file\n" +
 			"that is replaced or removed is copied into a backup under ~/.dotai/backups; a failure rolls back from it.\n" +
 			"The install state is written last, to ~/.dotai/state.json. With --dry-run, nothing but the rulesync cache is written.",
@@ -114,9 +116,10 @@ func earlyWarnings(env Env, jsonOut bool) (app.Warn, map[string]bool) {
 	}, warned
 }
 
-// writePlan prints an install plan: the pack and mode, how each harness
-// runs isolated, the operations of each harness and then of the tools,
-// and a count of each action followed by footer.
+// writePlan prints an install plan: the pack and mode, the shared skills
+// of a variant that shares them, how each harness runs isolated, the
+// operations of each harness and then of the tools, and a count of each
+// action followed by footer.
 func writePlan(w io.Writer, p app.InstallPlan, color bool, footer string) error {
 	var b strings.Builder
 	subject := ""
@@ -129,6 +132,7 @@ func writePlan(w io.Writer, p app.InstallPlan, color bool, footer string) error 
 	}
 	fmt.Fprintf(&b, "Install plan · %s%s · mode %s\n", subject, variant, p.Mode)
 	fmt.Fprintf(&b, "root: %s\n", p.Root)
+	writeShared(&b, p.SharedSkills)
 
 	for _, h := range p.Harnesses {
 		login := "may need a new login"
@@ -147,6 +151,9 @@ func writePlan(w io.Writer, p app.InstallPlan, color bool, footer string) error 
 		}
 		for _, leak := range h.Leaks {
 			fmt.Fprintf(&b, "  leaks: %s\n", leak)
+		}
+		for _, c := range h.Tools {
+			fmt.Fprintf(&b, "  %s runs tool %s: %s\n", c.Key, c.Tool, c.Command)
 		}
 	}
 
@@ -178,13 +185,44 @@ func writePlan(w io.Writer, p app.InstallPlan, color bool, footer string) error 
 		fmt.Fprintf(&b, "\n%s\n", paint(color, styleBold, name))
 		for _, op := range ops {
 			count[op.Action]++
-			fmt.Fprintf(&b, "  %s  %s\n", paintAction(color, op.Action), op.Target)
+			fmt.Fprintf(&b, "  %s  %s%s\n", paintAction(color, op.Action), op.Target, linkTo(op.Link, op.BeforeLink))
 			writeKeys(&b, color, len("  "+string(plan.Unchanged)+"  "), op.Keys)
 		}
 	}
 	fmt.Fprintf(&b, "\n%d create, %d replace, %d remove, %d unchanged · %s", count[plan.Create], count[plan.Replace], count[plan.Remove], count[plan.Unchanged], footer)
 	_, err := io.WriteString(w, b.String())
 	return err
+}
+
+// writeShared prints the shared skills a variant that shares them takes
+// (decision 0036), and each entry it skips; nothing for a variant that
+// does not.
+func writeShared(b *strings.Builder, sp *app.SharedSkillsPlan) {
+	switch {
+	case sp == nil:
+		return
+	case !sp.Found:
+		fmt.Fprintf(b, "shared skills: %s is missing, so there is nothing to share\n", sp.Dir)
+	case len(sp.Skills) == 0:
+		fmt.Fprintf(b, "shared skills: %s · no skill\n", sp.Dir)
+	default:
+		fmt.Fprintf(b, "shared skills: %s · %s\n", sp.Dir, strings.Join(sp.Skills, ", "))
+	}
+	for _, s := range sp.Skipped {
+		fmt.Fprintf(b, "  note: %s\n", s.Text())
+	}
+}
+
+// linkTo is " -> <destination>" for an op on a link: where it points once
+// the op is carried out, or, for a remove, where it pointed; "" for a file.
+func linkTo(link, before string) string {
+	if link == "" {
+		link = before
+	}
+	if link == "" {
+		return ""
+	}
+	return " -> " + link
 }
 
 // writeKeys prints the keys an operation writes into or deletes from a

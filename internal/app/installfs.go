@@ -38,6 +38,36 @@ func (osInstallFS) Read(ctx context.Context, name string) ([]byte, plan.Current,
 	return data, plan.Current{Hash: hex.EncodeToString(h[:]), Exec: info.Mode()&0o111 != 0}, nil
 }
 
+// Link reads the link at name without following it: a symbolic link, or a
+// junction on Windows, which Lstat reports as an irregular file.
+func (osInstallFS) Link(name string) (plan.Current, error) {
+	info, err := os.Lstat(name)
+	if err != nil {
+		return plan.Current{}, err
+	}
+	notLink := &NotRegularError{Path: name, Mode: info.Mode(), Link: true}
+	if !linkMode(info.Mode()) {
+		return plan.Current{}, notLink
+	}
+	dest, err := os.Readlink(name)
+	if err != nil {
+		return plan.Current{}, notLink // another reparse point
+	}
+	return plan.LinkCurrent(dest), nil
+}
+
+// LinkIn creates the link name, a slash path inside root, to the absolute
+// dest: a junction on Windows, which needs no administrator rights, and a
+// symbolic link elsewhere (decision 0036). name must be missing.
+func (osInstallFS) LinkIn(root, name, dest string) error {
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	return makeLink(r, name, dest)
+}
+
 // WriteIn writes a temporary file next to name, syncs it and moves it over
 // name, so that a crash leaves the old or the new file, and leaves no
 // temporary file behind when it fails. A file already at name keeps the

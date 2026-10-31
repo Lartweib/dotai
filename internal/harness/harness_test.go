@@ -60,8 +60,9 @@ func TestAdapters(t *testing.T) {
 			{Mechanism: harness.Env, Name: "XDG_DATA_HOME", Path: "data"},
 			{Mechanism: harness.Env, Name: "XDG_STATE_HOME", Path: "state"},
 			{Mechanism: harness.Env, Name: "XDG_CACHE_HOME", Path: "cache"},
-			// An empty home, so that ~/.agents/skills does not load.
-			{Mechanism: harness.Env, Name: "OPENCODE_TEST_HOME", Path: "home", Make: true},
+			// An empty home, so that ~/.agents/skills does not load,
+			// unless the variant shares skills (decision 0036).
+			{Mechanism: harness.Env, Name: "OPENCODE_TEST_HOME", Path: "home", Make: true, Skills: harness.SkillsClosed},
 		}},
 	}
 	all := harness.All()
@@ -86,8 +87,10 @@ func TestAdapters(t *testing.T) {
 				t.Errorf("Target = %q, want the harness id %q", a.Target, a.ID)
 			}
 			for _, goos := range []string{"windows", "linux", "darwin"} {
-				if len(a.Isolation.LeaksOn(goos)) == 0 {
-					t.Errorf("a partial isolation names what leaks on %s", goos)
+				for _, shared := range []bool{false, true} {
+					if len(a.Isolation.LeaksOn(goos, shared)) == 0 {
+						t.Errorf("a partial isolation names what leaks on %s, shared skills %t", goos, shared)
+					}
 				}
 			}
 			for _, p := range []string{a.Dir, a.Staging} {
@@ -239,10 +242,53 @@ func TestIsolationPerOS(t *testing.T) {
 			if got := a[0].Isolation.ReloginOn(tt.goos); got != tt.relogin {
 				t.Errorf("ReloginOn(%s) = %q, want %q", tt.goos, got, tt.relogin)
 			}
-			if got := a[0].Isolation.LeaksOn(tt.goos); !reflect.DeepEqual(got, tt.leaks) {
+			if got := a[0].Isolation.LeaksOn(tt.goos, false); !reflect.DeepEqual(got, tt.leaks) {
 				t.Errorf("LeaksOn(%s) = %q, want %q", tt.goos, got, tt.leaks)
 			}
 		})
+	}
+}
+
+// TestIsolationWithSharedSkills checks what a variant that shares skills
+// changes (decision 0036): Claude Code gets a link to each shared skill,
+// agy a copy, and OpenCode keeps the real home directory, where it reads
+// ~/.agents/skills itself.
+func TestIsolationWithSharedSkills(t *testing.T) {
+	linked := "your skills in ~/.agents/skills are linked into the isolated install, as the variant shares them; one added there shows up after the next install"
+	copied := "your skills in ~/.agents/skills are copied into the isolated install, as the variant shares them; a skill added or changed there shows up after the next install"
+	want := map[string]struct {
+		dir   string
+		copy  bool
+		leaks []string
+	}{
+		"claudecode":      {"skills", false, []string{"~/.claude/CLAUDE.md still loads when the working directory is under the home directory", linked}},
+		"antigravity-cli": {"antigravity-cli/skills", true, []string{"authentication is shared through the OS keyring", copied}},
+		"opencode": {"", false, []string{
+			"provider credentials do not carry over",
+			"OpenCode runs with your home directory, as the variant shares skills: your ~/.agents/skills loads, and so does anything else OpenCode reads there",
+			"AGENTS.md, .agents and .opencode load from the working directory and every directory above it, so under your home directory your ~/.opencode and ~/AGENTS.md still load",
+			"with --server, OpenCode reaches a server that runs with its own configuration",
+			"a command that does not take --standalone, such as debug config, starts a background service on the port of your own OpenCode service and leaves it running",
+		}},
+	}
+	for _, a := range harness.All() {
+		w := want[a.ID]
+		if a.SharedSkills != w.dir || a.CopySharedSkills != w.copy {
+			t.Errorf("%s: shared skills directory = %q, copied %t, want %q, %t", a.ID, a.SharedSkills, a.CopySharedSkills, w.dir, w.copy)
+		}
+		if got := a.Isolation.LeaksOn("linux", true); !reflect.DeepEqual(got, w.leaks) {
+			t.Errorf("%s: leaks with shared skills = %q, want %q", a.ID, got, w.leaks)
+		}
+		var names []string
+		for _, ptr := range a.Isolation.PointersFor(true) {
+			names = append(names, ptr.Name)
+		}
+		if slices.Contains(names, "OPENCODE_TEST_HOME") {
+			t.Errorf("%s: pointers with shared skills = %v, want no OPENCODE_TEST_HOME", a.ID, names)
+		}
+		if closed := a.Isolation.PointersFor(false); !reflect.DeepEqual(closed, a.Isolation.Pointers) {
+			t.Errorf("%s: pointers of a closed variant = %+v, want every pointer", a.ID, closed)
+		}
 	}
 }
 
@@ -251,7 +297,19 @@ func TestIsolationWithoutDataIsUnknown(t *testing.T) {
 	if got := i.ReloginOn("linux"); got != harness.ReloginUnknown {
 		t.Errorf("ReloginOn() = %q, want unknown", got)
 	}
-	if got := i.LeaksOn("linux"); got == nil || len(got) != 0 {
+	if got := i.LeaksOn("linux", false); got == nil || len(got) != 0 {
 		t.Errorf("LeaksOn() = %#v, want an empty list", got)
+	}
+}
+
+// TestCommandQuoting checks how each harness reads a command in its
+// settings (decision 0037): agy splits it itself and passes quotes on,
+// the others run it through a shell.
+func TestCommandQuoting(t *testing.T) {
+	want := map[string]harness.Quoting{"claudecode": harness.ShellQuoted, "antigravity-cli": harness.Unquoted, "opencode": harness.ShellQuoted}
+	for _, a := range harness.All() {
+		if a.Commands != want[a.ID] {
+			t.Errorf("%s reads commands as %q, want %q", a.ID, a.Commands, want[a.ID])
+		}
 	}
 }

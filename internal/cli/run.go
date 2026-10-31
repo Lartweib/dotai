@@ -29,8 +29,8 @@ func newRunCmd(env Env, jsonOut, parsed *bool) *cobra.Command {
 		Short: "Launch a harness against its isolated install",
 		Long: "Launch the harness against the isolated install of dotai install, with the variables or flags that point it\n" +
 			"there (for claudecode, CLAUDE_CONFIG_DIR=~/.dotai/isolated/claude; for antigravity-cli, a first\n" +
-			"--gemini_dir=~/.dotai/isolated/gemini; for opencode, the XDG_* directories, OPENCODE_TEST_HOME and\n" +
-			"OPENCODE_DISABLE_CLAUDE_CODE=1), the terminal, the current directory and the rest of the environment, and\n" +
+			"--gemini_dir=~/.dotai/isolated/gemini; for opencode, the XDG_* directories, OPENCODE_TEST_HOME unless the\n" +
+			"variant shares skills, and OPENCODE_DISABLE_CLAUDE_CODE=1), the terminal, the current directory and the rest of the environment, and\n" +
 			"exit with its exit code. Everything after the harness goes to it, untouched but for opencode's --standalone,\n" +
 			"which is added to the commands that take it; a -- right after the harness is dropped. Before launching, the\n" +
 			"isolation level, the login and what the user's own setup still provides are printed to stderr. --json is\n" +

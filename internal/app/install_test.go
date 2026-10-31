@@ -66,6 +66,7 @@ func TestPlanInstallInAFreshHomeCreatesEveryFile(t *testing.T) {
 		{"antigravity-cli", ".gemini/antigravity-cli/settings.json", ".dotai/isolated/gemini/antigravity-cli/settings.json", false},
 		{"opencode", ".config/opencode/opencode.jsonc", ".dotai/isolated/opencode/config/opencode/opencode.jsonc", false},
 		// A pack read on Windows has no exec bit (pack.File.Exec).
+		{"", ".dotai/tools/hello.ps1", ".dotai/tools/hello.ps1", false},
 		{"", ".dotai/tools/hello.sh", ".dotai/tools/hello.sh", runtime.GOOS != "windows"},
 	}
 	if len(p.Ops) != len(want) {
@@ -106,7 +107,7 @@ func TestPlanInstallDescribesTheIsolationOfEachHarness(t *testing.T) {
 		h := p.Harnesses[i]
 		dir := at(home, ".dotai/isolated/"+a.Dir)
 		if h.ID != a.ID || h.Level != string(a.Isolation.Level) || h.Dir != dir || h.Relogin != string(a.Isolation.ReloginOn(runtime.GOOS)) ||
-			!reflect.DeepEqual(h.Leaks, a.Isolation.LeaksOn(runtime.GOOS)) || len(h.Pointers) != len(a.Isolation.Pointers) {
+			!reflect.DeepEqual(h.Leaks, a.Isolation.LeaksOn(runtime.GOOS, false)) || len(h.Pointers) != len(a.Isolation.Pointers) {
 			t.Errorf("harness %d = %+v, want %s from its adapter in %s", i, h, a.ID, dir)
 			continue
 		}

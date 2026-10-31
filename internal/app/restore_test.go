@@ -71,8 +71,8 @@ func TestRestoreAfterAFreshInstallUninstalls(t *testing.T) {
 	if len(res.Undone) != 1 || res.Undone[0].ID != first.Backup.ID || res.Undone[0].Variant != "standalone" || res.Undone[0].Pack.Name != "minimal-pack" {
 		t.Errorf("undone = %+v, want the install", res.Undone)
 	}
-	if len(res.Ops) != 4 || len(res.Conflicts) != 0 || !slices.Equal(res.Harnesses, []string{"claudecode", "antigravity-cli", "opencode"}) {
-		t.Errorf("Restore() = %+v, want four deletes of three harnesses and no conflict", res)
+	if len(res.Ops) != 5 || len(res.Conflicts) != 0 || !slices.Equal(res.Harnesses, []string{"claudecode", "antigravity-cli", "opencode"}) {
+		t.Errorf("Restore() = %+v, want five deletes of three harnesses and no conflict", res)
 	}
 	for _, op := range res.Ops {
 		if op.Action != plan.Remove || op.From != "" || op.After != "" || op.Conflict {
@@ -87,8 +87,8 @@ func TestRestoreAfterAFreshInstallUninstalls(t *testing.T) {
 		t.Errorf("install manifest restored = %+v, want it marked by %s", m.Restored, res.Backup.ID)
 	}
 	rm := manifest(t, home, res.Backup.ID)
-	if rm.Operation != "restore" || len(rm.Ops) != 4 || rm.PriorState == nil || rm.PriorState.File != "state.json" {
-		t.Errorf("restore manifest = %+v, want the four deletes and the state before", rm)
+	if rm.Operation != "restore" || len(rm.Ops) != 5 || rm.PriorState == nil || rm.PriorState.File != "state.json" {
+		t.Errorf("restore manifest = %+v, want the five deletes and the state before", rm)
 	}
 	for _, op := range rm.Ops {
 		if op.Action != plan.Remove || op.File == "" {
@@ -266,7 +266,7 @@ func TestRestoreRefusesAChangedFileWithoutConsent(t *testing.T) {
 			}
 		})
 	}
-	if len(asked.Conflicts) != 1 || asked.Conflicts[0].Target != edited || len(asked.Ops) != 4 {
+	if len(asked.Conflicts) != 1 || asked.Conflicts[0].Target != edited || len(asked.Ops) != 5 {
 		t.Errorf("asked about %+v, want the plan with the conflict", asked)
 	}
 	for _, op := range asked.Ops {

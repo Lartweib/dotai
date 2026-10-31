@@ -130,8 +130,11 @@ type executeFS interface {
 	// it, with at most the permissions of mode and of a file already there,
 	// and the exec bits of mode where the file system has them.
 	WriteIn(root, name string, data []byte, mode fs.FileMode) error
-	RemoveIn(root, name string) error // a file or an empty directory
+	RemoveIn(root, name string) error // a file, a link or an empty directory
 	MkdirIn(root, name string) error  // with the missing ones above it
+	// LinkIn creates the link name to the absolute dest, a junction on
+	// Windows and a symbolic link elsewhere; name must be missing.
+	LinkIn(root, name, dest string) error
 	// WriteSynced writes a new file inside dir, as WriteFile does, and
 	// syncs it to the disk.
 	WriteSynced(dir, name string, data []byte, perm fs.FileMode) error
@@ -192,7 +195,10 @@ func install(ctx context.Context, d executeFS, fetch fetchFunc, run runFunc, cac
 		if len(p.plan.Diagnostics) > 0 {
 			return nil
 		}
-		if w := settingsWarning(p); w != "" {
+		for _, w := range append(sharedWarnings(p.plan.SharedSkills), settingsWarning(p)) {
+			if w == "" {
+				continue
+			}
 			res.Warnings = append(res.Warnings, w)
 			if warn != nil {
 				warn(w)
@@ -260,6 +266,7 @@ func (r runner) run(res *InstallResult) error {
 	}
 	prev := r.p.prev
 	next := state.New(r.pack, r.p.plan.Variant, ModeIsolated, time.Time{}, r.p.harnesses, "", r.p.ops)
+	next.SharedSkills = r.p.shared
 	if len(writes) == 0 && prev != nil && prev.SameInstall(next) {
 		res.State = statePath
 		return nil
@@ -529,9 +536,32 @@ func (r runner) execute(writes []plan.Op) ([]applied, error) {
 	return done, nil
 }
 
+// isLink reports an operation on a link (decision 0036).
+func isLink(op plan.Op) bool { return op.Link != "" || op.BeforeLink != "" }
+
+// current gives the state of target, a link when link is set, without
+// following it.
+func (r runner) current(target string, link bool) (plan.Current, error) {
+	if link {
+		return r.d.Link(target)
+	}
+	return r.d.Hash(r.ctx, target)
+}
+
+// link makes the link name in root, at target, to dest, once dest is
+// checked again to be the shared skill of its name (decision 0036), so
+// that an edited record never makes a link anywhere else.
+func (r runner) link(root, name, target, dest string) error {
+	if err := plan.CheckLinkDest(r.home, target, dest, foldCase); err != nil {
+		return err
+	}
+	return r.d.LinkIn(root, name, dest)
+}
+
 // apply carries out one operation once the directories above its target
 // are real directories and the target is still as the plan found it. A
-// remove also removes the directories it leaves empty, up to the root.
+// remove also removes the directories it leaves empty, up to the root. A
+// link is replaced by removing it and making the new one.
 func (r runner) apply(op plan.Op) (applied, error) {
 	a := applied{op: op}
 	if err := r.ctx.Err(); err != nil {
@@ -557,7 +587,17 @@ func (r runner) apply(op plan.Op) (applied, error) {
 			}
 		}
 	}
-	cur, err := r.d.Hash(r.ctx, op.Target)
+	if op.Link != "" && op.Action == plan.Create {
+		// A directory where the link goes, which the plan found holding
+		// only files it removes, or that an install killed before it wrote
+		// there left: empty now, it gives way.
+		if mode, err := r.d.Lstat(op.Target); err == nil && mode.IsDir() && mode&(fs.ModeSymlink|fs.ModeIrregular) == 0 {
+			if err := r.d.RemoveIn(root, name); err != nil {
+				return a, &ChangedError{Path: op.Target}
+			}
+		}
+	}
+	cur, err := r.current(op.Target, isLink(op))
 	switch {
 	case op.Action == plan.Create && errors.Is(err, fs.ErrNotExist):
 	case op.Action == plan.Create && err == nil, op.Action != plan.Create && errors.Is(err, fs.ErrNotExist):
@@ -577,6 +617,14 @@ func (r runner) apply(op plan.Op) (applied, error) {
 			}
 		}
 		return a, nil
+	}
+	if op.Link != "" {
+		if op.Action == plan.Replace {
+			if err := r.d.RemoveIn(root, name); err != nil {
+				return a, err
+			}
+		}
+		return a, r.link(root, name, op.Target, op.Link)
 	}
 	data := op.Data // a settings file with dotai's keys written into it
 	if data == nil {
@@ -673,7 +721,7 @@ func (r runner) undo(dir string, a applied) error {
 	if err != nil {
 		return err
 	}
-	cur, err := r.d.Hash(r.ctx, op.Target)
+	cur, err := r.current(op.Target, isLink(op))
 	exists := err == nil
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
@@ -693,6 +741,19 @@ func (r runner) undo(dir string, a applied) error {
 		return nil // already what was there
 	case exists && (op.Action == plan.Remove || !r.same(cur, op.After, op.Exec)):
 		return changed
+	}
+	if op.BeforeLink != "" { // a link has no copy: it is made again
+		if exists {
+			if err := r.d.RemoveIn(a.root, name); err != nil {
+				return err
+			}
+		}
+		if d := path.Dir(name); d != "." {
+			if err := r.d.MkdirIn(a.root, d); err != nil {
+				return err
+			}
+		}
+		return r.link(a.root, name, op.Target, op.BeforeLink)
 	}
 	rel, err := backup.Rel(r.home, op.Target)
 	if err != nil {

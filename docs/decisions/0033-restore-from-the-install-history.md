@@ -45,3 +45,5 @@ tags: [engine, restore, backup, state]
 ## Evidence
 
 - [CLI-JSON](../CLI-JSON.md): `restore`, the install state and the backup manifest.
+
+Update 2026-10-31: restore puts back and removes the links of shared skills ([0036](0036-shared-skills-per-variant.md)) from their record in the manifests, and takes a link that points elsewhere as a conflict, like a changed file. Where a link and a directory of the pack's own skill trade places, the files below the link's path are written after the link is removed, and the link is made after they are removed.

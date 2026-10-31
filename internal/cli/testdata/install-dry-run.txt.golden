@@ -8,6 +8,7 @@ claudecode · partial isolation · may need a new login
 antigravity-cli · partial isolation · keeps your login
   --gemini_dir=/home/u/.dotai/isolated/gemini
   leaks: authentication is shared through the OS keyring
+  statusLine runs tool hello: sh /home/u/.dotai/tools/hello.sh
 
 opencode · partial isolation · needs a new login
   XDG_CONFIG_HOME=/home/u/.dotai/isolated/opencode/config

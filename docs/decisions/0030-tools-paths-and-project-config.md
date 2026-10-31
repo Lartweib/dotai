@@ -36,3 +36,5 @@ A pack's hooks, skills and scripts need to call the tools the pack installs, but
 
 - [HARNESS-NOTES](../HARNESS-NOTES.md): OpenCode drops a top-level `env` key.
 - [0021](0021-go-engine-orchestrates-rulesync.md), [0022](0022-pack-format-and-manifest.md), [0028](0028-plan-centric-hexagonal-engine.md): `runners` always appears next to `tools`, with no separate semantics.
+
+Update 2026-10-31: [0037](0037-tool-commands-resolved-per-os.md) adds `${DOTAI_TOOL:<name>}` to settings values: the command that runs `<name>.ps1` through PowerShell on Windows or `<name>.sh` through `sh` elsewhere, resolved while staging where the path variables of settings values are expanded. The path variables are unchanged.

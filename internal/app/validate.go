@@ -38,6 +38,7 @@ type PackSummary struct {
 	Profiles       []string       `json:"profiles"`
 	Variants       []string       `json:"variants"`
 	DefaultVariant string         `json:"defaultVariant"`
+	SharedSkills   []string       `json:"sharedSkills"` // the variants that share the user's skills (decision 0036)
 	Layers         []LayerSummary `json:"layers"`
 }
 
@@ -99,7 +100,7 @@ func validate(fsys fs.FS, sel Selection) (ValidateResult, *pack.Pack, error) {
 	s := &PackSummary{
 		Name: m.Name, Version: m.Version, Engine: m.Engine, Rulesync: m.Rulesync,
 		Harnesses: append([]string{}, m.Harnesses...),
-		Profiles:  []string{}, Variants: []string{}, Layers: []LayerSummary{},
+		Profiles:  []string{}, Variants: []string{}, SharedSkills: []string{}, Layers: []LayerSummary{},
 	}
 	for _, pr := range m.Profiles {
 		s.Profiles = append(s.Profiles, pr.Name)
@@ -108,6 +109,9 @@ func validate(fsys fs.FS, sel Selection) (ValidateResult, *pack.Pack, error) {
 		s.Variants = append(s.Variants, v.Name)
 		if v.Default {
 			s.DefaultVariant = v.Name
+		}
+		if v.SharedSkills {
+			s.SharedSkills = append(s.SharedSkills, v.Name)
 		}
 	}
 	for _, l := range p.Layers {

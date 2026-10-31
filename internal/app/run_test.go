@@ -556,3 +556,39 @@ func TestPlanRunLaunchesTheExecutableOfOpenCodesShim(t *testing.T) {
 		t.Errorf("on linux: Program = %q, %v, want %s as found", p.Program, err, shim)
 	}
 }
+
+// TestPlanRunOpenCodeWithSharedSkills checks the launch of an install whose
+// variant shares the user's skills (decision 0036): OpenCode keeps the real
+// home directory, where it reads ~/.agents/skills, so OPENCODE_TEST_HOME is
+// not set, and one inherited is removed; its empty home is not made.
+func TestPlanRunOpenCodeWithSharedSkills(t *testing.T) {
+	home := runHome(t, app.ModeIsolated, []string{"opencode"}, nil)
+	s := readJSON(t, at(home, ".dotai/state.json"), state.Decode)
+	s.SharedSkills = true
+	data, err := state.Encode(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, at(home, ".dotai/state.json"), string(data))
+	environ := []string{"PATH=" + home, "OPENCODE_TEST_HOME=/x", "KEEP=1"}
+	p, err := app.PlanRunWith(home, "opencode", []string{"run", "hi"}, environ, lookPathAt(home), "linux")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := at(home, ".dotai/isolated/opencode")
+	want := []string{"PATH=" + home, "KEEP=1",
+		"XDG_CONFIG_HOME=" + filepath.Join(dir, "config"), "XDG_DATA_HOME=" + filepath.Join(dir, "data"),
+		"XDG_STATE_HOME=" + filepath.Join(dir, "state"), "XDG_CACHE_HOME=" + filepath.Join(dir, "cache"), "OPENCODE_DISABLE_CLAUDE_CODE=1"}
+	if !reflect.DeepEqual(p.Env, want) {
+		t.Errorf("Env = %q, want %q", p.Env, want)
+	}
+	if slices.ContainsFunc(p.Harness.Pointers, func(ptr app.PointerPlan) bool { return ptr.Name == "OPENCODE_TEST_HOME" }) {
+		t.Errorf("Pointers = %+v, want no OPENCODE_TEST_HOME", p.Harness.Pointers)
+	}
+	if !slices.ContainsFunc(p.Harness.Leaks, func(l string) bool { return strings.Contains(l, "as the variant shares skills") }) {
+		t.Errorf("Leaks = %q, want the shared home named", p.Harness.Leaks)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "home")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the empty home was made: %v, want it left out", err)
+	}
+}

@@ -25,6 +25,12 @@ var ExpandPaths = expandPaths
 // EncodeSettings is the settings file of one harness.
 var EncodeSettings = encodeSettings
 
+// ExpandSettingIn is the expansion of a string value of the settings of
+// the harness h in scope.
+func ExpandSettingIn(s string, tools ToolPaths, scope, h string) (string, error) {
+	return expandSetting(s, tools.inScope(scope).forHarness(h))
+}
+
 // OSInstallFS is the real file system port of PlanInstall.
 type OSInstallFS = osInstallFS
 
@@ -72,4 +78,13 @@ func RestoreWarnWith(ctx context.Context, d executeFS, home, id string, warn War
 // finding the harness's executable and goos as the OS.
 func PlanRunWith(home, id string, args, environ []string, lookPath func(string) (string, error), goos string) (RunPlan, error) {
 	return planRun(osInstallFS{}, lookPath, goos, home, id, args, environ)
+}
+
+// OrderLinks is the order an install or a restore carries out its ops in.
+var OrderLinks = orderLinks
+
+// MakeLinkWith is how an install, a restore and a rollback make the link
+// name in root at target: checked to point at its shared skill first.
+func MakeLinkWith(d executeFS, home, root, name, target, dest string) error {
+	return runner{d: d, home: home}.link(root, name, target, dest)
 }

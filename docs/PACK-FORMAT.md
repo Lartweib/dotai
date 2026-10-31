@@ -57,6 +57,9 @@ variants:
   orca:
     path: variants/orca
     detect: { command: orca }
+  shared:
+    path: variants/shared
+    shared-skills: true
 ```
 
 | Field | Required | Meaning |
@@ -71,6 +74,7 @@ variants:
 | `profiles.<name>.hints` | no | Evidence for the onboarding agent. The engine never acts on them. |
 | `variants.<name>.default` | no | Variant used when nothing is chosen or detected. Exactly one variant sets it when the pack has variants. |
 | `variants.<name>.detect` | no | Mechanical rule that preselects the variant. `command`: preselect when that command is on `PATH`. |
+| `variants.<name>.shared-skills` | no | `true` makes the user's shared skills folder, `~/.agents/skills`, where other tools install skills, visible in the isolated install of this variant ([0036](decisions/0036-shared-skills-per-variant.md)). Default `false`: only the pack's content is visible. Only variants take it. |
 
 `base/` is implicit and always applied.
 
@@ -104,6 +108,7 @@ Decided in [0030](decisions/0030-tools-paths-and-project-config.md).
 - `dotai/tools/` installs to `~/.dotai/tools/` at user scope and to `.dotai/tools/` at project scope, keeping the executable bit where the file system has one. The same path in two layers of a scope is an error (`tool-conflict`); a layer that adjusts another layer's tool config ships a file with a different name.
 - While staging, `${DOTAI_TOOLS}` and `${DOTAI_PROJECT_TOOLS}` become the absolute paths of those directories in every text file of the layers, skills and hooks included, before rulesync runs. A file that is not UTF-8, or that holds a NUL byte, is copied as-is, and no other `${...}` is touched.
 - The paths are written with forward slashes on every platform, Windows included: Windows accepts them, and a backslash inside a JSON string, such as a hook command in `.rulesync/hooks.jsonc`, would be an invalid escape.
+- A settings value runs a tool with `${DOTAI_TOOL:<name>}` ([0037](decisions/0037-tool-commands-resolved-per-os.md)): the name is the tool's file name without an extension, and the variable becomes the command for the OS of the install, with the script's absolute path in the tools directory of the settings' scope: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File <path>\<name>.ps1` on Windows, which opens no window, and `sh <path>/<name>.sh` on Linux and macOS. Arguments may follow it. For Claude Code, which runs the command through a shell, the path is in double quotes, so spaces work. agy runs the command without a shell and passes quotes on, so for agy the path is bare, and a tools directory with whitespace or a quote fails the dry run and the install, naming agy and the directory: such a home directory cannot run a tool from agy's settings. The layers of that scope must ship both `dotai/tools/<name>.sh` and `dotai/tools/<name>.ps1`: a missing one is `tool-missing`, and a name that is not letters, digits, `.`, `_` and `-`, or a variable without its closing brace, is `tool-invalid`. A tools directory whose path holds `"`, `$` or `` ` ``, or `%` on Windows or `\` elsewhere, fails the stage for every harness, since some shell would not read it literally inside the quotes, and so does one on Windows that starts with `\\` or `//`, such as a network path, which bash reads as a single `\` inside the quotes. The variable is expanded in settings values only. Do not name a script by its path in a command a harness runs: on Windows, a bare `.sh` runs through the file association, in a new window.
 - `.dotai/config.yaml` in a project belongs to the user and the pack; the engine never writes it. Tools find it by walking up from the current directory to the nearest `.dotai/`. The engine records the applied profiles in its own file in the same directory.
 
 ## Merge rules
@@ -161,9 +166,9 @@ There are no model tiers ([0024](decisions/0024-models-declared-per-harness-no-t
 ```yaml
 claudecode:
   model: sonnet
-  statusLine: { type: command, command: "${DOTAI_TOOLS}/statusline" }
+  statusLine: { type: command, command: "${DOTAI_TOOL:statusline}" }
 antigravity-cli:
-  statusLine: { type: command, command: "${DOTAI_TOOLS}/statusline" }
+  statusLine: { type: command, command: "${DOTAI_TOOL:statusline}" }
 opencode:
   model: anthropic/claude-sonnet-4-5
 ```

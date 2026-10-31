@@ -18,6 +18,10 @@ import (
 // directory per harness for isolated installs (decision 0031).
 const IsolatedDir = ".dotai/isolated"
 
+// SharedSkillsDir is the user's shared skills folder, under the home
+// directory, where other tools install skills (decision 0036).
+const SharedSkillsDir = ".agents/skills"
+
 // Level is how fully a harness runs apart from the user's configuration.
 type Level string
 
@@ -41,12 +45,31 @@ const (
 // Pointer is an environment variable or flag set to a directory of the
 // harness's isolated install: Path, a slash path relative to Adapter.Dir,
 // or Adapter.Dir itself when Path is empty. A flag is given in one
-// argument, Name=<dir>.
+// argument, Name=<dir>. Skills limits it to the installs whose variant
+// shares the user's skills, or to those whose variant does not.
 type Pointer struct {
 	Mechanism Mechanism
 	Name      string
 	Path      string
 	Make      bool // dotai run creates the directory, empty, when it is missing
+	Skills    Sharing
+}
+
+// Sharing is whether an item applies only to an install whose variant
+// shares the user's skills folder, ~/.agents/skills (decision 0036), only
+// to one whose variant does not, or, empty, to both.
+type Sharing string
+
+// Sharing values.
+const (
+	SkillsShared Sharing = "shared"
+	SkillsClosed Sharing = "closed"
+)
+
+// applies reports whether an item limited to s applies to an install that
+// shares skills or not.
+func (s Sharing) applies(shared bool) bool {
+	return s == "" || s == SkillsShared && shared || s == SkillsClosed && !shared
 }
 
 // Relogin is whether the user must log in again in the isolated mode.
@@ -61,10 +84,11 @@ const (
 
 // Leak is something the user's own setup still provides in the isolated
 // mode, text for people, on the OS GOOS only, or on every OS when GOOS is
-// empty.
+// empty, and for the installs Skills names.
 type Leak struct {
-	Text string
-	GOOS string
+	Text   string
+	GOOS   string
+	Skills Sharing
 }
 
 // Isolation is what decision 0018 records for a harness's isolated mode.
@@ -123,12 +147,25 @@ func (i Isolation) ReloginOn(goos string) Relogin {
 	return ReloginUnknown
 }
 
-// LeaksOn is the text of each leak on goos, in order; never nil.
-func (i Isolation) LeaksOn(goos string) []string {
+// LeaksOn is the text of each leak on goos, in order, for an install
+// whose variant shares the user's skills or not; never nil.
+func (i Isolation) LeaksOn(goos string, shared bool) []string {
 	out := []string{}
 	for _, l := range i.Leaks {
-		if l.GOOS == "" || l.GOOS == goos {
+		if (l.GOOS == "" || l.GOOS == goos) && l.Skills.applies(shared) {
 			out = append(out, l.Text)
+		}
+	}
+	return out
+}
+
+// PointersFor is the pointers of an install whose variant shares the
+// user's skills or not, in order; never nil.
+func (i Isolation) PointersFor(shared bool) []Pointer {
+	out := []Pointer{}
+	for _, p := range i.Pointers {
+		if p.Skills.applies(shared) {
+			out = append(out, p)
 		}
 	}
 	return out
@@ -153,10 +190,23 @@ type Adapter struct {
 	Staging string // where rulesync writes the harness's files, relative to the home directory
 	Install string // where Staging installs, relative to Dir; "" is Dir itself
 	Moves   []Move // directories of Staging that install elsewhere under Install
+	// SharedSkills is the harness's skills directory in the user scope,
+	// relative to Staging, where an install whose variant shares the user's
+	// skills links each skill of ~/.agents/skills (decision 0036); "" for a
+	// harness that reads ~/.agents/skills itself.
+	SharedSkills string
+	// CopySharedSkills copies each shared skill into SharedSkills instead
+	// of linking it, for a harness that skips a link there when it looks
+	// for skills.
+	CopySharedSkills bool
 	// Settings is the harness's settings file in the user scope, relative to
 	// Staging: dotai owns the keys it writes there, not the whole file,
 	// since the harness writes into it too (decision 0035).
 	Settings string
+	// Commands is how the harness reads a command in its settings, such as
+	// a statusline, which decides how a tool command of decision 0037
+	// names its script.
+	Commands Quoting
 	// Command is the executable dotai run looks up on PATH and launches
 	// isolated; "" while dotai run does not support the harness.
 	Command string
@@ -167,9 +217,33 @@ type Adapter struct {
 	Isolation   Isolation
 }
 
+// Quoting is how a harness reads a command in its settings.
+type Quoting string
+
+// Quoting values.
+const (
+	// ShellQuoted is a command a shell parses: a path in double quotes
+	// may hold spaces.
+	ShellQuoted Quoting = "shell"
+	// Unquoted is a command the harness splits at whitespace itself,
+	// passing quotes on as part of the arguments: a path is written bare
+	// and cannot hold whitespace.
+	Unquoted Quoting = "unquoted"
+)
+
+// linkedSkills and copiedSkills are the leak of a harness into which an
+// install whose variant shares skills links, or copies, the skills of
+// ~/.agents/skills.
+const (
+	linkedSkills = "your skills in ~/.agents/skills are linked into the isolated install, as the variant shares them; one added there shows up after the next install"
+	copiedSkills = "your skills in ~/.agents/skills are copied into the isolated install, as the variant shares them; a skill added or changed there shows up after the next install"
+)
+
 var adapters = []Adapter{
 	{
 		ID: "claudecode", Target: "claudecode", Dir: "claude", Staging: ".claude", Settings: "settings.json", Command: "claude",
+		SharedSkills: "skills",
+		Commands:     ShellQuoted,
 		Isolation: Isolation{
 			Level: Partial,
 			// Decision 0018 verified the new login on Windows only, where the
@@ -178,6 +252,7 @@ var adapters = []Adapter{
 			Leaks: []Leak{
 				{Text: "~/.claude/CLAUDE.md still loads when the working directory is under the home directory"},
 				{Text: "credentials live in the configuration directory, so you must log in again", GOOS: "windows"},
+				{Text: linkedSkills, Skills: SkillsShared},
 			},
 			Pointers: []Pointer{{Mechanism: Env, Name: "CLAUDE_CONFIG_DIR"}},
 		},
@@ -187,26 +262,36 @@ var adapters = []Adapter{
 		// agy moves antigravity-cli/skills to config/skills on its first run
 		// and then fails to link it back on Windows, so the skills install
 		// where it reads them after the move.
-		Moves: []Move{{From: "antigravity-cli/skills", To: "config/skills"}},
+		Moves:        []Move{{From: "antigravity-cli/skills", To: "config/skills"}},
+		SharedSkills: "antigravity-cli/skills",
+		// agy skips a junction in its skills directory (HARNESS-NOTES).
+		CopySharedSkills: true,
+		// agy splits a statusline command itself and passes quotes on
+		// (HARNESS-NOTES).
+		Commands: Unquoted,
 		Isolation: Isolation{
 			Level: Partial,
 			// Verified on Windows only.
 			Relogin:  map[string]Relogin{"windows": ReloginNo},
-			Leaks:    []Leak{{Text: "authentication is shared through the OS keyring"}},
+			Leaks:    []Leak{{Text: "authentication is shared through the OS keyring"}, {Text: copiedSkills, Skills: SkillsShared}},
 			Pointers: []Pointer{{Mechanism: Flag, Name: "--gemini_dir"}},
 		},
 	},
 	{
 		ID: "opencode", Target: "opencode", Dir: "opencode", Staging: ".config/opencode", Install: "config/opencode", Settings: "opencode.jsonc",
 		Command: "opencode", BatchTarget: "node_modules/@opencode/cli/bin/opencode.exe",
+		// Not checked: OpenCode has no statusline setting.
+		Commands: ShellQuoted,
 		Isolation: Isolation{
 			Level: Partial,
 			// Verified on Windows only.
 			Relogin: map[string]Relogin{"windows": ReloginYes},
 			Leaks: []Leak{
 				{Text: "provider credentials do not carry over"},
-				{Text: "AGENTS.md, .agents and .opencode load from the working directory and every directory above it, so under your home directory your ~/.agents/skills, ~/.opencode and ~/AGENTS.md still load"},
-				{Text: "OPENCODE_TEST_HOME, which OpenCode does not document, hides ~/.agents/skills only outside your home directory, and a later OpenCode may drop it"},
+				{Text: "OpenCode runs with your home directory, as the variant shares skills: your ~/.agents/skills loads, and so does anything else OpenCode reads there", Skills: SkillsShared},
+				{Text: "AGENTS.md, .agents and .opencode load from the working directory and every directory above it, so under your home directory your ~/.agents/skills, ~/.opencode and ~/AGENTS.md still load", Skills: SkillsClosed},
+				{Text: "AGENTS.md, .agents and .opencode load from the working directory and every directory above it, so under your home directory your ~/.opencode and ~/AGENTS.md still load", Skills: SkillsShared},
+				{Text: "OPENCODE_TEST_HOME, which OpenCode does not document, hides ~/.agents/skills only outside your home directory, and a later OpenCode may drop it", Skills: SkillsClosed},
 				{Text: "with --server, OpenCode reaches a server that runs with its own configuration"},
 				{Text: "a command that does not take --standalone, such as debug config, starts a background service on the port of your own OpenCode service and leaves it running"},
 				{Text: `the temporary directory %TEMP%\opencode is shared`, GOOS: "windows"},
@@ -217,9 +302,10 @@ var adapters = []Adapter{
 				{Mechanism: Env, Name: "XDG_STATE_HOME", Path: "state"},
 				{Mechanism: Env, Name: "XDG_CACHE_HOME", Path: "cache"},
 				// os.homedir() for ~/.agents/skills, which loads whatever
-				// else is set; an empty directory hides it.
+				// else is set; an empty directory hides it. A variant that
+				// shares skills keeps the real one (decision 0036).
 				// OpenCode's background service starts in it, so it must exist.
-				{Mechanism: Env, Name: "OPENCODE_TEST_HOME", Path: "home", Make: true},
+				{Mechanism: Env, Name: "OPENCODE_TEST_HOME", Path: "home", Make: true, Skills: SkillsClosed},
 			},
 			// Drops ~/.claude and the .claude directories above the working
 			// directory.

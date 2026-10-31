@@ -18,21 +18,22 @@ import (
 // installPlan is a plan with fixed paths, so that its output reads the
 // same on every OS.
 var installPlan = app.InstallPlan{
-	Pack:    &app.PackSummary{Name: "minimal-pack", Version: "0.1.0", Harnesses: []string{"claudecode", "antigravity-cli", "opencode"}, Profiles: []string{}, Variants: []string{}, Layers: []app.LayerSummary{}},
+	Pack:    &app.PackSummary{Name: "minimal-pack", Version: "0.1.0", Harnesses: []string{"claudecode", "antigravity-cli", "opencode"}, Profiles: []string{}, Variants: []string{}, SharedSkills: []string{}, Layers: []app.LayerSummary{}},
 	Variant: "standalone", Mode: app.ModeIsolated, Root: "/home/u/.dotai/isolated",
 	Harnesses: []app.HarnessPlan{
 		{ID: "claudecode", Level: "partial", Dir: "/home/u/.dotai/isolated/claude", Relogin: "unknown",
 			Pointers: []app.PointerPlan{{Mechanism: "env", Name: "CLAUDE_CONFIG_DIR", Dir: "/home/u/.dotai/isolated/claude"}},
-			Leaks:    []string{"~/.claude/CLAUDE.md still loads when the working directory is under the home directory"}},
+			Leaks:    []string{"~/.claude/CLAUDE.md still loads when the working directory is under the home directory"}, Tools: []app.ToolCommand{}},
 		{ID: "antigravity-cli", Level: "partial", Dir: "/home/u/.dotai/isolated/gemini", Relogin: "no",
 			Pointers: []app.PointerPlan{{Mechanism: "flag", Name: "--gemini_dir", Dir: "/home/u/.dotai/isolated/gemini"}},
-			Leaks:    []string{"authentication is shared through the OS keyring"}},
+			Leaks:    []string{"authentication is shared through the OS keyring"},
+			Tools:    []app.ToolCommand{{Key: "statusLine", Tool: "hello", Command: `sh /home/u/.dotai/tools/hello.sh`}}},
 		{ID: "opencode", Level: "partial", Dir: "/home/u/.dotai/isolated/opencode", Relogin: "yes",
 			Pointers: []app.PointerPlan{
 				{Mechanism: "env", Name: "XDG_CONFIG_HOME", Dir: "/home/u/.dotai/isolated/opencode/config"},
 				{Mechanism: "env", Name: "XDG_DATA_HOME", Dir: "/home/u/.dotai/isolated/opencode/data"},
 			},
-			Leaks: []string{}},
+			Leaks: []string{}, Tools: []app.ToolCommand{}},
 	},
 	Ops: []app.InstallOp{
 		{Action: plan.Create, Harness: "claudecode", Source: ".claude/CLAUDE.md", Target: "/home/u/.dotai/isolated/claude/CLAUDE.md", After: "aa", Keys: []plan.KeyChange{}},
@@ -412,5 +413,50 @@ func TestRunInstallWithWarnings(t *testing.T) {
 		if jsonOut && (!strings.Contains(stdout.String(), `"warnings": [`) || !strings.Contains(stdout.String(), "could not be pruned") || stderr.Len() != 0) {
 			t.Errorf("stdout = %s, stderr = %q, want the warning in data", stdout.String(), stderr.String())
 		}
+	}
+}
+
+// TestRunInstallDryRunWithSharedSkills checks the plan of a variant that
+// shares the user's skills (decision 0036): the shared skills and what is
+// skipped in the header, each link with where it points, and agy's copies
+// as files.
+func TestRunInstallDryRunWithSharedSkills(t *testing.T) {
+	t.Setenv("DOTAI_CACHE_DIR", "cache")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	p := installPlan
+	p.Variant = "shared"
+	p.SharedSkills = &app.SharedSkillsPlan{Dir: "/home/u/.agents/skills", Found: true, Skills: []string{"commit-message", "linked", "review"}, Skipped: []app.SkippedSkill{
+		{Name: "notes", Reason: app.ReasonNotASkill},
+		{Name: "commit-message", Harness: "claudecode", Reason: app.ReasonPackSkill},
+		{Name: "commit-message", Harness: "antigravity-cli", Reason: app.ReasonPackSkill},
+		{Name: "linked", Harness: "antigravity-cli", Reason: app.ReasonNotCopyable, File: "data/cache"},
+	}}
+	p.Ops = []app.InstallOp{
+		{Action: plan.Create, Harness: "claudecode", Source: ".claude/skills/review", Target: "/home/u/.dotai/isolated/claude/skills/review",
+			After: "aa", Link: "/home/u/.agents/skills/review", Keys: []plan.KeyChange{}},
+		{Action: plan.Remove, Harness: "claudecode", Target: "/home/u/.dotai/isolated/claude/skills/gone", Before: "bb", BeforeLink: "/home/u/.agents/skills/gone", Keys: []plan.KeyChange{}},
+		{Action: plan.Unchanged, Harness: "antigravity-cli", Source: ".gemini/antigravity-cli/skills/review/SKILL.md", Target: "/home/u/.dotai/isolated/gemini/config/skills/review/SKILL.md",
+			Before: "cc", After: "cc", Keys: []plan.KeyChange{}},
+	}
+	var stdout, stderr bytes.Buffer
+	env := testEnv(&stdout, &stderr)
+	env.PlanInstall = func(context.Context, string, string, string, string, app.Progress) (app.InstallPlan, error) {
+		return p, nil
+	}
+	if code := cli.Run([]string{"install", examplePack, "--dry-run", "--variant", "shared"}, env); code != cli.ExitOK {
+		t.Errorf("exit code = %d, stderr = %q, want 0", code, stderr.String())
+	}
+	assertGolden(t, filepath.Join("testdata", "install-dry-run-shared.txt.golden"), stdout.Bytes())
+
+	p.SharedSkills = &app.SharedSkillsPlan{Dir: "/home/u/.agents/skills", Skills: []string{}, Skipped: []app.SkippedSkill{}}
+	p.Ops = []app.InstallOp{}
+	stdout.Reset()
+	if code := cli.Run([]string{"install", examplePack, "--dry-run", "--variant", "shared"}, env); code != cli.ExitOK {
+		t.Errorf("exit code = %d, want 0", code)
+	}
+	if want := "shared skills: /home/u/.agents/skills is missing, so there is nothing to share\n"; !strings.Contains(stdout.String(), want) {
+		t.Errorf("stdout = %q, want it to contain %q", stdout.String(), want)
 	}
 }

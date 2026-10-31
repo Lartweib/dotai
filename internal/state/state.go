@@ -1,8 +1,9 @@
 // Package state is the install state of decision 0032, kept in
 // ~/.dotai/state.json: what is installed, how, and the ownership record of
 // every file the install wrote (decision 0013), with the keys dotai owns in
-// each harness settings file (decision 0035). It does no I/O; the caller
-// reads and writes the file.
+// each harness settings file (decision 0035) and the links to shared
+// skills (decision 0036). It does no I/O; the caller reads and writes the
+// file.
 package state
 
 import (
@@ -21,23 +22,25 @@ import (
 // Schema is the version of the state format.
 const Schema = "dotai.state/v1"
 
-// State is the installed pack, its variant, mode and harnesses, when it
-// was installed, the backup of the last install that wrote files ("" when
+// State is the installed pack, its variant, mode and harnesses, whether
+// the variant shares the user's skills (decision 0036), when it was
+// installed, the backup of the last install that wrote files ("" when
 // none did) and the files it owns, in target order. Pending is the journal
 // of an install that has started writing and not finished: it is written
 // before the first write and dropped when the install finishes or is
 // rolled back, so a Pending that is there means the install stopped
 // midway, and its targets may hold what was there or what it wrote.
 type State struct {
-	Schema      string    `json:"schema"`
-	Pack        Pack      `json:"pack"`
-	Variant     string    `json:"variant"`
-	Mode        string    `json:"mode"`
-	InstalledAt time.Time `json:"installedAt"`
-	Harnesses   []string  `json:"harnesses"`
-	Backup      string    `json:"backup"`
-	Files       []File    `json:"files"`
-	Pending     *Pending  `json:"pending,omitempty"`
+	Schema       string    `json:"schema"`
+	Pack         Pack      `json:"pack"`
+	Variant      string    `json:"variant"`
+	SharedSkills bool      `json:"sharedSkills"`
+	Mode         string    `json:"mode"`
+	InstalledAt  time.Time `json:"installedAt"`
+	Harnesses    []string  `json:"harnesses"`
+	Backup       string    `json:"backup"`
+	Files        []File    `json:"files"`
+	Pending      *Pending  `json:"pending,omitempty"`
 }
 
 // Pending is the journal of an install that is writing: its backup and
@@ -61,11 +64,33 @@ type PendingOp struct {
 	Keys    []plan.Key  `json:"keys,omitempty"`
 }
 
-// Content is a file's SHA-256 in hex and its exec bit.
+// Content is a file's SHA-256 in hex and its exec bit, or, with Link and
+// no SHA-256, the destination of a link (decision 0036).
 type Content struct {
-	SHA256 string `json:"sha256"`
+	SHA256 string `json:"sha256,omitempty"`
 	Exec   bool   `json:"exec"`
+	Link   string `json:"link,omitempty"`
 }
+
+// content is what a target holds with hash and exec, or is the link to
+// link when it is not "".
+func content(hash string, exec bool, link string) *Content {
+	if link != "" {
+		return &Content{Link: link}
+	}
+	return &Content{SHA256: hash, Exec: exec}
+}
+
+// Current is c as the plan reads it.
+func (c Content) Current() plan.Current {
+	if c.Link != "" {
+		return plan.LinkCurrent(c.Link)
+	}
+	return plan.Current{Hash: c.SHA256, Exec: c.Exec}
+}
+
+// KindLink is the kind of an owned link.
+const KindLink = "link"
 
 // Pack names a pack and the absolute path it was installed from.
 type Pack struct {
@@ -79,12 +104,32 @@ type Pack struct {
 // with. For a harness settings file, Keys are the keys dotai owns in it,
 // never empty, and the file is otherwise the harness's; a settings file
 // without Keys was recorded whole, by an install before decision 0035.
+// A link to a shared skill (decision 0036) has the Kind KindLink, its
+// destination Link and no SHA-256.
 type File struct {
 	Target  string     `json:"target"`
 	Harness string     `json:"harness"`
-	SHA256  string     `json:"sha256"`
+	Kind    string     `json:"kind,omitempty"`
+	Link    string     `json:"link,omitempty"`
+	SHA256  string     `json:"sha256,omitempty"`
 	Exec    bool       `json:"exec"`
 	Keys    []plan.Key `json:"keys,omitempty"`
+}
+
+// file is the record of an owned target that holds cur.
+func file(target, harness string, cur plan.Current, keys []plan.Key) File {
+	if cur.Link != "" {
+		return File{Target: target, Harness: harness, Kind: KindLink, Link: cur.Link}
+	}
+	return File{Target: target, Harness: harness, SHA256: cur.Hash, Exec: cur.Exec, Keys: keys}
+}
+
+// Current is what f records its target holds, as the plan reads it.
+func (f File) Current() plan.Current {
+	if f.Kind == KindLink {
+		return plan.LinkCurrent(f.Link)
+	}
+	return plan.Current{Hash: f.SHA256, Exec: f.Exec}
 }
 
 // New is the state after an install of pack that carried out ops, with
@@ -98,7 +143,7 @@ func New(pack Pack, variant, mode string, t time.Time, harnesses []string, backu
 	}
 	for _, op := range ops {
 		if op.Action != plan.Remove && (!op.Settings || len(op.Keys) > 0) {
-			s.Files = append(s.Files, File{Target: op.Target, Harness: op.Harness, SHA256: op.After, Exec: op.Exec, Keys: op.Keys})
+			s.Files = append(s.Files, file(op.Target, op.Harness, plan.Current{Hash: op.After, Exec: op.Exec, Link: op.Link}, op.Keys))
 		}
 	}
 	return s
@@ -114,10 +159,10 @@ func Journal(base State, backupID string, ops []plan.Op) State {
 		}
 		j := PendingOp{Action: op.Action, Target: op.Target, Harness: op.Harness}
 		if op.Action != plan.Create {
-			j.Before = &Content{SHA256: op.Before, Exec: op.BeforeExec}
+			j.Before = content(op.Before, op.BeforeExec, op.BeforeLink)
 		}
 		if op.Action != plan.Remove {
-			j.After = &Content{SHA256: op.After, Exec: op.Exec}
+			j.After = content(op.After, op.Exec, op.Link)
 		}
 		if op.Settings && len(op.Keys) > 0 {
 			j.Keys = op.Keys
@@ -137,7 +182,8 @@ func Journal(base State, backupID string, ops []plan.Op) State {
 func (s State) Owned() map[string]plan.Owned {
 	owned := make(map[string]plan.Owned, len(s.Files))
 	for _, f := range s.Files {
-		owned[f.Target] = plan.Owned{Harness: f.Harness, Hash: f.SHA256, Exec: f.Exec, Keys: f.Keys}
+		cur := f.Current()
+		owned[f.Target] = plan.Owned{Harness: f.Harness, Hash: cur.Hash, Exec: cur.Exec, Keys: f.Keys}
 	}
 	if s.Pending == nil {
 		return owned
@@ -147,16 +193,20 @@ func (s State) Owned() map[string]plan.Owned {
 		switch {
 		case op.After == nil: // a remove: what is left is what was owned
 			if !had && op.Before != nil {
-				owned[op.Target] = plan.Owned{Harness: op.Harness, Hash: op.Before.SHA256, Exec: op.Before.Exec}
+				before := op.Before.Current()
+				owned[op.Target] = plan.Owned{Harness: op.Harness, Hash: before.Hash, Exec: before.Exec}
 			}
 		case had:
-			o.Also = append(o.Also, plan.Current{Hash: op.After.SHA256, Exec: op.After.Exec})
+			after := op.After.Current()
+			o.Also = append(o.Also, plan.Current{Hash: after.Hash, Exec: after.Exec})
 			o.AlsoKeys = op.Keys
 			owned[op.Target] = o
 		default:
-			o = plan.Owned{Harness: op.Harness, Hash: op.After.SHA256, Exec: op.After.Exec, Keys: op.Keys}
+			after := op.After.Current()
+			o = plan.Owned{Harness: op.Harness, Hash: after.Hash, Exec: after.Exec, Keys: op.Keys}
 			if op.Before != nil {
-				o.Foreign = []plan.Current{{Hash: op.Before.SHA256, Exec: op.Before.Exec}}
+				before := op.Before.Current()
+				o.Foreign = []plan.Current{{Hash: before.Hash, Exec: before.Exec}}
 			}
 			owned[op.Target] = o
 		}
@@ -174,7 +224,7 @@ func (s State) Settled(onDisk map[string]plan.Current, keys map[string][]plan.Ke
 	for _, target := range slices.Sorted(maps.Keys(onDisk)) {
 		if o, ok := owned[target]; ok {
 			cur := onDisk[target]
-			s.Files = append(s.Files, File{Target: target, Harness: o.Harness, SHA256: cur.Hash, Exec: cur.Exec, Keys: keys[target]})
+			s.Files = append(s.Files, file(target, o.Harness, cur, keys[target]))
 		}
 	}
 	return s
@@ -214,6 +264,11 @@ func Decode(data []byte) (State, error) {
 			if err := checkKeys(op.Keys); err != nil {
 				return State{}, fmt.Errorf("install state: pending %s: %w", op.Target, err)
 			}
+			for _, c := range []*Content{op.Before, op.After} {
+				if c != nil && c.Link != "" && (!filepath.IsAbs(c.Link) || c.SHA256 != "") {
+					return State{}, fmt.Errorf("install state: pending %s: a link needs an absolute destination and no hash", op.Target)
+				}
+			}
 		}
 	}
 	seen := map[string]bool{}
@@ -228,6 +283,9 @@ func Decode(data []byte) (State, error) {
 		if err := checkKeys(f.Keys); err != nil {
 			return State{}, fmt.Errorf("install state: %s: %w", f.Target, err)
 		}
+		if err := checkKind(f); err != nil {
+			return State{}, fmt.Errorf("install state: %s: %w", f.Target, err)
+		}
 	}
 	if s.Harnesses == nil {
 		s.Harnesses = []string{}
@@ -236,6 +294,51 @@ func Decode(data []byte) (State, error) {
 		s.Files = []File{}
 	}
 	return s, nil
+}
+
+// CheckLinks refuses, with a *plan.LinkDestError, a link of s, owned or in
+// its journal, whose destination is not the shared skill of its name under
+// home (plan.CheckLinkDest), as only an edited state can hold.
+func (s State) CheckLinks(home string, fold bool) error {
+	for _, f := range s.Files {
+		if f.Kind == KindLink {
+			if err := plan.CheckLinkDest(home, f.Target, f.Link, fold); err != nil {
+				return fmt.Errorf("install state: %w", err)
+			}
+		}
+	}
+	if s.Pending == nil {
+		return nil
+	}
+	for _, op := range s.Pending.Ops {
+		for _, c := range []*Content{op.Before, op.After} {
+			if c != nil && c.Link != "" {
+				if err := plan.CheckLinkDest(home, op.Target, c.Link, fold); err != nil {
+					return fmt.Errorf("install state: pending: %w", err)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// checkKind rejects a file of an unknown kind, a link without an absolute
+// destination or with a hash, exec bit or keys, and a file with a
+// destination.
+func checkKind(f File) error {
+	switch f.Kind {
+	case "":
+		if f.Link != "" {
+			return errors.New("a file that is not a link has a link destination")
+		}
+	case KindLink:
+		if !filepath.IsAbs(f.Link) || f.SHA256 != "" || f.Exec || len(f.Keys) > 0 {
+			return errors.New("a link needs an absolute destination, and no hash, exec bit or keys")
+		}
+	default:
+		return fmt.Errorf("unknown kind %q, want none or %q", f.Kind, KindLink)
+	}
+	return nil
 }
 
 // checkKeys rejects a key of a settings file that has no path.

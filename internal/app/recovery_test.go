@@ -78,8 +78,8 @@ func TestInstallRecoversFromACrash(t *testing.T) {
 			home, _ := installHome(t)
 			crash(t, &crashFS{clockFS: newClockFS(t), crashAt: k}, examplePack, "", home)
 			s := readJSON(t, at(home, ".dotai/state.json"), state.Decode)
-			if s.Pending == nil || len(s.Pending.Ops) != 4 || len(s.Files) != 0 {
-				t.Fatalf("state after the crash = %+v, want the journal of four creates", s)
+			if s.Pending == nil || len(s.Pending.Ops) != 5 || len(s.Files) != 0 {
+				t.Fatalf("state after the crash = %+v, want the journal of five creates", s)
 			}
 			// What a write the kill cut short leaves, and a file of the user's.
 			left := at(home, ".dotai/tools/.hello.sh.dotai-0123456789abcdef")
@@ -103,8 +103,8 @@ func TestInstallRecoversFromACrash(t *testing.T) {
 					created++
 				}
 			}
-			if created != 4-(k-1) {
-				t.Errorf("creates = %d, want the %d the crash left", created, 4-(k-1))
+			if created != 5-(k-1) {
+				t.Errorf("creates = %d, want the %d the crash left", created, 5-(k-1))
 			}
 			assertConverged(t, examplePack, "", home)
 		})

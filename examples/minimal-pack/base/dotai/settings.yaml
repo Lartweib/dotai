@@ -3,4 +3,4 @@ claudecode:
 opencode:
   model: anthropic/claude-sonnet-4-5
 antigravity-cli:
-  statusLine: { type: command, command: "${DOTAI_TOOLS}/hello.sh" }
+  statusLine: { type: command, command: "${DOTAI_TOOL:hello}" }
