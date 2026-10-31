@@ -417,7 +417,8 @@ func TestRunInstallWithWarnings(t *testing.T) {
 
 // TestRunInstallDryRunWithSharedSkills checks the plan of a variant that
 // shares the user's skills (decision 0036): the shared skills and what is
-// skipped in the header, and each link with where it points.
+// skipped in the header, each link with where it points, and agy's copies
+// as files.
 func TestRunInstallDryRunWithSharedSkills(t *testing.T) {
 	t.Setenv("DOTAI_CACHE_DIR", "cache")
 	home := t.TempDir()
@@ -425,16 +426,18 @@ func TestRunInstallDryRunWithSharedSkills(t *testing.T) {
 	t.Setenv("USERPROFILE", home)
 	p := installPlan
 	p.Variant = "shared"
-	p.SharedSkills = &app.SharedSkillsPlan{Dir: "/home/u/.agents/skills", Found: true, Skills: []string{"commit-message", "review"}, Skipped: []app.SkippedSkill{
+	p.SharedSkills = &app.SharedSkillsPlan{Dir: "/home/u/.agents/skills", Found: true, Skills: []string{"commit-message", "linked", "review"}, Skipped: []app.SkippedSkill{
 		{Name: "notes", Reason: app.ReasonNotASkill},
 		{Name: "commit-message", Harness: "claudecode", Reason: app.ReasonPackSkill},
+		{Name: "commit-message", Harness: "antigravity-cli", Reason: app.ReasonPackSkill},
+		{Name: "linked", Harness: "antigravity-cli", Reason: app.ReasonNotCopyable, File: "data/cache"},
 	}}
 	p.Ops = []app.InstallOp{
 		{Action: plan.Create, Harness: "claudecode", Source: ".claude/skills/review", Target: "/home/u/.dotai/isolated/claude/skills/review",
 			After: "aa", Link: "/home/u/.agents/skills/review", Keys: []plan.KeyChange{}},
 		{Action: plan.Remove, Harness: "claudecode", Target: "/home/u/.dotai/isolated/claude/skills/gone", Before: "bb", BeforeLink: "/home/u/.agents/skills/gone", Keys: []plan.KeyChange{}},
-		{Action: plan.Unchanged, Harness: "antigravity-cli", Source: ".gemini/antigravity-cli/skills/review", Target: "/home/u/.dotai/isolated/gemini/config/skills/review",
-			Before: "cc", After: "cc", Link: "/home/u/.agents/skills/review", BeforeLink: "/home/u/.agents/skills/review", Keys: []plan.KeyChange{}},
+		{Action: plan.Unchanged, Harness: "antigravity-cli", Source: ".gemini/antigravity-cli/skills/review/SKILL.md", Target: "/home/u/.dotai/isolated/gemini/config/skills/review/SKILL.md",
+			Before: "cc", After: "cc", Keys: []plan.KeyChange{}},
 	}
 	var stdout, stderr bytes.Buffer
 	env := testEnv(&stdout, &stderr)

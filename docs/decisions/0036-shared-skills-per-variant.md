@@ -15,27 +15,30 @@ Other tools install skills into `~/.agents/skills`, the user's shared skills fol
 - **Manifest.** A variant declares `shared-skills: true` in `dotai.yaml`. Absent or `false`, the install is closed: only the pack's content is visible. Only variants take the field, and dotai never detects it.
 - **State.** `state.json` records `sharedSkills` for the installed variant.
 - **OpenCode** reads `~/.agents/skills` itself, so `dotai run opencode` does not set `OPENCODE_TEST_HOME` when the state shares skills, and OpenCode uses the real home directory. An inherited `OPENCODE_TEST_HOME` is removed in both modes.
-- **Claude Code and agy.** `install` links each entry of `~/.agents/skills` that is a skill, a directory with a `SKILL.md`, followed through links, into the isolated skills directory: `isolated/claude/skills/<name>` and `isolated/gemini/config/skills/<name>`. Each link points at the entry in `~/.agents/skills`, not at what it resolves to, and at nothing else: a state or backup that records another destination is refused, and the destination is checked again right before a link is made. Windows gets a directory junction, which needs no administrator rights; other systems a symbolic link. Hidden entries are ignored; any other entry that is not a skill, or whose name some OS cannot store, is skipped with a note. A missing folder links nothing, with a note.
+- **Claude Code.** `install` links each entry of `~/.agents/skills` that is a skill, a directory with a `SKILL.md`, followed through links, into the isolated skills directory, `isolated/claude/skills/<name>`. Each link points at the entry in `~/.agents/skills`, not at what it resolves to, and at nothing else: a state or backup that records another destination is refused, and the destination is checked again right before a link is made. Windows gets a directory junction, which needs no administrator rights; other systems a symbolic link. Hidden entries are ignored; any other entry that is not a skill, or whose name some OS cannot store, is skipped with a note. A missing folder links nothing, with a note.
+- **agy** skips a junction in its skills directory ([HARNESS-NOTES](../HARNESS-NOTES.md)), and its handling of symbolic links was not checked, so on every OS it gets a copy of each skill instead, at `isolated/gemini/config/skills/<name>/`. The install copies the skill's files into the staging tree, as if the pack staged them, and from there they are files like the pack's: planned, owned, backed up, journaled, rolled back and restored by the same rules, and an edited copy is refused like an edited file. The entry is followed when it is a link, as for Claude Code, but nothing below it is: a skill that holds a link, anything else that is not a regular file or a directory, or a name some OS cannot store is not copied, and install warns, naming it. An install over one that linked the skill into agy trades the link for the copy, as for the pack's skill below.
 - **Collision.** When the pack has a skill of the same name for that harness, the pack's skill wins and install warns, naming the shared skill it skipped. An error would block installing the variant whenever another tool adds a skill with a name the pack also uses, which the user cannot fix in the pack. When the pack adds or drops such a skill, one install or restore trades the link and the pack's directory: a link is removed before the files below its path are written, and made after they are removed. The pack's directory gives way to a link only when it holds nothing but files the plan removes; anything else in it, such as a harness's cache, is named and refused before anything is written.
 - **Ownership.** A link is owned like a file: the state records it as `kind: link` with its destination, the plan creates, removes or leaves it unchanged, and a reinstall adds and removes links as the folder changed. Its content is its destination: a link dotai owns that points elsewhere is an edit and is refused, a real file or directory where a link goes is refused, and nothing ever follows a link to remove, hash, back up or check it. A backup records a link in its manifest, without a copy, and restore and rollback recreate it from there.
-- **Freshness.** A skill added to `~/.agents/skills` after an install shows up after the next install.
+- **Freshness.** A skill added to `~/.agents/skills` after an install shows up after the next install. For agy, so does a change to a skill, which the next install copies again; Claude Code's links show it at once.
 
 ## Considered options
 
-- **A (chosen):** opt-in per variant, links per skill, owned like files.
+- **A (chosen):** opt-in per variant, links per skill, owned like files, and copies for agy, which skips junctions.
 - **B:** always share. Rejected: a closed isolated install is the point of trying a pack.
 - **C:** detect the tools that install skills. Rejected: the maintainer wants the pack to declare it.
 - **D:** one link for the whole folder. Rejected (inferred): it would hide the pack's own skills, which install into the same directory.
+- **E:** links for agy too. Rejected: agy does not list a skill reached through a junction.
 
 ## Consequences
 
 - Good: the variant that uses those tools sees their skills in every harness, and every other variant stays closed.
 - Accepted cost: with shared skills, OpenCode's home is the real one, so whatever else OpenCode reads from the home directory loads too; the leaks say so.
 - Accepted cost: the plan's operations are in target order except around such a trade, so that they can be carried out.
+- Accepted cost: agy's copies take disk space and a backup copy of each one an install replaces or removes, and they lag behind the shared skill until the next install.
 - Amends [0018](0018-install-modes-and-mandatory-backup.md) and [0031](0031-isolated-install-root.md) (what the isolated mode hides), [0032](0032-install-state-backup-and-isolated-launch.md) (the ownership record and backups hold links) and [0033](0033-restore-from-the-install-history.md) (restore puts links back).
 - Pending: `dotai doctor` reporting skills added since the install.
 
 ## Evidence
 
-- [HARNESS-NOTES](../HARNESS-NOTES.md): OpenCode reads `~/.agents/skills` from its home directory.
+- [HARNESS-NOTES](../HARNESS-NOTES.md): OpenCode reads `~/.agents/skills` from its home directory, and agy skips a junction in its skills directory.
 - [CLI-JSON](../CLI-JSON.md): `install`, `run`, the install state and the backup manifest.

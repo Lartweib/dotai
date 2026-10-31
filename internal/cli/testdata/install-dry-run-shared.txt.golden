@@ -1,8 +1,10 @@
 Install plan · minimal-pack 0.1.0 · variant shared · mode isolated
 root: /home/u/.dotai/isolated
-shared skills: /home/u/.agents/skills · commit-message, review
+shared skills: /home/u/.agents/skills · commit-message, linked, review
   note: notes is skipped: it is not a skill, a directory with a SKILL.md
   note: the shared skill commit-message is not linked into claudecode: the pack has a skill of that name, which wins
+  note: the shared skill commit-message is not copied into antigravity-cli: the pack has a skill of that name, which wins
+  note: the shared skill linked is not copied into antigravity-cli: data/cache in it is not a regular file or a directory, or has a name some OS cannot store
 
 claudecode · partial isolation · may need a new login
   CLAUDE_CONFIG_DIR=/home/u/.dotai/isolated/claude
@@ -22,6 +24,6 @@ claudecode
   remove     /home/u/.dotai/isolated/claude/skills/gone -> /home/u/.agents/skills/gone
 
 antigravity-cli
-  unchanged  /home/u/.dotai/isolated/gemini/config/skills/review -> /home/u/.agents/skills/review
+  unchanged  /home/u/.dotai/isolated/gemini/config/skills/review/SKILL.md
 
 1 create, 0 replace, 1 remove, 1 unchanged · dry run, nothing was written

@@ -99,48 +99,88 @@ func installShared(t *testing.T, d app.ExecuteFS, home, variant string, skills .
 }
 
 // linkTargets are the isolated paths of the links to the shared skills
-// names, for Claude Code and agy.
+// names, for Claude Code.
 func linkTargets(home string, names ...string) []string {
 	var out []string
 	for _, n := range names {
-		out = append(out, at(home, ".dotai/isolated/claude/skills/"+n), at(home, ".dotai/isolated/gemini/config/skills/"+n))
+		out = append(out, at(home, ".dotai/isolated/claude/skills/"+n))
 	}
 	return out
 }
 
-// assertLinks checks that each shared skill in want, and no other, is
-// linked into Claude Code and agy, each link to its entry in the shared
-// folder.
-func assertLinks(t *testing.T, home string, want ...string) {
+// copyTargets are the isolated paths of the SKILL.md of the copies of the
+// shared skills names, for agy.
+func copyTargets(home string, names ...string) []string {
+	var out []string
+	for _, n := range names {
+		out = append(out, at(home, ".dotai/isolated/gemini/config/skills/"+n+"/SKILL.md"))
+	}
+	return out
+}
+
+// assertShared checks that each shared skill in want, and no other, is
+// linked into Claude Code, each link to its entry in the shared folder,
+// and copied into agy, each copy a real directory whose SKILL.md is the
+// shared skill's.
+func assertShared(t *testing.T, home string, want ...string) {
 	t.Helper()
-	for _, dir := range []string{".dotai/isolated/claude/skills", ".dotai/isolated/gemini/config/skills"} {
-		entries, err := os.ReadDir(at(home, dir))
-		if err != nil && !errors.Is(err, fs.ErrNotExist) {
-			t.Fatal(err)
+	dir := ".dotai/isolated/claude/skills"
+	entries, err := os.ReadDir(at(home, dir))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, e := range entries {
+		name := filepath.Join(at(home, dir), e.Name())
+		cur, err := (app.OSInstallFS{}).Link(name)
+		if err != nil {
+			continue // the pack's own skill
 		}
-		var got []string
-		for _, e := range entries {
-			name := filepath.Join(at(home, dir), e.Name())
-			cur, err := (app.OSInstallFS{}).Link(name)
-			if err != nil {
-				continue // the pack's own skill
-			}
-			if dest := at(home, ".agents/skills/"+e.Name()); cur != plan.LinkCurrent(dest) {
-				t.Errorf("%s points at %s, want %s", name, cur.Link, dest)
-			}
-			got = append(got, e.Name())
+		if dest := at(home, ".agents/skills/"+e.Name()); cur != plan.LinkCurrent(dest) {
+			t.Errorf("%s points at %s, want %s", name, cur.Link, dest)
 		}
-		if !slices.Equal(got, want) {
-			t.Errorf("links in %s = %v, want %v", dir, got, want)
+		got = append(got, e.Name())
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("links in %s = %v, want %v", dir, got, want)
+	}
+
+	dir = ".dotai/isolated/gemini/config/skills"
+	entries, err = os.ReadDir(at(home, dir))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal(err)
+	}
+	got = nil
+	for _, e := range entries {
+		name := filepath.Join(at(home, dir), e.Name())
+		if info, err := os.Lstat(name); err != nil || !info.IsDir() {
+			t.Errorf("%s = %v, %v, want a real directory", name, info, err)
+			continue
 		}
+		data, err := os.ReadFile(filepath.Join(name, "SKILL.md"))
+		if err != nil {
+			t.Error(err)
+			continue
+		}
+		if strings.Contains(string(data), "The pack's.") {
+			continue // the pack's own skill
+		}
+		if shared, err := os.ReadFile(at(home, ".agents/skills/"+e.Name()+"/SKILL.md")); err != nil || string(shared) != string(data) {
+			t.Errorf("%s holds %q, want the shared skill's %q (%v)", name, data, shared, err)
+		}
+		got = append(got, e.Name())
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("copies in %s = %v, want %v", dir, got, want)
 	}
 }
 
 // TestInstallLinksTheSharedSkills checks an install of a variant that
 // shares skills (decision 0036): each skill of ~/.agents/skills is linked
-// into Claude Code and agy, but not what is not a skill, a hidden entry or
-// a skill the pack has too, which wins with a warning; the links are
-// owned and backed up without a copy, and the shared folder is untouched.
+// into Claude Code and copied into agy, but not what is not a skill, a
+// hidden entry or a skill the pack has too, which wins with a warning; the
+// links are owned and backed up without a copy, the copies like the
+// pack's files, and the shared folder is untouched.
 func TestInstallLinksTheSharedSkills(t *testing.T) {
 	home := sharedHome(t)
 	before := listing(t, at(home, ".agents"))
@@ -150,9 +190,9 @@ func TestInstallLinksTheSharedSkills(t *testing.T) {
 	if err != nil || len(res.Diagnostics) != 0 {
 		t.Fatalf("Install() = %+v, %v", res.Diagnostics, err)
 	}
-	assertLinks(t, home, "alpha", "beta")
-	for _, h := range []string{"claudecode", "antigravity-cli"} {
-		want := "the shared skill " + packSkill + " is not linked into " + h + ": the pack has a skill of that name, which wins"
+	assertShared(t, home, "alpha", "beta")
+	for h, verb := range map[string]string{"claudecode": "linked", "antigravity-cli": "copied"} {
+		want := "the shared skill " + packSkill + " is not " + verb + " into " + h + ": the pack has a skill of that name, which wins"
 		if !slices.Contains(warned, want) || !slices.Contains(res.Warnings, want) {
 			t.Errorf("warnings = %q, %q, want %q", warned, res.Warnings, want)
 		}
@@ -197,10 +237,19 @@ func TestInstallLinksTheSharedSkills(t *testing.T) {
 			t.Errorf("state record of %s = %+v, %t, want a link to its shared skill", target, f, ok)
 		}
 	}
+	for _, target := range copyTargets(home, "alpha", "beta") {
+		f, ok := ownedFile(t, s, target)
+		if !ok || f.Kind != "" || f.Harness != "antigravity-cli" || f.SHA256 != sum(filepath.Base(filepath.Dir(target))+"\n") {
+			t.Errorf("state record of %s = %+v, %t, want the copy owned as a file", target, f, ok)
+		}
+	}
 	m := manifest(t, home, res.Backup.ID)
 	for _, op := range m.Ops {
 		if slices.Contains(linkTargets(home, "alpha", "beta"), op.Target) && (op.Action != plan.Create || op.File != "" || op.After == nil || op.After.Link == "") {
 			t.Errorf("backup op = %+v, want a create of a link, without a copy", op)
+		}
+		if slices.Contains(copyTargets(home, "alpha", "beta"), op.Target) && (op.Action != plan.Create || op.After == nil || op.After.Link != "" || op.After.SHA256 == "") {
+			t.Errorf("backup op = %+v, want a create of a file", op)
 		}
 	}
 	if after := listing(t, at(home, ".agents")); !slices.Equal(after, before) {
@@ -220,7 +269,7 @@ func TestInstallWithoutTheSharedFolderSharesNothing(t *testing.T) {
 	if sp := res.SharedSkills; sp == nil || sp.Found || len(sp.Skills) != 0 || len(sp.Skipped) != 0 {
 		t.Errorf("shared skills = %+v, want a missing folder", sp)
 	}
-	assertLinks(t, home)
+	assertShared(t, home)
 	if _, err := os.Lstat(at(home, ".agents")); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("~/.agents = %v, want it still missing", err)
 	}
@@ -230,9 +279,10 @@ func TestInstallWithoutTheSharedFolderSharesNothing(t *testing.T) {
 }
 
 // TestInstallFollowsTheSharedFolder checks the dry run and the reinstall
-// after the shared folder changed: unchanged links stay, a new skill is
-// linked and a removed one is unlinked; a skill added after an install
-// shows up only with the next one.
+// after the shared folder changed: unchanged links and copies stay, a new
+// skill is linked and copied, a removed one is unlinked and its copy
+// removed, and a changed one is copied again; a skill added after an
+// install shows up only with the next one.
 func TestInstallFollowsTheSharedFolder(t *testing.T) {
 	home := sharedHome(t)
 	d := newClockFS(t)
@@ -248,15 +298,16 @@ func TestInstallFollowsTheSharedFolder(t *testing.T) {
 			t.Errorf("dry run op = %+v, want every op unchanged", op)
 		}
 	}
-	if n := countLinks(p.Ops); n != 6 {
-		t.Errorf("dry run has %d links, want 6 (alpha, beta and %s for two harnesses)", n, packSkill)
+	if n := countLinks(p.Ops); n != 3 {
+		t.Errorf("dry run has %d links, want 3 (alpha, beta and %s for Claude Code)", n, packSkill)
 	}
 
 	writeFile(t, at(home, ".agents/skills/gamma/SKILL.md"), "gamma\n")
-	assertLinks(t, home, "alpha", "beta", packSkill)
+	assertShared(t, home, "alpha", "beta", packSkill)
 	if err := os.RemoveAll(at(home, ".agents/skills/alpha")); err != nil {
 		t.Fatal(err)
 	}
+	writeFile(t, at(home, ".agents/skills/"+packSkill+"/SKILL.md"), "another tool's, changed\n")
 	res, err := installShared(t, d, home, "shared")
 	if err != nil {
 		t.Fatal(err)
@@ -268,16 +319,19 @@ func TestInstallFollowsTheSharedFolder(t *testing.T) {
 		}
 	}
 	want := map[string]plan.Action{}
-	for _, target := range linkTargets(home, "gamma") {
+	for _, target := range append(linkTargets(home, "gamma"), copyTargets(home, "gamma")...) {
 		want[target] = plan.Create
 	}
-	for _, target := range linkTargets(home, "alpha") {
+	for _, target := range append(linkTargets(home, "alpha"), copyTargets(home, "alpha")...) {
 		want[target] = plan.Remove
+	}
+	for _, target := range copyTargets(home, packSkill) {
+		want[target] = plan.Replace
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("reinstall ops = %v, want %v", got, want)
 	}
-	assertLinks(t, home, "beta", packSkill, "gamma")
+	assertShared(t, home, "beta", packSkill, "gamma")
 }
 
 func countLinks(ops []app.InstallOp) int {
@@ -291,9 +345,10 @@ func countLinks(ops []app.InstallOp) int {
 }
 
 // TestSwitchingVariantsAddsAndRemovesTheLinks checks that a closed variant
-// removes every link and stops sharing, and that the shared variant puts
-// them back; restoring each install undoes it, and the oldest backup
-// undoes everything, links included, with the shared folder untouched.
+// removes every link and copy and stops sharing, and that the shared
+// variant puts them back; restoring each install undoes it, and the oldest
+// backup undoes everything, links and copies included, with the shared
+// folder untouched.
 func TestSwitchingVariantsAddsAndRemovesTheLinks(t *testing.T) {
 	home := sharedHome(t)
 	before := listing(t, at(home, ".agents"))
@@ -305,25 +360,28 @@ func TestSwitchingVariantsAddsAndRemovesTheLinks(t *testing.T) {
 	if _, err := installShared(t, d, home, "standalone"); err != nil {
 		t.Fatal(err)
 	}
-	assertLinks(t, home)
+	assertShared(t, home)
 	if s := readJSON(t, at(home, ".dotai/state.json"), state.Decode); s.SharedSkills || slices.ContainsFunc(s.Files, func(f state.File) bool { return f.Kind == state.KindLink }) {
 		t.Errorf("state after the closed variant = %+v, want no shared skills and no link", s)
+	}
+	if _, err := os.Lstat(at(home, ".dotai/isolated/gemini/config/skills/alpha")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("agy's copy of alpha after the closed variant = %v, want it removed", err)
 	}
 	if _, err := installShared(t, d, home, "shared"); err != nil {
 		t.Fatal(err)
 	}
-	assertLinks(t, home, "alpha", "beta", packSkill)
+	assertShared(t, home, "alpha", "beta", packSkill)
 
 	// Undo the last install, then the one before it.
 	if _, err := app.RestoreWith(context.Background(), d, home, "", nil); err != nil {
 		t.Fatalf("Restore() error = %v", err)
 	}
-	assertLinks(t, home)
+	assertShared(t, home)
 	res, err := app.RestoreWith(context.Background(), d, home, "", nil)
 	if err != nil {
 		t.Fatalf("Restore() error = %v", err)
 	}
-	assertLinks(t, home, "alpha", "beta", packSkill)
+	assertShared(t, home, "alpha", "beta", packSkill)
 	if !slices.ContainsFunc(res.Ops, func(op app.RestoreOp) bool { return op.Action == plan.Create && op.Link != "" && op.From != "" }) {
 		t.Errorf("restore ops = %+v, want links put back from the backup's manifest", res.Ops)
 	}
@@ -378,7 +436,7 @@ func TestInstallRefusesALinkChangedByHand(t *testing.T) {
 	if _, err := app.RestoreWith(context.Background(), d, home, "", nil); err != nil {
 		t.Fatalf("Restore() once the link is gone error = %v", err)
 	}
-	assertLinks(t, home)
+	assertShared(t, home)
 	if entries, err := os.ReadDir(elsewhere); err != nil || len(entries) != 0 {
 		t.Errorf("what the changed link pointed at = %v, %v, want it untouched", entries, err)
 	}
@@ -488,13 +546,13 @@ func TestASharedSkillAndThePacksTradePlaces(t *testing.T) {
 	if _, err := installShared(t, d, home, "shared"); err != nil {
 		t.Fatal(err)
 	}
-	assertLinks(t, home, "alpha", "beta", packSkill)
+	assertShared(t, home, "alpha", "beta", packSkill)
 	skill := at(home, ".dotai/isolated/claude/skills/alpha/SKILL.md")
 
 	if _, err := installShared(t, d, home, "shared", "alpha"); err != nil {
 		t.Fatalf("Install() with the pack's alpha error = %v", err)
 	}
-	assertLinks(t, home, "beta", packSkill)
+	assertShared(t, home, "beta", packSkill)
 	if data, err := os.ReadFile(skill); err != nil || !strings.Contains(string(data), "The pack's.") {
 		t.Errorf("alpha = %q, %v, want the pack's", data, err)
 	}
@@ -505,19 +563,19 @@ func TestASharedSkillAndThePacksTradePlaces(t *testing.T) {
 	if _, err := installShared(t, d, home, "shared"); err != nil {
 		t.Fatalf("Install() without the pack's alpha error = %v", err)
 	}
-	assertLinks(t, home, "alpha", "beta", packSkill)
+	assertShared(t, home, "alpha", "beta", packSkill)
 
 	if _, err := app.RestoreWith(context.Background(), d, home, "", nil); err != nil {
 		t.Fatalf("Restore() of the install that dropped alpha error = %v", err)
 	}
-	assertLinks(t, home, "beta", packSkill)
+	assertShared(t, home, "beta", packSkill)
 	if data, err := os.ReadFile(skill); err != nil || !strings.Contains(string(data), "The pack's.") {
 		t.Errorf("alpha after the restore = %q, %v, want the pack's back", data, err)
 	}
 	if _, err := app.RestoreWith(context.Background(), d, home, "", nil); err != nil {
 		t.Fatalf("Restore() of the install that added alpha error = %v", err)
 	}
-	assertLinks(t, home, "alpha", "beta", packSkill)
+	assertShared(t, home, "alpha", "beta", packSkill)
 }
 
 // TestInstallAndRestoreSettleAKilledInstallOfLinks checks that the journal
@@ -541,13 +599,13 @@ func TestInstallAndRestoreSettleAKilledInstallOfLinks(t *testing.T) {
 					t.Fatalf("Install() after the crash error = %v", err)
 				}
 				assertConverged(t, examplePack, "shared", home)
-				assertLinks(t, home, "alpha", "beta", packSkill)
+				assertShared(t, home, "alpha", "beta", packSkill)
 				return
 			}
 			if _, err := app.RestoreWith(context.Background(), newClockFS(t), home, "", nil); err != nil {
 				t.Fatalf("Restore() after the crash error = %v", err)
 			}
-			assertLinks(t, home)
+			assertShared(t, home)
 			if _, err := os.Lstat(at(home, ".dotai/state.json")); !errors.Is(err, fs.ErrNotExist) {
 				t.Errorf("state = %v, want it removed", err)
 			}
@@ -576,7 +634,7 @@ func TestInstallRollsBackTheLinksItMade(t *testing.T) {
 	if !errors.As(err, &ie) || ie.Rollback != nil {
 		t.Fatalf("Install() error = %v, want an install rolled back", err)
 	}
-	assertLinks(t, home)
+	assertShared(t, home)
 	if after := listing(t, at(home, ".agents")); !slices.Equal(after, before) {
 		t.Errorf("~/.agents = %v, want it as it was: %v", after, before)
 	}
@@ -693,7 +751,7 @@ func TestAKilledTradeOfALinkAndThePacksSkillSettles(t *testing.T) {
 func assertTrade(t *testing.T, home string, skills []string) {
 	t.Helper()
 	if slices.Contains(skills, "alpha") {
-		assertLinks(t, home, "beta", packSkill)
+		assertShared(t, home, "beta", packSkill)
 		for _, rel := range []string{".dotai/isolated/claude/skills/alpha/SKILL.md", ".dotai/isolated/gemini/config/skills/alpha/SKILL.md"} {
 			if data, err := os.ReadFile(at(home, rel)); err != nil || !strings.Contains(string(data), "The pack's.") {
 				t.Errorf("%s = %q, %v, want the pack's", rel, data, err)
@@ -701,7 +759,7 @@ func assertTrade(t *testing.T, home string, skills []string) {
 		}
 		return
 	}
-	assertLinks(t, home, "alpha", "beta", packSkill)
+	assertShared(t, home, "alpha", "beta", packSkill)
 }
 
 // TestInstallRefusesToTradeASkillDirectoryHoldingAForeignFile checks that
@@ -739,7 +797,7 @@ func TestInstallRefusesToTradeASkillDirectoryHoldingAForeignFile(t *testing.T) {
 	if _, err := installShared(t, d, home, "shared"); err != nil {
 		t.Fatalf("Install() once the cache is gone error = %v", err)
 	}
-	assertLinks(t, home, "alpha", "beta", packSkill)
+	assertShared(t, home, "alpha", "beta", packSkill)
 }
 
 // TestASharedSkillCollidesWithThePacksInAnotherCase checks that on an OS
@@ -759,9 +817,9 @@ func TestASharedSkillCollidesWithThePacksInAnotherCase(t *testing.T) {
 		t.Errorf("warnings = %q, want the collision warned about: %t", res.Warnings, fold)
 	}
 	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
-		assertLinks(t, home, "beta", packSkill)
+		assertShared(t, home, "beta", packSkill)
 	} else {
-		assertLinks(t, home, "alpha", "beta", packSkill)
+		assertShared(t, home, "alpha", "beta", packSkill)
 	}
 	if data, err := os.ReadFile(at(home, ".dotai/isolated/claude/skills/Alpha/SKILL.md")); err != nil || !strings.Contains(string(data), "The pack's.") {
 		t.Errorf("the pack's Alpha = %q, %v, want it installed", data, err)
@@ -808,5 +866,130 @@ func TestCanLink(t *testing.T) {
 		if err := d.CanLink(dest); err == nil || !strings.Contains(err.Error(), "local drive") {
 			t.Errorf("CanLink(%s) = %v, want a network path refused for a junction", dest, err)
 		}
+	}
+}
+
+// TestInstallCopiesTheSharedSkillsIntoAgy checks agy's copy of a shared
+// skill (decision 0036): every file of the skill, below a link to it too,
+// is copied with its exec bit into a real directory, which the install
+// owns like the pack's files, so that a copy edited by hand is refused and
+// the shared folder is untouched.
+func TestInstallCopiesTheSharedSkillsIntoAgy(t *testing.T) {
+	home := sharedHome(t)
+	beta, err := filepath.EvalSymlinks(at(home, ".agents/skills/beta"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(beta, "references", "notes.md"), "notes\n")
+	script := filepath.Join(beta, "scripts", "run.sh")
+	writeFile(t, script, "#!/bin/sh\n")
+	if err := os.Chmod(script, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	before := listing(t, at(home, ".agents"))
+	d := newClockFS(t)
+	if _, err := installShared(t, d, home, "shared"); err != nil {
+		t.Fatal(err)
+	}
+	copied := at(home, ".dotai/isolated/gemini/config/skills/beta")
+	for rel, want := range map[string]string{"SKILL.md": "beta\n", "references/notes.md": "notes\n", "scripts/run.sh": "#!/bin/sh\n"} {
+		if data, err := os.ReadFile(filepath.Join(copied, filepath.FromSlash(rel))); err != nil || string(data) != want {
+			t.Errorf("agy's copy of beta/%s = %q, %v, want %q", rel, data, err, want)
+		}
+	}
+	if runtime.GOOS != "windows" {
+		if info, err := os.Stat(filepath.Join(copied, "scripts", "run.sh")); err != nil || info.Mode()&0o111 == 0 {
+			t.Errorf("the copied script = %v, %v, want it executable", info, err)
+		}
+	}
+	if after := listing(t, at(home, ".agents")); !slices.Equal(after, before) {
+		t.Errorf("~/.agents = %v, want it as it was: %v", after, before)
+	}
+
+	edited := filepath.Join(copied, "references", "notes.md")
+	writeFile(t, edited, "mine\n")
+	_, err = installShared(t, d, home, "shared")
+	var e *plan.EditedError
+	if !errors.As(err, &e) || !slices.Equal(e.Targets, []string{edited}) {
+		t.Fatalf("Install() error = %v, want the edited copy refused", err)
+	}
+	if data, err := os.ReadFile(edited); err != nil || string(data) != "mine\n" {
+		t.Errorf("the edited copy = %q, %v, want it left as it is", data, err)
+	}
+}
+
+// TestASharedSkillHoldingALinkIsNotCopied checks that a shared skill that
+// holds a link is linked into Claude Code but not copied into agy, with a
+// warning naming the link, since a copy never follows a link below the
+// skill.
+func TestASharedSkillHoldingALinkIsNotCopied(t *testing.T) {
+	home := sharedHome(t)
+	writeFile(t, at(home, ".agents/skills/gamma/SKILL.md"), "gamma\n")
+	makeLink(t, t.TempDir(), at(home, ".agents/skills/gamma/data"))
+	res, err := installShared(t, newClockFS(t), home, "shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (app.OSInstallFS{}).Link(at(home, ".dotai/isolated/claude/skills/gamma")); err != nil {
+		t.Errorf("Claude Code's link to gamma: %v, want it made", err)
+	}
+	if _, err := os.Lstat(at(home, ".dotai/isolated/gemini/config/skills/gamma")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("agy's copy of gamma = %v, want none", err)
+	}
+	skip := app.SkippedSkill{Name: "gamma", Harness: "antigravity-cli", Reason: app.ReasonNotCopyable, File: "data"}
+	if !slices.Contains(res.SharedSkills.Skipped, skip) {
+		t.Errorf("skipped = %+v, want %+v", res.SharedSkills.Skipped, skip)
+	}
+	want := "the shared skill gamma is not copied into antigravity-cli: data in it is not a regular file or a directory, or has a name some OS cannot store"
+	if !slices.Contains(res.Warnings, want) {
+		t.Errorf("warnings = %q, want %q", res.Warnings, want)
+	}
+}
+
+// TestAgyLinksOfAnEarlierInstallBecomeCopies checks an install over one
+// that linked the shared skills into agy, as installs did before agy got
+// copies: each link gives way to the copy, and restore puts the link back.
+func TestAgyLinksOfAnEarlierInstallBecomeCopies(t *testing.T) {
+	home := sharedHome(t)
+	d := newClockFS(t)
+	if _, err := installShared(t, d, home, "shared"); err != nil {
+		t.Fatal(err)
+	}
+	// Turn agy's copy of alpha into the link an earlier install made.
+	dir, shared := at(home, ".dotai/isolated/gemini/config/skills/alpha"), at(home, ".agents/skills/alpha")
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	makeLink(t, shared, dir)
+	s := readJSON(t, at(home, ".dotai/state.json"), state.Decode)
+	s.Files = slices.DeleteFunc(s.Files, func(f state.File) bool { return f.Target == filepath.Join(dir, "SKILL.md") })
+	s.Files = append(s.Files, state.File{Target: dir, Harness: "antigravity-cli", Kind: state.KindLink, Link: shared})
+	slices.SortFunc(s.Files, func(a, b state.File) int { return strings.Compare(a.Target, b.Target) })
+	data, err := state.Encode(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, at(home, ".dotai/state.json"), string(data))
+
+	res, err := installShared(t, d, home, "shared")
+	if err != nil {
+		t.Fatalf("Install() over the link error = %v", err)
+	}
+	got := map[string]plan.Action{}
+	for _, op := range res.Ops {
+		if op.Action != plan.Unchanged {
+			got[op.Target] = op.Action
+		}
+	}
+	if want := map[string]plan.Action{dir: plan.Remove, filepath.Join(dir, "SKILL.md"): plan.Create}; !reflect.DeepEqual(got, want) {
+		t.Errorf("ops = %v, want %v", got, want)
+	}
+	assertShared(t, home, "alpha", "beta", packSkill)
+
+	if _, err := app.RestoreWith(context.Background(), d, home, "", nil); err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+	if cur, err := (app.OSInstallFS{}).Link(dir); err != nil || cur.Link != shared {
+		t.Errorf("agy's alpha after the restore = %+v, %v, want the link back", cur, err)
 	}
 }

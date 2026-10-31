@@ -195,6 +195,10 @@ type Adapter struct {
 	// skills links each skill of ~/.agents/skills (decision 0036); "" for a
 	// harness that reads ~/.agents/skills itself.
 	SharedSkills string
+	// CopySharedSkills copies each shared skill into SharedSkills instead
+	// of linking it, for a harness that skips a link there when it looks
+	// for skills.
+	CopySharedSkills bool
 	// Settings is the harness's settings file in the user scope, relative to
 	// Staging: dotai owns the keys it writes there, not the whole file,
 	// since the harness writes into it too (decision 0035).
@@ -209,9 +213,13 @@ type Adapter struct {
 	Isolation   Isolation
 }
 
-// linkedSkills is the leak of a harness into which an install whose variant
-// shares skills links the skills of ~/.agents/skills.
-const linkedSkills = "your skills in ~/.agents/skills are linked into the isolated install, as the variant shares them; one added there shows up after the next install"
+// linkedSkills and copiedSkills are the leak of a harness into which an
+// install whose variant shares skills links, or copies, the skills of
+// ~/.agents/skills.
+const (
+	linkedSkills = "your skills in ~/.agents/skills are linked into the isolated install, as the variant shares them; one added there shows up after the next install"
+	copiedSkills = "your skills in ~/.agents/skills are copied into the isolated install, as the variant shares them; a skill added or changed there shows up after the next install"
+)
 
 var adapters = []Adapter{
 	{
@@ -237,11 +245,13 @@ var adapters = []Adapter{
 		// where it reads them after the move.
 		Moves:        []Move{{From: "antigravity-cli/skills", To: "config/skills"}},
 		SharedSkills: "antigravity-cli/skills",
+		// agy skips a junction in its skills directory (HARNESS-NOTES).
+		CopySharedSkills: true,
 		Isolation: Isolation{
 			Level: Partial,
 			// Verified on Windows only.
 			Relogin:  map[string]Relogin{"windows": ReloginNo},
-			Leaks:    []Leak{{Text: "authentication is shared through the OS keyring"}, {Text: linkedSkills, Skills: SkillsShared}},
+			Leaks:    []Leak{{Text: "authentication is shared through the OS keyring"}, {Text: copiedSkills, Skills: SkillsShared}},
 			Pointers: []Pointer{{Mechanism: Flag, Name: "--gemini_dir"}},
 		},
 	},

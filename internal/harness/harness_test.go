@@ -250,18 +250,20 @@ func TestIsolationPerOS(t *testing.T) {
 }
 
 // TestIsolationWithSharedSkills checks what a variant that shares skills
-// changes (decision 0036): Claude Code and agy get links to each shared
-// skill, and OpenCode keeps the real home directory, where it reads
+// changes (decision 0036): Claude Code gets a link to each shared skill,
+// agy a copy, and OpenCode keeps the real home directory, where it reads
 // ~/.agents/skills itself.
 func TestIsolationWithSharedSkills(t *testing.T) {
 	linked := "your skills in ~/.agents/skills are linked into the isolated install, as the variant shares them; one added there shows up after the next install"
+	copied := "your skills in ~/.agents/skills are copied into the isolated install, as the variant shares them; a skill added or changed there shows up after the next install"
 	want := map[string]struct {
 		dir   string
+		copy  bool
 		leaks []string
 	}{
-		"claudecode":      {"skills", []string{"~/.claude/CLAUDE.md still loads when the working directory is under the home directory", linked}},
-		"antigravity-cli": {"antigravity-cli/skills", []string{"authentication is shared through the OS keyring", linked}},
-		"opencode": {"", []string{
+		"claudecode":      {"skills", false, []string{"~/.claude/CLAUDE.md still loads when the working directory is under the home directory", linked}},
+		"antigravity-cli": {"antigravity-cli/skills", true, []string{"authentication is shared through the OS keyring", copied}},
+		"opencode": {"", false, []string{
 			"provider credentials do not carry over",
 			"OpenCode runs with your home directory, as the variant shares skills: your ~/.agents/skills loads, and so does anything else OpenCode reads there",
 			"AGENTS.md, .agents and .opencode load from the working directory and every directory above it, so under your home directory your ~/.opencode and ~/AGENTS.md still load",
@@ -271,8 +273,8 @@ func TestIsolationWithSharedSkills(t *testing.T) {
 	}
 	for _, a := range harness.All() {
 		w := want[a.ID]
-		if a.SharedSkills != w.dir {
-			t.Errorf("%s: shared skills directory = %q, want %q", a.ID, a.SharedSkills, w.dir)
+		if a.SharedSkills != w.dir || a.CopySharedSkills != w.copy {
+			t.Errorf("%s: shared skills directory = %q, copied %t, want %q, %t", a.ID, a.SharedSkills, a.CopySharedSkills, w.dir, w.copy)
 		}
 		if got := a.Isolation.LeaksOn("linux", true); !reflect.DeepEqual(got, w.leaks) {
 			t.Errorf("%s: leaks with shared skills = %q, want %q", a.ID, got, w.leaks)

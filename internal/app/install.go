@@ -279,8 +279,9 @@ func withPlan(ctx context.Context, d installFS, fetch fetchFunc, run runFunc, ca
 // install owned, and that install's ownership record. A harness's settings
 // file, staged or as its target holds it, is read whole, since it is
 // planned key by key. With shared set, the variant shares the user's
-// skills, and each shared skill is planned as a link (decision 0036),
-// unless the pack stages a skill of its name. It also returns the previous
+// skills, and each shared skill is planned as a link, or copied into tree
+// and planned as its files (decision 0036), unless the pack stages a skill
+// of its name. It also returns the previous
 // install's state, nil when there is none, and the shared skills, nil
 // unless shared is set.
 func buildPlan(ctx context.Context, d installFS, tree, home string, adapters []harness.Adapter, shared bool) (plan.Plan, *state.State, *SharedSkillsPlan, error) {
@@ -298,11 +299,11 @@ func buildPlan(ctx context.Context, d installFS, tree, home string, adapters []h
 	}
 	var sp *SharedSkillsPlan
 	if shared {
-		var links []plan.File
-		if links, sp, err = sharedSkills(d, home, adapters, first.Ops); err != nil {
+		var files []plan.File
+		if files, sp, err = sharedSkills(ctx, d, tree, home, adapters, first.Ops); err != nil {
 			return plan.Plan{}, nil, nil, err
 		}
-		in.Files = append(in.Files, links...)
+		in.Files = append(in.Files, files...)
 		if first, err = plan.Build(in); err != nil {
 			return plan.Plan{}, nil, nil, err
 		}
