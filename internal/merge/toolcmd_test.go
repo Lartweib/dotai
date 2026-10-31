@@ -51,6 +51,11 @@ func TestToolCommandsNeedBothScripts(t *testing.T) {
 			newPack(base(settings("claudecode:\n  statusLine: '${DOTAI_TOOL:hello.sh/x}'\n"))),
 			[]string{"base/dotai/settings.yaml:2:15: tool-invalid: setting claudecode.statusLine uses ${DOTAI_TOOL:hello.sh/x}, which does not name a tool"},
 		},
+		{
+			"no closing brace, after a complete one",
+			newPack(base(append(both, settings("claudecode:\n  statusLine: '${DOTAI_TOOL:hello} ${DOTAI_TOOL:foo --short'\n"))...)),
+			[]string{"base/dotai/settings.yaml:2:15: tool-invalid: setting claudecode.statusLine uses ${DOTAI_TOOL:foo --short, which has no closing brace"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -87,6 +92,10 @@ func TestExpandTools(t *testing.T) {
 	var e *merge.ToolNameError
 	if _, err := merge.ExpandTools("${DOTAI_TOOL:}", nil); !errors.As(err, &e) {
 		t.Errorf("ExpandTools() of an empty name error = %v, want a ToolNameError", err)
+	}
+	called := false
+	if _, err := merge.ExpandTools("${DOTAI_TOOL:x} ${DOTAI_TOOL:foo", func(string) (string, error) { called = true; return "", nil }); !errors.As(err, &e) || !e.Unclosed || e.Name != "foo" || called {
+		t.Errorf("ExpandTools() of an unclosed variable error = %v, called %t, want an unclosed ToolNameError before any command", err, called)
 	}
 	boom := errors.New("boom")
 	if _, err := merge.ExpandTools("${DOTAI_TOOL:x}", func(string) (string, error) { return "", boom }); !errors.Is(err, boom) {

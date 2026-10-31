@@ -139,6 +139,11 @@ func TestToolCommands(t *testing.T) {
 		{"a backslash on linux", "linux", `/home/a\b/.dotai/tools`, "", app.ScopeUser, "${DOTAI_TOOL:hello}", "", `holds '\\'`},
 		{"a percent on windows", "windows", `C:\Users\100%\.dotai\tools`, "", app.ScopeUser, "${DOTAI_TOOL:hello}", "", `holds '%'`},
 		{"not a tool name", "linux", "/home/ana/.dotai/tools", "", app.ScopeUser, "${DOTAI_TOOL:../x}", "", "does not name a tool"},
+		{"no closing brace", "linux", "/home/ana/.dotai/tools", "", app.ScopeUser, "${DOTAI_TOOL:hello --short", "", "has no closing brace"},
+		{"a network path on windows", "windows", `\\server\share\ana\.dotai\tools`, "", app.ScopeUser, "${DOTAI_TOOL:hello}", "", `starts with \\ or //`},
+		{"a network path with slashes on windows", "windows", `//server/share/ana/.dotai/tools`, "", app.ScopeUser, "${DOTAI_TOOL:hello}", "", `starts with \\ or //`},
+		{"a long local path on windows", "windows", `\\?\C:\Users\Ana\.dotai\tools`, "", app.ScopeUser, "${DOTAI_TOOL:hello}", "", `starts with \\ or //`},
+		{"a path from the root on linux", "linux", "//home/ana/.dotai/tools", "", app.ScopeUser, "${DOTAI_TOOL:hello}", `sh "//home/ana/.dotai/tools/hello.sh"`, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -71,8 +71,14 @@ func unquoted(goos string) string {
 // through powershell.exe, which opens no window, and its shell script
 // elsewhere, through sh. The script's absolute path is in double quotes,
 // so that a directory with spaces works in every harness; a directory
-// with a character the quotes do not protect is refused.
+// with a character the quotes do not protect is refused, and so is a
+// network or device path on Windows, whose leading \\ bash, which Claude
+// Code and agy may run the command through, reads as one \ inside the
+// quotes.
 func toolCommand(dir, name, goos string) (string, error) {
+	if goos == "windows" && (strings.HasPrefix(dir, `\\`) || strings.HasPrefix(dir, "//")) {
+		return "", fmt.Errorf(`${DOTAI_TOOL:%s} cannot be expanded: the tools directory %s starts with \\ or //, as a network path does, and bash, which a harness may run the command through, reads \\ inside double quotes as a single \: put the home directory on a local drive`, name, dir)
+	}
 	if i := strings.IndexAny(dir, unquoted(goos)); i >= 0 {
 		return "", fmt.Errorf("${DOTAI_TOOL:%s} cannot be expanded: the tools directory %s holds %q, which a harness's shell would not take literally inside double quotes", name, dir, dir[i])
 	}

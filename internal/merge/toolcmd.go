@@ -25,10 +25,28 @@ var toolName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 // the POSIX shell script and the PowerShell one.
 var ToolScripts = []string{".sh", ".ps1"}
 
+// toolPrefix opens a tool command variable.
+const toolPrefix = "${DOTAI_TOOL:"
+
+// unclosedTool is what follows a tool command variable in s that has no
+// closing brace, and whether there is one. Only the last can be: an
+// earlier one without a brace after it leaves none after the last.
+func unclosedTool(s string) (string, bool) {
+	i := strings.LastIndex(s, toolPrefix)
+	if i < 0 || strings.Contains(s[i:], "}") {
+		return "", false
+	}
+	return s[i+len(toolPrefix):], true
+}
+
 // ExpandTools replaces each tool command variable in s with what command
 // gives for its name, and stops at the first error. A name that is not a
-// valid tool name is never passed to command: validation reports it.
+// valid tool name, or a variable without its closing brace, is never
+// passed to command: validation reports it.
 func ExpandTools(s string, command func(name string) (string, error)) (string, error) {
+	if rest, ok := unclosedTool(s); ok {
+		return "", &ToolNameError{Name: rest, Unclosed: true}
+	}
 	var err error
 	out := toolRef.ReplaceAllStringFunc(s, func(m string) string {
 		if err != nil {
@@ -49,21 +67,34 @@ func ExpandTools(s string, command func(name string) (string, error)) (string, e
 	return out, nil
 }
 
-// ToolNameError is a tool command variable whose name is not a tool name.
-type ToolNameError struct{ Name string }
+// ToolNameError is a tool command variable whose name is not a tool name,
+// or, with Unclosed, one without its closing brace, Name being what
+// follows it.
+type ToolNameError struct {
+	Name     string
+	Unclosed bool
+}
 
 func (e *ToolNameError) Error() string {
-	return "${DOTAI_TOOL:" + e.Name + "} does not name a tool: a name is letters, digits, '.', '_' and '-', starting with a letter or a digit, without an extension"
+	if e.Unclosed {
+		return toolPrefix + e.Name + " has no closing brace: write ${DOTAI_TOOL:<name>}"
+	}
+	return toolPrefix + e.Name + "} does not name a tool: a name is letters, digits, '.', '_' and '-', starting with a letter or a digit, without an extension"
 }
 
 // checkTools reports each tool command variable in the scope's settings
-// whose name is not a tool name, or whose tool lacks one of its scripts in
-// the scope's tools: the pack ships both, so that it installs on every OS.
+// whose name is not a tool name or that has no closing brace, or whose
+// tool lacks one of its scripts in the scope's tools: the pack ships both,
+// so that it installs on every OS.
 func (s *scope) checkTools() []pack.Diagnostic {
 	var diags []pack.Diagnostic
 	settings := slices.SortedFunc(maps.Values(s.settings), func(a, b setting) int { return cmp.Compare(a.seq, b.seq) })
 	for _, st := range settings {
 		walkStrings(st.v, func(n *yaml.Node) {
+			if rest, ok := unclosedTool(n.Value); ok {
+				diags = append(diags, pack.NewDiagnostic(st.file, n.Line, n.Column, CodeToolInvalid, "setting %s uses %s%s, which has no closing brace", st.id(), toolPrefix, rest).
+					WithHint("write ${DOTAI_TOOL:<name>}, with the name between the colon and the brace"))
+			}
 			for _, m := range toolRef.FindAllStringSubmatch(n.Value, -1) {
 				name := m[1]
 				if !toolName.MatchString(name) {
@@ -96,7 +127,7 @@ func walkStrings(n *yaml.Node, f func(*yaml.Node)) {
 			walkStrings(c, f)
 		}
 	case yaml.ScalarNode:
-		if n.Tag == "!!str" && strings.Contains(n.Value, "${DOTAI_TOOL:") {
+		if n.Tag == "!!str" && strings.Contains(n.Value, toolPrefix) {
 			f(n)
 		}
 	}
