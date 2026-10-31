@@ -19,10 +19,13 @@
       ],
       "variants": [
         "standalone",
-        "tmux"
+        "tmux",
+        "shared"
       ],
       "defaultVariant": "standalone",
-      "sharedSkills": [],
+      "sharedSkills": [
+        "shared"
+      ],
       "layers": [
         {
           "kind": "base",
@@ -47,6 +50,12 @@
           "name": "tmux",
           "path": "variants/tmux",
           "items": 2
+        },
+        {
+          "kind": "variant",
+          "name": "shared",
+          "path": "variants/shared",
+          "items": 1
         }
       ]
     },
