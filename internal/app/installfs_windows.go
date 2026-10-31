@@ -8,7 +8,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"strings"
 	"unicode/utf16"
 	"unsafe"
 
@@ -46,8 +45,8 @@ func linkMode(mode fs.FileMode) bool { return mode&(fs.ModeSymlink|fs.ModeIrregu
 // directory on the way is swapped for a link; a junction left half made is
 // removed.
 func makeLink(r *os.Root, name, dest string) (err error) {
-	if !filepath.IsAbs(dest) || strings.HasPrefix(dest, `\`) {
-		return fmt.Errorf("a junction needs an absolute local destination, not %s", dest)
+	if err := canLink(dest); err != nil {
+		return err
 	}
 	parent, err := r.Open(path.Dir(name))
 	if err != nil {
@@ -76,6 +75,16 @@ func makeLink(r *os.Root, name, dest string) (err error) {
 	}
 	if err != nil {
 		return errors.Join(&fs.PathError{Op: "junction", Path: name, Err: err}, r.Remove(name))
+	}
+	return nil
+}
+
+// canLink refuses a destination a junction cannot point at: one that is
+// not an absolute path on a local drive, such as a network path.
+func canLink(dest string) error {
+	// A drive letter and a colon; a network path has a longer volume.
+	if !filepath.IsAbs(dest) || len(filepath.VolumeName(dest)) != 2 {
+		return fmt.Errorf("a junction needs an absolute path on a local drive, and %s is not one: put the home directory on a local drive, or use a variant that does not share skills", dest)
 	}
 	return nil
 }

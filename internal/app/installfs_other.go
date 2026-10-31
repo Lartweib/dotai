@@ -18,6 +18,9 @@ func clearReadOnly(*os.Root, string, fs.FileMode) error { return nil }
 // linkMode reports a mode that Link reads as a link: a symbolic link.
 func linkMode(mode fs.FileMode) bool { return mode&fs.ModeSymlink != 0 }
 
+// canLink accepts every destination: a symbolic link can point anywhere.
+func canLink(string) error { return nil }
+
 // makeLink creates the symbolic link name inside r to dest.
 func makeLink(r *os.Root, name, dest string) error { return r.Symlink(dest, name) }
 

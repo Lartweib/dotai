@@ -731,6 +731,9 @@ func (r *restorer) plan(res *RestoreResult, s state.State, chain []undone) error
 	if err := checkLinkDirs(r.d, r.p.ops, realDirs); err != nil {
 		return err
 	}
+	if err := checkLinkable(r.d, r.p.ops); err != nil {
+		return err
+	}
 	links := orderLinks(r.p.ops)
 	r.p.ops, res.Ops = permute(r.p.ops, links), permute(res.Ops, links)
 	res.Harnesses = []string{}

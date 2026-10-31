@@ -153,6 +153,9 @@ type installFS interface {
 	// Stat is the mode of what name is or, through links, points at; it
 	// only reads the user's shared skills folder, never a target.
 	Stat(name string) (fs.FileMode, error)
+	// CanLink refuses a destination that LinkIn cannot make a link to on
+	// this OS, such as a network path for a Windows junction.
+	CanLink(dest string) error
 }
 
 // PlanInstall plans the isolated install of the user scope of the pack in
@@ -400,6 +403,9 @@ func buildPlan(ctx context.Context, d installFS, tree, home string, adapters []h
 	if err := checkLinkDirs(d, p.Ops, realDirs); err != nil {
 		return plan.Plan{}, nil, nil, err
 	}
+	if err := checkLinkable(d, p.Ops); err != nil {
+		return plan.Plan{}, nil, nil, err
+	}
 	p.Ops = permute(p.Ops, orderLinks(p.Ops))
 	return p, prev, sp, nil
 }
@@ -566,6 +572,8 @@ type osInstallFS struct{ osStageFS }
 func (osInstallFS) StagingDir() (string, error) { return os.MkdirTemp("", "dotai-install-*") }
 
 func (osInstallFS) ExecBit() bool { return runtime.GOOS != "windows" }
+
+func (osInstallFS) CanLink(dest string) error { return canLink(dest) }
 
 func (osInstallFS) Stat(name string) (fs.FileMode, error) {
 	info, err := os.Stat(name)

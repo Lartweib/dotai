@@ -67,6 +67,20 @@ func checkLinkDirs(d installFS, ops []plan.Op, dirs map[string]bool) error {
 	return nil
 }
 
+// checkLinkable refuses, before anything is written, an op that makes a
+// link this OS cannot make, as d.CanLink tells.
+func checkLinkable(d installFS, ops []plan.Op) error {
+	for _, op := range ops {
+		if op.Link == "" || op.Action == plan.Unchanged {
+			continue
+		}
+		if err := d.CanLink(op.Link); err != nil {
+			return fmt.Errorf("the link %s cannot be made, so nothing was written: %w", op.Target, err)
+		}
+	}
+	return nil
+}
+
 // pendingRemove reports whether the journal of s, if any, removes the link
 // at target: an install killed after it did may have written below it.
 func pendingRemove(s *state.State, target string) bool {

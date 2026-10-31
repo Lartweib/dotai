@@ -765,3 +765,46 @@ func TestASharedSkillCollidesWithThePacksInAnotherCase(t *testing.T) {
 		t.Errorf("the pack's Alpha = %q, %v, want it installed", data, err)
 	}
 }
+
+// noLinkFS is a file system that cannot make a link to any destination, as
+// Windows cannot make a junction to a network path.
+type noLinkFS struct{ *clockFS }
+
+func (noLinkFS) CanLink(dest string) error { return errors.New("no link to " + dest + " here") }
+
+// TestInstallRefusesALinkItCannotMakeBeforeWriting checks that a link the
+// OS cannot make is refused by the dry run and by the install before
+// anything is written.
+func TestInstallRefusesALinkItCannotMakeBeforeWriting(t *testing.T) {
+	home := sharedHome(t)
+	d := noLinkFS{newClockFS(t)}
+	want := "cannot be made, so nothing was written"
+	if _, err := app.PlanInstallWith(context.Background(), d, quiet(t).fetch, skillsRun(t), examplePack, "shared", home); err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("PlanInstall() error = %v, want the link refused", err)
+	}
+	if _, err := installShared(t, d, home, "shared"); err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("Install() error = %v, want the link refused", err)
+	}
+	if _, err := os.Lstat(at(home, ".dotai")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("~/.dotai = %v, want nothing written", err)
+	}
+	if _, err := installShared(t, d, home, "standalone"); err != nil {
+		t.Errorf("Install() of a closed variant error = %v, want it to need no link", err)
+	}
+}
+
+func TestCanLink(t *testing.T) {
+	d := app.OSInstallFS{}
+	local := filepath.Join(t.TempDir(), ".agents", "skills", "a")
+	if err := d.CanLink(local); err != nil {
+		t.Errorf("CanLink(%s) = %v, want a local path accepted", local, err)
+	}
+	if runtime.GOOS != "windows" {
+		return
+	}
+	for _, dest := range []string{`\\server\share\home\.agents\skills\a`, `\\?\UNC\server\share\a`} {
+		if err := d.CanLink(dest); err == nil || !strings.Contains(err.Error(), "local drive") {
+			t.Errorf("CanLink(%s) = %v, want a network path refused for a junction", dest, err)
+		}
+	}
+}
