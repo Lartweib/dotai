@@ -568,3 +568,11 @@ func TestBuildRefusesToReplaceAFileWithALink(t *testing.T) {
 		})
 	}
 }
+
+func TestValidName(t *testing.T) {
+	for name, want := range map[string]bool{"commit-message": true, "a.b": true, "a/b": false, "a:b": false, "CON": false, "..": false, `a\b`: false, "": false} {
+		if got := plan.ValidName(name); got != want {
+			t.Errorf("ValidName(%q) = %t, want %t", name, got, want)
+		}
+	}
+}

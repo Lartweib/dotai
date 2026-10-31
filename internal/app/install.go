@@ -40,16 +40,18 @@ const CodePathUnmapped = "path-unmapped"
 
 // InstallPlan is the plan of an install of a pack's user scope: the
 // isolation of each harness, which decision 0018 requires to show before
-// installing, and the file operations. Lists are never nil; they are
-// empty when there are diagnostics.
+// installing, the shared skills a variant that shares them takes (decision
+// 0036), and the file operations. Lists are never nil; they are empty when
+// there are diagnostics.
 type InstallPlan struct {
-	Pack        *PackSummary  `json:"pack"`    // nil when the manifest cannot be read
-	Variant     string        `json:"variant"` // the variant asked for, or the pack's default
-	Mode        string        `json:"mode"`
-	Root        string        `json:"root"` // the directory that holds each harness's isolated directory
-	Harnesses   []HarnessPlan `json:"harnesses"`
-	Ops         []InstallOp   `json:"ops"`
-	Diagnostics []Diagnostic  `json:"diagnostics"`
+	Pack         *PackSummary      `json:"pack"`    // nil when the manifest cannot be read
+	Variant      string            `json:"variant"` // the variant asked for, or the pack's default
+	Mode         string            `json:"mode"`
+	Root         string            `json:"root"`         // the directory that holds each harness's isolated directory
+	SharedSkills *SharedSkillsPlan `json:"sharedSkills"` // nil when the variant does not share skills
+	Harnesses    []HarnessPlan     `json:"harnesses"`
+	Ops          []InstallOp       `json:"ops"`
+	Diagnostics  []Diagnostic      `json:"diagnostics"`
 }
 
 // HarnessPlan is how one harness runs isolated on this OS: its directory,
@@ -148,6 +150,9 @@ type installFS interface {
 	// name is missing and a *NotRegularError when it is not a link.
 	Link(name string) (plan.Current, error)
 	ExecBit() bool // whether the file system keeps an exec bit
+	// Stat is the mode of what name is or, through links, points at; it
+	// only reads the user's shared skills folder, never a target.
+	Stat(name string) (fs.FileMode, error)
 }
 
 // PlanInstall plans the isolated install of the user scope of the pack in
@@ -183,10 +188,11 @@ func planInstall(ctx context.Context, d installFS, fetch fetchFunc, run runFunc,
 // planned is a plan with what carrying it out needs: the plan's own
 // operations, the user staging tree that holds the staged files, the
 // state of the previous install (nil before the first one), the pack's
-// harnesses and whether the exec bit is left out. Only plan is set when
-// the plan has diagnostics.
+// harnesses, whether the variant shares skills and whether the exec bit is
+// left out. Only plan is set when the plan has diagnostics.
 type planned struct {
 	plan       InstallPlan
+	shared     bool
 	ops        []plan.Op
 	tree       string
 	prev       *state.State
@@ -239,8 +245,9 @@ func withPlan(ctx context.Context, d installFS, fetch fetchFunc, run runFunc, ca
 	if err != nil {
 		return err
 	}
+	shared := slices.Contains(s.Pack.SharedSkills, res.Variant)
 	tree := filepath.Join(out, ScopeUser)
-	p, prev, err := buildPlan(ctx, d, tree, home, adapters)
+	p, prev, sp, err := buildPlan(ctx, d, tree, home, adapters, shared)
 	if u, ok := errors.AsType[*plan.UnmappedError](err); ok {
 		res.Diagnostics = unmappedDiagnostics(u)
 		return then(planned{plan: res})
@@ -248,8 +255,9 @@ func withPlan(ctx context.Context, d installFS, fetch fetchFunc, run runFunc, ca
 	if err != nil {
 		return err
 	}
+	res.SharedSkills = sp
 	for _, a := range adapters {
-		res.Harnesses = append(res.Harnesses, harnessPlan(res.Root, a, runtime.GOOS, false))
+		res.Harnesses = append(res.Harnesses, harnessPlan(res.Root, a, runtime.GOOS, shared))
 	}
 	for _, op := range p.Ops {
 		res.Ops = append(res.Ops, InstallOp{
@@ -258,7 +266,7 @@ func withPlan(ctx context.Context, d installFS, fetch fetchFunc, run runFunc, ca
 			Link: op.Link, BeforeLink: op.BeforeLink,
 		})
 	}
-	return then(planned{plan: res, ops: p.Ops, tree: tree, prev: prev, harnesses: s.Pack.Harnesses, owned: p.Owned, keys: p.Keys, ignoreExec: !d.ExecBit()})
+	return then(planned{plan: res, shared: shared, ops: p.Ops, tree: tree, prev: prev, harnesses: s.Pack.Harnesses, owned: p.Owned, keys: p.Keys, ignoreExec: !d.ExecBit()})
 }
 
 // buildPlan plans the user-scope staging tree tree into home. A first
@@ -267,12 +275,15 @@ func withPlan(ctx context.Context, d installFS, fetch fetchFunc, run runFunc, ca
 // each staged file, the state of each target and of each file the previous
 // install owned, and that install's ownership record. A harness's settings
 // file, staged or as its target holds it, is read whole, since it is
-// planned key by key. It also returns the previous install's state, nil
-// when there is none.
-func buildPlan(ctx context.Context, d installFS, tree, home string, adapters []harness.Adapter) (plan.Plan, *state.State, error) {
+// planned key by key. With shared set, the variant shares the user's
+// skills, and each shared skill is planned as a link (decision 0036),
+// unless the pack stages a skill of its name. It also returns the previous
+// install's state, nil when there is none, and the shared skills, nil
+// unless shared is set.
+func buildPlan(ctx context.Context, d installFS, tree, home string, adapters []harness.Adapter, shared bool) (plan.Plan, *state.State, *SharedSkillsPlan, error) {
 	names, err := d.Files(tree)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return plan.Plan{}, nil, err
+		return plan.Plan{}, nil, nil, err
 	}
 	in := plan.Input{Home: home, Adapters: adapters, IgnoreExec: !d.ExecBit()}
 	for _, name := range names {
@@ -280,11 +291,22 @@ func buildPlan(ctx context.Context, d installFS, tree, home string, adapters []h
 	}
 	first, err := plan.Build(in)
 	if err != nil {
-		return plan.Plan{}, nil, err
+		return plan.Plan{}, nil, nil, err
+	}
+	var sp *SharedSkillsPlan
+	if shared {
+		var links []plan.File
+		if links, sp, err = sharedSkills(d, home, adapters, first.Ops); err != nil {
+			return plan.Plan{}, nil, nil, err
+		}
+		in.Files = append(in.Files, links...)
+		if first, err = plan.Build(in); err != nil {
+			return plan.Plan{}, nil, nil, err
+		}
 	}
 	prev, err := readState(d, home)
 	if err != nil {
-		return plan.Plan{}, nil, err
+		return plan.Plan{}, nil, nil, err
 	}
 	in.Files, in.Disk, in.Content = nil, map[string]plan.Current{}, map[string][]byte{}
 	var targets []string
@@ -304,7 +326,7 @@ func buildPlan(ctx context.Context, d installFS, tree, home string, adapters []h
 			staged, err = d.Hash(ctx, name)
 		}
 		if err != nil {
-			return plan.Plan{}, nil, err
+			return plan.Plan{}, nil, nil, err
 		}
 		in.Files = append(in.Files, plan.File{Path: op.Source, Hash: staged.Hash, Exec: staged.Exec, Data: data})
 		targets = append(targets, op.Target)
@@ -348,7 +370,7 @@ func buildPlan(ctx context.Context, d installFS, tree, home string, adapters []h
 			continue
 		}
 		if err != nil {
-			return plan.Plan{}, nil, err
+			return plan.Plan{}, nil, nil, err
 		}
 		if ok {
 			in.Disk[target] = cur
@@ -359,13 +381,13 @@ func buildPlan(ctx context.Context, d installFS, tree, home string, adapters []h
 	}
 	p, err := plan.Build(in)
 	if err != nil {
-		return plan.Plan{}, nil, err
+		return plan.Plan{}, nil, nil, err
 	}
 	if err := checkLinkDirs(p.Ops, realDirs); err != nil {
-		return plan.Plan{}, nil, err
+		return plan.Plan{}, nil, nil, err
 	}
 	p.Ops = permute(p.Ops, orderLinks(p.Ops))
-	return p, prev, nil
+	return p, prev, sp, nil
 }
 
 // readState reads the state of the previous install in home, nil when
@@ -527,6 +549,14 @@ type osInstallFS struct{ osStageFS }
 func (osInstallFS) StagingDir() (string, error) { return os.MkdirTemp("", "dotai-install-*") }
 
 func (osInstallFS) ExecBit() bool { return runtime.GOOS != "windows" }
+
+func (osInstallFS) Stat(name string) (fs.FileMode, error) {
+	info, err := os.Stat(name)
+	if err != nil {
+		return 0, err
+	}
+	return info.Mode(), nil
+}
 
 func (osInstallFS) Lstat(name string) (fs.FileMode, error) {
 	info, err := os.Lstat(name)

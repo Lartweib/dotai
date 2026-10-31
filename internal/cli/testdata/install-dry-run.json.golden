@@ -22,6 +22,7 @@
     "variant": "standalone",
     "mode": "isolated",
     "root": "/home/u/.dotai/isolated",
+    "sharedSkills": null,
     "harnesses": [
       {
         "id": "claudecode",

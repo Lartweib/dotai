@@ -1,0 +1,27 @@
+Install plan · minimal-pack 0.1.0 · variant shared · mode isolated
+root: /home/u/.dotai/isolated
+shared skills: /home/u/.agents/skills · commit-message, review
+  note: notes is skipped: it is not a skill, a directory with a SKILL.md
+  note: the shared skill commit-message is not linked into claudecode: the pack has a skill of that name, which wins
+
+claudecode · partial isolation · may need a new login
+  CLAUDE_CONFIG_DIR=/home/u/.dotai/isolated/claude
+  leaks: ~/.claude/CLAUDE.md still loads when the working directory is under the home directory
+
+antigravity-cli · partial isolation · keeps your login
+  --gemini_dir=/home/u/.dotai/isolated/gemini
+  leaks: authentication is shared through the OS keyring
+
+opencode · partial isolation · needs a new login
+  XDG_CONFIG_HOME=/home/u/.dotai/isolated/opencode/config
+  XDG_DATA_HOME=/home/u/.dotai/isolated/opencode/data
+  leaks: nothing known
+
+claudecode
+  create     /home/u/.dotai/isolated/claude/skills/review -> /home/u/.agents/skills/review
+  remove     /home/u/.dotai/isolated/claude/skills/gone -> /home/u/.agents/skills/gone
+
+antigravity-cli
+  unchanged  /home/u/.dotai/isolated/gemini/config/skills/review -> /home/u/.agents/skills/review
+
+1 create, 0 replace, 1 remove, 1 unchanged · dry run, nothing was written

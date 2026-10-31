@@ -195,7 +195,10 @@ func install(ctx context.Context, d executeFS, fetch fetchFunc, run runFunc, cac
 		if len(p.plan.Diagnostics) > 0 {
 			return nil
 		}
-		if w := settingsWarning(p); w != "" {
+		for _, w := range append(sharedWarnings(p.plan.SharedSkills), settingsWarning(p)) {
+			if w == "" {
+				continue
+			}
 			res.Warnings = append(res.Warnings, w)
 			if warn != nil {
 				warn(w)
@@ -263,6 +266,7 @@ func (r runner) run(res *InstallResult) error {
 	}
 	prev := r.p.prev
 	next := state.New(r.pack, r.p.plan.Variant, ModeIsolated, time.Time{}, r.p.harnesses, "", r.p.ops)
+	next.SharedSkills = r.p.shared
 	if len(writes) == 0 && prev != nil && prev.SameInstall(next) {
 		res.State = statePath
 		return nil

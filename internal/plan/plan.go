@@ -454,3 +454,9 @@ func checkPath(name string) error {
 	}
 	return nil
 }
+
+// ValidName reports whether name can be one segment of a staged path: a
+// file name every OS dotai supports can store.
+func ValidName(name string) bool {
+	return !strings.Contains(name, "/") && checkPath(name) == nil
+}

@@ -18,6 +18,10 @@ import (
 // directory per harness for isolated installs (decision 0031).
 const IsolatedDir = ".dotai/isolated"
 
+// SharedSkillsDir is the user's shared skills folder, under the home
+// directory, where other tools install skills (decision 0036).
+const SharedSkillsDir = ".agents/skills"
+
 // Level is how fully a harness runs apart from the user's configuration.
 type Level string
 

@@ -170,7 +170,7 @@ func writeRestore(w io.Writer, r app.RestoreResult, color bool) error {
 			if op.Conflict {
 				changed = "  " + paint(color, styleDim, "(changed after the install, kept in the restore backup)")
 			}
-			fmt.Fprintf(&b, "  %s  %s%s\n", verb, op.Target, changed)
+			fmt.Fprintf(&b, "  %s  %s%s%s\n", verb, op.Target, linkTo(op.Link, op.BeforeLink), changed)
 			writeKeys(&b, color, len("  restore  "), op.Keys)
 		}
 	}

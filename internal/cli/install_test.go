@@ -414,3 +414,45 @@ func TestRunInstallWithWarnings(t *testing.T) {
 		}
 	}
 }
+
+// TestRunInstallDryRunWithSharedSkills checks the plan of a variant that
+// shares the user's skills (decision 0036): the shared skills and what is
+// skipped in the header, and each link with where it points.
+func TestRunInstallDryRunWithSharedSkills(t *testing.T) {
+	t.Setenv("DOTAI_CACHE_DIR", "cache")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	p := installPlan
+	p.Variant = "shared"
+	p.SharedSkills = &app.SharedSkillsPlan{Dir: "/home/u/.agents/skills", Found: true, Skills: []string{"commit-message", "review"}, Skipped: []app.SkippedSkill{
+		{Name: "notes", Reason: app.ReasonNotASkill},
+		{Name: "commit-message", Harness: "claudecode", Reason: app.ReasonPackSkill},
+	}}
+	p.Ops = []app.InstallOp{
+		{Action: plan.Create, Harness: "claudecode", Source: ".claude/skills/review", Target: "/home/u/.dotai/isolated/claude/skills/review",
+			After: "aa", Link: "/home/u/.agents/skills/review", Keys: []plan.KeyChange{}},
+		{Action: plan.Remove, Harness: "claudecode", Target: "/home/u/.dotai/isolated/claude/skills/gone", Before: "bb", BeforeLink: "/home/u/.agents/skills/gone", Keys: []plan.KeyChange{}},
+		{Action: plan.Unchanged, Harness: "antigravity-cli", Source: ".gemini/antigravity-cli/skills/review", Target: "/home/u/.dotai/isolated/gemini/config/skills/review",
+			Before: "cc", After: "cc", Link: "/home/u/.agents/skills/review", BeforeLink: "/home/u/.agents/skills/review", Keys: []plan.KeyChange{}},
+	}
+	var stdout, stderr bytes.Buffer
+	env := testEnv(&stdout, &stderr)
+	env.PlanInstall = func(context.Context, string, string, string, string, app.Progress) (app.InstallPlan, error) {
+		return p, nil
+	}
+	if code := cli.Run([]string{"install", examplePack, "--dry-run", "--variant", "shared"}, env); code != cli.ExitOK {
+		t.Errorf("exit code = %d, stderr = %q, want 0", code, stderr.String())
+	}
+	assertGolden(t, filepath.Join("testdata", "install-dry-run-shared.txt.golden"), stdout.Bytes())
+
+	p.SharedSkills = &app.SharedSkillsPlan{Dir: "/home/u/.agents/skills", Skills: []string{}, Skipped: []app.SkippedSkill{}}
+	p.Ops = []app.InstallOp{}
+	stdout.Reset()
+	if code := cli.Run([]string{"install", examplePack, "--dry-run", "--variant", "shared"}, env); code != cli.ExitOK {
+		t.Errorf("exit code = %d, want 0", code)
+	}
+	if want := "shared skills: /home/u/.agents/skills is missing, so there is nothing to share\n"; !strings.Contains(stdout.String(), want) {
+		t.Errorf("stdout = %q, want it to contain %q", stdout.String(), want)
+	}
+}
