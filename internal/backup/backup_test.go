@@ -278,3 +278,65 @@ func TestCheck(t *testing.T) {
 		})
 	}
 }
+
+// TestNewRecordsLinks checks that a link (decision 0036) is recorded with
+// its destination and has no copy, even when it is replaced or removed.
+func TestNewRecordsLinks(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home")
+	target := func(rel string) string { return filepath.Join(home, filepath.FromSlash(rel)) }
+	a, b := target(".agents/skills/a"), target(".agents/skills/b")
+	ops := []plan.Op{
+		{Action: plan.Create, Harness: "claudecode", Source: ".claude/skills/a", Target: target(".dotai/isolated/claude/skills/a"), After: plan.LinkHash(a), Link: a},
+		{Action: plan.Replace, Harness: "claudecode", Source: ".claude/skills/b", Target: target(".dotai/isolated/claude/skills/b"),
+			Before: plan.LinkHash(a), BeforeLink: a, After: plan.LinkHash(b), Link: b},
+		{Action: plan.Remove, Harness: "claudecode", Target: target(".dotai/isolated/claude/skills/c"), Before: plan.LinkHash(b), BeforeLink: b},
+	}
+	m, err := backup.New("20261029T131500.123Z_install", backup.OperationInstall, at, home, backup.Info{}, ops)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []backup.Op{
+		{Action: plan.Create, Target: ops[0].Target, After: &backup.Content{Link: a}},
+		{Action: plan.Replace, Target: ops[1].Target, Before: &backup.Content{Link: a}, After: &backup.Content{Link: b}},
+		{Action: plan.Remove, Target: ops[2].Target, Before: &backup.Content{Link: b}},
+	}
+	if !reflect.DeepEqual(m.Ops, want) {
+		t.Errorf("New() ops = %+v, want %+v", m.Ops, want)
+	}
+	m.PriorState = &backup.PriorState{None: true}
+	if err := backup.Check(m, m.ID, home); err != nil {
+		t.Errorf("Check() = %v, want the links valid", err)
+	}
+	if c := want[0].After.Current(); c != plan.LinkCurrent(a) {
+		t.Errorf("Current() = %+v, want the link", c)
+	}
+	if c := (backup.Content{SHA256: "h", Exec: true}).Current(); c != (plan.Current{Hash: "h", Exec: true}) {
+		t.Errorf("Current() = %+v, want the file", c)
+	}
+	for name, change := range map[string]func(*backup.Manifest){
+		"a link with a copy":            func(m *backup.Manifest) { m.Ops[2].File = "files/.dotai/isolated/claude/skills/c" },
+		"a link that is not absolute":   func(m *backup.Manifest) { m.Ops[0].After.Link = "a" },
+		"a link with a hash":            func(m *backup.Manifest) { m.Ops[0].After.SHA256 = "h" },
+		"a file without a hash or link": func(m *backup.Manifest) { m.Ops[0].After = &backup.Content{} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			bad, err := backup.Decode(mustEncode(t, m))
+			if err != nil {
+				t.Fatal(err)
+			}
+			change(&bad)
+			if err := backup.Check(bad, m.ID, home); err == nil {
+				t.Errorf("Check() = nil, want an error")
+			}
+		})
+	}
+}
+
+func mustEncode(t *testing.T, m backup.Manifest) []byte {
+	t.Helper()
+	data, err := backup.Encode(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}

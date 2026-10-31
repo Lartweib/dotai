@@ -1,8 +1,9 @@
 // Package backup is the backup format of decisions 0018 and 0032: one
 // directory per operation under ~/.dotai/backups/, named by its id, with a
 // manifest.json and, under files/, a copy of each target the operation
-// replaced or removed at its path relative to the home directory. It does
-// no I/O; the caller copies the files and writes the manifest.
+// replaced or removed at its path relative to the home directory. A link
+// (decision 0036) is recorded with its destination and never copied. It
+// does no I/O; the caller copies the files and writes the manifest.
 package backup
 
 import (
@@ -120,8 +121,8 @@ type Pack struct {
 // Op is one target the operation wrote. Before is what the target had,
 // absent for a create; After what it was given, absent for a remove. File
 // is the slash path of its copy inside the backup directory, set for a
-// replace and a remove; a created target has no copy, so that a restore
-// deletes it.
+// replace and a remove of a file; a created target has no copy, so that a
+// restore deletes it, and neither has a link, which its Content describes.
 type Op struct {
 	Action plan.Action `json:"action"`
 	Target string      `json:"target"`
@@ -130,10 +131,29 @@ type Op struct {
 	After  *Content    `json:"after,omitempty"`
 }
 
-// Content is a file's SHA-256 in hex and its exec bit.
+// Content is a file's SHA-256 in hex and its exec bit, or, with Link and
+// no SHA-256, the destination of a link (decision 0036).
 type Content struct {
-	SHA256 string `json:"sha256"`
+	SHA256 string `json:"sha256,omitempty"`
 	Exec   bool   `json:"exec"`
+	Link   string `json:"link,omitempty"`
+}
+
+// Current is c as the plan reads it.
+func (c Content) Current() plan.Current {
+	if c.Link != "" {
+		return plan.LinkCurrent(c.Link)
+	}
+	return plan.Current{Hash: c.SHA256, Exec: c.Exec}
+}
+
+// content is what a target holds with hash and exec, or is the link to
+// link when it is not "".
+func content(hash string, exec bool, link string) *Content {
+	if link != "" {
+		return &Content{Link: link}
+	}
+	return &Content{SHA256: hash, Exec: exec}
 }
 
 // New is the manifest of the backup id of operation, taken at t, of the
@@ -154,11 +174,13 @@ func New(id, operation string, t time.Time, home string, info Info, ops []plan.O
 		}
 		b := Op{Action: op.Action, Target: op.Target}
 		if op.Action != plan.Create {
-			b.File = path.Join(FilesDir, rel)
-			b.Before = &Content{SHA256: op.Before, Exec: op.BeforeExec}
+			b.Before = content(op.Before, op.BeforeExec, op.BeforeLink)
+			if op.BeforeLink == "" {
+				b.File = path.Join(FilesDir, rel)
+			}
 		}
 		if op.Action != plan.Remove {
-			b.After = &Content{SHA256: op.After, Exec: op.Exec}
+			b.After = content(op.After, op.Exec, op.Link)
 		}
 		m.Ops = append(m.Ops, b)
 	}
@@ -199,7 +221,8 @@ func Decode(data []byte) (Manifest, error) {
 // Check reports a manifest m that is not one this format writes for the
 // backup id taken into home: another id, operation or home directory, an
 // op whose before, after and copy do not fit its action, a copy that is
-// not at its target's path under FilesDir, a target that is not under home
+// not at its target's path under FilesDir, a link with a copy, a hash or a
+// destination that is not absolute, a target that is not under home
 // or that is named twice, or a prior state that is neither none nor
 // StateName. It does not check where under home a target is.
 func Check(m Manifest, id, home string) error {
@@ -239,8 +262,17 @@ func Check(m Manifest, id, home string) error {
 		if !fits {
 			return fmt.Errorf("backup manifest %s: the %s of %s does not have the before and after a %s has", id, o.Action, o.Target, o.Action)
 		}
-		if o.Action != plan.Create && o.File != path.Join(FilesDir, rel) {
-			return fmt.Errorf("backup manifest %s: the copy of %s is %q, want %q", id, o.Target, o.File, path.Join(FilesDir, rel))
+		for _, c := range []*Content{o.Before, o.After} {
+			if c != nil && (c.Link != "" && (c.SHA256 != "" || c.Exec || !filepath.IsAbs(c.Link)) || c.Link == "" && c.SHA256 == "") {
+				return fmt.Errorf("backup manifest %s: %s needs a SHA-256, or the absolute destination of a link and nothing else", id, o.Target)
+			}
+		}
+		want := path.Join(FilesDir, rel)
+		if o.Action == plan.Create || o.Before.Link != "" {
+			want = ""
+		}
+		if o.File != want {
+			return fmt.Errorf("backup manifest %s: the copy of %s is %q, want %q", id, o.Target, o.File, want)
 		}
 	}
 	return nil

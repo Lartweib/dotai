@@ -484,3 +484,87 @@ func TestMovedFrom(t *testing.T) {
 		}
 	}
 }
+
+// TestBuildPlansLinks checks that a staged link (decision 0036) is planned
+// like a file whose content is its destination: created when missing, left
+// unchanged when it already points there, removed when an earlier install
+// owned it and the pack no longer stages it, and refused as edited when it
+// points elsewhere.
+func TestBuildPlansLinks(t *testing.T) {
+	home := t.TempDir()
+	dest := func(name string) string { return under(home, ".agents/skills/"+name) }
+	link := func(name string) string { return under(home, ".dotai/isolated/claude/skills/"+name) }
+	files := []plan.File{
+		{Path: ".claude/skills/new", Link: dest("new")},
+		{Path: ".claude/skills/same", Link: dest("same")},
+		{Path: ".claude/skills/foreign", Link: dest("foreign")},
+	}
+	owned := map[string]plan.Owned{
+		link("same"): {Harness: "claudecode", Hash: plan.LinkHash(dest("same"))},
+		link("gone"): {Harness: "claudecode", Hash: plan.LinkHash(dest("gone"))},
+	}
+	disk := map[string]plan.Current{
+		link("same"):    plan.LinkCurrent(dest("same")),
+		link("gone"):    plan.LinkCurrent(dest("gone")),
+		link("foreign"): plan.LinkCurrent(under(home, "elsewhere")), // a link dotai did not make
+	}
+	got, err := plan.Build(plan.Input{Home: home, Adapters: adapters(t, "claudecode"), Files: files, Owned: owned, Disk: disk})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	want := []plan.Op{
+		{Action: plan.Replace, Scope: plan.ScopeUser, Harness: "claudecode", Source: ".claude/skills/foreign", Target: link("foreign"),
+			Before: plan.LinkHash(under(home, "elsewhere")), BeforeLink: under(home, "elsewhere"), After: plan.LinkHash(dest("foreign")), Link: dest("foreign")},
+		{Action: plan.Remove, Scope: plan.ScopeUser, Harness: "claudecode", Target: link("gone"), Before: plan.LinkHash(dest("gone")), BeforeLink: dest("gone")},
+		{Action: plan.Create, Scope: plan.ScopeUser, Harness: "claudecode", Source: ".claude/skills/new", Target: link("new"), After: plan.LinkHash(dest("new")), Link: dest("new")},
+		{Action: plan.Unchanged, Scope: plan.ScopeUser, Harness: "claudecode", Source: ".claude/skills/same", Target: link("same"),
+			Before: plan.LinkHash(dest("same")), BeforeLink: dest("same"), After: plan.LinkHash(dest("same")), Link: dest("same")},
+	}
+	if !reflect.DeepEqual(got.Ops, want) {
+		t.Errorf("Build() =\n%+v\nwant\n%+v", got.Ops, want)
+	}
+
+	disk[link("same")] = plan.LinkCurrent(under(home, "changed"))
+	if _, err := plan.Build(plan.Input{Home: home, Adapters: adapters(t, "claudecode"), Files: files, Owned: owned, Disk: disk}); !errors.As(err, new(*plan.EditedError)) {
+		t.Errorf("Build() error = %v, want an owned link that points elsewhere refused as edited", err)
+	}
+}
+
+func TestBuildRefusesARelativeLink(t *testing.T) {
+	home := t.TempDir()
+	files := []plan.File{{Path: ".claude/skills/a", Link: "relative/a"}}
+	if _, err := plan.Build(plan.Input{Home: home, Adapters: adapters(t, "claudecode"), Files: files}); err == nil || !strings.Contains(err.Error(), "not absolute") {
+		t.Errorf("Build() error = %v, want a link whose destination is not absolute refused", err)
+	}
+}
+
+func TestLinkHash(t *testing.T) {
+	if a, b := plan.LinkHash("/h/.agents/skills/a"), plan.LinkHash("/h/.agents/skills/b"); len(a) != 64 || a == b {
+		t.Errorf("LinkHash() = %q, %q, want two SHA-256 in hex", a, b)
+	}
+	if c := plan.LinkCurrent("/h/a"); c != (plan.Current{Hash: plan.LinkHash("/h/a"), Link: "/h/a"}) {
+		t.Errorf("LinkCurrent() = %+v", c)
+	}
+}
+
+func TestBuildRefusesToReplaceAFileWithALink(t *testing.T) {
+	home := t.TempDir()
+	target := under(home, ".dotai/isolated/claude/skills/a")
+	for name, tt := range map[string]struct {
+		file plan.File
+		disk plan.Current
+		link bool
+	}{
+		"a file where a link goes": {plan.File{Path: ".claude/skills/a", Link: under(home, ".agents/skills/a")}, plan.Current{Hash: "f"}, true},
+		"a link where a file goes": {plan.File{Path: ".claude/skills/a", Hash: "f"}, plan.LinkCurrent(under(home, "x")), false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			in := plan.Input{Home: home, Adapters: adapters(t, "claudecode"), Files: []plan.File{tt.file}, Disk: map[string]plan.Current{target: tt.disk}}
+			_, err := plan.Build(in)
+			var e *plan.KindError
+			if !errors.As(err, &e) || e.Target != target || e.Link != tt.link {
+				t.Errorf("Build() error = %v, want a kind error on %s", err, target)
+			}
+		})
+	}
+}

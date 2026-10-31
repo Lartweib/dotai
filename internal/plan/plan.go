@@ -7,11 +7,14 @@
 // and each file an earlier install owned that the pack no longer stages is
 // removed (decision 0032). A harness's settings file is planned key by key
 // instead (decision 0035): the harness writes into it too, so dotai owns
-// only the keys the pack puts there.
+// only the keys the pack puts there. A link to a shared skill (decision
+// 0036) is planned like a file whose content is its destination.
 package plan
 
 import (
 	"cmp"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io/fs"
 	"maps"
@@ -47,10 +50,15 @@ const (
 // the tree, the SHA-256 of its content in hex and whether it is
 // executable. The tree holds the files of a scope only; the stage marker
 // sits beside it and is never part of it.
+//
+// A File with Link is not in the tree: it is a link to install at the
+// target of Path, pointing at Link, an absolute path (decision 0036). Its
+// Hash and Exec are then LinkHash(Link) and false, whatever they hold.
 type File struct {
 	Path string
 	Hash string
 	Exec bool
+	Link string
 	// Data is the content of a harness's settings file, which is planned
 	// key by key. A settings file without it is planned whole from its
 	// hash, as when nothing is read yet.
@@ -58,11 +66,24 @@ type File struct {
 }
 
 // Current is the state of a target that exists: the SHA-256 of its
-// content in hex and whether it is executable.
+// content in hex and whether it is executable. For a link, Link is its
+// destination, Hash is LinkHash(Link) and Exec is false: the content of a
+// link is where it points, so comparing hashes compares links too.
 type Current struct {
 	Hash string
 	Exec bool
+	Link string
 }
+
+// LinkHash is the hash that stands for the content of a link to dest: the
+// SHA-256 in hex of "link:" followed by dest.
+func LinkHash(dest string) string {
+	h := sha256.Sum256([]byte("link:" + dest))
+	return hex.EncodeToString(h[:])
+}
+
+// LinkCurrent is the state of a link to dest.
+func LinkCurrent(dest string) Current { return Current{Hash: LinkHash(dest), Link: dest} }
 
 // Owned is a target the previous install wrote, as its ownership record
 // holds it: the harness it was installed for, "" for a tool, and the
@@ -128,6 +149,10 @@ type Plan struct {
 // it. Keys are the keys dotai owns in the target once the op is carried
 // out, none when it no longer owns the file, and Changes the keys the op
 // writes or deletes.
+//
+// Link is the destination of a link the op leaves at its target, and
+// BeforeLink that of the link the target is, "" when it is not one
+// (decision 0036): Before and After are then their LinkHash.
 type Op struct {
 	Action     Action
 	Scope      string
@@ -142,6 +167,24 @@ type Op struct {
 	Data       []byte
 	Keys       []Key
 	Changes    []KeyChange
+	Link       string
+	BeforeLink string
+}
+
+// KindError is a target that is a link where the plan installs a file, or
+// a file where it installs a link (Link set): dotai never replaces one
+// with the other.
+type KindError struct {
+	Target string
+	Link   bool
+}
+
+func (e *KindError) Error() string {
+	is, want := "a link", "a file"
+	if e.Link {
+		is, want = "not a link", "a link"
+	}
+	return fmt.Sprintf("%s is %s where the install needs %s; dotai never replaces what it did not write: move or remove it, then plan again", e.Target, is, want)
 }
 
 // UnmappedError is a staged file that no harness of the pack and no tools
@@ -231,6 +274,12 @@ func Build(in Input) (Plan, error) {
 		if strings.HasPrefix(f.Path, sourcesDir) {
 			continue
 		}
+		if f.Link != "" {
+			if !filepath.IsAbs(f.Link) {
+				return Plan{}, fmt.Errorf("the link %s points at %q, which is not absolute", f.Path, f.Link)
+			}
+			f.Hash, f.Exec, f.Data = LinkHash(f.Link), false, nil
+		}
 		h, target, ok := Locate(in.Home, in.Adapters, f.Path)
 		if !ok {
 			unmapped = append(unmapped, f.Path)
@@ -244,9 +293,12 @@ func Build(in Input) (Plan, error) {
 			settings[target] = &settingsFile{harness: sh, staged: &f}
 			continue
 		}
-		op := Op{Action: Create, Scope: ScopeUser, Harness: h, Source: f.Path, Target: target, Exec: f.Exec, After: f.Hash}
+		op := Op{Action: Create, Scope: ScopeUser, Harness: h, Source: f.Path, Target: target, Exec: f.Exec, After: f.Hash, Link: f.Link}
 		if cur, ok := in.Disk[target]; ok {
-			op.Before, op.BeforeExec, op.Action = cur.Hash, cur.Exec, Replace
+			if (cur.Link != "") != (f.Link != "") {
+				return Plan{}, &KindError{Target: target, Link: f.Link != ""}
+			}
+			op.Before, op.BeforeExec, op.BeforeLink, op.Action = cur.Hash, cur.Exec, cur.Link, Replace
 			if cur.Hash == f.Hash && (in.IgnoreExec || cur.Exec == f.Exec) {
 				op.Action = Unchanged
 			}
@@ -290,7 +342,7 @@ func Build(in Input) (Plan, error) {
 		}
 		p.Owned[target] = cur
 		if _, staged := sources[target]; !staged {
-			p.Ops = append(p.Ops, Op{Action: Remove, Scope: ScopeUser, Harness: o.Harness, Target: target, Before: cur.Hash, BeforeExec: cur.Exec})
+			p.Ops = append(p.Ops, Op{Action: Remove, Scope: ScopeUser, Harness: o.Harness, Target: target, Before: cur.Hash, BeforeExec: cur.Exec, BeforeLink: cur.Link})
 		}
 	}
 	for target, st := range settings {

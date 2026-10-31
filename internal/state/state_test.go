@@ -1,6 +1,7 @@
 package state_test
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -234,4 +235,103 @@ func TestSettled(t *testing.T) {
 	if got.Pending != nil || !reflect.DeepEqual(got.Files, want) || got.Backup != s.Backup {
 		t.Errorf("Settled() = %+v, want files %+v and no pending", got, want)
 	}
+}
+
+// TestLinks checks the record of a link to a shared skill (decision 0036):
+// a file of kind link with its destination and no hash, whose content the
+// plan reads as plan.LinkHash of the destination, in the files, the
+// journal and once the journal is settled.
+func TestLinks(t *testing.T) {
+	home := t.TempDir()
+	target := func(rel string) string { return filepath.Join(home, filepath.FromSlash(rel)) }
+	dest, old := target(".agents/skills/a"), target(".agents/skills/b")
+	created, removed := target(".dotai/isolated/claude/skills/a"), target(".dotai/isolated/claude/skills/b")
+	ops := []plan.Op{
+		{Action: plan.Create, Harness: "claudecode", Source: ".claude/skills/a", Target: created, After: plan.LinkHash(dest), Link: dest},
+		{Action: plan.Remove, Harness: "claudecode", Target: removed, Before: plan.LinkHash(old), BeforeLink: old},
+	}
+	s := state.New(state.Pack{Name: "p"}, "shared", "isolated", at, []string{"claudecode"}, "b1", ops)
+	s.SharedSkills = true
+	if want := []state.File{{Target: created, Harness: "claudecode", Kind: state.KindLink, Link: dest}}; !reflect.DeepEqual(s.Files, want) {
+		t.Errorf("New() files = %+v, want %+v", s.Files, want)
+	}
+	data := encode(t, s)
+	for _, key := range []string{`"kind": "link"`, `"link": ` + jsonString(t, dest), `"sharedSkills": true`} {
+		if !strings.Contains(data, key) {
+			t.Errorf("Encode() = %s, want it to contain %s", data, key)
+		}
+	}
+	if strings.Contains(data, `"sha256"`) {
+		t.Errorf("Encode() = %s, want no hash for a link", data)
+	}
+	if back, err := state.Decode([]byte(data)); err != nil || !reflect.DeepEqual(back, s) {
+		t.Errorf("Decode(Encode()) = %+v, %v, want %+v", back, err, s)
+	}
+	if got := s.Owned()[created]; !reflect.DeepEqual(got, plan.Owned{Harness: "claudecode", Hash: plan.LinkHash(dest)}) {
+		t.Errorf("Owned() = %+v, want the link's hash", got)
+	}
+
+	base := state.State{Schema: state.Schema, Harnesses: []string{}, Files: []state.File{{Target: removed, Harness: "claudecode", Kind: state.KindLink, Link: old}}}
+	j := state.Journal(base, "b2", ops)
+	want := []state.PendingOp{
+		{Action: plan.Create, Target: created, Harness: "claudecode", After: &state.Content{Link: dest}},
+		{Action: plan.Remove, Target: removed, Harness: "claudecode", Before: &state.Content{Link: old}},
+	}
+	if !reflect.DeepEqual(j.Pending.Ops, want) {
+		t.Errorf("Journal() = %+v, want %+v", j.Pending.Ops, want)
+	}
+	if back, err := state.Decode([]byte(encode(t, j))); err != nil || !reflect.DeepEqual(back, j) {
+		t.Errorf("Decode(Encode()) of the journal = %+v, %v, want %+v", back, err, j)
+	}
+	owned := j.Owned()
+	if got := owned[created]; got.Hash != plan.LinkHash(dest) {
+		t.Errorf("Owned() of a link being created = %+v, want its hash", got)
+	}
+	if got := owned[removed]; got.Hash != plan.LinkHash(old) {
+		t.Errorf("Owned() of a link being removed = %+v, want its hash", got)
+	}
+	settled := j.Settled(map[string]plan.Current{created: plan.LinkCurrent(dest)}, nil)
+	if want := []state.File{{Target: created, Harness: "claudecode", Kind: state.KindLink, Link: dest}}; !reflect.DeepEqual(settled.Files, want) {
+		t.Errorf("Settled() = %+v, want %+v", settled.Files, want)
+	}
+	if c := (state.Content{Link: dest}).Current(); c != plan.LinkCurrent(dest) {
+		t.Errorf("Current() = %+v, want the link", c)
+	}
+	if c := (state.Content{SHA256: "h", Exec: true}).Current(); c != (plan.Current{Hash: "h", Exec: true}) {
+		t.Errorf("Current() = %+v, want the file", c)
+	}
+}
+
+func TestDecodeRejectsABadLink(t *testing.T) {
+	home := t.TempDir()
+	target := filepath.Join(home, ".dotai", "isolated", "claude", "skills", "a")
+	for name, f := range map[string]state.File{
+		"relative destination": {Target: target, Kind: state.KindLink, Link: "a"},
+		"no destination":       {Target: target, Kind: state.KindLink},
+		"a hash":               {Target: target, Kind: state.KindLink, Link: filepath.Join(home, "a"), SHA256: "h"},
+		"a destination only":   {Target: target, Link: filepath.Join(home, "a"), SHA256: "h"},
+		"an unknown kind":      {Target: target, Kind: "pipe", SHA256: "h"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := state.State{Schema: state.Schema, Files: []state.File{f}}
+			if _, err := state.Decode([]byte(encode(t, s))); err == nil {
+				t.Errorf("Decode() of %+v = nil error, want one", f)
+			}
+		})
+	}
+	bad := state.State{Schema: state.Schema, Files: []state.File{}, Pending: &state.Pending{Ops: []state.PendingOp{
+		{Action: plan.Create, Target: target, After: &state.Content{Link: "a"}},
+	}}}
+	if _, err := state.Decode([]byte(encode(t, bad))); err == nil {
+		t.Error("Decode() of a pending link that is not absolute = nil error, want one")
+	}
+}
+
+func jsonString(t *testing.T, s string) string {
+	t.Helper()
+	data, err := json.Marshal(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
 }
