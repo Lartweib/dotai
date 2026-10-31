@@ -752,7 +752,9 @@ func TestASharedSkillCollidesWithThePacksInAnotherCase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
-	warned := slices.ContainsFunc(res.Warnings, func(w string) bool { return strings.Contains(w, "the shared skill alpha is not linked into claudecode") })
+	warned := slices.ContainsFunc(res.Warnings, func(w string) bool {
+		return strings.Contains(w, "the shared skill alpha is not linked into claudecode")
+	})
 	if fold := runtime.GOOS == "windows" || runtime.GOOS == "darwin"; warned != fold {
 		t.Errorf("warnings = %q, want the collision warned about: %t", res.Warnings, fold)
 	}
