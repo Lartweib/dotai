@@ -301,3 +301,15 @@ func TestIsolationWithoutDataIsUnknown(t *testing.T) {
 		t.Errorf("LeaksOn() = %#v, want an empty list", got)
 	}
 }
+
+// TestCommandQuoting checks how each harness reads a command in its
+// settings (decision 0037): agy splits it itself and passes quotes on,
+// the others run it through a shell.
+func TestCommandQuoting(t *testing.T) {
+	want := map[string]harness.Quoting{"claudecode": harness.ShellQuoted, "antigravity-cli": harness.Unquoted, "opencode": harness.ShellQuoted}
+	for _, a := range harness.All() {
+		if a.Commands != want[a.ID] {
+			t.Errorf("%s reads commands as %q, want %q", a.ID, a.Commands, want[a.ID])
+		}
+	}
+}

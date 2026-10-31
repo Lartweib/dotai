@@ -60,7 +60,7 @@
           {
             "key": "statusLine",
             "tool": "hello",
-            "command": "sh \"/home/u/.dotai/tools/hello.sh\""
+            "command": "sh /home/u/.dotai/tools/hello.sh"
           }
         ]
       },

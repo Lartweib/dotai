@@ -50,10 +50,10 @@ func TestStageWithRealRulesync(t *testing.T) {
 	if want := filepath.ToSlash(tools.User) + "/hello.sh"; err != nil || !strings.Contains(string(claude), want) {
 		t.Errorf("CLAUDE.md = %q, %v, want it to name %s", claude, err, want)
 	}
-	// agy's statusLine runs the tool hello (decision 0037).
-	statusLine := `sh "` + filepath.ToSlash(tools.User) + `/hello.sh"`
+	// agy's statusLine runs the tool hello (decision 0037), unquoted.
+	statusLine := `sh ` + filepath.ToSlash(tools.User) + `/hello.sh`
 	if runtime.GOOS == "windows" {
-		statusLine = `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "` + tools.User + `\hello.ps1"`
+		statusLine = `powershell.exe -NoProfile -ExecutionPolicy Bypass -File ` + tools.User + `\hello.ps1`
 	}
 	command, err := json.Marshal(statusLine)
 	if err != nil {

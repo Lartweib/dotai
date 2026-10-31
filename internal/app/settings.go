@@ -85,7 +85,7 @@ func renderSettings(w stageFS, dir, scope string, harnesses []string, settings m
 		case !errors.Is(err, fs.ErrNotExist):
 			return nil, err
 		}
-		data, err := encodeSettings(existing, settings[h], tools.inScope(scope))
+		data, err := encodeSettings(existing, settings[h], tools.inScope(scope).forHarness(h))
 		if c, ok := errors.AsType[*SettingsConflict](err); ok {
 			c.Harness, c.File = h, scope+"/"+name
 		}

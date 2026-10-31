@@ -26,9 +26,9 @@ var ExpandPaths = expandPaths
 var EncodeSettings = encodeSettings
 
 // ExpandSettingIn is the expansion of a string value of the settings of
-// scope.
-func ExpandSettingIn(s string, tools ToolPaths, scope string) (string, error) {
-	return expandSetting(s, tools.inScope(scope))
+// the harness h in scope.
+func ExpandSettingIn(s string, tools ToolPaths, scope, h string) (string, error) {
+	return expandSetting(s, tools.inScope(scope).forHarness(h))
 }
 
 // OSInstallFS is the real file system port of PlanInstall.

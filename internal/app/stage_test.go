@@ -400,10 +400,11 @@ func TestStageRulesyncFailureLeavesOutAsItWas(t *testing.T) {
 }
 
 func TestStageRendersSettingsAfterRulesync(t *testing.T) {
-	// agy's statusLine runs the tool hello (decision 0037), in JSON.
-	statusLine := `sh \"home/.dotai/tools/hello.sh\"`
+	// agy's statusLine runs the tool hello (decision 0037), unquoted since
+	// agy splits the command itself, in JSON.
+	statusLine := `sh home/.dotai/tools/hello.sh`
 	if runtime.GOOS == "windows" {
-		statusLine = `powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"home\\.dotai\\tools\\hello.ps1\"`
+		statusLine = `powershell.exe -NoProfile -ExecutionPolicy Bypass -File home\\.dotai\\tools\\hello.ps1`
 	}
 	out := filepath.Join(t.TempDir(), "staging")
 	f := &fakeRulesync{t: t, quiet: true, settings: "{\n  \"hooks\": {}\n}\n", tools: app.ToolsIn("home", "project")}

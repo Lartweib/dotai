@@ -7,10 +7,12 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/lartweib/dotai/internal/harness"
 	"github.com/lartweib/dotai/internal/merge"
 )
 
@@ -26,7 +28,8 @@ type ToolPaths struct {
 
 	UserErr, ProjectErr error
 
-	project bool // the settings being expanded are the project scope's
+	project bool   // the settings being expanded are the project scope's
+	harness string // the harness whose settings are expanded; "" reads them as a shell does
 }
 
 // inScope is t for the settings of scope, whose tool commands run the
@@ -34,6 +37,21 @@ type ToolPaths struct {
 func (t ToolPaths) inScope(scope string) ToolPaths {
 	t.project = scope == ScopeProject
 	return t
+}
+
+// forHarness is t for the settings of the harness id, whose tool commands
+// are written the way it reads a command.
+func (t ToolPaths) forHarness(id string) ToolPaths {
+	t.harness = id
+	return t
+}
+
+// quoting is how the harness of t reads a command in its settings.
+func (t ToolPaths) quoting() harness.Quoting {
+	if a, err := harness.Lookup([]string{t.harness}); err == nil && a[0].Commands != "" {
+		return a[0].Commands
+	}
+	return harness.ShellQuoted
 }
 
 // expandSetting expands a string value of a harness's settings: each tool
@@ -47,7 +65,7 @@ func expandSetting(s string, tools ToolPaths) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("${DOTAI_TOOL:%s} cannot be expanded: %w", name, err)
 		}
-		return toolCommand(dir, name, cmp.Or(tools.OS, runtime.GOOS))
+		return toolCommand(dir, name, cmp.Or(tools.OS, runtime.GOOS), tools.harness, tools.quoting())
 	})
 	if cerr != nil {
 		return "", cerr
@@ -67,26 +85,39 @@ func unquoted(goos string) string {
 }
 
 // toolCommand is the command that runs the tool name from the tools
-// directory dir on goos (decision 0037): its PowerShell script on Windows,
+// directory dir on goos (decision 0037), in the settings of the harness h,
+// which reads a command as quoting says: its PowerShell script on Windows,
 // through powershell.exe, which opens no window, and its shell script
-// elsewhere, through sh. The script's absolute path is in double quotes,
-// so that a directory with spaces works in every harness; a directory
-// with a character the quotes do not protect is refused, and so is a
-// network or device path on Windows, whose leading \\ bash, which Claude
-// Code and agy may run the command through, reads as one \ inside the
-// quotes.
-func toolCommand(dir, name, goos string) (string, error) {
+// elsewhere, through sh. For a harness that runs the command through a
+// shell, the script's absolute path is in double quotes, so that a
+// directory with spaces works; a directory with a character the quotes do
+// not protect is refused, and so is a network or device path on Windows,
+// whose leading \\ bash reads as one \ inside the quotes. A harness that
+// splits the command itself at whitespace and passes quotes on, as agy
+// does, gets the path bare, and a directory with whitespace or a quote is
+// refused for it; so is one with a character a shell would expand, in
+// case it does use one somewhere.
+func toolCommand(dir, name, goos, h string, quoting harness.Quoting) (string, error) {
 	if goos == "windows" && (strings.HasPrefix(dir, `\\`) || strings.HasPrefix(dir, "//")) {
 		return "", fmt.Errorf(`${DOTAI_TOOL:%s} cannot be expanded: the tools directory %s starts with \\ or //, as a network path does, and bash, which a harness may run the command through, reads \\ inside double quotes as a single \: put the home directory on a local drive`, name, dir)
+	}
+	if quoting == harness.Unquoted {
+		if i := strings.IndexFunc(dir, func(r rune) bool { return unicode.IsSpace(r) || r == '"' || r == '\'' }); i >= 0 {
+			return "", fmt.Errorf("${DOTAI_TOOL:%s} cannot be expanded for %s: the tools directory %s holds %q, and %s splits the command at whitespace and passes quotes on, so the path cannot be quoted: put the home directory at a path without spaces or quotes", name, h, dir, dir[i], h)
+		}
 	}
 	if i := strings.IndexAny(dir, unquoted(goos)); i >= 0 {
 		return "", fmt.Errorf("${DOTAI_TOOL:%s} cannot be expanded: the tools directory %s holds %q, which a harness's shell would not take literally inside double quotes", name, dir, dir[i])
 	}
+	quote := `"`
+	if quoting == harness.Unquoted {
+		quote = ""
+	}
 	if goos == "windows" {
 		script := strings.ReplaceAll(dir, "/", `\`) + `\` + name + ".ps1"
-		return `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "` + script + `"`, nil
+		return `powershell.exe -NoProfile -ExecutionPolicy Bypass -File ` + quote + script + quote, nil
 	}
-	return `sh "` + filepath.ToSlash(dir) + "/" + name + `.sh"`, nil
+	return `sh ` + quote + filepath.ToSlash(dir) + "/" + name + `.sh` + quote, nil
 }
 
 // ToolsIn returns the tools directories of a home and a project directory.
@@ -133,9 +164,9 @@ type ToolCommand struct {
 // in the order of harnesses, then in the order of the settings, resolved
 // as the settings files get them, so that a plan can show them.
 func toolCommands(scope string, harnesses []string, settings map[string][]merge.Setting, tools ToolPaths) ([]ToolCommand, error) {
-	tools = tools.inScope(scope)
 	var out []ToolCommand
 	for _, h := range harnesses {
+		tools := tools.inScope(scope).forHarness(h)
 		for _, s := range settings[h] {
 			var err error
 			walkStrings(s.Value, func(v string) {

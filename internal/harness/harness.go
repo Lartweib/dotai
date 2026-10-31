@@ -203,6 +203,10 @@ type Adapter struct {
 	// Staging: dotai owns the keys it writes there, not the whole file,
 	// since the harness writes into it too (decision 0035).
 	Settings string
+	// Commands is how the harness reads a command in its settings, such as
+	// a statusline, which decides how a tool command of decision 0037
+	// names its script.
+	Commands Quoting
 	// Command is the executable dotai run looks up on PATH and launches
 	// isolated; "" while dotai run does not support the harness.
 	Command string
@@ -212,6 +216,20 @@ type Adapter struct {
 	BatchTarget string
 	Isolation   Isolation
 }
+
+// Quoting is how a harness reads a command in its settings.
+type Quoting string
+
+// Quoting values.
+const (
+	// ShellQuoted is a command a shell parses: a path in double quotes
+	// may hold spaces.
+	ShellQuoted Quoting = "shell"
+	// Unquoted is a command the harness splits at whitespace itself,
+	// passing quotes on as part of the arguments: a path is written bare
+	// and cannot hold whitespace.
+	Unquoted Quoting = "unquoted"
+)
 
 // linkedSkills and copiedSkills are the leak of a harness into which an
 // install whose variant shares skills links, or copies, the skills of
@@ -225,6 +243,7 @@ var adapters = []Adapter{
 	{
 		ID: "claudecode", Target: "claudecode", Dir: "claude", Staging: ".claude", Settings: "settings.json", Command: "claude",
 		SharedSkills: "skills",
+		Commands:     ShellQuoted,
 		Isolation: Isolation{
 			Level: Partial,
 			// Decision 0018 verified the new login on Windows only, where the
@@ -247,6 +266,9 @@ var adapters = []Adapter{
 		SharedSkills: "antigravity-cli/skills",
 		// agy skips a junction in its skills directory (HARNESS-NOTES).
 		CopySharedSkills: true,
+		// agy splits a statusline command itself and passes quotes on
+		// (HARNESS-NOTES).
+		Commands: Unquoted,
 		Isolation: Isolation{
 			Level: Partial,
 			// Verified on Windows only.
@@ -258,6 +280,8 @@ var adapters = []Adapter{
 	{
 		ID: "opencode", Target: "opencode", Dir: "opencode", Staging: ".config/opencode", Install: "config/opencode", Settings: "opencode.jsonc",
 		Command: "opencode", BatchTarget: "node_modules/@opencode/cli/bin/opencode.exe",
+		// Not checked: OpenCode has no statusline setting.
+		Commands: ShellQuoted,
 		Isolation: Isolation{
 			Level: Partial,
 			// Verified on Windows only.
