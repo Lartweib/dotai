@@ -97,7 +97,7 @@ func sharedSkills(d installFS, home string, adapters []harness.Adapter, ops []pl
 			}
 			source := path.Join(a.Staging, a.SharedSkills, name)
 			_, target, _ := plan.Locate(home, adapters, source)
-			if slices.ContainsFunc(ops, func(op plan.Op) bool { return op.Target == target || below(target, op.Target) }) {
+			if slices.ContainsFunc(ops, func(op plan.Op) bool { return samePath(op.Target, target) || below(target, op.Target) }) {
 				sp.Skipped = append(sp.Skipped, SkippedSkill{Name: name, Harness: a.ID, Reason: ReasonPackSkill})
 				continue
 			}

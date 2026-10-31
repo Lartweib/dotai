@@ -741,3 +741,27 @@ func TestInstallRefusesToTradeASkillDirectoryHoldingAForeignFile(t *testing.T) {
 	}
 	assertLinks(t, home, "alpha", "beta", packSkill)
 }
+
+// TestASharedSkillCollidesWithThePacksInAnotherCase checks that on an OS
+// whose file systems ignore case, a pack skill Alpha and the shared alpha
+// collide: the pack wins with a warning, as for the same name. Elsewhere
+// they are two skills.
+func TestASharedSkillCollidesWithThePacksInAnotherCase(t *testing.T) {
+	home := sharedHome(t)
+	res, err := installShared(t, newClockFS(t), home, "shared", "Alpha")
+	if err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+	warned := slices.ContainsFunc(res.Warnings, func(w string) bool { return strings.Contains(w, "the shared skill alpha is not linked into claudecode") })
+	if fold := runtime.GOOS == "windows" || runtime.GOOS == "darwin"; warned != fold {
+		t.Errorf("warnings = %q, want the collision warned about: %t", res.Warnings, fold)
+	}
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+		assertLinks(t, home, "beta", packSkill)
+	} else {
+		assertLinks(t, home, "alpha", "beta", packSkill)
+	}
+	if data, err := os.ReadFile(at(home, ".dotai/isolated/claude/skills/Alpha/SKILL.md")); err != nil || !strings.Contains(string(data), "The pack's.") {
+		t.Errorf("the pack's Alpha = %q, %v, want it installed", data, err)
+	}
+}
