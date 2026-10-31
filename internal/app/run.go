@@ -47,7 +47,9 @@ const batchUnsafe = "&|<>^%\"!\r\n"
 // while an install or a restore writes, and releases it before returning:
 // the harness runs without it. The harness's environment is the current one
 // without the variables its pointers and its fixed variables set, which
-// are then set to its isolated directories and their values. On Windows, a
+// are then set to its isolated directories and their values; an install
+// whose variant shares the user's skills (decision 0036) leaves out the
+// pointers that hide them, OpenCode's OPENCODE_TEST_HOME. On Windows, a
 // batch file (.cmd or .bat) found first on PATH gives way to the
 // executable it runs, when the harness names it, or to the harness's .exe
 // further on PATH; launched on its own, it gets a note, and an argument
@@ -106,7 +108,7 @@ func planRun(d executeFS, lookPath func(string) (string, error), goos, home, id 
 		return RunPlan{}, fmt.Errorf("%s is not installed (installed: %s): add it to the pack's harnesses and run dotai install", id, installed)
 	}
 	root := filepath.Join(home, filepath.FromSlash(harness.IsolatedDir))
-	h := harnessPlan(root, a, goos, false)
+	h := harnessPlan(root, a, goos, s.SharedSkills)
 	dirs := []string{root, h.Dir}
 	if a.Install != "" {
 		dir := h.Dir
@@ -134,7 +136,13 @@ func planRun(d executeFS, lookPath func(string) (string, error), goos, home, id 
 	for _, ptr := range h.Pointers {
 		if ptr.Mechanism == string(harness.Flag) {
 			p.Args = append(p.Args, ptr.Name+"="+ptr.Dir)
-		} else {
+		}
+	}
+	// Every variable a pointer sets is removed, even one the install does
+	// not set, such as OPENCODE_TEST_HOME when the variant shares skills,
+	// so that an inherited one does not point the harness elsewhere.
+	for _, ptr := range a.Isolation.Pointers {
+		if ptr.Mechanism == harness.Env {
 			set[envKey(goos, ptr.Name)] = true
 		}
 	}
@@ -175,7 +183,7 @@ func planRun(d executeFS, lookPath func(string) (string, error), goos, home, id 
 		}
 		p.Notes = append(p.Notes, fmt.Sprintf("%s resolves to the batch file %s: Ctrl-C may show cmd's \"Terminate batch job (Y/N)?\" prompt after the harness exits; the native %s.exe avoids it", a.Command, program, a.Command))
 	}
-	for _, ptr := range a.Isolation.Pointers {
+	for _, ptr := range a.Isolation.PointersFor(s.SharedSkills) {
 		if ptr.Make {
 			if err := makeDir(d, h.Dir, ptr.Path); err != nil {
 				return RunPlan{}, err
