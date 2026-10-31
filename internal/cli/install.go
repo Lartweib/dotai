@@ -26,7 +26,9 @@ func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
 			"~/.dotai/isolated, and print the plan: how each harness runs isolated, what still leaks from your own setup,\n" +
 			"and each file it creates, replaces, removes or leaves unchanged. Without --variant, the default variant is used.\n" +
 			"In each harness's settings file dotai owns only the keys the pack puts there: the keys the harness writes stay,\n" +
-			"and a key dotai owns that was changed since is named and not overwritten.\n" +
+			"and a key dotai owns that was changed since is named and not overwritten. A variant with shared-skills also\n" +
+			"links each skill of ~/.agents/skills into Claude Code's and agy's isolated skills, unless the pack has a skill\n" +
+			"of that name; a skill added there later shows up after the next install.\n" +
 			"The pack is staged as by stage, into a temporary directory that is removed. Before the first write, each file\n" +
 			"that is replaced or removed is copied into a backup under ~/.dotai/backups; a failure rolls back from it.\n" +
 			"The install state is written last, to ~/.dotai/state.json. With --dry-run, nothing but the rulesync cache is written.",
