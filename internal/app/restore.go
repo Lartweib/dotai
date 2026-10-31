@@ -728,7 +728,7 @@ func (r *restorer) plan(res *RestoreResult, s state.State, chain []undone) error
 			Link: op.Link, BeforeLink: op.BeforeLink,
 		})
 	}
-	if err := checkLinkDirs(r.p.ops, realDirs); err != nil {
+	if err := checkLinkDirs(r.d, r.p.ops, realDirs); err != nil {
 		return err
 	}
 	links := orderLinks(r.p.ops)
@@ -751,8 +751,8 @@ func (r *restorer) plan(res *RestoreResult, s state.State, chain []undone) error
 // removes it before it writes there; a real directory, such as the pack's
 // skill of the same name, is taken as missing too, in realDirs, when the
 // restore empties it (checkLinkDirs).
-func (r *restorer) inspectLinks(chain []undone, dirs map[string]error) (map[string]vfile, map[string]error, error) {
-	linked, realDirs := map[string]vfile{}, map[string]error{}
+func (r *restorer) inspectLinks(chain []undone, dirs map[string]error) (map[string]vfile, map[string]bool, error) {
+	linked, realDirs := map[string]vfile{}, map[string]bool{}
 	for _, u := range chain {
 		for _, op := range u.m.Ops {
 			if _, seen := linked[op.Target]; seen || (op.Before == nil || op.Before.Link == "") && (op.After == nil || op.After.Link == "") {
@@ -761,7 +761,7 @@ func (r *restorer) inspectLinks(chain []undone, dirs map[string]error) (map[stri
 			cur, _, exists, err := inspectTarget(r.ctx, r.d, r.home, op.Target, dirs, inspectLink)
 			switch {
 			case realDirAt(op.Target, err):
-				realDirs[op.Target], err = err, nil
+				realDirs[op.Target], err = true, nil
 			case err == nil && exists:
 				dirs[op.Target] = fs.ErrNotExist
 			}

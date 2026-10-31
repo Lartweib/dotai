@@ -331,8 +331,9 @@ func buildPlan(ctx context.Context, d installFS, tree, home string, adapters []h
 		in.Files = append(in.Files, plan.File{Path: op.Source, Hash: staged.Hash, Exec: staged.Exec, Data: data})
 		targets = append(targets, op.Target)
 	}
-	dirs := map[string]error{}     // the outcome of checkDir for each directory checked
-	realDirs := map[string]error{} // the staged links whose target is a real directory
+	dirs := map[string]error{}    // the outcome of checkDir for each directory checked
+	realDirs := map[string]bool{} // the staged links whose target is a real directory
+	gone := map[string]bool{}     // the owned links a killed install removed
 	if prev != nil {
 		in.Owned = prev.Owned()
 		for _, f := range prev.Files {
@@ -341,18 +342,31 @@ func buildPlan(ctx context.Context, d installFS, tree, home string, adapters []h
 			}
 		}
 		for target := range ownedLinks(*prev) {
-			if !staged[target] {
-				// The plan removes it, so a file the pack now stages below
-				// it, such as a skill of the same name, is missing: it is
-				// created once the link is gone, which comes first in
-				// target order. A link that is not what dotai made is an
-				// edit, which stops the plan anyway.
-				dirs[target] = fs.ErrNotExist
-			}
 			links[target] = true
+			if staged[target] {
+				continue
+			}
+			// The plan removes it, so a file the pack now stages below it,
+			// such as a skill of the same name, is missing while the link
+			// is there: it is created once the link is gone, which comes
+			// first. A link that is not what dotai made is an edit, which
+			// stops the plan anyway.
+			_, _, exists, err := inspectTarget(ctx, d, home, target, dirs, inspectLink)
+			switch {
+			case err == nil && exists:
+				dirs[target] = fs.ErrNotExist
+			case realDirAt(target, err) && pendingRemove(prev, target):
+				// An install killed after it removed the link wrote below
+				// it: the link is gone, and the directory holds the files
+				// the plan reads as they are.
+				gone[target] = true
+			}
 		}
 	}
 	for _, target := range targets {
+		if gone[target] {
+			continue
+		}
 		_, settings := plan.SettingsOf(home, target)
 		how := inspectHash
 		switch {
@@ -366,7 +380,7 @@ func buildPlan(ctx context.Context, d installFS, tree, home string, adapters []h
 			continue
 		}
 		if staged[target] && realDirAt(target, err) {
-			realDirs[target] = err // taken as missing, if the plan empties it
+			realDirs[target] = true // taken as missing, if the plan empties it
 			continue
 		}
 		if err != nil {
@@ -383,7 +397,7 @@ func buildPlan(ctx context.Context, d installFS, tree, home string, adapters []h
 	if err != nil {
 		return plan.Plan{}, nil, nil, err
 	}
-	if err := checkLinkDirs(p.Ops, realDirs); err != nil {
+	if err := checkLinkDirs(d, p.Ops, realDirs); err != nil {
 		return plan.Plan{}, nil, nil, err
 	}
 	p.Ops = permute(p.Ops, orderLinks(p.Ops))

@@ -2,12 +2,14 @@ package app
 
 import (
 	"errors"
+	"fmt"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
 
 	"github.com/lartweib/dotai/internal/plan"
+	"github.com/lartweib/dotai/internal/state"
 )
 
 // The links to shared skills (decision 0036) sit where a skill directory
@@ -29,22 +31,48 @@ func realDirAt(target string, err error) bool {
 	return ok && nr.Link && nr.Path == target && nr.Mode.IsDir()
 }
 
-// checkLinkDirs gives the error of dirs, the link targets that are real
-// directories, for one that ops make a link without removing anything
-// below it: that directory is not dotai's to replace. A directory the ops
-// empty is taken: the link is made once it is gone, and one that still
-// holds anything then stops the write as changed.
-func checkLinkDirs(ops []plan.Op, dirs map[string]error) error {
+// LinkDirError is a real directory where a plan makes a link that holds
+// File, which the plan does not remove: a file dotai did not install, such
+// as a cache a harness wrote into the pack's skill directory, or a link.
+type LinkDirError struct {
+	Dir, File string
+}
+
+func (e *LinkDirError) Error() string {
+	return fmt.Sprintf("%s holds %s, which dotai did not install, where the link to the shared skill goes; dotai does not remove what it did not write: "+
+		"move it away, then run again", e.Dir, e.File)
+}
+
+// checkLinkDirs refuses, with a *LinkDirError, a link target in dirs, the
+// link targets that are real directories, that ops make a link while it
+// holds anything they do not remove, found without following a link.
+// Every other one is taken: the ops below it come first (orderLinks), and
+// the directory, empty once they are done, gives way to the link.
+func checkLinkDirs(d installFS, ops []plan.Op, dirs map[string]bool) error {
 	for _, op := range ops {
-		err, ok := dirs[op.Target]
-		if !ok || op.Link == "" {
+		if !dirs[op.Target] || op.Link == "" {
 			continue
 		}
-		if !slices.ContainsFunc(ops, func(o plan.Op) bool { return o.Action == plan.Remove && below(op.Target, o.Target) }) {
+		files, err := d.Files(op.Target)
+		if err != nil {
 			return err
+		}
+		for _, f := range files {
+			name := filepath.Join(op.Target, filepath.FromSlash(f))
+			if !slices.ContainsFunc(ops, func(o plan.Op) bool { return o.Action == plan.Remove && samePath(o.Target, name) }) {
+				return &LinkDirError{Dir: op.Target, File: name}
+			}
 		}
 	}
 	return nil
+}
+
+// pendingRemove reports whether the journal of s, if any, removes the link
+// at target: an install killed after it did may have written below it.
+func pendingRemove(s *state.State, target string) bool {
+	return s != nil && s.Pending != nil && slices.ContainsFunc(s.Pending.Ops, func(op state.PendingOp) bool {
+		return op.Target == target && op.After == nil && op.Before != nil && op.Before.Link != ""
+	})
 }
 
 // orderLinks gives the order to carry out ops in: as they are, except that
@@ -83,10 +111,19 @@ func lastIndex(s []int, f func(int) bool) int {
 	return -1
 }
 
-// below reports whether target is inside the directory dir.
+// below reports whether target is inside the directory dir, without case
+// where the OS folds it.
 func below(dir, target string) bool {
-	return strings.HasPrefix(target, dir+string(filepath.Separator))
+	prefix := dir + string(filepath.Separator)
+	if foldCase {
+		return len(target) > len(prefix) && strings.EqualFold(target[:len(prefix)], prefix)
+	}
+	return strings.HasPrefix(target, prefix)
 }
+
+// samePath reports whether a and b name one path, without case where the
+// OS folds it.
+func samePath(a, b string) bool { return a == b || foldCase && strings.EqualFold(a, b) }
 
 // permute is s in order.
 func permute[T any](s []T, order []int) []T {

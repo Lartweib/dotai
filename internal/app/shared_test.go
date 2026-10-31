@@ -464,8 +464,12 @@ func TestInstallRefusesARealDirectoryWhereALinkGoes(t *testing.T) {
 			}
 			_, err := installShared(t, newClockFS(t), home, "shared")
 			var nr *app.NotRegularError
-			if !errors.As(err, &nr) || nr.Path != target || !nr.Link || !strings.Contains(err.Error(), "where the install needs a link") {
-				t.Fatalf("Install() error = %v, want the %s refused", err, kind)
+			var ld *app.LinkDirError
+			switch {
+			case kind == "file" && (!errors.As(err, &nr) || nr.Path != target || !nr.Link || !strings.Contains(err.Error(), "where the install needs a link")):
+				t.Fatalf("Install() error = %v, want the file refused", err)
+			case kind == "directory" && (!errors.As(err, &ld) || ld.Dir != target || ld.File != filepath.Join(target, "SKILL.md")):
+				t.Fatalf("Install() error = %v, want the directory refused, naming its file", err)
 			}
 			if _, err := os.Lstat(at(home, ".dotai/state.json")); !errors.Is(err, fs.ErrNotExist) {
 				t.Errorf("state = %v, want nothing written", err)
@@ -597,4 +601,143 @@ func TestMakeLinkChecksTheDestinationAgain(t *testing.T) {
 	if err := app.MakeLinkWith(app.OSInstallFS{}, home, root, "skills/alpha", target, at(home, ".agents/skills/alpha")); err != nil {
 		t.Errorf("MakeLinkWith() of the shared skill error = %v", err)
 	}
+}
+
+// tradeCrashFS kills an install, as crashFS does, right before it writes
+// the file at, or makes the link at, the absolute path at.
+type tradeCrashFS struct {
+	*clockFS
+	at string
+}
+
+func (f *tradeCrashFS) WriteIn(root, name string, data []byte, mode os.FileMode) error {
+	if filepath.Join(root, filepath.FromSlash(name)) == f.at {
+		panic(errCrash)
+	}
+	return f.clockFS.WriteIn(root, name, data, mode)
+}
+
+func (f *tradeCrashFS) LinkIn(root, name, dest string) error {
+	if filepath.Join(root, filepath.FromSlash(name)) == f.at {
+		panic(errCrash)
+	}
+	return f.clockFS.LinkIn(root, name, dest)
+}
+
+// TestAKilledTradeOfALinkAndThePacksSkillSettles checks an install killed
+// while a shared skill and the pack's skill of its name trade places, in
+// both directions: the next install finishes it, and the next restore
+// undoes it.
+func TestAKilledTradeOfALinkAndThePacksSkillSettles(t *testing.T) {
+	claudeSkill := ".dotai/isolated/claude/skills/alpha/SKILL.md"
+	agySkill := ".dotai/isolated/gemini/config/skills/alpha/SKILL.md"
+	tests := []struct {
+		name string
+		// The pack's skills before and in the killed install.
+		before, during []string
+		crashAt        string // relative to the home directory
+	}{
+		// The link to alpha gives way to the pack's alpha.
+		{"link removed before the pack files", nil, []string{"alpha"}, claudeSkill},
+		{"link removed after the pack files", nil, []string{"alpha"}, agySkill},
+		// The pack drops alpha, and the link takes its place.
+		{"pack files removed before the link", []string{"alpha"}, nil, ".dotai/isolated/claude/skills/alpha"},
+	}
+	for _, tt := range tests {
+		for _, then := range []string{"install", "restore"} {
+			t.Run(tt.name+"/"+then, func(t *testing.T) {
+				home := sharedHome(t)
+				d := newClockFS(t)
+				if _, err := installShared(t, d, home, "shared", tt.before...); err != nil {
+					t.Fatal(err)
+				}
+				func() {
+					defer func() {
+						if r := recover(); r != errCrash {
+							t.Fatalf("recovered %v, want the crash", r)
+						}
+					}()
+					_, _ = app.InstallWith(context.Background(), &tradeCrashFS{clockFS: newClockFS(t), at: at(home, tt.crashAt)},
+						quiet(t).fetch, skillsRun(t, tt.during...), examplePack, "shared", home)
+				}()
+				if s := readJSON(t, at(home, ".dotai/state.json"), state.Decode); s.Pending == nil {
+					t.Fatal("the crash left no journal")
+				}
+				if then == "install" {
+					if _, err := installShared(t, newClockFS(t), home, "shared", tt.during...); err != nil {
+						t.Fatalf("Install() after the crash error = %v", err)
+					}
+					p, err := app.PlanInstallWith(context.Background(), app.OSInstallFS{}, quiet(t).fetch, skillsRun(t, tt.during...), examplePack, "shared", home)
+					if err != nil {
+						t.Fatal(err)
+					}
+					for _, op := range p.Ops {
+						if op.Action != plan.Unchanged {
+							t.Errorf("op %+v after the install, want every target in place", op)
+						}
+					}
+					assertTrade(t, home, tt.during)
+					return
+				}
+				if _, err := app.RestoreWith(context.Background(), newClockFS(t), home, "", nil); err != nil {
+					t.Fatalf("Restore() after the crash error = %v", err)
+				}
+				assertTrade(t, home, tt.before)
+			})
+		}
+	}
+}
+
+// assertTrade checks that alpha is the pack's skill for Claude Code and agy
+// when skills has it, and the link to the shared alpha otherwise.
+func assertTrade(t *testing.T, home string, skills []string) {
+	t.Helper()
+	if slices.Contains(skills, "alpha") {
+		assertLinks(t, home, "beta", packSkill)
+		for _, rel := range []string{".dotai/isolated/claude/skills/alpha/SKILL.md", ".dotai/isolated/gemini/config/skills/alpha/SKILL.md"} {
+			if data, err := os.ReadFile(at(home, rel)); err != nil || !strings.Contains(string(data), "The pack's.") {
+				t.Errorf("%s = %q, %v, want the pack's", rel, data, err)
+			}
+		}
+		return
+	}
+	assertLinks(t, home, "alpha", "beta", packSkill)
+}
+
+// TestInstallRefusesToTradeASkillDirectoryHoldingAForeignFile checks that
+// the pack's skill directory that a link to the shared skill would replace
+// is refused at plan time, naming the file, when it holds a file dotai did
+// not install, such as a cache a harness wrote there, and that nothing is
+// written; once the file is gone, the trade goes ahead.
+func TestInstallRefusesToTradeASkillDirectoryHoldingAForeignFile(t *testing.T) {
+	home := sharedHome(t)
+	d := newClockFS(t)
+	if _, err := installShared(t, d, home, "shared", "alpha"); err != nil {
+		t.Fatal(err)
+	}
+	cache := at(home, ".dotai/isolated/claude/skills/alpha/.cache/index")
+	writeFile(t, cache, "harness cache\n")
+	before := listing(t, at(home, ".dotai"))
+	for name, try := range map[string]func() error{
+		"dry run": func() error {
+			_, err := app.PlanInstallWith(context.Background(), app.OSInstallFS{}, quiet(t).fetch, skillsRun(t), examplePack, "shared", home)
+			return err
+		},
+		"install": func() error { _, err := installShared(t, d, home, "shared"); return err },
+	} {
+		var e *app.LinkDirError
+		if err := try(); !errors.As(err, &e) || e.File != cache || !strings.Contains(err.Error(), cache) {
+			t.Errorf("%s error = %v, want the trade refused, naming %s", name, err, cache)
+		}
+	}
+	if after := listing(t, at(home, ".dotai")); !slices.Equal(after, before) {
+		t.Errorf(".dotai = %v, want nothing written: %v", after, before)
+	}
+	if err := os.RemoveAll(filepath.Dir(cache)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := installShared(t, d, home, "shared"); err != nil {
+		t.Fatalf("Install() once the cache is gone error = %v", err)
+	}
+	assertLinks(t, home, "alpha", "beta", packSkill)
 }

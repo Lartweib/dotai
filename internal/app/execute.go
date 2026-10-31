@@ -587,6 +587,16 @@ func (r runner) apply(op plan.Op) (applied, error) {
 			}
 		}
 	}
+	if op.Link != "" && op.Action == plan.Create {
+		// A directory where the link goes, which the plan found holding
+		// only files it removes, or that an install killed before it wrote
+		// there left: empty now, it gives way.
+		if mode, err := r.d.Lstat(op.Target); err == nil && mode.IsDir() && mode&(fs.ModeSymlink|fs.ModeIrregular) == 0 {
+			if err := r.d.RemoveIn(root, name); err != nil {
+				return a, &ChangedError{Path: op.Target}
+			}
+		}
+	}
 	cur, err := r.current(op.Target, isLink(op))
 	switch {
 	case op.Action == plan.Create && errors.Is(err, fs.ErrNotExist):
