@@ -30,19 +30,29 @@ func TestValidateFS(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		res, err := app.ValidateFS(fstest.MapFS{
 			"dotai.yaml": {Data: []byte("schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\n" +
-				"rulesync: 41.0.0\nharnesses: [opencode]\noptional-harnesses: [claudecode]\nvariants:\n  a: {path: variants/a, default: true}\n  b: {path: variants/b, shared-skills: true}\n")},
-			"base/.rulesync/rules/r.md":       {Data: []byte("# R\n")},
-			"variants/a/.rulesync/rules/x.md": {Data: []byte("# X\n")},
-			"variants/b/.rulesync/rules/y.md": {Data: []byte("# Y\n")},
+				"rulesync: 41.0.0\nharnesses: [opencode]\noptional-harnesses: [claudecode]\n" +
+				"profiles:\n  web: {path: profiles/web, description: Web projects., hints: [astro.config.*, next.config.*]}\n  api: {path: ./profiles/api, description: APIs.}\n" +
+				"variants:\n  a: {path: variants/a, default: true}\n  b: {path: variants/b, shared-skills: true}\n")},
+			"base/.rulesync/rules/r.md":         {Data: []byte("# R\n")},
+			"profiles/web/.rulesync/rules/w.md": {Data: []byte("# W\n")},
+			"profiles/api/.rulesync/rules/p.md": {Data: []byte("# P\n")},
+			"variants/a/.rulesync/rules/x.md":   {Data: []byte("# X\n")},
+			"variants/b/.rulesync/rules/y.md":   {Data: []byte("# Y\n")},
 		}, app.Selection{})
 		want := app.ValidateResult{
 			Valid: true,
 			Pack: &app.PackSummary{
 				Name: "p", Version: "1.0.0", Engine: ">=0.1.0", Rulesync: "41.0.0",
-				Harnesses: []string{"opencode"}, OptionalHarnesses: []string{"claudecode"}, Profiles: []string{}, Variants: []string{"a", "b"}, DefaultVariant: "a",
+				Harnesses: []string{"opencode"}, OptionalHarnesses: []string{"claudecode"}, Variants: []string{"a", "b"}, DefaultVariant: "a",
+				Profiles: []app.ProfileSummary{
+					{Name: "web", Path: "profiles/web", Description: "Web projects.", Hints: []string{"astro.config.*", "next.config.*"}},
+					{Name: "api", Path: "profiles/api", Description: "APIs.", Hints: []string{}},
+				},
 				SharedSkills: []string{"b"},
 				Layers: []app.LayerSummary{
 					{Kind: "base", Name: "base", Path: "base", Items: 1},
+					{Kind: "profile", Name: "web", Path: "profiles/web", Items: 1},
+					{Kind: "profile", Name: "api", Path: "profiles/api", Items: 1},
 					{Kind: "variant", Name: "a", Path: "variants/a", Items: 1},
 					{Kind: "variant", Name: "b", Path: "variants/b", Items: 1},
 				},

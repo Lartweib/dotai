@@ -73,6 +73,8 @@ variants:
 | `profiles.<name>.path`, `variants.<name>.path` | yes | Layer directory, relative to the pack root. |
 | `profiles.<name>.description` | yes | What the profile is for. Read by the onboarding agent. |
 | `profiles.<name>.hints` | no | Evidence for the onboarding agent. The engine never acts on them. |
+
+`dotai validate --json` lists each profile with its `path`, `description` and `hints` in `pack.profiles`, in declaration order, so the onboarding agent can read them without parsing the manifest ([CLI-JSON](CLI-JSON.md)).
 | `variants.<name>.default` | no | Variant used when nothing is chosen or detected. Exactly one variant sets it when the pack has variants. |
 | `variants.<name>.detect` | no | Mechanical rule that preselects the variant. `command`: preselect when that command is on `PATH`. |
 | `variants.<name>.shared-skills` | no | `true` makes the user's shared skills folder, `~/.agents/skills`, where other tools install skills, visible in the isolated install of this variant ([0036](decisions/0036-shared-skills-per-variant.md)). Default `false`: only the pack's content is visible. Only variants take it. |
