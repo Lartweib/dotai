@@ -1,10 +1,13 @@
 // Package harness describes each supported harness as data (decision
 // 0028): its rulesync target, how far it can run isolated from the user's
-// own configuration (decision 0018), where its user scope installs in
-// isolated mode (decision 0031), and its own configuration, which the
-// replace mode resets to a fresh install by keep-list (decision 0038).
-// Detecting a harness and launching it isolated are logic, and come with
-// the commands that need them; Command names the executable that detection
+// own configuration (decision 0018), where its user scope installs in each
+// mode (decisions 0031 and 0038), and its own configuration, which the
+// replace mode resets to a fresh install by keep-list (decision 0038). Its
+// helpers only read that data: the layout of a mode, whether an entry is
+// kept, whether a name looks like a login or a history, and which
+// relocation variables an environment sets. Detecting a harness and
+// launching it are logic that reads the disk and PATH, and live with the
+// commands that need them; Command names the executable that detection
 // looks for and dotai run launches (decision 0032).
 package harness
 

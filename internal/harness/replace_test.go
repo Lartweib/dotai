@@ -211,7 +211,11 @@ func TestLooksSensitive(t *testing.T) {
 	for name, want := range map[string]bool{
 		"credentials.json": true, "my-creds": true, "auth.json": true, "OAuth_backup": true, "token": true,
 		"API_TOKEN.txt": true, "sessions.db": true, "History": true, "shell_history.txt": true,
-		"settings.json": false, "agents": false, "sessions.db-wal": false, "dbtools": false, "notes.md": false,
+		"client_secret.json": true, "password.txt": true, "passwd": true, "session-1.json": true, "conversation.log": true,
+		"transcript.md": true, "Cookies": true, "keyring": true, "server.pem": true, "id.key": true,
+		"settings.json": false, "agents": false, "dbtools": false, "notes.md": false,
+		// A bare "key" is not one: key bindings are configuration.
+		"keybindings.json": false, "keys.txt": false, "monkey": false,
 	} {
 		if got := harness.LooksSensitive(name); got != want {
 			t.Errorf("LooksSensitive(%q) = %v, want %v", name, got, want)
@@ -234,11 +238,11 @@ func TestRelocated(t *testing.T) {
 		{"claudecode", []string{"claude_config_dir=/x"}, true, []string{"claude_config_dir"}},
 		{"claudecode", []string{"XDG_CONFIG_HOME=/x"}, false, nil},
 		{"opencode", []string{"XDG_CONFIG_HOME=/x", "XDG_DATA_HOME=/y", "XDG_STATE_HOME=/z", "XDG_CACHE_HOME=/w"}, false,
-			[]string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"}},
+			[]string{"XDG_CACHE_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"}},
 		// Desktop sessions set these; they move no configuration.
 		{"opencode", []string{"XDG_RUNTIME_DIR=/run/user/1000", "XDG_SESSION_TYPE=x11", "XDG_DATA_DIRS=/usr/share"}, false, nil},
-		{"opencode", []string{"OPENCODE_CONFIG=/a", "OPENCODE_CONFIG_DIR=/b", "OPENCODE_CONFIG_CONTENT={}", "OPENCODE_DB=/c", "OPENCODE_DISABLE_CLAUDE_CODE=1"}, false,
-			[]string{"OPENCODE_CONFIG", "OPENCODE_CONFIG_DIR", "OPENCODE_CONFIG_CONTENT", "OPENCODE_DB"}},
+		{"opencode", []string{"OPENCODE_DB=/c", "OPENCODE_CONFIG_DIR=/b", "OPENCODE_CONFIG=/a", "OPENCODE_CONFIG_CONTENT={}", "OPENCODE_DISABLE_CLAUDE_CODE=1"}, false,
+			[]string{"OPENCODE_CONFIG", "OPENCODE_CONFIG_CONTENT", "OPENCODE_CONFIG_DIR", "OPENCODE_DB"}}, // sorted, whatever the environment's order
 		{"antigravity-cli", []string{"CLAUDE_CONFIG_DIR=/x", "XDG_CONFIG_HOME=/y", "ANTIGRAVITY_GEMINI_DIR=/z"}, false, nil},
 	}
 	for _, tt := range tests {

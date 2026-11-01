@@ -105,19 +105,27 @@ type SplitFile struct {
 	ProjectKeys []string
 }
 
-// sensitive are the parts of a name that look like a login or history.
-var sensitive = []string{"cred", "auth", "token", "oauth", "history"}
+// sensitive are the parts of a name that look like a login, a secret or a
+// history; sensitiveSuffixes the endings that do. A bare "key" is not one,
+// since key bindings are configuration.
+var (
+	sensitive = []string{"cred", "auth", "token", "oauth", "secret", "password", "passwd", "history",
+		"session", "conversation", "transcript", "cookie", "keyring"}
+	sensitiveSuffixes = []string{".db", ".pem", ".key"}
+)
 
-// LooksSensitive reports whether name, an entry no keep-list classifies,
-// looks like a login or history: such an entry makes a replace refuse
-// until its adapter classifies it (decision 0038).
+// LooksSensitive reports whether name, without case, looks like a login,
+// a secret or a history: an entry with such a name that no keep-list
+// classifies, or anything inside one, makes a replace refuse until its
+// adapter classifies it (decision 0038).
 func LooksSensitive(name string) bool {
 	lower := strings.ToLower(name)
-	return strings.HasSuffix(lower, ".db") || slices.ContainsFunc(sensitive, func(s string) bool { return strings.Contains(lower, s) })
+	return slices.ContainsFunc(sensitiveSuffixes, func(s string) bool { return strings.HasSuffix(lower, s) }) ||
+		slices.ContainsFunc(sensitive, func(s string) bool { return strings.Contains(lower, s) })
 }
 
-// Relocated is the name of each variable of environ, in order, that is
-// set, not empty, and is one of r's relocation variables, by name compared
+// Relocated is the name of each variable of environ, sorted, that is set,
+// not empty, and is one of r's relocation variables, by name compared
 // without case when fold is set, as on Windows.
 func (r Real) Relocated(environ []string, fold bool) []string {
 	var out []string
@@ -139,6 +147,7 @@ func (r Real) Relocated(environ []string, fold bool) []string {
 			out = append(out, name)
 		}
 	}
+	slices.Sort(out)
 	return out
 }
 
@@ -168,6 +177,10 @@ func (a Adapter) MovesIn(m Mode) []Move {
 	}
 	return slices.Clone(a.Moves)
 }
+
+// ReplaceRelogin is whether the user must log in again after a replace
+// install: no, since it keeps each harness's login (decision 0038).
+const ReplaceRelogin = ReloginNo
 
 // SettingsTarget is the slash path, relative to the home directory, of the
 // harness's settings file in mode m.
