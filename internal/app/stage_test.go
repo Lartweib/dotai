@@ -60,7 +60,7 @@ func TestStageWritesEveryStagedFile(t *testing.T) {
 	want := []string{app.StageMarker}
 	for _, f := range res.Files {
 		want = append(want, f.Scope+"/"+f.Path)
-		if f.Generator != "" {
+		if f.Generator != "" || f.Layer == "" { // rendered or merged: no single source
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join(out, f.Scope, filepath.FromSlash(f.Path)))

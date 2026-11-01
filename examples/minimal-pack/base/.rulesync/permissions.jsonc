@@ -1,0 +1,13 @@
+{
+  // Every variant merges its permissions into these (decision 0040).
+  "permission": {
+    "bash": {
+      "git status": "allow",
+      "git diff *": "allow",
+      "git push --force *": "deny"
+    },
+    "read": {
+      ".env": "deny"
+    }
+  }
+}
