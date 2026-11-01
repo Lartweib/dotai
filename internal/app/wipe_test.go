@@ -201,7 +201,7 @@ func TestInstallReplaceWipesByMove(t *testing.T) {
 		}
 	}
 	m := manifest(t, home, res.Backup.ID)
-	if !m.Pinned || m.Mode != app.ModeReplace || len(m.Wipes) != len(res.Wipes) || len(m.Splits) != 1 {
+	if app.PinnedBackup(t, home) != res.Backup.ID || m.Mode != app.ModeReplace || len(m.Wipes) != len(res.Wipes) || len(m.Splits) != 1 {
 		t.Errorf("manifest = %+v, want the pinned replace backup with every wipe and ~/.claude.json", m)
 	}
 	for _, w := range m.Wipes {

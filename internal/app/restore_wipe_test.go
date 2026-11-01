@@ -141,7 +141,7 @@ func TestReplaceAgainWipesAgain(t *testing.T) {
 			if got := rels(home, wipePaths(second.Wipes)); !reflect.DeepEqual(got, []string{".claude/agents", ".claude/new-tool", "CLAUDE.md"}) {
 				t.Errorf("second wipes = %q, want what was put since", got)
 			}
-			if len(second.WipeKeys) != 3 || second.Backup == nil || manifest(t, home, second.Backup.ID).Pinned || !manifest(t, home, first.Backup.ID).Pinned {
+			if len(second.WipeKeys) != 3 || second.Backup == nil || app.PinnedBackup(t, home) != first.Backup.ID {
 				t.Errorf("second install = %+v, want the keys wiped again into a backup that is not pinned", second)
 			}
 			diff(t, "the second backup", within(entries(t, second.Backup.Path), "files/.claude/new-tool"), within(between, ".claude/new-tool"))
@@ -200,51 +200,87 @@ func wipePaths(ws []app.WipePlan) []string {
 }
 
 // TestPinnedReplaceBackupIsNeverPruned checks retention with the pinned
-// first replace backup: after two isolated installs and a long run of
+// first replace backup, the oldest of the replace installs the install
+// state leads back to: after two isolated installs and a long run of
 // replace installs, the pinned backup and the history back to it stay,
 // where retention would prune them, while older backups are pruned as
-// usual. Once a restore undoes it, the next replace install is pinned.
+// usual. A first replace install that failed and rolled back is not it,
+// and one that was killed is, since its backup holds what it moved. Once
+// a restore undoes it, the next replace install is pinned.
 func TestPinnedReplaceBackupIsNeverPruned(t *testing.T) {
-	home, h := realHome(t)
-	f := quiet(t)
-	d := newClockFS(t)
-	var isolated []string
-	for _, variant := range []string{"standalone", "tmux"} {
-		res, err := app.InstallHost(context.Background(), d, h, f.fetch, replaceRun(t), examplePack, home, app.InstallOptions{Variant: variant})
-		if err != nil || res.Backup == nil {
-			t.Fatalf("Install(isolated %s) = %+v, %v", variant, res, err)
-		}
-		isolated = append(isolated, res.Backup.ID)
-	}
-	var replaces []string
-	for i := range 12 {
-		if i > 0 {
-			writeFile(t, at(home, fmt.Sprintf(".claude/put-since-%d", i)), "x\n")
-		}
-		res, err := app.InstallReplace(context.Background(), d, h, f.fetch, replaceRun(t), examplePack, home, app.InstallOptions{Variant: "tmux"})
-		if err != nil || res.Backup == nil {
-			t.Fatalf("Install(replace %d) = %+v, %v", i, res, err)
-		}
-		replaces = append(replaces, res.Backup.ID)
-	}
-	left := backups(t, home)
-	for i, id := range replaces {
-		if !slices.Contains(left, id) {
-			t.Errorf("replace backup %d %s was pruned, want the pinned one and the history back to it kept", i, id)
-		}
-		if got := manifest(t, home, id).Pinned; got != (i == 0) {
-			t.Errorf("replace backup %d pinned = %v, want only the first", i, got)
-		}
-	}
-	if !slices.Contains(left, isolated[0]) || slices.Contains(left, isolated[1]) {
-		t.Errorf("backups = %v, want the oldest kept and the isolated one after it pruned", left)
-	}
-	if _, err := restore(d, home, replaces[0], consent); err != nil {
-		t.Fatalf("Restore(pinned) error = %v", err)
-	}
-	res, err := app.InstallReplace(context.Background(), d, h, f.fetch, replaceRun(t), examplePack, home, app.InstallOptions{Variant: "tmux"})
-	if err != nil || res.Backup == nil || !manifest(t, home, res.Backup.ID).Pinned {
-		t.Errorf("Install(replace) after restoring the pinned backup = %+v, %v, want it pinned", res, err)
+	for _, first := range []string{"succeeds", "fails", "is killed"} {
+		t.Run("the first "+first, func(t *testing.T) {
+			home, h := realHome(t)
+			f := quiet(t)
+			d := newClockFS(t)
+			replace := func(d app.ExecuteFS) (app.InstallResult, error) {
+				return app.InstallReplace(context.Background(), d, h, f.fetch, replaceRun(t), examplePack, home, app.InstallOptions{Variant: "tmux"})
+			}
+			var isolated []string
+			for _, variant := range []string{"standalone", "tmux"} {
+				res, err := app.InstallHost(context.Background(), d, h, f.fetch, replaceRun(t), examplePack, home, app.InstallOptions{Variant: variant})
+				if err != nil || res.Backup == nil {
+					t.Fatalf("Install(isolated %s) = %+v, %v", variant, res, err)
+				}
+				isolated = append(isolated, res.Backup.ID)
+			}
+			want := ""
+			switch first {
+			case "fails":
+				if _, err := replace(&stepFS{clockFS: d, at: 1}); !errors.Is(err, errInjected) {
+					t.Fatalf("Install(replace) error = %v, want the injected failure", err)
+				}
+				if got := app.PinnedBackup(t, home); got != "" {
+					t.Errorf("pinned backup after a rolled back install = %q, want none", got)
+				}
+			case "is killed":
+				func() {
+					defer func() {
+						if r := recover(); r != errCrash {
+							t.Fatalf("recovered %v, want the crash", r)
+						}
+					}()
+					_, _ = replace(&stepFS{clockFS: d, at: 3, kill: true})
+				}()
+				want = readJSON(t, at(home, ".dotai/state.json"), state.Decode).Pending.Backup
+			}
+			var replaces []string
+			for i := range 12 {
+				if i > 0 {
+					writeFile(t, at(home, fmt.Sprintf(".claude/put-since-%d", i)), "x\n")
+				}
+				res, err := replace(d)
+				if err != nil || res.Backup == nil {
+					t.Fatalf("Install(replace %d) = %+v, %v", i, res, err)
+				}
+				replaces = append(replaces, res.Backup.ID)
+			}
+			if want == "" {
+				want = replaces[0]
+			}
+			if got := app.PinnedBackup(t, home); got != want {
+				t.Errorf("pinned backup = %q, want %q", got, want)
+			}
+			left := backups(t, home)
+			for i, id := range append(replaces, want) {
+				if !slices.Contains(left, id) {
+					t.Errorf("replace backup %d %s was pruned, want the pinned one and the history back to it kept", i, id)
+				}
+			}
+			if !slices.Contains(left, isolated[0]) || slices.Contains(left, isolated[1]) {
+				t.Errorf("backups = %v, want the oldest kept and the isolated one after it pruned", left)
+			}
+			if _, err := restore(d, home, want, consent); err != nil {
+				t.Fatalf("Restore(pinned) error = %v", err)
+			}
+			if got := app.PinnedBackup(t, home); got != "" {
+				t.Errorf("pinned backup after restoring it = %q, want none", got)
+			}
+			res, err := replace(d)
+			if err != nil || res.Backup == nil || app.PinnedBackup(t, home) != res.Backup.ID {
+				t.Errorf("Install(replace) after restoring the pinned backup = %+v, %v, want it pinned", res, err)
+			}
+		})
 	}
 }
 
@@ -373,8 +409,8 @@ func TestKilledReplaceIsSettled(t *testing.T) {
 							t.Errorf("op %+v, want every target in place", op)
 						}
 					}
-					if m := manifest(t, home, readJSON(t, at(home, ".dotai/state.json"), state.Decode).Backup); m.Pinned {
-						t.Error("the settling install's backup is pinned too")
+					if got := app.PinnedBackup(t, home); got != pinned {
+						t.Errorf("pinned backup = %q, want the killed install's %s, which holds what it moved", got, pinned)
 					}
 					id = pinned
 				}

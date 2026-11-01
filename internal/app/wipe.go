@@ -49,13 +49,11 @@ type splitWrite struct {
 }
 
 // extra is what an operation writes besides its plan's ops: the entries it
-// moves into its backup, whose items the backup fills in, the split files
-// it rewrites, whose copies it keeps, and whether it is the pinned first
-// replace backup.
+// moves into its backup, whose items the backup fills in, and the split
+// files it rewrites, whose copies it keeps.
 type extra struct {
 	wipes  []backup.Wipe
 	splits []splitWrite
-	pinned bool
 }
 
 // keyWipes are the split files keys plans to wipe, each with the content
@@ -203,7 +201,7 @@ func (r runner) backupExtra(dir string, m *backup.Manifest, ex *extra) (map[stri
 		}
 		ex.wipes[i].Items = items
 	}
-	m.Wipes, m.Pinned = ex.wipes, ex.pinned
+	m.Wipes = ex.wipes
 	return dirs, nil
 }
 
@@ -392,9 +390,8 @@ func (p planned) resets() bool {
 
 // resetWork is what the replace install of r.p does besides its ops: the
 // entries it moves into its backup, at their paths under its FilesDir,
-// and the split files whose keys it deletes; its backup is pinned when no
-// other pinned backup is left that a restore has not undone. An install in
-// the isolated mode has none.
+// and the split files whose keys it deletes. An install in the isolated
+// mode has none.
 func (r runner) resetWork() (*extra, error) {
 	ex := &extra{}
 	if r.p.plan.Mode != ModeReplace {
@@ -411,39 +408,33 @@ func (r runner) resetWork() (*extra, error) {
 		}
 		ex.wipes = append(ex.wipes, backup.Wipe{Harness: w.Harness, Path: w.Path, Kind: w.Kind, File: path.Join(backup.FilesDir, rel)})
 	}
-	pinned, err := r.pinnedBackups()
-	if err != nil {
-		return nil, err
-	}
-	ex.pinned = len(pinned) == 0
 	return ex, nil
 }
 
-// pinnedBackups are the ids of the pinned backups no restore has undone.
-// A backup whose manifest cannot be read is skipped, as prune skips it.
-func (r runner) pinnedBackups() ([]string, error) {
+// pinnedChain is the start of order, the history the install state leads
+// to, newest first, that is made of replace installs: its last backup is
+// the pinned one, the first replace backup of the history, which holds the
+// configuration from before dotai, or what a killed first replace install
+// had moved (decision 0038). Retention never prunes any of it. The pin is
+// read from the history, never recorded, so that an install that rolled
+// back, which the history no longer leads to, is never pinned, and a
+// restore that undoes the pinned backup releases it. It is empty when the
+// newest install is not a replace install.
+func (r runner) pinnedChain(order []string) []string {
 	root := filepath.Join(r.home, dotaiDir, backupsDir)
-	names, err := r.d.List(root)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	var out []string
-	for _, name := range names {
-		if _, ok := backup.ParseID(name); !ok {
-			continue
-		}
-		data, err := r.d.ReadFile(filepath.Join(root, name), backup.ManifestName)
+	n := 0
+	for i, id := range order {
+		data, err := r.d.ReadFile(filepath.Join(root, id), backup.ManifestName)
 		if err != nil {
-			continue
+			break
 		}
-		if m, err := backup.Decode(data); err == nil && m.Pinned && m.Restored == nil {
-			out = append(out, name)
+		m, err := backup.Decode(data)
+		if err != nil || m.Operation != backup.OperationInstall || m.Mode != ModeReplace {
+			break
 		}
+		n = i + 1
 	}
-	return out, nil
+	return order[:n]
 }
 
 // journal is base with the journal of an operation that carries out ops

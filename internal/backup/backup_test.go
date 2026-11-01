@@ -352,7 +352,7 @@ func TestCheckWipesAndSplits(t *testing.T) {
 	id, restoreID := "20261029T131500.123Z_install", "20261029T131600.000Z_restore"
 	agents := filepath.Join(home, ".claude", "agents")
 	valid := func() backup.Manifest {
-		return backup.Manifest{Schema: backup.Schema, ID: id, Operation: backup.OperationInstall, Home: home, Pinned: true,
+		return backup.Manifest{Schema: backup.Schema, ID: id, Operation: backup.OperationInstall, Home: home,
 			PriorState: &backup.PriorState{None: true}, Ops: []backup.Op{
 				{Action: plan.Create, Target: filepath.Join(agents, "pack.md"), After: &backup.Content{SHA256: "p"}},
 			},
@@ -373,7 +373,7 @@ func TestCheckWipesAndSplits(t *testing.T) {
 		t.Fatalf("Check() = %v, want a valid manifest", err)
 	}
 	r := valid()
-	r.ID, r.Operation, r.Pinned, r.Splits = restoreID, backup.OperationRestore, false, nil
+	r.ID, r.Operation, r.Splits = restoreID, backup.OperationRestore, nil
 	r.Wipes = r.Wipes[1:]
 	r.Wipes[0].File = "moved/" + id + "/CLAUDE.md"
 	if err := backup.Check(r, restoreID, home); err != nil {
@@ -426,7 +426,7 @@ func TestCheckWipesAndSplits(t *testing.T) {
 			m.Splits[0].Target = m.Ops[0].Target
 			m.Splits[0].File = "files/.claude/agents/pack.md"
 		}, "twice"},
-		"a pinned restore": {func(m *backup.Manifest) { m.Operation = backup.OperationRestore }, "operation"},
+		"another operation": {func(m *backup.Manifest) { m.Operation = backup.OperationRestore }, "operation"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			m := valid()
@@ -448,7 +448,7 @@ func TestCheckWipesAndSplits(t *testing.T) {
 	}
 	m := valid()
 	m.ID, m.Operation = restoreID, backup.OperationRestore
-	if err := backup.Check(m, restoreID, home); err == nil || !strings.Contains(err.Error(), "pinned") {
-		t.Errorf("Check() of a pinned restore = %v, want it refused", err)
+	if err := backup.Check(m, restoreID, home); err == nil || !strings.Contains(err.Error(), "moved to") {
+		t.Errorf("Check() of a restore with an install's wipes = %v, want them refused", err)
 	}
 }

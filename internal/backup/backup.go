@@ -95,12 +95,7 @@ type Manifest struct {
 	Info
 	PriorState *PriorState `json:"priorState,omitempty"`
 	Restored   *Restored   `json:"restored,omitempty"`
-	// Pinned marks the first backup of a replace install in the home
-	// directory, which holds the configuration from before dotai: retention
-	// never prunes it, nor the history from the install state back to it,
-	// until a restore undoes it (decision 0038).
-	Pinned bool `json:"pinned,omitempty"`
-	Ops    []Op `json:"ops"`
+	Ops        []Op        `json:"ops"`
 	// Wipes are the entries the operation moved into the backup: those a
 	// replace install wiped, or those a restore moved out of the way of the
 	// entries it moved back. Splits are the files it rewrote by key.
@@ -362,13 +357,9 @@ func Check(m Manifest, id, home string) error {
 // path outside home, named twice or at or below another wiped entry, an
 // unknown kind, an install's entry that is not at its path under FilesDir
 // or a restore's that is not at its path under MovedDir and the id of an
-// install backup, or items that do not describe an entry of its kind. A
-// pinned backup must be an install's.
+// install backup, or items that do not describe an entry of its kind.
 func checkWipes(m Manifest, id, home string) error {
 	seen := map[string]bool{}
-	if m.Pinned && m.Operation != OperationInstall {
-		return fmt.Errorf("backup manifest %s: only an install's backup is pinned", id)
-	}
 	for _, w := range m.Wipes {
 		rel, err := Rel(home, w.Path)
 		if err != nil || !filepath.IsAbs(w.Path) {

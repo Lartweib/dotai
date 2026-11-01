@@ -877,10 +877,10 @@ func (r runner) writeState(s state.State) error {
 
 // prune removes the backups retention does not keep, never the backups in
 // protect, with head the backup the install state now names ("" for
-// none), from which the history is followed. A pinned backup no restore
-// has undone is never removed either, nor the history from head back to it
-// (decision 0038). A backup whose manifest cannot be read or decoded is
-// left alone; one without a manifest is incomplete.
+// none), from which the history is followed. The pinned first replace
+// backup is never removed either, nor the history from head back to it
+// (pinnedChain, decision 0038). A backup whose manifest cannot be read or
+// decoded is left alone; one without a manifest is incomplete.
 func (r runner) prune(head string, protect ...string) error {
 	root := filepath.Join(r.home, dotaiDir, backupsDir)
 	names, err := r.d.List(root)
@@ -892,14 +892,7 @@ func (r runner) prune(head string, protect ...string) error {
 	for _, id := range order {
 		chain[id] = true
 	}
-	pinned, err := r.pinnedBackups()
-	if err != nil {
-		return err
-	}
-	protect = append(slices.Clone(protect), pinned...)
-	if i := slices.IndexFunc(order, func(id string) bool { return slices.Contains(pinned, id) }); i >= 0 {
-		protect = append(protect, order[:i]...)
-	}
+	protect = append(slices.Clone(protect), r.pinnedChain(order)...)
 	var entries []backup.Entry
 	for _, name := range names {
 		if _, ok := backup.ParseID(name); !ok {
