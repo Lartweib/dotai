@@ -84,7 +84,7 @@ func sharedVerb(id string) string {
 // entries are left out. A skill whose link or copy would sit on or above a
 // staged file, such as the pack's skill of the same name, is skipped for
 // that harness. A missing folder shares nothing.
-func sharedSkills(ctx context.Context, d installFS, tree, home string, adapters []harness.Adapter, ops []plan.Op) ([]plan.File, *SharedSkillsPlan, error) {
+func sharedSkills(ctx context.Context, d installFS, tree, home string, mode harness.Mode, adapters []harness.Adapter, ops []plan.Op) ([]plan.File, *SharedSkillsPlan, error) {
 	dir := filepath.Join(home, filepath.FromSlash(harness.SharedSkillsDir))
 	sp := &SharedSkillsPlan{Dir: dir, Skills: []string{}, Skipped: []SkippedSkill{}}
 	names, err := d.List(dir)
@@ -116,7 +116,7 @@ func sharedSkills(ctx context.Context, d installFS, tree, home string, adapters 
 				continue // it reads the folder itself
 			}
 			source := path.Join(a.Staging, a.SharedSkills, name)
-			_, target, _ := plan.Locate(home, harness.Isolated, adapters, source)
+			_, target, _ := plan.Locate(home, mode, adapters, source)
 			if slices.ContainsFunc(ops, func(op plan.Op) bool { return samePath(op.Target, target) || below(target, op.Target) }) {
 				sp.Skipped = append(sp.Skipped, SkippedSkill{Name: name, Harness: a.ID, Reason: ReasonPackSkill})
 				continue

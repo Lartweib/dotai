@@ -180,6 +180,10 @@
         "beforeLink": ""
       }
     ],
+    "wipes": [],
+    "keeps": [],
+    "wipeKeys": [],
+    "refusals": [],
     "notices": [],
     "diagnostics": [],
     "backup": {

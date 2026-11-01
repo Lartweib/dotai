@@ -1,0 +1,37 @@
+Install plan · minimal-pack 0.1.0 · variant standalone · mode replace
+root: /home/u
+note: the optional harness opencode is skipped: it is not installed (opencode not found on PATH and no /home/u/.config/opencode directory)
+
+claudecode · replace · keeps your login
+  binary: /usr/bin/claude
+  config: /home/u/.claude
+  keeps login: /home/u/.claude/.credentials.json
+  keeps history: /home/u/.claude/history.jsonl, /home/u/.claude/projects
+
+antigravity-cli · replace · keeps your login
+  binary: /usr/bin/agy
+  config: /home/u/.gemini
+  keeps state: /home/u/.gemini/config/.migrated
+  statusLine runs tool hello: sh /home/u/.dotai/tools/hello.sh
+
+claudecode
+  wipe       /home/u/.claude/CLAUDE.md
+  wipe       /home/u/.claude/agents
+  wipe       /home/u/CLAUDE.md
+             warning: other tools that read ~/CLAUDE.md lose it until a restore
+  wipe key   /home/u/.claude.json · mcpServers
+  wipe key   /home/u/.claude.json · projects["C:/work"].allowedTools
+  create     /home/u/.claude/CLAUDE.md
+
+antigravity-cli
+  wipe       /home/u/.gemini/GEMINI.md
+             warning: Gemini CLI reads it too, and loses it until a restore
+  create     /home/u/.gemini/config/GEMINI.md
+
+tools
+  create     /home/u/.dotai/tools/hello.sh
+
+refused
+  CLAUDE_CONFIG_DIR is set, so claudecode may read its configuration from somewhere a replace install does not reset: unset it, then install again
+
+3 create, 0 replace, 0 remove, 0 unchanged · 4 wipe, 2 key wipe, 1 refused · dry run, nothing was written

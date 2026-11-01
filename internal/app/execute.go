@@ -186,12 +186,15 @@ func install(ctx context.Context, d executeFS, h host, fetch fetchFunc, run runF
 		return InstallResult{}, fmt.Errorf("home directory %q is not absolute", home)
 	}
 	home = filepath.Clean(home)
+	if opts.Mode == ModeReplace {
+		return InstallResult{}, errReplaceUnavailable(false)
+	}
 	packPath, err := filepath.Abs(dir)
 	if err != nil {
 		return InstallResult{}, err
 	}
 	var res InstallResult
-	err = withPlan(ctx, d, h, fetch, run, cacheDir, dir, home, opts, progress, func(p planned) error {
+	err = withPlan(ctx, d, h, fetch, run, cacheDir, dir, home, opts, true, progress, func(p planned) error {
 		res = InstallResult{InstallPlan: p.plan, Warnings: []string{}}
 		if len(p.plan.Diagnostics) > 0 {
 			return nil

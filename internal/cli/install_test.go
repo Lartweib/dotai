@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -46,6 +47,7 @@ var installPlan = app.InstallPlan{
 		{Action: plan.Replace, Harness: "antigravity-cli", Source: ".gemini/GEMINI.md", Target: "/home/u/.dotai/isolated/gemini/GEMINI.md", Before: "cc", After: "dd", Keys: []plan.KeyChange{}},
 		{Action: plan.Create, Source: ".dotai/tools/hello.sh", Target: "/home/u/.dotai/tools/hello.sh", Exec: true, After: "ee", Keys: []plan.KeyChange{}},
 	},
+	Wipes: []app.WipePlan{}, Keeps: []app.KeepPlan{}, WipeKeys: []app.WipeKey{}, Refusals: []app.Refusal{},
 	Notices:     []string{},
 	Diagnostics: []app.Diagnostic{},
 }
@@ -493,5 +495,96 @@ func TestRunInstallDryRunShowsAHarnessItDoesNotManage(t *testing.T) {
 		if !strings.Contains(stdout.String(), want) {
 			t.Errorf("output =\n%s\nwant it to hold %q", stdout.String(), want)
 		}
+	}
+}
+
+// replacePlan is the dry run of a replace install, with fixed paths.
+var replacePlan = app.InstallPlan{
+	Pack:    installPlan.Pack,
+	Variant: "standalone", Mode: app.ModeReplace, Root: "/home/u",
+	Harnesses: []app.HarnessPlan{
+		{ID: "claudecode", Required: true, Managed: true, Detection: app.Detection{Detected: true, Binary: "/usr/bin/claude", Config: "/home/u/.claude", ConfigFound: true},
+			Dir: "/home/u/.claude", Relogin: "no", Pointers: []app.PointerPlan{}, Leaks: []string{}, Tools: []app.ToolCommand{}},
+		{ID: "antigravity-cli", Required: true, Managed: true, Detection: app.Detection{Detected: true, Binary: "/usr/bin/agy", Config: "/home/u/.gemini", ConfigFound: true},
+			Dir: "/home/u/.gemini", Relogin: "no", Pointers: []app.PointerPlan{}, Leaks: []string{},
+			Tools: []app.ToolCommand{{Key: "statusLine", Tool: "hello", Command: "sh /home/u/.dotai/tools/hello.sh"}}},
+	},
+	Ops: []app.InstallOp{
+		{Action: plan.Create, Harness: "claudecode", Source: ".claude/CLAUDE.md", Target: "/home/u/.claude/CLAUDE.md", After: "aa", Keys: []plan.KeyChange{}},
+		{Action: plan.Create, Harness: "antigravity-cli", Source: ".gemini/GEMINI.md", Target: "/home/u/.gemini/config/GEMINI.md", After: "dd", Keys: []plan.KeyChange{}},
+		{Action: plan.Create, Source: ".dotai/tools/hello.sh", Target: "/home/u/.dotai/tools/hello.sh", Exec: true, After: "ee", Keys: []plan.KeyChange{}},
+	},
+	Wipes: []app.WipePlan{
+		{Harness: "claudecode", Path: "/home/u/.claude/CLAUDE.md", Kind: app.KindFile},
+		{Harness: "claudecode", Path: "/home/u/.claude/agents", Kind: app.KindDir},
+		{Harness: "claudecode", Path: "/home/u/CLAUDE.md", Kind: app.KindFile, Collateral: "other tools that read ~/CLAUDE.md lose it until a restore"},
+		{Harness: "antigravity-cli", Path: "/home/u/.gemini/GEMINI.md", Kind: app.KindFile, Collateral: "Gemini CLI reads it too, and loses it until a restore"},
+	},
+	Keeps: []app.KeepPlan{
+		{Harness: "claudecode", Path: "/home/u/.claude/.credentials.json", Kind: "login"},
+		{Harness: "claudecode", Path: "/home/u/.claude/history.jsonl", Kind: "history"},
+		{Harness: "claudecode", Path: "/home/u/.claude/projects", Kind: "history"},
+		{Harness: "antigravity-cli", Path: "/home/u/.gemini/config/.migrated", Kind: "state"},
+	},
+	WipeKeys: []app.WipeKey{
+		{Harness: "claudecode", File: "/home/u/.claude.json", Key: []string{"mcpServers"}},
+		{Harness: "claudecode", File: "/home/u/.claude.json", Key: []string{"projects", "C:/work", "allowedTools"}},
+	},
+	Refusals: []app.Refusal{{Code: app.RefuseRelocation, Harness: "claudecode", Variable: "CLAUDE_CONFIG_DIR",
+		Message: "CLAUDE_CONFIG_DIR is set, so claudecode may read its configuration from somewhere a replace install does not reset: unset it, then install again"}},
+	Notices:     []string{"the optional harness opencode is skipped: it is not installed (opencode not found on PATH and no /home/u/.config/opencode directory)"},
+	Diagnostics: []app.Diagnostic{},
+}
+
+// TestRunInstallDryRunReplace checks the dry run of a replace install: the
+// mode flag reaches the use case, and the plan shows what is wiped, kept
+// and written per harness, the keys of ~/.claude.json and the refusals.
+func TestRunInstallDryRunReplace(t *testing.T) {
+	for _, tt := range []struct {
+		name, golden string
+		args         []string
+	}{
+		{"text", "install-dry-run-replace.txt.golden", []string{"install", examplePack, "--dry-run", "--mode", "replace"}},
+		{"json", "install-dry-run-replace.json.golden", []string{"install", examplePack, "--dry-run", "--mode", "replace", "--json"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			env := testEnv(&stdout, &stderr)
+			env.PlanInstall = func(_ context.Context, _, _, _ string, opts app.InstallOptions, _ app.Progress) (app.InstallPlan, error) {
+				if opts.Mode != app.ModeReplace {
+					t.Errorf("mode = %q, want replace", opts.Mode)
+				}
+				return replacePlan, nil
+			}
+			if code := cli.Run(tt.args, env); code != cli.ExitOK || stderr.Len() != 0 {
+				t.Errorf("exit code = %d, stderr = %q, want 0 and empty", code, stderr.String())
+			}
+			assertGolden(t, filepath.Join("testdata", tt.golden), stdout.Bytes())
+		})
+	}
+}
+
+// TestRunInstallReplaceIsAUsageError checks that the refusal of an install
+// in replace mode, which is not available yet, is a usage error.
+func TestRunInstallReplaceIsAUsageError(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("DOTAI_CACHE_DIR", filepath.Join(home, "cache"))
+	var stdout bytes.Buffer
+	env := testEnv(&stdout, &bytes.Buffer{})
+	env.Install = app.Install
+	if code := cli.Run([]string{"install", examplePack, "--mode", "replace", "--json"}, env); code != cli.ExitUsage {
+		t.Errorf("exit code = %d, want %d", code, cli.ExitUsage)
+	}
+	var e struct {
+		OK    bool                           `json:"ok"`
+		Error struct{ Code, Message string } `json:"error"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &e); err != nil || e.OK || e.Error.Code != "usage" || !strings.Contains(e.Error.Message, "not available yet") {
+		t.Errorf("envelope = %s, want a usage error that replace is not available yet", stdout.String())
+	}
+	if entries, _ := os.ReadDir(home); len(entries) != 0 {
+		t.Errorf("home holds %v, want nothing written", entries)
 	}
 }

@@ -1,0 +1,186 @@
+{
+  "schema": "dotai.cli/v1",
+  "command": "install",
+  "ok": true,
+  "data": {
+    "pack": {
+      "name": "minimal-pack",
+      "version": "0.1.0",
+      "engine": "",
+      "rulesync": "",
+      "harnesses": [
+        "claudecode",
+        "antigravity-cli",
+        "opencode"
+      ],
+      "optionalHarnesses": [],
+      "profiles": [],
+      "variants": [],
+      "defaultVariant": "",
+      "sharedSkills": [],
+      "layers": []
+    },
+    "variant": "standalone",
+    "mode": "replace",
+    "root": "/home/u",
+    "sharedSkills": null,
+    "harnesses": [
+      {
+        "id": "claudecode",
+        "required": true,
+        "managed": true,
+        "detected": true,
+        "binary": "/usr/bin/claude",
+        "config": "/home/u/.claude",
+        "configFound": true,
+        "level": "",
+        "dir": "/home/u/.claude",
+        "pointers": [],
+        "relogin": "no",
+        "leaks": [],
+        "tools": []
+      },
+      {
+        "id": "antigravity-cli",
+        "required": true,
+        "managed": true,
+        "detected": true,
+        "binary": "/usr/bin/agy",
+        "config": "/home/u/.gemini",
+        "configFound": true,
+        "level": "",
+        "dir": "/home/u/.gemini",
+        "pointers": [],
+        "relogin": "no",
+        "leaks": [],
+        "tools": [
+          {
+            "key": "statusLine",
+            "tool": "hello",
+            "command": "sh /home/u/.dotai/tools/hello.sh"
+          }
+        ]
+      }
+    ],
+    "ops": [
+      {
+        "action": "create",
+        "harness": "claudecode",
+        "source": ".claude/CLAUDE.md",
+        "target": "/home/u/.claude/CLAUDE.md",
+        "exec": false,
+        "before": "",
+        "after": "aa",
+        "beforeExec": false,
+        "keys": [],
+        "link": "",
+        "beforeLink": ""
+      },
+      {
+        "action": "create",
+        "harness": "antigravity-cli",
+        "source": ".gemini/GEMINI.md",
+        "target": "/home/u/.gemini/config/GEMINI.md",
+        "exec": false,
+        "before": "",
+        "after": "dd",
+        "beforeExec": false,
+        "keys": [],
+        "link": "",
+        "beforeLink": ""
+      },
+      {
+        "action": "create",
+        "harness": "",
+        "source": ".dotai/tools/hello.sh",
+        "target": "/home/u/.dotai/tools/hello.sh",
+        "exec": true,
+        "before": "",
+        "after": "ee",
+        "beforeExec": false,
+        "keys": [],
+        "link": "",
+        "beforeLink": ""
+      }
+    ],
+    "wipes": [
+      {
+        "harness": "claudecode",
+        "path": "/home/u/.claude/CLAUDE.md",
+        "kind": "file",
+        "collateral": ""
+      },
+      {
+        "harness": "claudecode",
+        "path": "/home/u/.claude/agents",
+        "kind": "dir",
+        "collateral": ""
+      },
+      {
+        "harness": "claudecode",
+        "path": "/home/u/CLAUDE.md",
+        "kind": "file",
+        "collateral": "other tools that read ~/CLAUDE.md lose it until a restore"
+      },
+      {
+        "harness": "antigravity-cli",
+        "path": "/home/u/.gemini/GEMINI.md",
+        "kind": "file",
+        "collateral": "Gemini CLI reads it too, and loses it until a restore"
+      }
+    ],
+    "keeps": [
+      {
+        "harness": "claudecode",
+        "path": "/home/u/.claude/.credentials.json",
+        "kind": "login"
+      },
+      {
+        "harness": "claudecode",
+        "path": "/home/u/.claude/history.jsonl",
+        "kind": "history"
+      },
+      {
+        "harness": "claudecode",
+        "path": "/home/u/.claude/projects",
+        "kind": "history"
+      },
+      {
+        "harness": "antigravity-cli",
+        "path": "/home/u/.gemini/config/.migrated",
+        "kind": "state"
+      }
+    ],
+    "wipeKeys": [
+      {
+        "harness": "claudecode",
+        "file": "/home/u/.claude.json",
+        "key": [
+          "mcpServers"
+        ]
+      },
+      {
+        "harness": "claudecode",
+        "file": "/home/u/.claude.json",
+        "key": [
+          "projects",
+          "C:/work",
+          "allowedTools"
+        ]
+      }
+    ],
+    "refusals": [
+      {
+        "code": "relocation-variable",
+        "harness": "claudecode",
+        "path": "",
+        "variable": "CLAUDE_CONFIG_DIR",
+        "message": "CLAUDE_CONFIG_DIR is set, so claudecode may read its configuration from somewhere a replace install does not reset: unset it, then install again"
+      }
+    ],
+    "notices": [
+      "the optional harness opencode is skipped: it is not installed (opencode not found on PATH and no /home/u/.config/opencode directory)"
+    ],
+    "diagnostics": []
+  }
+}

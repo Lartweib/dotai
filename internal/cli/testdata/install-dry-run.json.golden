@@ -167,6 +167,10 @@
         "beforeLink": ""
       }
     ],
+    "wipes": [],
+    "keeps": [],
+    "wipeKeys": [],
+    "refusals": [],
     "notices": [],
     "diagnostics": []
   }
