@@ -12,6 +12,7 @@
       "harnesses": [
         "claudecode"
       ],
+      "optionalHarnesses": [],
       "profiles": [
         "web",
         "docs"

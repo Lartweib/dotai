@@ -365,6 +365,14 @@ func TestRestoreRefusesATamperedManifest(t *testing.T) {
 		"not under the home directory: a target outside it": func(home string, m *backup.Manifest, dir string) {
 			m.Ops = append(m.Ops, backup.Op{Action: plan.Create, Target: filepath.Join(filepath.Dir(home), "x"), After: &backup.Content{SHA256: sum("x")}})
 		},
+		// A replace install cannot be restored yet (roadmap PR 9b-3).
+		"cannot restore yet: a backup of a replace install": func(home string, m *backup.Manifest, dir string) {
+			m.Mode = app.ModeReplace
+		},
+		"cannot restore yet: a target in a harness's own directory": func(home string, m *backup.Manifest, dir string) {
+			m.Mode = app.ModeReplace
+			m.Ops = append(m.Ops, backup.Op{Action: plan.Create, Target: at(home, ".claude/CLAUDE.md"), After: &backup.Content{SHA256: sum("x")}})
+		},
 		"owns a file restore never writes: a prior state with a file outside": func(home string, m *backup.Manifest, dir string) {
 			s := state.State{Schema: state.Schema, Harnesses: []string{}, Files: []state.File{{Target: at(home, ".ssh/config"), SHA256: sum("x")}}}
 			data, err := state.Encode(s)

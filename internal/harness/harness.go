@@ -1,9 +1,14 @@
 // Package harness describes each supported harness as data (decision
 // 0028): its rulesync target, how far it can run isolated from the user's
-// own configuration (decision 0018), and where its user scope installs in
-// isolated mode (decision 0031). Detecting a harness and launching it
-// isolated are logic, and come with the commands that need them; Command
-// names the executable that dotai run launches (decision 0032).
+// own configuration (decision 0018), where its user scope installs in each
+// mode (decisions 0031 and 0038), and its own configuration, which the
+// replace mode resets to a fresh install by keep-list (decision 0038). Its
+// helpers only read that data: the layout of a mode, whether an entry is
+// kept, whether a name looks like a login or a history, and which
+// relocation variables an environment sets. Detecting a harness and
+// launching it are logic that reads the disk and PATH, and live with the
+// commands that need them; Command names the executable that detection
+// looks for and dotai run launches (decision 0032).
 package harness
 
 import (
@@ -215,6 +220,9 @@ type Adapter struct {
 	// installs it; dotai run launches it instead when it is there.
 	BatchTarget string
 	Isolation   Isolation
+	// Real is the harness's own configuration, which the replace mode
+	// resets and installs into (decision 0038).
+	Real Real
 }
 
 // Quoting is how a harness reads a command in its settings.
@@ -244,6 +252,7 @@ var adapters = []Adapter{
 		ID: "claudecode", Target: "claudecode", Dir: "claude", Staging: ".claude", Settings: "settings.json", Command: "claude",
 		SharedSkills: "skills",
 		Commands:     ShellQuoted,
+		Real:         claudeReal,
 		Isolation: Isolation{
 			Level: Partial,
 			// Decision 0018 verified the new login on Windows only, where the
@@ -269,6 +278,7 @@ var adapters = []Adapter{
 		// agy splits a statusline command itself and passes quotes on
 		// (HARNESS-NOTES).
 		Commands: Unquoted,
+		Real:     agyReal,
 		Isolation: Isolation{
 			Level: Partial,
 			// Verified on Windows only.
@@ -282,6 +292,7 @@ var adapters = []Adapter{
 		Command: "opencode", BatchTarget: "node_modules/@opencode/cli/bin/opencode.exe",
 		// Not checked: OpenCode has no statusline setting.
 		Commands: ShellQuoted,
+		Real:     openCodeReal,
 		Isolation: Isolation{
 			Level: Partial,
 			// Verified on Windows only.
@@ -339,15 +350,12 @@ var adapters = []Adapter{
 // user-scope staging tree.
 func (a Adapter) SettingsSource() string { return path.Join(a.Staging, a.Settings) }
 
-// SettingsTarget is the slash path, relative to the home directory, of the
-// harness's settings file in its isolated install.
-func (a Adapter) SettingsTarget() string { return path.Join(IsolatedDir, a.Dir, a.Install, a.Settings) }
-
 // All returns every adapter, in a copy the caller may change.
 func All() []Adapter {
 	out := slices.Clone(adapters)
 	for i := range out {
 		out[i].Moves = slices.Clone(out[i].Moves)
+		out[i].Real = out[i].Real.clone()
 		out[i].Isolation.Relogin = maps.Clone(out[i].Isolation.Relogin)
 		out[i].Isolation.Leaks = slices.Clone(out[i].Isolation.Leaks)
 		out[i].Isolation.Pointers = slices.Clone(out[i].Isolation.Pointers)

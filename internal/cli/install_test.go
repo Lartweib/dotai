@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -18,17 +20,20 @@ import (
 // installPlan is a plan with fixed paths, so that its output reads the
 // same on every OS.
 var installPlan = app.InstallPlan{
-	Pack:    &app.PackSummary{Name: "minimal-pack", Version: "0.1.0", Harnesses: []string{"claudecode", "antigravity-cli", "opencode"}, Profiles: []string{}, Variants: []string{}, SharedSkills: []string{}, Layers: []app.LayerSummary{}},
+	Pack:    &app.PackSummary{Name: "minimal-pack", Version: "0.1.0", Harnesses: []string{"claudecode", "antigravity-cli", "opencode"}, OptionalHarnesses: []string{}, Profiles: []string{}, Variants: []string{}, SharedSkills: []string{}, Layers: []app.LayerSummary{}},
 	Variant: "standalone", Mode: app.ModeIsolated, Root: "/home/u/.dotai/isolated",
 	Harnesses: []app.HarnessPlan{
-		{ID: "claudecode", Level: "partial", Dir: "/home/u/.dotai/isolated/claude", Relogin: "unknown",
+		{ID: "claudecode", Required: true, Managed: true, Detection: app.Detection{Detected: true, Binary: "/usr/bin/claude", Config: "/home/u/.claude", ConfigFound: true},
+			Level: "partial", Dir: "/home/u/.dotai/isolated/claude", Relogin: "unknown",
 			Pointers: []app.PointerPlan{{Mechanism: "env", Name: "CLAUDE_CONFIG_DIR", Dir: "/home/u/.dotai/isolated/claude"}},
 			Leaks:    []string{"~/.claude/CLAUDE.md still loads when the working directory is under the home directory"}, Tools: []app.ToolCommand{}},
-		{ID: "antigravity-cli", Level: "partial", Dir: "/home/u/.dotai/isolated/gemini", Relogin: "no",
+		{ID: "antigravity-cli", Required: true, Managed: true, Detection: app.Detection{Detected: true, Binary: "/usr/bin/agy", Config: "/home/u/.gemini"},
+			Level: "partial", Dir: "/home/u/.dotai/isolated/gemini", Relogin: "no",
 			Pointers: []app.PointerPlan{{Mechanism: "flag", Name: "--gemini_dir", Dir: "/home/u/.dotai/isolated/gemini"}},
 			Leaks:    []string{"authentication is shared through the OS keyring"},
 			Tools:    []app.ToolCommand{{Key: "statusLine", Tool: "hello", Command: `sh /home/u/.dotai/tools/hello.sh`}}},
-		{ID: "opencode", Level: "partial", Dir: "/home/u/.dotai/isolated/opencode", Relogin: "yes",
+		{ID: "opencode", Required: true, Managed: true, Detection: app.Detection{Detected: true, Config: "/home/u/.config/opencode", ConfigFound: true},
+			Level: "partial", Dir: "/home/u/.dotai/isolated/opencode", Relogin: "yes",
 			Pointers: []app.PointerPlan{
 				{Mechanism: "env", Name: "XDG_CONFIG_HOME", Dir: "/home/u/.dotai/isolated/opencode/config"},
 				{Mechanism: "env", Name: "XDG_DATA_HOME", Dir: "/home/u/.dotai/isolated/opencode/data"},
@@ -42,6 +47,8 @@ var installPlan = app.InstallPlan{
 		{Action: plan.Replace, Harness: "antigravity-cli", Source: ".gemini/GEMINI.md", Target: "/home/u/.dotai/isolated/gemini/GEMINI.md", Before: "cc", After: "dd", Keys: []plan.KeyChange{}},
 		{Action: plan.Create, Source: ".dotai/tools/hello.sh", Target: "/home/u/.dotai/tools/hello.sh", Exec: true, After: "ee", Keys: []plan.KeyChange{}},
 	},
+	Wipes: []app.WipePlan{}, Keeps: []app.KeepPlan{}, WipeKeys: []app.WipeKey{}, Refusals: []app.Refusal{},
+	Notices:     []string{},
 	Diagnostics: []app.Diagnostic{},
 }
 
@@ -58,19 +65,20 @@ func TestRunInstallDryRun(t *testing.T) {
 		name         string
 		args         []string
 		golden       string
-		wantVariant  string
+		want         app.InstallOptions
 		wantProgress bool
 	}{
 		{name: "text", args: []string{"install", examplePack, "--dry-run"}, golden: "install-dry-run.txt.golden", wantProgress: true},
-		{name: "json", args: []string{"install", examplePack, "--dry-run", "--variant", "tmux", "--json"}, golden: "install-dry-run.json.golden", wantVariant: "tmux"},
+		{name: "json", args: []string{"install", examplePack, "--dry-run", "--variant", "tmux", "--harness", "claudecode,opencode", "--json"}, golden: "install-dry-run.json.golden",
+			want: app.InstallOptions{Variant: "tmux", Harnesses: []string{"claudecode", "opencode"}}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 			env := testEnv(&stdout, &stderr)
-			env.PlanInstall = func(ctx context.Context, cacheDir, dir, variant, gotHome string, progress app.Progress) (app.InstallPlan, error) {
-				if ctx == nil || cacheDir != wantCache || dir != examplePack || variant != tt.wantVariant || gotHome != home || (progress != nil) != tt.wantProgress {
-					t.Errorf("PlanInstall(%q, %q, %q, %q, progress %v), want the cache, the pack, %q, the home and progress %v",
-						cacheDir, dir, variant, gotHome, progress != nil, tt.wantVariant, tt.wantProgress)
+			env.PlanInstall = func(ctx context.Context, cacheDir, dir, gotHome string, opts app.InstallOptions, progress app.Progress) (app.InstallPlan, error) {
+				if ctx == nil || cacheDir != wantCache || dir != examplePack || !reflect.DeepEqual(opts, tt.want) || gotHome != home || (progress != nil) != tt.wantProgress {
+					t.Errorf("PlanInstall(%q, %q, %q, %+v, progress %v), want the cache, the pack, the home, %+v and progress %v",
+						cacheDir, dir, gotHome, opts, progress != nil, tt.want, tt.wantProgress)
 				}
 				return installPlan, nil
 			}
@@ -85,7 +93,7 @@ func TestRunInstallDryRun(t *testing.T) {
 func TestRunInstallJSONShape(t *testing.T) {
 	var stdout bytes.Buffer
 	env := testEnv(&stdout, &bytes.Buffer{})
-	env.PlanInstall = func(context.Context, string, string, string, string, app.Progress) (app.InstallPlan, error) {
+	env.PlanInstall = func(context.Context, string, string, string, app.InstallOptions, app.Progress) (app.InstallPlan, error) {
 		return installPlan, nil
 	}
 	if code := cli.Run([]string{"install", "--dry-run", "--json"}, env); code != cli.ExitOK {
@@ -130,11 +138,11 @@ func TestRunInstallUsageErrors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var stdout bytes.Buffer
 			env := testEnv(&stdout, &bytes.Buffer{})
-			env.PlanInstall = func(context.Context, string, string, string, string, app.Progress) (app.InstallPlan, error) {
+			env.PlanInstall = func(context.Context, string, string, string, app.InstallOptions, app.Progress) (app.InstallPlan, error) {
 				t.Error("PlanInstall called on a usage error")
 				return app.InstallPlan{}, nil
 			}
-			env.Install = func(context.Context, string, string, string, string, app.Progress, app.Warn) (app.InstallResult, error) {
+			env.Install = func(context.Context, string, string, string, app.InstallOptions, app.Progress, app.Warn) (app.InstallResult, error) {
 				t.Error("Install called on a usage error")
 				return app.InstallResult{}, nil
 			}
@@ -162,7 +170,7 @@ func TestRunInstallInvalidPack(t *testing.T) {
 	for _, jsonOut := range []bool{false, true} {
 		var stdout, stderr bytes.Buffer
 		env := testEnv(&stdout, &stderr)
-		env.PlanInstall = func(context.Context, string, string, string, string, app.Progress) (app.InstallPlan, error) {
+		env.PlanInstall = func(context.Context, string, string, string, app.InstallOptions, app.Progress) (app.InstallPlan, error) {
 			return invalid, nil
 		}
 		args := []string{"install", "p", "--dry-run", "--variant", "nope"}
@@ -186,7 +194,7 @@ func TestRunInstallInvalidPack(t *testing.T) {
 func TestRunInstallFailure(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	env := testEnv(&stdout, &stderr)
-	env.PlanInstall = func(context.Context, string, string, string, string, app.Progress) (app.InstallPlan, error) {
+	env.PlanInstall = func(context.Context, string, string, string, app.InstallOptions, app.Progress) (app.InstallPlan, error) {
 		return app.InstallPlan{}, &app.NotRegularError{Path: "/home/u/.dotai/tools"}
 	}
 	if code := cli.Run([]string{"install", "--dry-run"}, env); code != cli.ExitInternal || stdout.Len() != 0 || !strings.Contains(stderr.String(), "/home/u/.dotai/tools") {
@@ -201,7 +209,7 @@ func TestRunInstallWithoutAHomeDirectory(t *testing.T) {
 	t.Setenv("DOTAI_CACHE_DIR", t.TempDir())
 	var stderr bytes.Buffer
 	env := testEnv(&bytes.Buffer{}, &stderr)
-	env.PlanInstall = func(context.Context, string, string, string, string, app.Progress) (app.InstallPlan, error) {
+	env.PlanInstall = func(context.Context, string, string, string, app.InstallOptions, app.Progress) (app.InstallPlan, error) {
 		t.Error("PlanInstall called without a home directory")
 		return app.InstallPlan{}, errors.New("unreachable")
 	}
@@ -238,23 +246,24 @@ func TestRunInstall(t *testing.T) {
 		name         string
 		args         []string
 		golden       string
-		wantVariant  string
+		want         app.InstallOptions
 		wantProgress bool
 	}{
 		{name: "text", args: []string{"install", examplePack}, golden: "install.txt.golden", wantProgress: true},
-		{name: "json", args: []string{"install", examplePack, "--variant", "tmux", "--json"}, golden: "install.json.golden", wantVariant: "tmux"},
+		{name: "json", args: []string{"install", examplePack, "--variant", "tmux", "--harness", "claudecode", "--json"}, golden: "install.json.golden",
+			want: app.InstallOptions{Variant: "tmux", Harnesses: []string{"claudecode"}}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 			env := testEnv(&stdout, &stderr)
-			env.PlanInstall = func(context.Context, string, string, string, string, app.Progress) (app.InstallPlan, error) {
+			env.PlanInstall = func(context.Context, string, string, string, app.InstallOptions, app.Progress) (app.InstallPlan, error) {
 				t.Error("PlanInstall called without --dry-run")
 				return app.InstallPlan{}, nil
 			}
-			env.Install = func(ctx context.Context, cacheDir, dir, variant, gotHome string, progress app.Progress, warn app.Warn) (app.InstallResult, error) {
-				if ctx == nil || cacheDir != wantCache || dir != examplePack || variant != tt.wantVariant || gotHome != home || (progress != nil) != tt.wantProgress {
-					t.Errorf("Install(%q, %q, %q, %q, progress %v), want the cache, the pack, %q, the home and progress %v",
-						cacheDir, dir, variant, gotHome, progress != nil, tt.wantVariant, tt.wantProgress)
+			env.Install = func(ctx context.Context, cacheDir, dir, gotHome string, opts app.InstallOptions, progress app.Progress, warn app.Warn) (app.InstallResult, error) {
+				if ctx == nil || cacheDir != wantCache || dir != examplePack || !reflect.DeepEqual(opts, tt.want) || gotHome != home || (progress != nil) != tt.wantProgress {
+					t.Errorf("Install(%q, %q, %q, %+v, progress %v), want the cache, the pack, the home, %+v and progress %v",
+						cacheDir, dir, gotHome, opts, progress != nil, tt.want, tt.wantProgress)
 				}
 				return installResult, nil
 			}
@@ -269,7 +278,7 @@ func TestRunInstall(t *testing.T) {
 func TestRunInstallJSONShapeWithoutDryRun(t *testing.T) {
 	var stdout bytes.Buffer
 	env := testEnv(&stdout, &bytes.Buffer{})
-	env.Install = func(context.Context, string, string, string, string, app.Progress, app.Warn) (app.InstallResult, error) {
+	env.Install = func(context.Context, string, string, string, app.InstallOptions, app.Progress, app.Warn) (app.InstallResult, error) {
 		return installResult, nil
 	}
 	if code := cli.Run([]string{"install", "--json"}, env); code != cli.ExitOK {
@@ -303,7 +312,7 @@ func TestRunInstallThatWroteNothing(t *testing.T) {
 	var stdout bytes.Buffer
 	env := testEnv(&stdout, &bytes.Buffer{})
 	res := app.InstallResult{InstallPlan: installPlan, State: "/home/u/.dotai/state.json"}
-	env.Install = func(context.Context, string, string, string, string, app.Progress, app.Warn) (app.InstallResult, error) {
+	env.Install = func(context.Context, string, string, string, app.InstallOptions, app.Progress, app.Warn) (app.InstallResult, error) {
 		return res, nil
 	}
 	if code := cli.Run([]string{"install"}, env); code != cli.ExitOK || !strings.HasSuffix(stdout.String(), "installed\nbackup: none, no file was written\nstate:  /home/u/.dotai/state.json\n") {
@@ -318,7 +327,7 @@ func TestRunInstallThatWroteNothing(t *testing.T) {
 func TestRunInstallInvalidPackWithoutDryRun(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	env := testEnv(&stdout, &stderr)
-	env.Install = func(context.Context, string, string, string, string, app.Progress, app.Warn) (app.InstallResult, error) {
+	env.Install = func(context.Context, string, string, string, app.InstallOptions, app.Progress, app.Warn) (app.InstallResult, error) {
 		return app.InstallResult{InstallPlan: app.InstallPlan{
 			Pack: &app.PackSummary{Name: "p", Version: "1.0.0"}, Mode: app.ModeIsolated, Harnesses: []app.HarnessPlan{}, Ops: []app.InstallOp{},
 			Diagnostics: []app.Diagnostic{{File: "dotai.yaml", Code: "layer-selection", Message: "variant \"nope\" is not defined"}},
@@ -340,7 +349,7 @@ func TestRunInstallFailureWithoutDryRun(t *testing.T) {
 	} {
 		var stdout, stderr bytes.Buffer
 		env := testEnv(&stdout, &stderr)
-		env.Install = func(context.Context, string, string, string, string, app.Progress, app.Warn) (app.InstallResult, error) {
+		env.Install = func(context.Context, string, string, string, app.InstallOptions, app.Progress, app.Warn) (app.InstallResult, error) {
 			return app.InstallResult{}, err
 		}
 		if code := cli.Run([]string{"install"}, env); code != cli.ExitInternal || stdout.Len() != 0 || !strings.Contains(stderr.String(), err.Error()) {
@@ -360,7 +369,7 @@ func TestRunInstallWarnsBeforeItWrites(t *testing.T) {
 	for _, jsonOut := range []bool{false, true} {
 		var out bytes.Buffer // stdout and stderr, in the order they are written
 		env := testEnv(&out, &out)
-		env.Install = func(_ context.Context, _, _, _, _ string, _ app.Progress, warn app.Warn) (app.InstallResult, error) {
+		env.Install = func(_ context.Context, _, _, _ string, _ app.InstallOptions, _ app.Progress, warn app.Warn) (app.InstallResult, error) {
 			if (warn == nil) != jsonOut {
 				t.Errorf("json %v: warn = %v, want one only for text", jsonOut, warn != nil)
 			}
@@ -396,7 +405,7 @@ func TestRunInstallWithWarnings(t *testing.T) {
 	for _, jsonOut := range []bool{false, true} {
 		var stdout, stderr bytes.Buffer
 		env := testEnv(&stdout, &stderr)
-		env.Install = func(context.Context, string, string, string, string, app.Progress, app.Warn) (app.InstallResult, error) {
+		env.Install = func(context.Context, string, string, string, app.InstallOptions, app.Progress, app.Warn) (app.InstallResult, error) {
 			return res, nil
 		}
 		args := []string{"install"}
@@ -442,7 +451,7 @@ func TestRunInstallDryRunWithSharedSkills(t *testing.T) {
 	}
 	var stdout, stderr bytes.Buffer
 	env := testEnv(&stdout, &stderr)
-	env.PlanInstall = func(context.Context, string, string, string, string, app.Progress) (app.InstallPlan, error) {
+	env.PlanInstall = func(context.Context, string, string, string, app.InstallOptions, app.Progress) (app.InstallPlan, error) {
 		return p, nil
 	}
 	if code := cli.Run([]string{"install", examplePack, "--dry-run", "--variant", "shared"}, env); code != cli.ExitOK {
@@ -458,5 +467,124 @@ func TestRunInstallDryRunWithSharedSkills(t *testing.T) {
 	}
 	if want := "shared skills: /home/u/.agents/skills is missing, so there is nothing to share\n"; !strings.Contains(stdout.String(), want) {
 		t.Errorf("stdout = %q, want it to contain %q", stdout.String(), want)
+	}
+}
+
+// TestRunInstallDryRunShowsAHarnessItDoesNotManage checks the text of an
+// optional harness the install skips: its detection, and the notice that
+// says why (decision 0038).
+func TestRunInstallDryRunShowsAHarnessItDoesNotManage(t *testing.T) {
+	p := installPlan
+	p.Harnesses = []app.HarnessPlan{p.Harnesses[0], {ID: "opencode", Detection: app.Detection{Config: "/home/u/.config/opencode"},
+		Pointers: []app.PointerPlan{}, Leaks: []string{}, Tools: []app.ToolCommand{}}}
+	p.Ops = p.Ops[:2]
+	p.Notices = []string{"the optional harness opencode is skipped: it is not installed (opencode not found on PATH and no /home/u/.config/opencode directory)"}
+	var stdout bytes.Buffer
+	env := testEnv(&stdout, &bytes.Buffer{})
+	env.PlanInstall = func(context.Context, string, string, string, app.InstallOptions, app.Progress) (app.InstallPlan, error) {
+		return p, nil
+	}
+	if code := cli.Run([]string{"install", "--dry-run"}, env); code != cli.ExitOK {
+		t.Fatalf("exit code = %d", code)
+	}
+	for _, want := range []string{
+		"note: the optional harness opencode is skipped: it is not installed (opencode not found on PATH and no /home/u/.config/opencode directory)\n",
+		"\nopencode · optional, not managed\n  binary: not found on PATH\n  config: /home/u/.config/opencode (missing)\n",
+		"\nclaudecode · partial isolation · may need a new login\n  binary: /usr/bin/claude\n  config: /home/u/.claude\n",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("output =\n%s\nwant it to hold %q", stdout.String(), want)
+		}
+	}
+}
+
+// replacePlan is the dry run of a replace install, with fixed paths.
+var replacePlan = app.InstallPlan{
+	Pack:    installPlan.Pack,
+	Variant: "standalone", Mode: app.ModeReplace, Root: "/home/u",
+	Harnesses: []app.HarnessPlan{
+		{ID: "claudecode", Required: true, Managed: true, Detection: app.Detection{Detected: true, Binary: "/usr/bin/claude", Config: "/home/u/.claude", ConfigFound: true},
+			Dir: "/home/u/.claude", Relogin: "no", Pointers: []app.PointerPlan{}, Leaks: []string{}, Tools: []app.ToolCommand{}},
+		{ID: "antigravity-cli", Required: true, Managed: true, Detection: app.Detection{Detected: true, Binary: "/usr/bin/agy", Config: "/home/u/.gemini", ConfigFound: true},
+			Dir: "/home/u/.gemini", Relogin: "no", Pointers: []app.PointerPlan{}, Leaks: []string{},
+			Tools: []app.ToolCommand{{Key: "statusLine", Tool: "hello", Command: "sh /home/u/.dotai/tools/hello.sh"}}},
+	},
+	Ops: []app.InstallOp{
+		{Action: plan.Create, Harness: "claudecode", Source: ".claude/CLAUDE.md", Target: "/home/u/.claude/CLAUDE.md", After: "aa", Keys: []plan.KeyChange{}},
+		{Action: plan.Create, Harness: "antigravity-cli", Source: ".gemini/GEMINI.md", Target: "/home/u/.gemini/config/GEMINI.md", After: "dd", Keys: []plan.KeyChange{}},
+		{Action: plan.Create, Source: ".dotai/tools/hello.sh", Target: "/home/u/.dotai/tools/hello.sh", Exec: true, After: "ee", Keys: []plan.KeyChange{}},
+	},
+	Wipes: []app.WipePlan{
+		{Harness: "claudecode", Path: "/home/u/.claude/CLAUDE.md", Kind: app.KindFile},
+		{Harness: "claudecode", Path: "/home/u/.claude/agents", Kind: app.KindDir},
+		{Harness: "claudecode", Path: "/home/u/CLAUDE.md", Kind: app.KindFile, Collateral: "other tools that read ~/CLAUDE.md lose it until a restore"},
+		{Harness: "antigravity-cli", Path: "/home/u/.gemini/GEMINI.md", Kind: app.KindFile, Collateral: "Gemini CLI reads it too, and loses it until a restore"},
+	},
+	Keeps: []app.KeepPlan{
+		{Harness: "claudecode", Path: "/home/u/.claude/.credentials.json", Kind: "login"},
+		{Harness: "claudecode", Path: "/home/u/.claude/history.jsonl", Kind: "history"},
+		{Harness: "claudecode", Path: "/home/u/.claude/projects", Kind: "history"},
+		{Harness: "antigravity-cli", Path: "/home/u/.gemini/config/.migrated", Kind: "state"},
+	},
+	WipeKeys: []app.WipeKey{
+		{Harness: "claudecode", File: "/home/u/.claude.json", Key: []string{"mcpServers"}},
+		{Harness: "claudecode", File: "/home/u/.claude.json", Key: []string{"projects", "C:/work", "allowedTools"}},
+	},
+	Refusals: []app.Refusal{{Code: app.RefuseRelocation, Harness: "claudecode", Variable: "CLAUDE_CONFIG_DIR",
+		Message: "CLAUDE_CONFIG_DIR is set, so claudecode may read its configuration from somewhere a replace install does not reset: unset it, then install again"}},
+	Notices:     []string{"the optional harness opencode is skipped: it is not installed (opencode not found on PATH and no /home/u/.config/opencode directory)"},
+	Diagnostics: []app.Diagnostic{},
+}
+
+// TestRunInstallDryRunReplace checks the dry run of a replace install: the
+// mode flag reaches the use case, and the plan shows what is wiped, kept
+// and written per harness, the keys of ~/.claude.json and the refusals.
+func TestRunInstallDryRunReplace(t *testing.T) {
+	for _, tt := range []struct {
+		name, golden string
+		args         []string
+	}{
+		{"text", "install-dry-run-replace.txt.golden", []string{"install", examplePack, "--dry-run", "--mode", "replace"}},
+		{"json", "install-dry-run-replace.json.golden", []string{"install", examplePack, "--dry-run", "--mode", "replace", "--json"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			env := testEnv(&stdout, &stderr)
+			env.PlanInstall = func(_ context.Context, _, _, _ string, opts app.InstallOptions, _ app.Progress) (app.InstallPlan, error) {
+				if opts.Mode != app.ModeReplace {
+					t.Errorf("mode = %q, want replace", opts.Mode)
+				}
+				return replacePlan, nil
+			}
+			if code := cli.Run(tt.args, env); code != cli.ExitOK || stderr.Len() != 0 {
+				t.Errorf("exit code = %d, stderr = %q, want 0 and empty", code, stderr.String())
+			}
+			assertGolden(t, filepath.Join("testdata", tt.golden), stdout.Bytes())
+		})
+	}
+}
+
+// TestRunInstallReplaceIsAUsageError checks that the refusal of an install
+// in replace mode, which is not available yet, is a usage error.
+func TestRunInstallReplaceIsAUsageError(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("DOTAI_CACHE_DIR", filepath.Join(home, "cache"))
+	var stdout bytes.Buffer
+	env := testEnv(&stdout, &bytes.Buffer{})
+	env.Install = app.Install
+	if code := cli.Run([]string{"install", examplePack, "--mode", "replace", "--json"}, env); code != cli.ExitUsage {
+		t.Errorf("exit code = %d, want %d", code, cli.ExitUsage)
+	}
+	var e struct {
+		OK    bool                           `json:"ok"`
+		Error struct{ Code, Message string } `json:"error"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &e); err != nil || e.OK || e.Error.Code != "usage" || !strings.Contains(e.Error.Message, "not available yet") {
+		t.Errorf("envelope = %s, want a usage error that replace is not available yet", stdout.String())
+	}
+	if entries, _ := os.ReadDir(home); len(entries) != 0 {
+		t.Errorf("home holds %v, want nothing written", entries)
 	}
 }

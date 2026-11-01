@@ -149,9 +149,12 @@ type executeFS interface {
 	Now() time.Time
 }
 
-// Install installs the user scope of the pack in dir, with variant or the
-// pack's default, isolated into the absolute home directory home, as
-// decisions 0018, 0028 and 0032 describe. It plans as PlanInstall does,
+// Install installs the user scope of the pack in dir, with the options
+// opts as PlanInstall reads them, into the absolute home directory home,
+// as decisions 0018, 0028 and 0032 describe; only in the isolated mode for
+// now: an install in the replace mode, asked for or recorded in the state,
+// is a *UsageError before anything is staged or written, since its backup by
+// move does not exist yet (decision 0038). It plans as PlanInstall does,
 // including the removal of the files the previous install owned and the
 // pack no longer stages. A pack with problems gives diagnostics and
 // writes nothing.
@@ -172,25 +175,28 @@ type executeFS interface {
 // warnings. A warning the user must read before the install writes, such
 // as to close a harness, is also given to warn, when it is not nil, once
 // the plan is known and before the lock, the backup or any write.
-func Install(ctx context.Context, cacheDir, dir, variant, home string, progress Progress, warn Warn) (InstallResult, error) {
-	return install(ctx, osInstallFS{}, download, generate, cacheDir, dir, variant, home, progress, warn)
+func Install(ctx context.Context, cacheDir, dir, home string, opts InstallOptions, progress Progress, warn Warn) (InstallResult, error) {
+	return install(ctx, osInstallFS{}, osHost(), download, generate, cacheDir, dir, home, opts, progress, warn)
 }
 
 // Warn receives a warning, text for people, that must be read before
 // dotai writes, as soon as it is known.
 type Warn = func(text string)
 
-func install(ctx context.Context, d executeFS, fetch fetchFunc, run runFunc, cacheDir, dir, variant, home string, progress Progress, warn Warn) (InstallResult, error) {
+func install(ctx context.Context, d executeFS, h host, fetch fetchFunc, run runFunc, cacheDir, dir, home string, opts InstallOptions, progress Progress, warn Warn) (InstallResult, error) {
 	if !filepath.IsAbs(home) {
 		return InstallResult{}, fmt.Errorf("home directory %q is not absolute", home)
 	}
 	home = filepath.Clean(home)
+	if opts.Mode == ModeReplace {
+		return InstallResult{}, errReplaceUnavailable(false)
+	}
 	packPath, err := filepath.Abs(dir)
 	if err != nil {
 		return InstallResult{}, err
 	}
 	var res InstallResult
-	err = withPlan(ctx, d, fetch, run, cacheDir, dir, variant, home, progress, func(p planned) error {
+	err = withPlan(ctx, d, h, fetch, run, cacheDir, dir, home, opts, true, progress, func(p planned) error {
 		res = InstallResult{InstallPlan: p.plan, Warnings: []string{}}
 		if len(p.plan.Diagnostics) > 0 {
 			return nil
@@ -204,7 +210,7 @@ func install(ctx context.Context, d executeFS, fetch fetchFunc, run runFunc, cac
 				warn(w)
 			}
 		}
-		r := runner{ctx: ctx, d: d, home: home, p: p, pack: state.Pack{Name: p.plan.Pack.Name, Version: p.plan.Pack.Version, Path: packPath}}
+		r := runner{ctx: ctx, d: d, home: home, p: p, pack: state.Pack{Name: p.plan.Pack.Name, Version: p.plan.Pack.Version, Path: packPath}, layouts: p.layouts()}
 		return r.run(&res)
 	})
 	if se, ok := err.(*stagingError); ok { // the install itself succeeded
@@ -235,13 +241,15 @@ func settingsWarning(p planned) string {
 	return fmt.Sprintf("close %s before installing: a harness that is running may rewrite its settings file while dotai writes its keys there", strings.Join(harnesses, ", "))
 }
 
-// runner carries out one install plan.
+// runner carries out one install plan. layouts are the layouts its
+// targets may be in, the isolated one when empty.
 type runner struct {
-	ctx  context.Context
-	d    executeFS
-	home string
-	p    planned
-	pack state.Pack
+	ctx     context.Context
+	d       executeFS
+	home    string
+	p       planned
+	pack    state.Pack
+	layouts []harness.Mode
 }
 
 // applied is an operation carried out, or, without a target, one that
@@ -265,8 +273,8 @@ func (r runner) run(res *InstallResult) error {
 		}
 	}
 	prev := r.p.prev
-	next := state.New(r.pack, r.p.plan.Variant, ModeIsolated, time.Time{}, r.p.harnesses, "", r.p.ops)
-	next.SharedSkills = r.p.shared
+	next := state.New(r.pack, r.p.plan.Variant, r.p.plan.Mode, time.Time{}, r.p.harnesses, "", r.p.ops)
+	next.SharedSkills, next.Selection = r.p.shared, r.p.choice
 	if len(writes) == 0 && prev != nil && prev.SameInstall(next) {
 		res.State = statePath
 		return nil
@@ -306,7 +314,7 @@ func (r runner) write(res *InstallResult, writes []plan.Op, next state.State) er
 		prior = &base
 	}
 	info := backup.Info{
-		Mode: ModeIsolated, Pack: backup.Pack{Name: r.pack.Name, Version: r.pack.Version, Path: r.pack.Path},
+		Mode: r.p.plan.Mode, Pack: backup.Pack{Name: r.pack.Name, Version: r.pack.Version, Path: r.pack.Path},
 		Variant: r.p.plan.Variant, Harnesses: r.p.harnesses,
 	}
 	ref, err := r.backup(backup.OperationInstall, info, prior, writes)
@@ -403,7 +411,7 @@ func (r runner) removeTemps(p *state.Pending) {
 		targets = append(targets, op.Target)
 	}
 	for _, target := range targets {
-		root, name, err := installRoot(r.home, target)
+		root, name, err := installRoot(r.home, target, r.layouts...)
 		if target == targets[0] {
 			root, name, err = filepath.Join(r.home, dotaiDir), stateFile, nil
 		}
@@ -567,7 +575,7 @@ func (r runner) apply(op plan.Op) (applied, error) {
 	if err := r.ctx.Err(); err != nil {
 		return a, err
 	}
-	root, name, err := installRoot(r.home, op.Target)
+	root, name, err := installRoot(r.home, op.Target, r.layouts...)
 	if err != nil {
 		return a, err
 	}
@@ -638,9 +646,12 @@ func (r runner) apply(op plan.Op) (applied, error) {
 	return a, r.d.WriteIn(root, name, data, perm(op.Exec))
 }
 
-// installRoot is the directory target is written in, a harness's isolated
-// directory or the tools directory, and target's slash path inside it.
-func installRoot(home, target string) (root, name string, err error) {
+// installRoot is the directory target is written in, the tools directory
+// or a harness's directory in one of layouts, the isolated one when there
+// is none, and target's slash path inside it. In the isolated layout that
+// directory is the harness's isolated directory; in the replace layout,
+// its own configuration directory (decision 0038).
+func installRoot(home, target string, layouts ...harness.Mode) (root, name string, err error) {
 	rel, err := backup.Rel(home, target)
 	if err != nil {
 		return "", "", err
@@ -648,9 +659,23 @@ func installRoot(home, target string) (root, name string, err error) {
 	if rest, ok := strings.CutPrefix(rel, merge.ToolsDir+"/"); ok {
 		return filepath.Join(home, filepath.FromSlash(merge.ToolsDir)), rest, nil
 	}
-	if rest, ok := strings.CutPrefix(rel, harness.IsolatedDir+"/"); ok {
-		if dir, rest, ok := strings.Cut(rest, "/"); ok && rest != "" {
-			return filepath.Join(home, filepath.FromSlash(harness.IsolatedDir), dir), rest, nil
+	if len(layouts) == 0 {
+		layouts = []harness.Mode{harness.Isolated}
+	}
+	for _, layout := range layouts {
+		if layout == harness.Replace {
+			for _, a := range harness.All() {
+				dir := a.Root(harness.Replace)
+				if rest, ok := strings.CutPrefix(rel, dir+"/"); ok && rest != "" {
+					return filepath.Join(home, filepath.FromSlash(dir)), rest, nil
+				}
+			}
+			continue
+		}
+		if rest, ok := strings.CutPrefix(rel, harness.IsolatedDir+"/"); ok {
+			if dir, rest, ok := strings.Cut(rest, "/"); ok && rest != "" {
+				return filepath.Join(home, filepath.FromSlash(harness.IsolatedDir), dir), rest, nil
+			}
 		}
 	}
 	return "", "", fmt.Errorf("target %s is not inside a harness directory or the tools directory", target)
@@ -717,7 +742,7 @@ func (r runner) rollback(dir string, done []applied) error {
 
 func (r runner) undo(dir string, a applied) error {
 	op := a.op
-	_, name, err := installRoot(r.home, op.Target)
+	_, name, err := installRoot(r.home, op.Target, r.layouts...)
 	if err != nil {
 		return err
 	}

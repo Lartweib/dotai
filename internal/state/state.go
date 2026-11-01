@@ -38,9 +38,14 @@ type State struct {
 	Mode         string    `json:"mode"`
 	InstalledAt  time.Time `json:"installedAt"`
 	Harnesses    []string  `json:"harnesses"`
-	Backup       string    `json:"backup"`
-	Files        []File    `json:"files"`
-	Pending      *Pending  `json:"pending,omitempty"`
+	// Selection is the --harness choice of the last install that was given
+	// one, or that reused one, which a plain install reuses (decision
+	// 0038); nil when there is none. A state written before it reads as
+	// none.
+	Selection []string `json:"selection,omitempty"`
+	Backup    string   `json:"backup"`
+	Files     []File   `json:"files"`
+	Pending   *Pending `json:"pending,omitempty"`
 }
 
 // Pending is the journal of an install that is writing: its backup and

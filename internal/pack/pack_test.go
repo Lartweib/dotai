@@ -72,6 +72,24 @@ func TestLoadSharedSkills(t *testing.T) {
 	}
 }
 
+func TestLoadOptionalHarnesses(t *testing.T) {
+	f := validPack()
+	editManifest("harnesses: [claudecode, opencode]", "harnesses: [claudecode]\noptional-harnesses: [opencode, antigravity-cli]")(f)
+	// The settings of an optional harness are the pack's too.
+	f["base/dotai/settings.yaml"] = file("claudecode:\n  model: sonnet\nopencode:\n  model: a/b\n")
+	p, diags, err := pack.Load(f)
+	if err != nil || len(diags) != 0 {
+		t.Fatalf("Load() = %v, %v, want no diagnostics", diags, err)
+	}
+	m := p.Manifest
+	if !reflect.DeepEqual(m.Harnesses, []string{"claudecode"}) || !reflect.DeepEqual(m.OptionalHarnesses, []string{"opencode", "antigravity-cli"}) {
+		t.Errorf("harnesses = %v, optional %v", m.Harnesses, m.OptionalHarnesses)
+	}
+	if got := m.AllHarnesses(); !reflect.DeepEqual(got, []string{"claudecode", "opencode", "antigravity-cli"}) {
+		t.Errorf("AllHarnesses() = %v, want the required ones, then the optional ones", got)
+	}
+}
+
 func TestLoadValidPack(t *testing.T) {
 	p, diags, err := pack.Load(validPack())
 	if err != nil || len(diags) != 0 {
@@ -228,6 +246,26 @@ func TestLoadDiagnostics(t *testing.T) {
 			name:   "unknown harness",
 			mutate: editManifest("[claudecode, opencode]", "[claudecode, vscode]"),
 			want:   []string{`dotai.yaml:6:25: harness-unknown: unknown harness "vscode", want one of [claudecode antigravity-cli opencode]`},
+		},
+		{
+			name:   "unknown optional harness",
+			mutate: editManifest("harnesses: [claudecode, opencode]", "harnesses: [claudecode]\noptional-harnesses: [opencode, codex]"),
+			want:   []string{`dotai.yaml:7:32: harness-unknown: unknown harness "codex", want one of [claudecode antigravity-cli opencode]`},
+		},
+		{
+			name:   "optional harness that is also required",
+			mutate: editManifest("harnesses: [claudecode, opencode]", "harnesses: [claudecode, opencode]\noptional-harnesses: [opencode]"),
+			want:   []string{`dotai.yaml:7:22: harness-duplicate: harness "opencode" is in both harnesses and optional-harnesses`},
+		},
+		{
+			name:   "optional harness given twice",
+			mutate: editManifest("harnesses: [claudecode, opencode]", "harnesses: [claudecode]\noptional-harnesses: [opencode, opencode]"),
+			want:   []string{`dotai.yaml:7:32: harness-duplicate: harness "opencode" is given twice in optional-harnesses`},
+		},
+		{
+			name:   "optional harnesses is not a list",
+			mutate: editManifest("harnesses: [claudecode, opencode]", "harnesses: [claudecode]\noptional-harnesses: opencode"),
+			want:   []string{`dotai.yaml:7:21: field-type: dotai.yaml: "optional-harnesses" must be a list`},
 		},
 		{
 			name:   "empty harness list",

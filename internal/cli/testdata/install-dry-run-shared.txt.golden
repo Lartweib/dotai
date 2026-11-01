@@ -7,15 +7,21 @@ shared skills: /home/u/.agents/skills · commit-message, linked, review
   note: the shared skill linked is not copied into antigravity-cli: data/cache in it is not a regular file or a directory, or has a name some OS cannot store
 
 claudecode · partial isolation · may need a new login
+  binary: /usr/bin/claude
+  config: /home/u/.claude
   CLAUDE_CONFIG_DIR=/home/u/.dotai/isolated/claude
   leaks: ~/.claude/CLAUDE.md still loads when the working directory is under the home directory
 
 antigravity-cli · partial isolation · keeps your login
+  binary: /usr/bin/agy
+  config: /home/u/.gemini (missing)
   --gemini_dir=/home/u/.dotai/isolated/gemini
   leaks: authentication is shared through the OS keyring
   statusLine runs tool hello: sh /home/u/.dotai/tools/hello.sh
 
 opencode · partial isolation · needs a new login
+  binary: not found on PATH
+  config: /home/u/.config/opencode
   XDG_CONFIG_HOME=/home/u/.dotai/isolated/opencode/config
   XDG_DATA_HOME=/home/u/.dotai/isolated/opencode/data
   leaks: nothing known

@@ -148,12 +148,15 @@ type settingsFile struct {
 }
 
 // SettingsOf returns the harness whose settings file is target, an
-// absolute path under home, among every harness dotai knows, so that the
-// file of a harness the pack dropped is still one.
+// absolute path under home, among every harness dotai knows and in the
+// layout of either mode, so that the file of a harness the pack dropped,
+// or of an install in the other mode, is still one.
 func SettingsOf(home, target string) (string, bool) {
 	for _, a := range harness.All() {
-		if a.Settings != "" && filepath.Join(home, filepath.FromSlash(a.SettingsTarget())) == target {
-			return a.ID, true
+		for _, m := range modes {
+			if a.Settings != "" && filepath.Join(home, filepath.FromSlash(a.SettingsTarget(m))) == target {
+				return a.ID, true
+			}
 		}
 	}
 	return "", false
