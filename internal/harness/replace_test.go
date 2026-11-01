@@ -251,3 +251,20 @@ func TestRelocated(t *testing.T) {
 		}
 	}
 }
+
+// TestLooksSensitiveInside checks the narrower safety net for the files
+// inside a directory a replace wipes, such as a plugin's sources and
+// hooks: only credential signals count there.
+func TestLooksSensitiveInside(t *testing.T) {
+	for name, want := range map[string]bool{
+		"credentials.json": true, ".Credentials.json": true, "AUTH.JSON": true, "my-creds": true, "oauth.ts": true,
+		"api_token.txt": true, "client_secret.json": true, "password.txt": true, "passwd": true, "Cookies": true,
+		"keyring": true, "server.pem": true, "id.key": true, "cache.db": true,
+		"auth.ts": false, "session-start.sh": false, "conversation.md": false, "transcript.md": false,
+		"history.ts": false, "keybindings.json": false, "notes.md": false,
+	} {
+		if got := harness.LooksSensitiveInside(name); got != want {
+			t.Errorf("LooksSensitiveInside(%q) = %v, want %v", name, got, want)
+		}
+	}
+}

@@ -112,12 +112,19 @@ var (
 	sensitive = []string{"cred", "auth", "token", "oauth", "secret", "password", "passwd", "history",
 		"session", "conversation", "transcript", "cookie", "keyring"}
 	sensitiveSuffixes = []string{".db", ".pem", ".key"}
+	// The credential signals, the only ones that count inside a wiped
+	// directory, whose files, such as a plugin's hooks and sources, often
+	// have names like session-start.sh or auth.ts; and the names of
+	// credential files that count there whole.
+	credential      = []string{"cred", "oauth", "token", "secret", "password", "passwd", "cookie", "keyring"}
+	credentialFiles = []string{"auth.json", "credentials.json", ".credentials.json"}
 )
 
 // LooksSensitive reports whether name, without case, looks like a login,
-// a secret or a history: an entry with such a name that no keep-list
-// classifies, or anything inside one, makes a replace refuse until its
-// adapter classifies it (decision 0038).
+// a secret or a history: an entry of an area that no keep-list classifies,
+// or a leak entry, with such a name makes a replace refuse until its
+// adapter classifies it (decision 0038). Inside such an entry,
+// LooksSensitiveInside applies instead.
 func LooksSensitive(name string) bool {
 	lower := strings.ToLower(name)
 	return slices.ContainsFunc(sensitiveSuffixes, func(s string) bool { return strings.HasSuffix(lower, s) }) ||
@@ -176,6 +183,19 @@ func (a Adapter) MovesIn(m Mode) []Move {
 		return append(slices.Clone(a.Moves), a.Real.Moves...)
 	}
 	return slices.Clone(a.Moves)
+}
+
+// LooksSensitiveInside reports whether name, without case, the name of a
+// file or directory inside an entry a replace wipes, looks like a
+// credential: it holds a credential signal, ends in .db, .pem or .key, or
+// is a credential file such as auth.json. Such a path makes a replace
+// refuse, while a name that only mentions a session, a conversation, a
+// history or auth, as plugin sources do, does not.
+func LooksSensitiveInside(name string) bool {
+	lower := strings.ToLower(name)
+	return slices.Contains(credentialFiles, lower) ||
+		slices.ContainsFunc(sensitiveSuffixes, func(s string) bool { return strings.HasSuffix(lower, s) }) ||
+		slices.ContainsFunc(credential, func(s string) bool { return strings.Contains(lower, s) })
 }
 
 // ReplaceRelogin is whether the user must log in again after a replace

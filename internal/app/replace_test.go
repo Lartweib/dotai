@@ -588,3 +588,31 @@ func TestPlanInstallOfAnInvalidPackReportsItsMode(t *testing.T) {
 		t.Errorf("PlanInstall() over a replace state = %q, %q, %v, want the recorded replace mode", p.Mode, p.Root, err)
 	}
 }
+
+// TestPlanReplaceLooksInsideWipedDirectoriesForCredentialsOnly checks the
+// two tiers of the safety net: inside a wiped directory only credential
+// signals refuse, so a plugin's hooks and sources are wiped, while a
+// credentials file in it is refused by name.
+func TestPlanReplaceLooksInsideWipedDirectoriesForCredentialsOnly(t *testing.T) {
+	home, h := realHome(t)
+	writeFile(t, at(home, ".claude/plugins/p/hooks/session-start.sh"), "x")
+	writeFile(t, at(home, ".claude/plugins/p/src/auth.ts"), "x")
+	p, err := planReplace(t, home, h, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(p.Wipes, func(w app.WipePlan) bool { return w.Path == at(home, ".claude/plugins") }) || len(p.Refusals) != 0 {
+		t.Errorf("wipes = %+v, refusals = %+v, want ~/.claude/plugins wiped and nothing refused", p.Wipes, p.Refusals)
+	}
+
+	writeFile(t, at(home, ".claude/plugins/x/.credentials.json"), "{}")
+	if p, err = planReplace(t, home, h, ""); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Refusals) != 1 || p.Refusals[0].Code != app.RefuseUnclassified || p.Refusals[0].Path != at(home, ".claude/plugins/x/.credentials.json") {
+		t.Errorf("refusals = %+v, want the credentials file inside plugins refused", p.Refusals)
+	}
+	if slices.ContainsFunc(p.Wipes, func(w app.WipePlan) bool { return w.Path == at(home, ".claude/plugins") }) {
+		t.Error("~/.claude/plugins is wiped with a credentials file in it")
+	}
+}

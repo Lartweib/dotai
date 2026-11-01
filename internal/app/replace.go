@@ -168,9 +168,9 @@ func planWipes(ctx context.Context, d installFS, h host, home string, adapters [
 // wipe plans the wipe of entry, an entry that no keep-list keeps, for
 // harness h: whole, or, when dotai owns a target below it, entry by entry
 // inside it. An entry dotai owns stays, since the plan takes care of it.
-// An entry whose name, or the name of anything inside it, found without
-// following a link, looks like a login, a secret or a history is not
-// wiped: each such path is a refusal.
+// An entry whose name looks like a login, a secret or a history, or that
+// holds, found without following a link, anything whose name looks like a
+// credential, is not wiped: each such path is a refusal.
 func (rp *replacePlan) wipe(d installFS, h, entry, collateral string, owned map[string]bool) error {
 	if ownedAt(owned, entry) {
 		return nil
@@ -193,7 +193,7 @@ func (rp *replacePlan) wipe(d installFS, h, entry, collateral string, owned map[
 		}
 		return nil
 	}
-	sensitive, err := sensitivePaths(d, entry, real)
+	sensitive, err := sensitivePaths(d, entry, real, harness.LooksSensitive)
 	if err != nil {
 		return err
 	}
@@ -207,12 +207,12 @@ func (rp *replacePlan) wipe(d installFS, h, entry, collateral string, owned map[
 	return nil
 }
 
-// sensitivePaths are entry, when its name looks like a login, a secret or
-// a history, and, for a real directory, every path inside it whose name
-// does, in walk order; nothing is followed through a link.
-func sensitivePaths(d installFS, entry string, real bool) ([]string, error) {
+// sensitivePaths are entry, when looks reports its name, and, for a real
+// directory, every path inside it whose name looks like a credential, in
+// walk order; nothing is followed through a link.
+func sensitivePaths(d installFS, entry string, real bool, looks func(string) bool) ([]string, error) {
 	var out []string
-	if harness.LooksSensitive(filepath.Base(entry)) {
+	if looks(filepath.Base(entry)) {
 		out = append(out, entry)
 	}
 	if !real {
@@ -229,7 +229,7 @@ func sensitivePaths(d installFS, entry string, real bool) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		below, err := sensitivePaths(d, child, mode.IsDir() && mode&(fs.ModeSymlink|fs.ModeIrregular) == 0)
+		below, err := sensitivePaths(d, child, mode.IsDir() && mode&(fs.ModeSymlink|fs.ModeIrregular) == 0, harness.LooksSensitiveInside)
 		if err != nil {
 			return nil, err
 		}
