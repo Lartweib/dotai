@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/lartweib/dotai/internal/backup"
 	"github.com/lartweib/dotai/internal/harness"
 	"github.com/lartweib/dotai/internal/state"
 )
@@ -27,11 +28,11 @@ type WipePlan struct {
 	Collateral string `json:"collateral"`
 }
 
-// The kinds of a wiped entry.
+// The kinds of a wiped entry, as its backup records them.
 const (
-	KindFile = "file"
-	KindDir  = "dir"
-	KindLink = "link"
+	KindFile = backup.KindFile
+	KindDir  = backup.KindDir
+	KindLink = backup.KindLink
 )
 
 // KeepPlan is an entry of a harness directory that a replace install

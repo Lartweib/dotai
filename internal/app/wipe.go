@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"path"
 	"path/filepath"
 	"slices"
@@ -305,9 +304,8 @@ func (r runner) wipe(dir string, wipes []backup.Wipe) ([]moved, error) {
 // and one that something took since is left where it is and reported. The
 // directories made for it are removed when they are empty.
 func (r runner) unmove(done []moved) error {
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.ctx), rollbackTimeout)
+	r, cancel := r.detached()
 	defer cancel()
-	r.ctx = ctx
 	var errs []error
 	for _, m := range slices.Backward(done) {
 		if m.from != "" {
@@ -356,11 +354,11 @@ func (r runner) writeSplits(splits []splitWrite) ([]splitWrite, error) {
 }
 
 // unsplit puts back, last first, what each split file of done held before,
-// unless something else changed it since, which is left and reported.
+// unless something else changed or removed it since, which is left and
+// reported.
 func (r runner) unsplit(done []splitWrite) error {
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.ctx), rollbackTimeout)
+	r, cancel := r.detached()
 	defer cancel()
-	r.ctx = ctx
 	var errs []error
 	for _, s := range slices.Backward(done) {
 		cur, err := r.d.Hash(r.ctx, s.target)
@@ -374,7 +372,10 @@ func (r runner) unsplit(done []splitWrite) error {
 			continue
 		case s.prior != nil && err == nil && r.same(cur, s.before.Hash, s.before.Exec):
 			continue
-		case err == nil && cur.Hash != contentHash(s.data), errors.Is(err, fs.ErrNotExist):
+		case errors.Is(err, fs.ErrNotExist):
+			errs = append(errs, fmt.Errorf("%s is missing: it was removed after the operation wrote it, so it was not put back; its copy is in the backup", s.target))
+			continue
+		case err == nil && cur.Hash != contentHash(s.data):
 			errs = append(errs, fmt.Errorf("%s was left as it is: it changed after the operation wrote it", s.target))
 			continue
 		case err != nil:
@@ -395,19 +396,6 @@ func splitMode(exec bool) fs.FileMode {
 		return 0o777
 	}
 	return 0o666
-}
-
-// MoveIn renames from to to, slash paths inside root, through root, so
-// that neither is followed through a link out of it, and the entry at from
-// moves itself, a link or a junction included. The move is retried as a
-// write is.
-func (osInstallFS) MoveIn(root, from, to string) error {
-	r, err := os.OpenRoot(root)
-	if err != nil {
-		return err
-	}
-	defer r.Close()
-	return retry(func() error { return r.Rename(from, to) })
 }
 
 // resets reports whether p wipes anything of a harness's own

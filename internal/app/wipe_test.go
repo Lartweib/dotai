@@ -347,3 +347,38 @@ func TestInstallReplaceRollsBackExactly(t *testing.T) {
 		})
 	}
 }
+
+// removeSplitFS fails the first write of the pack's files after it removed
+// ~/.claude.json, as another program could.
+type removeSplitFS struct {
+	*clockFS
+	home   string
+	splits int
+}
+
+func (f *removeSplitFS) WriteIn(root, name string, data []byte, mode os.FileMode) error {
+	switch {
+	case name == ".claude.json":
+		f.splits++
+	case f.splits > 0 && name != "state.json" && name != "manifest.json":
+		if err := os.Remove(at(f.home, ".claude.json")); err != nil {
+			return err
+		}
+		f.splits = -1
+		return errInjected
+	}
+	return f.clockFS.WriteIn(root, name, data, mode)
+}
+
+// TestInstallReplaceRollbackReportsARemovedSplitFile checks that a
+// rollback that finds ~/.claude.json removed since the install rewrote it
+// says so, and that its copy is in the backup.
+func TestInstallReplaceRollbackReportsARemovedSplitFile(t *testing.T) {
+	home, h, _ := replaceHome(t)
+	_, err := installReplace(t, &removeSplitFS{clockFS: newClockFS(t), home: home}, h, home)
+	var ie *app.InstallError
+	if !errors.As(err, &ie) || ie.Rollback == nil || !strings.Contains(ie.Rollback.Error(), at(home, ".claude.json")+" is missing") ||
+		!strings.Contains(ie.Rollback.Error(), "in the backup") {
+		t.Fatalf("Install(replace) error = %v, want the rollback to report ~/.claude.json missing", err)
+	}
+}

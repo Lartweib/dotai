@@ -767,6 +767,15 @@ func (r runner) parents(target string) ([]string, error) {
 	return missing, nil
 }
 
+// detached is r with a context of its own, bounded by rollbackTimeout, so
+// that what a rollback puts back is put back even when the operation was
+// cancelled.
+func (r runner) detached() (runner, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.ctx), rollbackTimeout)
+	r.ctx = ctx
+	return r, cancel
+}
+
 // rollback undoes done, last first, from the backup in dir, with a context
 // of its own, so that a cancelled install is still rolled back: a created
 // target is removed and a replaced or removed one is written back from its
@@ -774,9 +783,8 @@ func (r runner) parents(target string) ([]string, error) {
 // reported. Each directory the install created is removed when it is
 // empty.
 func (r runner) rollback(dir string, done []applied) error {
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.ctx), rollbackTimeout)
+	r, cancel := r.detached()
 	defer cancel()
-	r.ctx = ctx
 	var errs []error
 	for _, a := range slices.Backward(done) {
 		if a.op.Target != "" {

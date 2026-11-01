@@ -16,6 +16,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/lartweib/dotai/internal/backup"
 	"github.com/lartweib/dotai/internal/plan"
 )
 
@@ -99,8 +100,9 @@ func (c Content) Current() plan.Current {
 	return plan.Current{Hash: c.SHA256, Exec: c.Exec}
 }
 
-// KindLink is the kind of an owned link.
-const KindLink = "link"
+// KindLink is the kind of an owned link, the kind a backup gives a link
+// too.
+const KindLink = backup.KindLink
 
 // Pack names a pack and the absolute path it was installed from.
 type Pack struct {
