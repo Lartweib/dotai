@@ -27,6 +27,7 @@ import (
 // 0038), which writes nothing.
 type RefusedError struct {
 	Refusals []Refusal
+	Plan     InstallPlan
 }
 
 func (e *RefusedError) Error() string {

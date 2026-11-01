@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -142,7 +141,7 @@ func TestRunInstallUsageErrors(t *testing.T) {
 				t.Error("PlanInstall called on a usage error")
 				return app.InstallPlan{}, nil
 			}
-			env.Install = func(context.Context, string, string, string, app.InstallOptions, app.Progress, app.Warn) (app.InstallResult, error) {
+			env.Install = func(context.Context, string, string, string, app.InstallOptions, app.Progress, app.Warn, app.Consent) (app.InstallResult, error) {
 				t.Error("Install called on a usage error")
 				return app.InstallResult{}, nil
 			}
@@ -260,7 +259,7 @@ func TestRunInstall(t *testing.T) {
 				t.Error("PlanInstall called without --dry-run")
 				return app.InstallPlan{}, nil
 			}
-			env.Install = func(ctx context.Context, cacheDir, dir, gotHome string, opts app.InstallOptions, progress app.Progress, warn app.Warn) (app.InstallResult, error) {
+			env.Install = func(ctx context.Context, cacheDir, dir, gotHome string, opts app.InstallOptions, progress app.Progress, warn app.Warn, _ app.Consent) (app.InstallResult, error) {
 				if ctx == nil || cacheDir != wantCache || dir != examplePack || !reflect.DeepEqual(opts, tt.want) || gotHome != home || (progress != nil) != tt.wantProgress {
 					t.Errorf("Install(%q, %q, %q, %+v, progress %v), want the cache, the pack, the home, %+v and progress %v",
 						cacheDir, dir, gotHome, opts, progress != nil, tt.want, tt.wantProgress)
@@ -278,7 +277,7 @@ func TestRunInstall(t *testing.T) {
 func TestRunInstallJSONShapeWithoutDryRun(t *testing.T) {
 	var stdout bytes.Buffer
 	env := testEnv(&stdout, &bytes.Buffer{})
-	env.Install = func(context.Context, string, string, string, app.InstallOptions, app.Progress, app.Warn) (app.InstallResult, error) {
+	env.Install = func(context.Context, string, string, string, app.InstallOptions, app.Progress, app.Warn, app.Consent) (app.InstallResult, error) {
 		return installResult, nil
 	}
 	if code := cli.Run([]string{"install", "--json"}, env); code != cli.ExitOK {
@@ -312,7 +311,7 @@ func TestRunInstallThatWroteNothing(t *testing.T) {
 	var stdout bytes.Buffer
 	env := testEnv(&stdout, &bytes.Buffer{})
 	res := app.InstallResult{InstallPlan: installPlan, State: "/home/u/.dotai/state.json"}
-	env.Install = func(context.Context, string, string, string, app.InstallOptions, app.Progress, app.Warn) (app.InstallResult, error) {
+	env.Install = func(context.Context, string, string, string, app.InstallOptions, app.Progress, app.Warn, app.Consent) (app.InstallResult, error) {
 		return res, nil
 	}
 	if code := cli.Run([]string{"install"}, env); code != cli.ExitOK || !strings.HasSuffix(stdout.String(), "installed\nbackup: none, no file was written\nstate:  /home/u/.dotai/state.json\n") {
@@ -327,7 +326,7 @@ func TestRunInstallThatWroteNothing(t *testing.T) {
 func TestRunInstallInvalidPackWithoutDryRun(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	env := testEnv(&stdout, &stderr)
-	env.Install = func(context.Context, string, string, string, app.InstallOptions, app.Progress, app.Warn) (app.InstallResult, error) {
+	env.Install = func(context.Context, string, string, string, app.InstallOptions, app.Progress, app.Warn, app.Consent) (app.InstallResult, error) {
 		return app.InstallResult{InstallPlan: app.InstallPlan{
 			Pack: &app.PackSummary{Name: "p", Version: "1.0.0"}, Mode: app.ModeIsolated, Harnesses: []app.HarnessPlan{}, Ops: []app.InstallOp{},
 			Diagnostics: []app.Diagnostic{{File: "dotai.yaml", Code: "layer-selection", Message: "variant \"nope\" is not defined"}},
@@ -349,7 +348,7 @@ func TestRunInstallFailureWithoutDryRun(t *testing.T) {
 	} {
 		var stdout, stderr bytes.Buffer
 		env := testEnv(&stdout, &stderr)
-		env.Install = func(context.Context, string, string, string, app.InstallOptions, app.Progress, app.Warn) (app.InstallResult, error) {
+		env.Install = func(context.Context, string, string, string, app.InstallOptions, app.Progress, app.Warn, app.Consent) (app.InstallResult, error) {
 			return app.InstallResult{}, err
 		}
 		if code := cli.Run([]string{"install"}, env); code != cli.ExitInternal || stdout.Len() != 0 || !strings.Contains(stderr.String(), err.Error()) {
@@ -369,7 +368,7 @@ func TestRunInstallWarnsBeforeItWrites(t *testing.T) {
 	for _, jsonOut := range []bool{false, true} {
 		var out bytes.Buffer // stdout and stderr, in the order they are written
 		env := testEnv(&out, &out)
-		env.Install = func(_ context.Context, _, _, _ string, _ app.InstallOptions, _ app.Progress, warn app.Warn) (app.InstallResult, error) {
+		env.Install = func(_ context.Context, _, _, _ string, _ app.InstallOptions, _ app.Progress, warn app.Warn, _ app.Consent) (app.InstallResult, error) {
 			if (warn == nil) != jsonOut {
 				t.Errorf("json %v: warn = %v, want one only for text", jsonOut, warn != nil)
 			}
@@ -405,7 +404,7 @@ func TestRunInstallWithWarnings(t *testing.T) {
 	for _, jsonOut := range []bool{false, true} {
 		var stdout, stderr bytes.Buffer
 		env := testEnv(&stdout, &stderr)
-		env.Install = func(context.Context, string, string, string, app.InstallOptions, app.Progress, app.Warn) (app.InstallResult, error) {
+		env.Install = func(context.Context, string, string, string, app.InstallOptions, app.Progress, app.Warn, app.Consent) (app.InstallResult, error) {
 			return res, nil
 		}
 		args := []string{"install"}
@@ -561,30 +560,5 @@ func TestRunInstallDryRunReplace(t *testing.T) {
 			}
 			assertGolden(t, filepath.Join("testdata", tt.golden), stdout.Bytes())
 		})
-	}
-}
-
-// TestRunInstallReplaceIsAUsageError checks that the refusal of an install
-// in replace mode, which is not available yet, is a usage error.
-func TestRunInstallReplaceIsAUsageError(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
-	t.Setenv("DOTAI_CACHE_DIR", filepath.Join(home, "cache"))
-	var stdout bytes.Buffer
-	env := testEnv(&stdout, &bytes.Buffer{})
-	env.Install = app.Install
-	if code := cli.Run([]string{"install", examplePack, "--mode", "replace", "--json"}, env); code != cli.ExitUsage {
-		t.Errorf("exit code = %d, want %d", code, cli.ExitUsage)
-	}
-	var e struct {
-		OK    bool                           `json:"ok"`
-		Error struct{ Code, Message string } `json:"error"`
-	}
-	if err := json.Unmarshal(stdout.Bytes(), &e); err != nil || e.OK || e.Error.Code != "usage" || !strings.Contains(e.Error.Message, "not available yet") {
-		t.Errorf("envelope = %s, want a usage error that replace is not available yet", stdout.String())
-	}
-	if entries, _ := os.ReadDir(home); len(entries) != 0 {
-		t.Errorf("home holds %v, want nothing written", entries)
 	}
 }

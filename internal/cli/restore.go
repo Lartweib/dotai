@@ -19,7 +19,7 @@ import (
 )
 
 func newRestoreCmd(env Env, jsonOut *bool) *cobra.Command {
-	var yes bool
+	var yes, ignoreRunning bool
 	cmd := &cobra.Command{
 		Use:   "restore [backup-id]",
 		Short: "Undo the last install, or every install down to backup-id, from the backups",
@@ -32,10 +32,12 @@ func newRestoreCmd(env Env, jsonOut *bool) *cobra.Command {
 			"Every backup and every file is checked before anything is written. A file, or a key of dotai's in a settings file,\n" +
 			"changed after the install is a conflict: on a terminal you are asked once whether to overwrite it; otherwise, and\n" +
 			"with --json, the restore is refused unless\n" +
-			"--yes is given. What the restore overwrites or deletes is first copied into a new backup. Close the harnesses first.",
+			"--yes is given. What the restore overwrites or deletes is first copied into a new backup. Close the harnesses first:\n" +
+			"the restore of a replace install is refused while a harness it writes into is running, unless --ignore-running.",
 		Args: cobra.MaximumNArgs(1),
 	}
 	cmd.Flags().BoolVar(&yes, "yes", false, "overwrite files changed after the install, after copying them into a new backup")
+	cmd.Flags().BoolVar(&ignoreRunning, "ignore-running", false, "restore a replace install even when a harness it writes into looks like it is running")
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -67,7 +69,7 @@ func newRestoreCmd(env Env, jsonOut *bool) *cobra.Command {
 			}
 			return env.Prompt(ctx, q)
 		}
-		res, err := env.Restore(ctx, home, id, warn, overwrite)
+		res, err := env.Restore(ctx, home, id, app.RestoreOptions{IgnoreRunning: ignoreRunning}, warn, overwrite)
 		if _, ok := errors.AsType[*app.ConflictError](err); ok && asked {
 			return errors.New("the restore was cancelled: nothing was written")
 		}

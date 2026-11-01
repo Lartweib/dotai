@@ -162,18 +162,18 @@ type executeFS interface {
 
 // Install installs the user scope of the pack in dir, with the options
 // opts as PlanInstall reads them, into the absolute home directory home,
-// as decisions 0018, 0028 and 0032 describe; only in the isolated mode for
-// now: an install in the replace mode, asked for or recorded in the state,
-// is a *UsageError before anything is staged or written, since its consent
-// and running-harness check do not exist yet (decision 0038). Only the
-// tests reach the replace write path, through an option the CLI cannot
-// set: there a plan with refusals is a *RefusedError that writes nothing,
-// and each wiped entry is moved into the backup and each split file
-// rewritten by key before the pack's files are written. It plans as
-// PlanInstall does,
+// as decisions 0018, 0028 and 0032 describe. It plans as PlanInstall does,
 // including the removal of the files the previous install owned and the
 // pack no longer stages. A pack with problems gives diagnostics and
 // writes nothing.
+//
+// In the replace mode (decision 0038), nothing is written when the plan
+// has refusals, a *RefusedError; while a harness it resets is running, a
+// *RunningError, unless opts.IgnoreRunning; or when it wipes or
+// overwrites anything dotai does not own and consent, asked once with the
+// plan before the lock, does not answer true, a *ConsentError (a nil
+// consent refuses). Each wiped entry is then moved into the backup and
+// each split file rewritten by key before the pack's files are written.
 //
 // Only then, when there is something to write, it takes ~/.dotai/lock and
 // checks that the install state did not change since it planned. Before
@@ -191,22 +191,23 @@ type executeFS interface {
 // warnings. A warning the user must read before the install writes, such
 // as to close a harness, is also given to warn, when it is not nil, once
 // the plan is known and before the lock, the backup or any write.
-func Install(ctx context.Context, cacheDir, dir, home string, opts InstallOptions, progress Progress, warn Warn) (InstallResult, error) {
-	return install(ctx, osInstallFS{}, osHost(), download, generate, cacheDir, dir, home, opts, progress, warn)
+func Install(ctx context.Context, cacheDir, dir, home string, opts InstallOptions, progress Progress, warn Warn, consent Consent) (InstallResult, error) {
+	return Ports{}.Install(ctx, cacheDir, dir, home, opts, progress, warn, consent)
 }
+
+// Consent is asked, with the plan, whether a replace install may wipe or
+// overwrite what dotai does not own (decision 0038).
+type Consent = func(InstallPlan) (bool, error)
 
 // Warn receives a warning, text for people, that must be read before
 // dotai writes, as soon as it is known.
 type Warn = func(text string)
 
-func install(ctx context.Context, d executeFS, h host, fetch fetchFunc, run runFunc, cacheDir, dir, home string, opts InstallOptions, progress Progress, warn Warn) (InstallResult, error) {
+func install(ctx context.Context, d executeFS, h host, fetch fetchFunc, run runFunc, cacheDir, dir, home string, opts InstallOptions, progress Progress, warn Warn, consent Consent) (InstallResult, error) {
 	if !filepath.IsAbs(home) {
 		return InstallResult{}, fmt.Errorf("home directory %q is not absolute", home)
 	}
 	home = filepath.Clean(home)
-	if opts.Mode == ModeReplace && !opts.replaceWrites {
-		return InstallResult{}, errReplaceUnavailable(false)
-	}
 	packPath, err := filepath.Abs(dir)
 	if err != nil {
 		return InstallResult{}, err
@@ -215,13 +216,33 @@ func install(ctx context.Context, d executeFS, h host, fetch fetchFunc, run runF
 		return InstallResult{}, err
 	}
 	var res InstallResult
-	err = withPlan(ctx, d, h, fetch, run, cacheDir, dir, home, opts, true, progress, func(p planned) error {
+	err = withPlan(ctx, d, h, fetch, run, cacheDir, dir, home, opts, progress, func(p planned) error {
 		res = InstallResult{InstallPlan: p.plan, Warnings: []string{}}
 		if len(p.plan.Diagnostics) > 0 {
 			return nil
 		}
 		if len(p.plan.Refusals) > 0 {
-			return &RefusedError{Refusals: p.plan.Refusals}
+			return &RefusedError{Refusals: p.plan.Refusals, Plan: p.plan}
+		}
+		if p.plan.Mode == ModeReplace && !opts.IgnoreRunning {
+			if err := running(h, "install", p.harnesses); err != nil {
+				return err
+			}
+		}
+		entries, keys, files, err := foreign(d, p)
+		if err != nil {
+			return err
+		}
+		if entries+keys+files > 0 {
+			ok := false
+			if consent != nil {
+				if ok, err = consent(p.plan); err != nil {
+					return err
+				}
+			}
+			if !ok {
+				return &ConsentError{Plan: p.plan, Entries: entries, Keys: keys, Files: files}
+			}
 		}
 		for _, w := range append(sharedWarnings(p.plan.SharedSkills), settingsWarning(p)) {
 			if w == "" {

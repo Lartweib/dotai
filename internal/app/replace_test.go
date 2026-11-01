@@ -378,29 +378,17 @@ func TestPlanReplaceOverAnIsolatedInstall(t *testing.T) {
 	}
 }
 
-// TestInstallInReplaceModeIsNotAvailableYet checks that an install that
-// would write in the replace mode, asked for or recorded in the state, is
-// refused as a usage error before anything is written, and that install
-// never switches a replace install to isolated.
-func TestInstallInReplaceModeIsNotAvailableYet(t *testing.T) {
+// TestInstallNeverSwitchesReplaceToIsolated checks that an install over a
+// replace install state takes the replace mode, and that asking for the
+// isolated mode there is refused as a usage error pointing to dotai
+// restore, in the dry run and the install, before anything is written.
+func TestInstallNeverSwitchesReplaceToIsolated(t *testing.T) {
 	home, h := realHome(t)
 	f := quiet(t)
-	before := hashes(t, home)
-	_, err := app.InstallHost(context.Background(), newClockFS(t), h, f.fetch, replaceRun(t), examplePack, home, app.InstallOptions{Mode: app.ModeReplace})
 	var usage *app.UsageError
-	if !errors.As(err, &usage) || !strings.Contains(err.Error(), "not available yet") || !strings.Contains(err.Error(), "--dry-run") {
-		t.Errorf("Install(replace) error = %v, want a usage error that it is not available yet", err)
-	}
-	if !reflect.DeepEqual(hashes(t, home), before) {
-		t.Fatal("Install(replace) wrote to the home directory")
-	}
-
 	writeState(t, at(home, ".dotai/state.json"), state.State{Schema: state.Schema, Pack: state.Pack{Name: "minimal-pack"}, Mode: app.ModeReplace,
 		Harnesses: []string{"claudecode", "antigravity-cli", "opencode"}, Files: []state.File{}})
-	before = hashes(t, home)
-	if _, err := app.InstallHost(context.Background(), newClockFS(t), h, f.fetch, replaceRun(t), examplePack, home, app.InstallOptions{}); !errors.As(err, &usage) || !strings.Contains(err.Error(), "not available yet") {
-		t.Errorf("Install() over a replace state error = %v, want the replace mode not available yet", err)
-	}
+	before := hashes(t, home)
 	p, err := app.PlanInstallHost(context.Background(), app.OSInstallFS{}, h, f.fetch, replaceRun(t), examplePack, home, app.InstallOptions{})
 	if err != nil || p.Mode != app.ModeReplace {
 		t.Errorf("PlanInstall() over a replace state = %q, %v, want the mode the state records", p.Mode, err)

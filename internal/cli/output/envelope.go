@@ -17,6 +17,13 @@ const (
 	CodeUsage    = "usage"    // invalid command, argument or flag
 	CodeInternal = "internal" // the command failed while running
 	CodeInvalid  = "invalid"  // the input was read and is not valid
+	// A replace install, or its restore, refused before it wrote anything
+	// (decision 0038): it needs consent (--yes) to wipe what dotai does not
+	// own, its plan has refusals that no flag overrides, or a harness it
+	// writes into is running.
+	CodeConsent = "consent-required"
+	CodeRefused = "replace-refused"
+	CodeRunning = "harness-running"
 )
 
 // Envelope is the single JSON document a command prints with --json.
