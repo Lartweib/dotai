@@ -32,7 +32,7 @@ func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
 			"of that name; a skill added there later shows up after the next install.\n" +
 			"It manages the pack's harnesses that are installed, found by their command on PATH or their configuration\n" +
 			"directory (agy by its command only), or those --harness names; a required harness that is missing or left out\n" +
-			"stops the install, an optional one is skipped with a note. The selection is saved, and a plain install reuses it.\n" +
+			"stops the install, an optional one is skipped with a note. A --harness choice is saved, and a plain install reuses it.\n" +
 			"The pack is staged as by stage, into a temporary directory that is removed. Before the first write, each file\n" +
 			"that is replaced or removed is copied into a backup under ~/.dotai/backups; a failure rolls back from it.\n" +
 			"The install state is written last, to ~/.dotai/state.json. With --dry-run, nothing but the rulesync cache is written.\n" +
