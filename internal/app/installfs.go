@@ -146,6 +146,109 @@ func (osInstallFS) MoveIn(root, from, to string) error {
 	return retry(func() error { return r.Rename(from, to) })
 }
 
+// CopyIn copies the entry from to the missing to, slash paths inside
+// root, through root: a file with its content, permissions and
+// modification time, synced; a directory with everything in it, its
+// permissions and modification time, synced where the OS can; and a link
+// or a junction as a link to the same destination, never followed. It
+// gives the bytes of the files it copied. Anything else, such as a FIFO,
+// is refused.
+func (osInstallFS) CopyIn(root, from, to string) (int64, error) {
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return 0, err
+	}
+	defer r.Close()
+	return copyEntry(r, from, to)
+}
+
+func copyEntry(r *os.Root, from, to string) (int64, error) {
+	info, err := r.Lstat(from)
+	if err != nil {
+		return 0, err
+	}
+	mode := info.Mode()
+	switch {
+	case mode&(fs.ModeSymlink|fs.ModeIrregular) != 0:
+		dest, err := r.Readlink(from)
+		if err != nil {
+			return 0, fmt.Errorf("%s is neither a file, a directory nor a link that can be copied: %w", from, err)
+		}
+		return 0, copyLink(r, mode, dest, to)
+	case mode.IsDir():
+		if err := r.Mkdir(to, mode.Perm()|0o700); err != nil {
+			return 0, err
+		}
+		d, err := r.Open(from)
+		if err != nil {
+			return 0, err
+		}
+		names, err := d.Readdirnames(-1)
+		d.Close()
+		if err != nil {
+			return 0, err
+		}
+		var n int64
+		for _, name := range names {
+			m, err := copyEntry(r, path.Join(from, name), path.Join(to, name))
+			n += m
+			if err != nil {
+				return n, err
+			}
+		}
+		if err := r.Chmod(to, mode.Perm()); err != nil {
+			return n, err
+		}
+		if err := syncIn(r, to); err != nil {
+			return n, err
+		}
+		return n, r.Chtimes(to, info.ModTime(), info.ModTime())
+	case mode.IsRegular():
+		n, err := copyFile(r, from, to)
+		if err != nil {
+			return n, err
+		}
+		if err := r.Chmod(to, mode.Perm()); err != nil {
+			return n, err
+		}
+		return n, r.Chtimes(to, info.ModTime(), info.ModTime())
+	}
+	return 0, fmt.Errorf("%s is neither a file, a directory nor a link, and cannot be copied", from)
+}
+
+// copyFile copies the regular file from to the new file to and syncs it.
+func copyFile(r *os.Root, from, to string) (n int64, err error) {
+	src, err := r.Open(from)
+	if err != nil {
+		return 0, err
+	}
+	defer src.Close()
+	dst, err := r.OpenFile(to, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return 0, err
+	}
+	defer func() {
+		if cErr := dst.Close(); err == nil {
+			err = cErr
+		}
+	}()
+	if n, err = io.Copy(dst, src); err != nil {
+		return n, err
+	}
+	return n, dst.Sync()
+}
+
+// RemoveAllIn removes name, a slash path inside root, and everything in
+// it, through root, never following a link.
+func (osInstallFS) RemoveAllIn(root, name string) error {
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	return retry(func() error { return r.RemoveAll(name) })
+}
+
 func (osInstallFS) MkdirIn(root, name string) error {
 	r, err := os.OpenRoot(root)
 	if err != nil {

@@ -158,3 +158,6 @@ func PinnedBackup(t interface{ Fatal(...any) }, home string) string {
 	}
 	return chain[len(chain)-1]
 }
+
+// ErrCrossDevice is the error the OS gives a rename across volumes.
+var ErrCrossDevice = errCrossDevice

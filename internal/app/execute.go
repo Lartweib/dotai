@@ -135,6 +135,14 @@ type executeFS interface {
 	// MoveIn renames the entry from to the missing to, a file, a directory
 	// or a link, never followed (decision 0038).
 	MoveIn(root, from, to string) error
+	// CopyIn copies the entry from to the missing to, a file, a directory
+	// with everything in it or a link, never followed, keeping permissions
+	// and modification times, synced; it gives the bytes copied. A move
+	// across volumes falls back to it.
+	CopyIn(root, from, to string) (int64, error)
+	// RemoveAllIn removes name and everything in it, never following a
+	// link.
+	RemoveAllIn(root, name string) error
 	// LinkIn creates the link name to the absolute dest, a junction on
 	// Windows and a symbolic link elsewhere; name must be missing.
 	LinkIn(root, name, dest string) error
@@ -203,6 +211,9 @@ func install(ctx context.Context, d executeFS, h host, fetch fetchFunc, run runF
 	if err != nil {
 		return InstallResult{}, err
 	}
+	if err := settleCrossings(runner{ctx: ctx, d: d, home: home}); err != nil {
+		return InstallResult{}, err
+	}
 	var res InstallResult
 	err = withPlan(ctx, d, h, fetch, run, cacheDir, dir, home, opts, true, progress, func(p planned) error {
 		res = InstallResult{InstallPlan: p.plan, Warnings: []string{}}
@@ -221,7 +232,8 @@ func install(ctx context.Context, d executeFS, h host, fetch fetchFunc, run runF
 				warn(w)
 			}
 		}
-		r := runner{ctx: ctx, d: d, home: home, p: p, pack: state.Pack{Name: p.plan.Pack.Name, Version: p.plan.Pack.Version, Path: packPath}, layouts: p.layouts()}
+		r := runner{ctx: ctx, d: d, home: home, p: p, pack: state.Pack{Name: p.plan.Pack.Name, Version: p.plan.Pack.Version, Path: packPath}, layouts: p.layouts(),
+			warnings: &res.Warnings}
 		return r.run(&res)
 	})
 	if se, ok := err.(*stagingError); ok { // the install itself succeeded
@@ -261,6 +273,9 @@ type runner struct {
 	p       planned
 	pack    state.Pack
 	layouts []harness.Mode
+	// warnings, when set, gets what went right but needs telling, such as
+	// an entry copied across volumes instead of moved.
+	warnings *[]string
 }
 
 // applied is an operation carried out, or, without a target, one that

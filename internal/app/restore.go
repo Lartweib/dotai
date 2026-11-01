@@ -226,6 +226,9 @@ func restore(ctx context.Context, d executeFS, home, id string, warn Warn, overw
 	if _, ok := backup.ParseID(id); id != "" && !ok {
 		return RestoreResult{}, &UsageError{fmt.Sprintf("%q is not a backup id, such as 20261029T101500.000Z_install", id)}
 	}
+	if err := settleCrossings(runner{ctx: ctx, d: d, home: home}); err != nil {
+		return RestoreResult{}, err
+	}
 	s, err := readState(d, home)
 	if err != nil {
 		return RestoreResult{}, err
@@ -258,6 +261,7 @@ func restore(ctx context.Context, d executeFS, home, id string, warn Warn, overw
 			return RestoreResult{}, &ConflictError{Conflicts: res.Conflicts}
 		}
 	}
+	r.warnings = &res.Warnings
 	err = r.locked(&res.Warnings, func() error {
 		if err := r.recheckState(statePath); err != nil {
 			return &StaleError{What: "the install state " + statePath}
