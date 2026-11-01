@@ -35,7 +35,7 @@ func (e *RefusedError) Error() string {
 	for i, r := range e.Refusals {
 		msgs[i] = r.Message
 	}
-	return "the replace install is refused, and nothing was written: " + strings.Join(msgs, "; ")
+	return "the replace install is refused, and the install wrote nothing: " + strings.Join(msgs, "; ")
 }
 
 // splitWrite is a split file an operation rewrites by key: its harness,

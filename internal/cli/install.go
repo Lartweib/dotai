@@ -104,11 +104,12 @@ func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
 			if err := writePlan(env.Stdout, p, color, "nothing was written yet\n"); err != nil {
 				return false, err
 			}
-			return env.Prompt(ctx, "The replace install moves what dotai does not own, each wipe above, into its backup. Go on? [y/N] ")
+			return env.Prompt(ctx, "The replace install moves into its backup what dotai does not own: the entries it wipes, the files it overwrites "+
+				"and the keys of ~/.claude.json it deletes, as listed above. Go on? [y/N] ")
 		}
 		res, err := env.Install(ctx, cache, packDir(args), home, opts, progress, warn, consent)
 		if _, ok := errors.AsType[*app.ConsentError](err); ok && asked {
-			return errors.New("the install was cancelled: nothing was written")
+			return errors.New("the install was cancelled, and it wrote nothing")
 		}
 		if err != nil {
 			// The plan explains a refusal; with --json, the envelope has it.
@@ -119,7 +120,7 @@ func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
 				p = &re.Plan
 			}
 			if p != nil && !*jsonOut {
-				if wErr := writePlan(env.Stdout, *p, color, "refused, nothing was written\n"); wErr != nil {
+				if wErr := writePlan(env.Stdout, *p, color, "refused, the install wrote nothing\n"); wErr != nil {
 					return errors.Join(err, wErr)
 				}
 			}

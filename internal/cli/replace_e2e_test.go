@@ -6,10 +6,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -225,7 +227,7 @@ func TestReplaceInstallAndRestore(t *testing.T) {
 	seeded := snapshot(t, e.home)
 
 	code, stdout, stderr := e.run("install", examplePack, "--mode", "replace")
-	if code != cli.ExitInternal || !strings.Contains(stderr, "--yes") || !strings.Contains(stdout, "wipe  ") || !strings.Contains(stdout, "refused, nothing was written") {
+	if code != cli.ExitInternal || !strings.Contains(stderr, "--yes") || !strings.Contains(stdout, "wipe  ") || !strings.Contains(stdout, "refused, the install wrote nothing") {
 		t.Errorf("without --yes: exit code = %d, stdout = %q, stderr = %q, want the plan and a refusal that names --yes", code, stdout, stderr)
 	}
 	sameSnapshot(t, "home after the install without --yes", snapshot(t, e.home), seeded)
@@ -264,6 +266,31 @@ func TestReplaceInstallAndRestore(t *testing.T) {
 			t.Errorf("wipe %s is not one of the seeded entries", rel)
 		}
 	}
+	targets := map[string]bool{}
+	for _, op := range res.Ops {
+		targets[op.Target] = true
+	}
+	for _, w := range res.Wipes {
+		if _, err := os.Lstat(w.Path); !errors.Is(err, fs.ErrNotExist) && !targets[w.Path] {
+			t.Errorf("wiped %s: %v, want it gone from the home", w.Path, err)
+		}
+	}
+	var claude map[string]any
+	if data, err := os.ReadFile(filepath.Join(e.home, ".claude.json")); err != nil || json.Unmarshal(data, &claude) != nil {
+		t.Fatalf("~/.claude.json after the install: %s, %v", data, err)
+	}
+	if len(res.WipeKeys) != 2 {
+		t.Errorf("wipeKeys = %+v, want mcpServers and the project's allowedTools", res.WipeKeys)
+	}
+	project, _ := claude["projects"].(map[string]any)["/work"].(map[string]any)
+	if _, ok := claude["mcpServers"]; ok || project["allowedTools"] != nil || claude["numStartups"] != float64(3) || project["hasTrustDialogAccepted"] != true {
+		t.Errorf("~/.claude.json = %v, want mcpServers and allowedTools gone, numStartups and the trust kept", claude)
+	}
+	if !slices.ContainsFunc(res.Warnings, func(w string) bool {
+		return strings.HasPrefix(w, "close every session of claudecode, antigravity-cli, opencode before going on")
+	}) {
+		t.Errorf("warnings = %q, want the reminder to close every session", res.Warnings)
+	}
 	for _, rel := range []string{".claude/CLAUDE.md", ".gemini/config/GEMINI.md", ".config/opencode/AGENTS.md"} {
 		if got, _ := os.ReadFile(filepath.Join(e.home, filepath.FromSlash(rel))); string(got) != "# pack rules\n" {
 			t.Errorf("%s = %q, want the pack's rules", rel, got)
@@ -301,7 +328,7 @@ func TestReplaceInstallAsksOnATerminal(t *testing.T) {
 	asked := 0
 	e.prompt = func(string) bool { asked++; return false }
 	code, stdout, stderr := e.run("install", examplePack, "--mode", "replace")
-	if code != cli.ExitInternal || asked != 1 || !strings.Contains(stdout, "nothing was written yet") || !strings.Contains(stderr, "the install was cancelled: nothing was written") {
+	if code != cli.ExitInternal || asked != 1 || !strings.Contains(stdout, "nothing was written yet") || !strings.Contains(stderr, "the install was cancelled, and it wrote nothing") {
 		t.Errorf("answered no: exit code = %d, asked %d times, stdout = %q, stderr = %q, want the plan, one question and a cancel", code, asked, stdout, stderr)
 	}
 	sameSnapshot(t, "home after the answer no", snapshot(t, e.home), seeded)
@@ -356,7 +383,7 @@ func TestReplaceRefusalBlocksEvenWithYes(t *testing.T) {
 				t.Errorf("exit code = %d, envelope = %s, stderr = %q, want replace-refused with the %s refusal", code, stdout, stderr, tt.code)
 			}
 			code, stdout, stderr = e.run("install", examplePack, "--mode", "replace", "--yes")
-			if code != cli.ExitInternal || !strings.Contains(stdout, "refused") || !strings.Contains(stderr, "nothing was written") {
+			if code != cli.ExitInternal || !strings.Contains(stdout, "refused") || !strings.Contains(stderr, "the install wrote nothing") {
 				t.Errorf("text: exit code = %d, stdout = %q, stderr = %q, want the plan with its refusals and the error", code, stdout, stderr)
 			}
 			sameSnapshot(t, "home", snapshot(t, e.home), seeded)
@@ -391,12 +418,37 @@ func TestReplaceRefusesWhileAHarnessRuns(t *testing.T) {
 	if code, _, stderr := e.run("install", examplePack, "--mode", "replace", "--yes", "--ignore-running"); code != cli.ExitOK {
 		t.Fatalf("--ignore-running: exit code = %d, stderr = %q, want it installed", code, stderr)
 	}
+	installed := snapshot(t, e.home)
 	code, _, stderr := e.run("restore")
 	if code != cli.ExitInternal || !strings.Contains(stderr, "opencode (") || !strings.Contains(stderr, "--ignore-running") {
 		t.Errorf("restore: exit code = %d, stderr = %q, want it refused while OpenCode runs", code, stderr)
 	}
+	code, stdout, _ = e.run("restore", "--json")
+	env = decode(t, stdout)
+	if err := json.Unmarshal(env.Data, &data); err != nil || code != cli.ExitInternal || env.Error.Code != "harness-running" ||
+		len(data.Running) != 1 || data.Running[0].Harness != "opencode" {
+		t.Errorf("restore --json: exit code = %d, envelope = %s, want harness-running naming OpenCode's service", code, stdout)
+	}
+	sameSnapshot(t, "home after the refused restores", snapshot(t, e.home), installed)
 	if code, _, stderr := e.run("restore", "--ignore-running"); code != cli.ExitOK {
 		t.Fatalf("restore --ignore-running: exit code = %d, stderr = %q", code, stderr)
 	}
 	sameSnapshot(t, "home after the restore", snapshot(t, e.home, ".dotai"), seeded)
+}
+
+// TestIsolatedIgnoresRunningHarnesses checks that the isolated mode does
+// not check for running harnesses: an isolated install and its restore go
+// on while every harness looks like it is running, since a harness
+// running outside the isolation does not read the isolated directories.
+func TestIsolatedIgnoresRunningHarnesses(t *testing.T) {
+	e := newE2E(t)
+	seeded := snapshot(t, e.home)
+	e.procs = []proc.Process{{PID: 10, Name: "claude"}, {PID: 11, Name: "agy"}, {PID: 12, Name: "opencode"}, {PID: 13, Name: "claude.exe"}, {PID: 14, Name: "agy.exe"}, {PID: 15, Name: "opencode.exe"}}
+	if code, stdout, stderr := e.run("install", examplePack, "--mode", "isolated", "--json"); code != cli.ExitOK {
+		t.Fatalf("isolated install: exit code = %d, stdout = %s, stderr = %q, want it installed", code, stdout, stderr)
+	}
+	if code, stdout, stderr := e.run("restore", "--json"); code != cli.ExitOK {
+		t.Fatalf("isolated restore: exit code = %d, stdout = %s, stderr = %q, want it restored", code, stdout, stderr)
+	}
+	sameSnapshot(t, "home after the isolated install and restore", snapshot(t, e.home, ".dotai"), seeded)
 }
