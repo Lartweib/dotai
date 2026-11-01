@@ -9,9 +9,6 @@ import (
 	"syscall"
 )
 
-// errCrossDevice is the error of a rename across volumes.
-var errCrossDevice error = syscall.EXDEV
-
 // crossDevice reports a rename that failed because it crosses volumes.
 func crossDevice(err error) bool { return errors.Is(err, syscall.EXDEV) }
 

@@ -20,9 +20,6 @@ func transient(err error) bool {
 	return errors.Is(err, windows.ERROR_ACCESS_DENIED) || errors.Is(err, windows.ERROR_SHARING_VIOLATION)
 }
 
-// errCrossDevice is the error of a rename across volumes.
-var errCrossDevice error = windows.ERROR_NOT_SAME_DEVICE
-
 // crossDevice reports a rename that failed because it crosses volumes.
 func crossDevice(err error) bool { return errors.Is(err, windows.ERROR_NOT_SAME_DEVICE) }
 
