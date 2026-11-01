@@ -18,7 +18,7 @@ What each harness reads and creates at user level was inventoried on Windows ([H
 
 **What is wiped.** Everything that a supported harness (Claude Code, agy, OpenCode) reads at user level and that can affect its behavior. Kept: login and credentials; history (sessions, conversations, history files, OpenCode's database); caches; and the harness state it needs to work, such as agy's `config/.migrated`. A path that only other tools read is never touched. The generic user-level paths that a supported harness reads, `~/.agents/skills`, `~/.agents/`, `~/AGENTS.md`, `~/CLAUDE.md` and `~/.opencode`, are wiped for a closed variant as accepted collateral damage: the plan names each one and warns that other tools reading it are affected. A variant that shares skills ([0036](0036-shared-skills-per-variant.md)) keeps `~/.agents/skills` and exposes it as in the isolated mode.
 
-**Keep-lists.** Inside each harness directory, `~/.claude`, the parts of `~/.gemini` that agy owns (`config/`, `antigravity-cli/`) and `~/.config/opencode`, the adapter declares a keep-list as data: every entry not on it is wiped, unknown entries included. A path outside those directories is wiped only as an explicit leak entry of the adapter. A file that mixes configuration and state is split by key. In `~/.claude.json` the configuration keys are wiped: `mcpServers`, and per project `mcpServers`, `allowedTools`, `enabledMcpjsonServers` and `disabledMcpjsonServers`; account, onboarding, stats and per-project trust and history are kept. dotai never owns `~/.claude.json`.
+**Keep-lists.** Inside each harness directory, `~/.claude`, the parts of `~/.gemini` that agy owns (`config/`, `antigravity-cli/`) and `~/.config/opencode`, the adapter declares a keep-list as data: every entry not on it is wiped, unknown entries included. A path outside those directories is wiped only as an explicit leak entry of the adapter. A file that mixes configuration and state is split by key. In `~/.claude.json` the configuration keys are wiped: `mcpServers`, and per project `mcpServers`, `allowedTools`, `enabledMcpjsonServers`, `disabledMcpjsonServers` and `mcpContextUris`; account, onboarding, stats and per-project trust and history are kept. dotai never owns `~/.claude.json`.
 
 **Safety net.** An unknown entry whose name looks like login or history (`*cred*`, `*auth*`, `*token*`, `*oauth*`, `*.db`, `*history*`) makes the plan refuse until the adapter classifies it.
 
@@ -49,7 +49,7 @@ What each harness reads and creates at user level was inventoried on Windows ([H
 - Good: a replace install has the same result on any machine, and restore brings back exactly what was there.
 - Accepted cost: tools that read the generic paths lose what they had there until a restore; the plan names them every time.
 - Accepted cost: a wrong keep-list wipes a file the harness needed. The backup by move and restore limit the damage, and the safety net catches likely logins and history.
-- Pending: the keep-lists and leak entries of each adapter, the per-project key `mcpContextUris` of `~/.claude.json` (seen on 2.1.316), how a running harness is detected on each OS, and the facts still unverified in [HARNESS-NOTES](../HARNESS-NOTES.md#replace-inventory).
+- Pending: the keep-lists and leak entries of each adapter, how a running harness is detected on each OS, and the facts still unverified in [HARNESS-NOTES](../HARNESS-NOTES.md#replace-inventory).
 
 ## Evidence
 
