@@ -202,7 +202,7 @@ func writeRestore(w io.Writer, r app.RestoreResult, color bool) error {
 			if i == 0 || keys[i-1].File != k.File {
 				fmt.Fprintf(&b, "  %s  %s\n", paint(color, styleGreen, "restore keys"), k.File)
 			}
-			fmt.Fprintf(&b, "    %s\n", strings.Join(k.Key, "."))
+			fmt.Fprintf(&b, "    %s\n", keyPath(k.Key))
 		}
 	}
 	backup := "none, no file was written"

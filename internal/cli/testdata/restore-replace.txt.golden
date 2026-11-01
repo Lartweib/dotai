@@ -7,7 +7,7 @@ claudecode
   move back  /home/u/.claude/agents  (something else was there, kept in the restore backup)
   restore keys  /home/u/.claude.json
     mcpServers
-    projects./home/u/work.allowedTools
+    projects["/home/u/work"].allowedTools
 
 opencode
   move back  /home/u/AGENTS.md
