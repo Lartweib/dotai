@@ -384,15 +384,15 @@ func (r *restorer) write(res *RestoreResult, chain []undone) error {
 }
 
 // removeEmptyRoots removes, once nothing dotai installed is left, the
-// directories of the isolated layout, when restore writes in it: each
-// harness's isolated directory and the tools directory when they are
-// empty real directories, then the isolated root when it is empty too. It
-// never removes a harness's own configuration directory, the backups or
-// the dotai directory, and does its best: a directory that holds
-// anything, such as a harness's login, stays.
+// directories of the isolated layout, the only one restore undoes so far
+// (restorable): each harness's isolated directory and the tools directory
+// when they are empty real directories, then the isolated root when it is
+// empty too. It never removes a harness's own configuration directory, the
+// backups or the dotai directory, and does its best: a directory that
+// holds anything, such as a harness's login, stays.
 func (r *restorer) removeEmptyRoots() {
 	isolated := filepath.Join(r.home, filepath.FromSlash(harness.IsolatedDir))
-	if (len(r.layouts) == 0 || slices.Contains(r.layouts, harness.Isolated)) && checkDir(r.d, isolated) == nil {
+	if checkDir(r.d, isolated) == nil {
 		names, _ := r.d.List(isolated)
 		for _, name := range names {
 			if checkDir(r.d, filepath.Join(isolated, name)) == nil {

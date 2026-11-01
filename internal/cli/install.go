@@ -22,7 +22,7 @@ func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
 	var harnesses []string
 	cmd := &cobra.Command{
 		Use:   "install [path]",
-		Short: "Install the pack in path isolated, or print the plan with --dry-run, in replace mode too",
+		Short: "Install the pack in path, or print its plan with --dry-run",
 		Long: "Install the user scope (base and variant) of the pack in path (default: current directory) isolated, under\n" +
 			"~/.dotai/isolated, and print the plan: how each harness runs isolated, what still leaks from your own setup,\n" +
 			"and each file it creates, replaces, removes or leaves unchanged. Without --variant, the default variant is used.\n" +
@@ -158,7 +158,7 @@ func writePlan(w io.Writer, p app.InstallPlan, color bool, footer string) error 
 			continue
 		}
 		if p.Mode == app.ModeReplace {
-			fmt.Fprintf(&b, "\n%s · replace · keeps your login\n", paint(color, styleBold, h.ID))
+			fmt.Fprintf(&b, "\n%s · replace · %s\n", paint(color, styleBold, h.ID), loginText(h.Relogin))
 			writeDetection(&b, h.Detection)
 			writeKeeps(&b, p.Keeps, h.ID)
 			for _, c := range h.Tools {
@@ -166,14 +166,7 @@ func writePlan(w io.Writer, p app.InstallPlan, color bool, footer string) error 
 			}
 			continue
 		}
-		login := "may need a new login"
-		switch h.Relogin {
-		case string(harness.ReloginYes):
-			login = "needs a new login"
-		case string(harness.ReloginNo):
-			login = "keeps your login"
-		}
-		fmt.Fprintf(&b, "\n%s · %s isolation · %s\n", paint(color, styleBold, h.ID), h.Level, login)
+		fmt.Fprintf(&b, "\n%s · %s isolation · %s\n", paint(color, styleBold, h.ID), h.Level, loginText(h.Relogin))
 		writeDetection(&b, h.Detection)
 		for _, ptr := range h.Pointers {
 			fmt.Fprintf(&b, "  %s=%s\n", ptr.Name, ptr.Dir)
@@ -228,7 +221,7 @@ func writePlan(w io.Writer, p app.InstallPlan, color bool, footer string) error 
 			name = "tools"
 		}
 		fmt.Fprintf(&b, "\n%s\n", paint(color, styleBold, name))
-		indent := strings.Repeat(" ", len("  "+string(plan.Unchanged)+"  "))
+		indent := strings.Repeat(" ", keyIndent)
 		for _, w := range wiped {
 			wipes++
 			fmt.Fprintf(&b, "  %s  %s\n", paintWord(color, styleRed, "wipe"), w.Path)
@@ -243,7 +236,7 @@ func writePlan(w io.Writer, p app.InstallPlan, color bool, footer string) error 
 		for _, op := range ops {
 			count[op.Action]++
 			fmt.Fprintf(&b, "  %s  %s%s\n", paintAction(color, op.Action), op.Target, linkTo(op.Link, op.BeforeLink))
-			writeKeys(&b, color, len("  "+string(plan.Unchanged)+"  "), op.Keys)
+			writeKeys(&b, color, keyIndent, op.Keys)
 		}
 	}
 	if len(p.Refusals) > 0 {
@@ -259,6 +252,26 @@ func writePlan(w io.Writer, p app.InstallPlan, color bool, footer string) error 
 	b.WriteString(footer)
 	_, err := io.WriteString(w, b.String())
 	return err
+}
+
+// actionWidth is the width of the action column of a plan, that of its
+// widest action, and keyIndent the indent of the lines under an operation,
+// such as its keys, which start under its target.
+const (
+	actionWidth = len(plan.Unchanged)
+	keyIndent   = len("  ") + actionWidth + len("  ")
+)
+
+// loginText is how relogin reads in a plan: whether the user needs a new
+// login, keeps theirs or, where it was not verified, may need one.
+func loginText(relogin string) string {
+	switch relogin {
+	case string(harness.ReloginYes):
+		return "needs a new login"
+	case string(harness.ReloginNo):
+		return "keeps your login"
+	}
+	return "may need a new login"
 }
 
 // writeKeeps prints what a replace install keeps of the harness id, one
@@ -301,7 +314,7 @@ func keyPath(key []string) string {
 // paintWord pads word to the widest action and colors it with style.
 func paintWord(color bool, style, word string) string {
 	pad := ""
-	if n := len(plan.Unchanged) - len(word); n > 0 {
+	if n := actionWidth - len(word); n > 0 {
 		pad = strings.Repeat(" ", n)
 	}
 	return paint(color, style, word) + pad
@@ -373,7 +386,7 @@ var actionStyle = map[plan.Action]string{plan.Create: styleGreen, plan.Replace: 
 // paintAction pads action to the widest action and colors it: a create
 // green, a replace bold, a remove red, an unchanged file dim.
 func paintAction(color bool, a plan.Action) string {
-	pad := strings.Repeat(" ", len(plan.Unchanged)-len(a))
+	pad := strings.Repeat(" ", actionWidth-len(a))
 	style := actionStyle[a]
 	if style == "" {
 		return string(a) + pad
