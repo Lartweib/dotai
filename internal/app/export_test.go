@@ -1,6 +1,11 @@
 package app
 
-import "context"
+import (
+	"cmp"
+	"context"
+	"path/filepath"
+	"runtime"
+)
 
 // OSStageFS is the real file system port, for fakes that wrap it.
 type OSStageFS = osStageFS
@@ -35,10 +40,40 @@ func ExpandSettingIn(s string, tools ToolPaths, scope, h string) (string, error)
 type OSInstallFS = osInstallFS
 
 // PlanInstallWith is PlanInstall reading the disk through d, fetching
-// through fetch and running rulesync through run.
+// through fetch and running rulesync through run, on a host that finds
+// every harness and sets no variable.
 func PlanInstallWith(ctx context.Context, d installFS, fetch fetchFunc, run runFunc, dir, variant, home string) (InstallPlan, error) {
-	return planInstall(ctx, d, fetch, run, "cache", dir, variant, home, nil)
+	return planInstall(ctx, d, everyHarness, fetch, run, "cache", dir, home, InstallOptions{Variant: variant}, nil)
 }
+
+// Host is what an install reads of the machine besides the disk.
+type Host = host
+
+// NewHost is a host that finds commands through lookPath, with the
+// environment environ, on goos, runtime.GOOS when empty.
+func NewHost(lookPath func(string) (string, error), environ []string, goos string) Host {
+	return host{lookPath: lookPath, environ: environ, goos: cmp.Or(goos, runtime.GOOS)}
+}
+
+// everyHarness is a host whose PATH has every harness's command.
+var everyHarness = NewHost(func(name string) (string, error) { return filepath.Join(string(filepath.Separator)+"bin", name), nil }, nil, "")
+
+// PlanInstallHost is PlanInstall through d on the host h.
+func PlanInstallHost(ctx context.Context, d installFS, h Host, fetch fetchFunc, run runFunc, dir, home string, opts InstallOptions) (InstallPlan, error) {
+	return planInstall(ctx, d, h, fetch, run, "cache", dir, home, opts, nil)
+}
+
+// InstallHost is Install through d on the host h.
+func InstallHost(ctx context.Context, d executeFS, h Host, fetch fetchFunc, run runFunc, dir, home string, opts InstallOptions) (InstallResult, error) {
+	return install(ctx, d, h, fetch, run, "cache", dir, home, opts, nil, nil)
+}
+
+// Detect and SelectHarnesses are the detection of a harness and the
+// selection of the harnesses an install manages.
+var (
+	Detect          = detect
+	SelectHarnesses = selectHarnesses
+)
 
 // ExecuteFS is the port Install writes through.
 type ExecuteFS = executeFS
@@ -46,13 +81,13 @@ type ExecuteFS = executeFS
 // InstallWith is Install through d, fetching through fetch and running
 // rulesync through run.
 func InstallWith(ctx context.Context, d executeFS, fetch fetchFunc, run runFunc, dir, variant, home string) (InstallResult, error) {
-	return install(ctx, d, fetch, run, "cache", dir, variant, home, nil, nil)
+	return install(ctx, d, everyHarness, fetch, run, "cache", dir, home, InstallOptions{Variant: variant}, nil, nil)
 }
 
 // InstallWarnWith is InstallWith giving the warnings to read before it
 // writes to warn.
 func InstallWarnWith(ctx context.Context, d executeFS, fetch fetchFunc, run runFunc, dir, variant, home string, warn Warn) (InstallResult, error) {
-	return install(ctx, d, fetch, run, "cache", dir, variant, home, nil, warn)
+	return install(ctx, d, everyHarness, fetch, run, "cache", dir, home, InstallOptions{Variant: variant}, nil, warn)
 }
 
 // RetryWith, Transient and NarrowMode are the retry of a move or a removal,

@@ -53,17 +53,36 @@ type InstallPlan struct {
 	Mode         string            `json:"mode"`
 	Root         string            `json:"root"`         // the directory that holds each harness's isolated directory
 	SharedSkills *SharedSkillsPlan `json:"sharedSkills"` // nil when the variant does not share skills
-	Harnesses    []HarnessPlan     `json:"harnesses"`
-	Ops          []InstallOp       `json:"ops"`
-	Diagnostics  []Diagnostic      `json:"diagnostics"`
+	// Harnesses are every harness of the pack, the required ones then the
+	// optional ones, managed by the install or not (decision 0038).
+	Harnesses []HarnessPlan `json:"harnesses"`
+	Ops       []InstallOp   `json:"ops"`
+	// Notices say why an optional harness is not managed, text for people.
+	Notices     []string     `json:"notices"`
+	Diagnostics []Diagnostic `json:"diagnostics"`
 }
 
-// HarnessPlan is how one harness runs isolated on this OS: its directory,
-// the variables or flags that point it there, whether the user must log in
+// InstallOptions are the choices of an install besides the pack: the
+// variant, the pack's default when empty, and the harnesses to manage,
+// --harness, nil to reuse the saved selection or take the pack's
+// harnesses that are detected (decision 0038).
+type InstallOptions struct {
+	Variant   string
+	Harnesses []string
+}
+
+// HarnessPlan is one harness of the pack: whether the pack requires it,
+// whether it is detected and the install manages it (decision 0038), and,
+// when it does, how it runs isolated on this OS: its directory, the
+// variables or flags that point it there, whether the user must log in
 // again (yes, no, or unknown where it was not verified) and what the
-// user's own setup still provides.
+// user's own setup still provides. A harness the install does not manage
+// has only its detection; its other lists are empty.
 type HarnessPlan struct {
-	ID       string        `json:"id"`
+	ID       string `json:"id"`
+	Required bool   `json:"required"`
+	Managed  bool   `json:"managed"`
+	Detection
 	Level    string        `json:"level"`
 	Dir      string        `json:"dir"`
 	Pointers []PointerPlan `json:"pointers"`
@@ -166,8 +185,9 @@ type installFS interface {
 }
 
 // PlanInstall plans the isolated install of the user scope of the pack in
-// dir, with variant or the pack's default, into the absolute home
-// directory home. It stages the pack as Stage does, into a temporary
+// dir, with the variant of opts or the pack's default, into the absolute
+// home directory home, for the harnesses selectHarnesses chooses from
+// opts, the saved selection and what is detected. It stages the pack as Stage does, into a temporary
 // directory it removes, with ${DOTAI_TOOLS} at home's tools directory,
 // then compares each staged file with its target. A file the previous
 // install owned, by its state in ~/.dotai/state.json, that the pack no
@@ -179,13 +199,13 @@ type installFS interface {
 // nothing else. A pack with problems, including a staged file that
 // nothing installs, gives diagnostics. rulesync is fetched into cacheDir
 // as FetchRulesync does; progress may be nil.
-func PlanInstall(ctx context.Context, cacheDir, dir, variant, home string, progress Progress) (InstallPlan, error) {
-	return planInstall(ctx, osInstallFS{}, download, generate, cacheDir, dir, variant, home, progress)
+func PlanInstall(ctx context.Context, cacheDir, dir, home string, opts InstallOptions, progress Progress) (InstallPlan, error) {
+	return planInstall(ctx, osInstallFS{}, osHost(), download, generate, cacheDir, dir, home, opts, progress)
 }
 
-func planInstall(ctx context.Context, d installFS, fetch fetchFunc, run runFunc, cacheDir, dir, variant, home string, progress Progress) (InstallPlan, error) {
+func planInstall(ctx context.Context, d installFS, h host, fetch fetchFunc, run runFunc, cacheDir, dir, home string, opts InstallOptions, progress Progress) (InstallPlan, error) {
 	var res InstallPlan
-	err := withPlan(ctx, d, fetch, run, cacheDir, dir, variant, home, progress, func(p planned) error {
+	err := withPlan(ctx, d, h, fetch, run, cacheDir, dir, home, opts, progress, func(p planned) error {
 		res = p.plan
 		return nil
 	})
@@ -197,9 +217,9 @@ func planInstall(ctx context.Context, d installFS, fetch fetchFunc, run runFunc,
 
 // planned is a plan with what carrying it out needs: the plan's own
 // operations, the user staging tree that holds the staged files, the
-// state of the previous install (nil before the first one), the pack's
-// harnesses, whether the variant shares skills and whether the exec bit is
-// left out. Only plan is set when the plan has diagnostics.
+// state of the previous install (nil before the first one), the harnesses
+// it manages, whether the variant shares skills and whether the exec bit
+// is left out. Only plan is set when the plan has diagnostics.
 type planned struct {
 	plan       InstallPlan
 	shared     bool
@@ -216,7 +236,7 @@ type planned struct {
 // the plan while the staging still exists; the staging is removed after
 // then returns. A staging that cannot be removed is a *stagingError, on
 // its own when nothing else failed.
-func withPlan(ctx context.Context, d installFS, fetch fetchFunc, run runFunc, cacheDir, dir, variant, home string, progress Progress, then func(planned) error) (err error) {
+func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run runFunc, cacheDir, dir, home string, opts InstallOptions, progress Progress, then func(planned) error) (err error) {
 	if !filepath.IsAbs(home) {
 		return fmt.Errorf("home directory %q is not absolute", home)
 	}
@@ -237,16 +257,33 @@ func withPlan(ctx context.Context, d installFS, fetch fetchFunc, run runFunc, ca
 	out := filepath.Join(tmp, "staging")
 	tools := ToolsIn(home, "")
 	tools.Project, tools.ProjectErr = "", errors.New("an install covers the user scope only")
-	s, err := stage(ctx, d, fetch, run, cacheDir, dir, out, Selection{Variant: variant}, nil, tools, false, progress)
+	// The previous install and the selection are read only for a pack that
+	// is valid, before rulesync is fetched.
+	var prev *state.State
+	var detected map[string]Detection
+	var notices []string
+	pick := func(m pack.Manifest) ([]string, error) {
+		var err error
+		if prev, err = readState(d, home); err != nil {
+			return nil, err
+		}
+		if detected, err = detectAll(d, h, home, m); err != nil {
+			return nil, err
+		}
+		var selected []string
+		selected, notices, err = selectHarnesses(m, opts.Harnesses, prev, detected)
+		return selected, err
+	}
+	s, err := stage(ctx, d, fetch, run, cacheDir, dir, out, Selection{Variant: opts.Variant}, pick, tools, false, progress)
 	if err != nil {
 		return err
 	}
 	res := InstallPlan{
-		Pack: s.Pack, Variant: variant, Mode: ModeIsolated, Root: filepath.Join(home, filepath.FromSlash(harness.IsolatedDir)),
-		Harnesses: []HarnessPlan{}, Ops: []InstallOp{}, Diagnostics: s.Diagnostics,
+		Pack: s.Pack, Variant: opts.Variant, Mode: ModeIsolated, Root: filepath.Join(home, filepath.FromSlash(harness.IsolatedDir)),
+		Harnesses: []HarnessPlan{}, Ops: []InstallOp{}, Notices: []string{}, Diagnostics: s.Diagnostics,
 	}
 	if s.Pack != nil {
-		res.Variant = cmp.Or(variant, s.Pack.DefaultVariant)
+		res.Variant = cmp.Or(opts.Variant, s.Pack.DefaultVariant)
 	}
 	if len(s.Diagnostics) > 0 {
 		return then(planned{plan: res})
@@ -255,9 +292,10 @@ func withPlan(ctx context.Context, d installFS, fetch fetchFunc, run runFunc, ca
 	if err != nil {
 		return err
 	}
+	res.Notices = append(res.Notices, notices...)
 	shared := slices.Contains(s.Pack.SharedSkills, res.Variant)
 	tree := filepath.Join(out, ScopeUser)
-	p, prev, sp, err := buildPlan(ctx, d, tree, home, adapters, shared)
+	p, sp, err := buildPlan(ctx, d, tree, home, adapters, prev, shared)
 	if u, ok := errors.AsType[*plan.UnmappedError](err); ok {
 		res.Diagnostics = unmappedDiagnostics(u)
 		return then(planned{plan: res})
@@ -266,14 +304,23 @@ func withPlan(ctx context.Context, d installFS, fetch fetchFunc, run runFunc, ca
 		return err
 	}
 	res.SharedSkills = sp
-	for _, a := range adapters {
-		h := harnessPlan(res.Root, a, runtime.GOOS, shared)
+	all, err := harness.Lookup(append(slices.Clone(s.Pack.Harnesses), s.Pack.OptionalHarnesses...))
+	if err != nil {
+		return err
+	}
+	for _, a := range all {
+		hp := HarnessPlan{ID: a.ID, Required: slices.Contains(s.Pack.Harnesses, a.ID), Detection: detected[a.ID],
+			Pointers: []PointerPlan{}, Leaks: []string{}, Tools: []ToolCommand{}}
+		if slices.Contains(s.Harnesses, a.ID) {
+			hp = harnessPlan(res.Root, a, h.goos, shared)
+			hp.Required, hp.Managed, hp.Detection = slices.Contains(s.Pack.Harnesses, a.ID), true, detected[a.ID]
+		}
 		for _, c := range s.ToolCommands {
-			if c.Scope == ScopeUser && c.Harness == a.ID {
-				h.Tools = append(h.Tools, c)
+			if hp.Managed && c.Scope == ScopeUser && c.Harness == a.ID {
+				hp.Tools = append(hp.Tools, c)
 			}
 		}
-		res.Harnesses = append(res.Harnesses, h)
+		res.Harnesses = append(res.Harnesses, hp)
 	}
 	for _, op := range p.Ops {
 		res.Ops = append(res.Ops, InstallOp{
@@ -294,13 +341,12 @@ func withPlan(ctx context.Context, d installFS, fetch fetchFunc, run runFunc, ca
 // planned key by key. With shared set, the variant shares the user's
 // skills, and each shared skill is planned as a link, or copied into tree
 // and planned as its files (decision 0036), unless the pack stages a skill
-// of its name. It also returns the previous
-// install's state, nil when there is none, and the shared skills, nil
-// unless shared is set.
-func buildPlan(ctx context.Context, d installFS, tree, home string, adapters []harness.Adapter, shared bool) (plan.Plan, *state.State, *SharedSkillsPlan, error) {
+// of its name. prev is the previous install's state, nil when there is
+// none. It also returns the shared skills, nil unless shared is set.
+func buildPlan(ctx context.Context, d installFS, tree, home string, adapters []harness.Adapter, prev *state.State, shared bool) (plan.Plan, *SharedSkillsPlan, error) {
 	names, err := d.Files(tree)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return plan.Plan{}, nil, nil, err
+		return plan.Plan{}, nil, err
 	}
 	in := plan.Input{Home: home, Adapters: adapters, IgnoreExec: !d.ExecBit(), FoldCase: foldCase}
 	for _, name := range names {
@@ -308,22 +354,18 @@ func buildPlan(ctx context.Context, d installFS, tree, home string, adapters []h
 	}
 	first, err := plan.Build(in)
 	if err != nil {
-		return plan.Plan{}, nil, nil, err
+		return plan.Plan{}, nil, err
 	}
 	var sp *SharedSkillsPlan
 	if shared {
 		var files []plan.File
 		if files, sp, err = sharedSkills(ctx, d, tree, home, adapters, first.Ops); err != nil {
-			return plan.Plan{}, nil, nil, err
+			return plan.Plan{}, nil, err
 		}
 		in.Files = append(in.Files, files...)
 		if first, err = plan.Build(in); err != nil {
-			return plan.Plan{}, nil, nil, err
+			return plan.Plan{}, nil, err
 		}
-	}
-	prev, err := readState(d, home)
-	if err != nil {
-		return plan.Plan{}, nil, nil, err
 	}
 	in.Files, in.Disk, in.Content = nil, map[string]plan.Current{}, map[string][]byte{}
 	var targets []string
@@ -343,7 +385,7 @@ func buildPlan(ctx context.Context, d installFS, tree, home string, adapters []h
 			staged, err = d.Hash(ctx, name)
 		}
 		if err != nil {
-			return plan.Plan{}, nil, nil, err
+			return plan.Plan{}, nil, err
 		}
 		in.Files = append(in.Files, plan.File{Path: op.Source, Hash: staged.Hash, Exec: staged.Exec, Data: data})
 		targets = append(targets, op.Target)
@@ -401,7 +443,7 @@ func buildPlan(ctx context.Context, d installFS, tree, home string, adapters []h
 			continue
 		}
 		if err != nil {
-			return plan.Plan{}, nil, nil, err
+			return plan.Plan{}, nil, err
 		}
 		if ok {
 			in.Disk[target] = cur
@@ -412,16 +454,16 @@ func buildPlan(ctx context.Context, d installFS, tree, home string, adapters []h
 	}
 	p, err := plan.Build(in)
 	if err != nil {
-		return plan.Plan{}, nil, nil, err
+		return plan.Plan{}, nil, err
 	}
 	if err := checkLinkDirs(d, p.Ops, realDirs); err != nil {
-		return plan.Plan{}, nil, nil, err
+		return plan.Plan{}, nil, err
 	}
 	if err := checkLinkable(d, p.Ops); err != nil {
-		return plan.Plan{}, nil, nil, err
+		return plan.Plan{}, nil, err
 	}
 	p.Ops = permute(p.Ops, orderLinks(p.Ops))
-	return p, prev, sp, nil
+	return p, sp, nil
 }
 
 // readState reads the state of the previous install in home, nil when

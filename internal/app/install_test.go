@@ -231,8 +231,9 @@ func TestPlanInstallComparesTheExecBitOutsideWindows(t *testing.T) {
 }
 
 // spyInstallFS is the real file system port that counts its reads of the
-// disk, can add names to the listing of the user staging tree and can
-// fail to remove the temporary staging.
+// disk, apart from the install state, which the selection of the harnesses
+// reads first, can add names to the listing of the user staging tree and
+// can fail to remove the temporary staging.
 type spyInstallFS struct {
 	app.OSInstallFS
 	extra     []string
@@ -258,7 +259,9 @@ func (s *spyInstallFS) Files(dir string) ([]string, error) {
 }
 
 func (s *spyInstallFS) Lstat(name string) (os.FileMode, error) {
-	s.reads++
+	if dir := filepath.Base(filepath.Dir(name)); filepath.Base(name) != ".dotai" && (filepath.Base(name) != "state.json" || dir != ".dotai") {
+		s.reads++
+	}
 	return s.OSInstallFS.Lstat(name)
 }
 

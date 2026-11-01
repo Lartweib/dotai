@@ -149,8 +149,9 @@ type executeFS interface {
 	Now() time.Time
 }
 
-// Install installs the user scope of the pack in dir, with variant or the
-// pack's default, isolated into the absolute home directory home, as
+// Install installs the user scope of the pack in dir, with the options
+// opts as PlanInstall reads them, isolated into the absolute home
+// directory home, as
 // decisions 0018, 0028 and 0032 describe. It plans as PlanInstall does,
 // including the removal of the files the previous install owned and the
 // pack no longer stages. A pack with problems gives diagnostics and
@@ -172,15 +173,15 @@ type executeFS interface {
 // warnings. A warning the user must read before the install writes, such
 // as to close a harness, is also given to warn, when it is not nil, once
 // the plan is known and before the lock, the backup or any write.
-func Install(ctx context.Context, cacheDir, dir, variant, home string, progress Progress, warn Warn) (InstallResult, error) {
-	return install(ctx, osInstallFS{}, download, generate, cacheDir, dir, variant, home, progress, warn)
+func Install(ctx context.Context, cacheDir, dir, home string, opts InstallOptions, progress Progress, warn Warn) (InstallResult, error) {
+	return install(ctx, osInstallFS{}, osHost(), download, generate, cacheDir, dir, home, opts, progress, warn)
 }
 
 // Warn receives a warning, text for people, that must be read before
 // dotai writes, as soon as it is known.
 type Warn = func(text string)
 
-func install(ctx context.Context, d executeFS, fetch fetchFunc, run runFunc, cacheDir, dir, variant, home string, progress Progress, warn Warn) (InstallResult, error) {
+func install(ctx context.Context, d executeFS, h host, fetch fetchFunc, run runFunc, cacheDir, dir, home string, opts InstallOptions, progress Progress, warn Warn) (InstallResult, error) {
 	if !filepath.IsAbs(home) {
 		return InstallResult{}, fmt.Errorf("home directory %q is not absolute", home)
 	}
@@ -190,7 +191,7 @@ func install(ctx context.Context, d executeFS, fetch fetchFunc, run runFunc, cac
 		return InstallResult{}, err
 	}
 	var res InstallResult
-	err = withPlan(ctx, d, fetch, run, cacheDir, dir, variant, home, progress, func(p planned) error {
+	err = withPlan(ctx, d, h, fetch, run, cacheDir, dir, home, opts, progress, func(p planned) error {
 		res = InstallResult{InstallPlan: p.plan, Warnings: []string{}}
 		if len(p.plan.Diagnostics) > 0 {
 			return nil

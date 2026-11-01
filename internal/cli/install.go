@@ -19,6 +19,7 @@ import (
 func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
 	var dryRun bool
 	var variant string
+	var harnesses []string
 	cmd := &cobra.Command{
 		Use:   "install [path]",
 		Short: "Install the pack in path isolated, or print the plan with --dry-run",
@@ -29,6 +30,9 @@ func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
 			"and a key dotai owns that was changed since is named and not overwritten. A variant with shared-skills also\n" +
 			"links each skill of ~/.agents/skills into Claude Code's and agy's isolated skills, unless the pack has a skill\n" +
 			"of that name; a skill added there later shows up after the next install.\n" +
+			"It manages the pack's harnesses that are installed, found by their command on PATH or their configuration\n" +
+			"directory (agy by its command only), or those --harness names; a required harness that is missing or left out\n" +
+			"stops the install, an optional one is skipped with a note. The selection is saved, and a plain install reuses it.\n" +
 			"The pack is staged as by stage, into a temporary directory that is removed. Before the first write, each file\n" +
 			"that is replaced or removed is copied into a backup under ~/.dotai/backups; a failure rolls back from it.\n" +
 			"The install state is written last, to ~/.dotai/state.json. With --dry-run, nothing but the rulesync cache is written.",
@@ -42,6 +46,7 @@ func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print the plan and write nothing")
 	cmd.Flags().StringVar(&variant, "variant", "", "variant applied on top of the base")
+	cmd.Flags().StringSliceVar(&harnesses, "harness", nil, "harnesses to manage, comma-separated (default: the saved selection, or the pack's harnesses that are installed)")
 	cmd.Flags().StringSlice("profile", nil, "not accepted: profiles are project scope")
 	_ = cmd.Flags().MarkHidden("profile")
 	format := formatFlag(cmd)
@@ -57,8 +62,12 @@ func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
 		ctx, stop := interruptible(cmd)
 		defer stop()
 		progress := downloadProgress(env, *jsonOut)
+		opts := app.InstallOptions{Variant: variant}
+		if cmd.Flags().Changed("harness") {
+			opts.Harnesses = append([]string{}, harnesses...)
+		}
 		if dryRun {
-			res, err := env.PlanInstall(ctx, cache, packDir(args), variant, home, progress)
+			res, err := env.PlanInstall(ctx, cache, packDir(args), home, opts, progress)
 			if err != nil {
 				return err
 			}
@@ -71,7 +80,7 @@ func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
 			return writePlan(env.Stdout, res, useColor(env.Stdout), "dry run, nothing was written\n")
 		}
 		warn, warned := earlyWarnings(env, *jsonOut)
-		res, err := env.Install(ctx, cache, packDir(args), variant, home, progress, warn)
+		res, err := env.Install(ctx, cache, packDir(args), home, opts, progress, warn)
 		if err != nil {
 			return err
 		}
@@ -133,8 +142,16 @@ func writePlan(w io.Writer, p app.InstallPlan, color bool, footer string) error 
 	fmt.Fprintf(&b, "Install plan · %s%s · mode %s\n", subject, variant, p.Mode)
 	fmt.Fprintf(&b, "root: %s\n", p.Root)
 	writeShared(&b, p.SharedSkills)
+	for _, n := range p.Notices {
+		fmt.Fprintf(&b, "note: %s\n", n)
+	}
 
 	for _, h := range p.Harnesses {
+		if !h.Managed {
+			fmt.Fprintf(&b, "\n%s · optional, not managed\n", paint(color, styleBold, h.ID))
+			writeDetection(&b, h.Detection)
+			continue
+		}
 		login := "may need a new login"
 		switch h.Relogin {
 		case string(harness.ReloginYes):
@@ -143,6 +160,7 @@ func writePlan(w io.Writer, p app.InstallPlan, color bool, footer string) error 
 			login = "keeps your login"
 		}
 		fmt.Fprintf(&b, "\n%s · %s isolation · %s\n", paint(color, styleBold, h.ID), h.Level, login)
+		writeDetection(&b, h.Detection)
 		for _, ptr := range h.Pointers {
 			fmt.Fprintf(&b, "  %s=%s\n", ptr.Name, ptr.Dir)
 		}
@@ -192,6 +210,21 @@ func writePlan(w io.Writer, p app.InstallPlan, color bool, footer string) error 
 	fmt.Fprintf(&b, "\n%d create, %d replace, %d remove, %d unchanged · %s", count[plan.Create], count[plan.Replace], count[plan.Remove], count[plan.Unchanged], footer)
 	_, err := io.WriteString(w, b.String())
 	return err
+}
+
+// writeDetection prints the two signals that detect a harness: its
+// command on PATH and its configuration directory.
+func writeDetection(b *strings.Builder, d app.Detection) {
+	if d.Binary == "" {
+		fmt.Fprintf(b, "  binary: not found on PATH\n")
+	} else {
+		fmt.Fprintf(b, "  binary: %s\n", d.Binary)
+	}
+	if d.ConfigFound {
+		fmt.Fprintf(b, "  config: %s\n", d.Config)
+	} else {
+		fmt.Fprintf(b, "  config: %s (missing)\n", d.Config)
+	}
 }
 
 // writeShared prints the shared skills a variant that shares them takes

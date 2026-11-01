@@ -27,6 +27,12 @@
     "harnesses": [
       {
         "id": "claudecode",
+        "required": true,
+        "managed": true,
+        "detected": true,
+        "binary": "/usr/bin/claude",
+        "config": "/home/u/.claude",
+        "configFound": true,
         "level": "partial",
         "dir": "/home/u/.dotai/isolated/claude",
         "pointers": [
@@ -44,6 +50,12 @@
       },
       {
         "id": "antigravity-cli",
+        "required": true,
+        "managed": true,
+        "detected": true,
+        "binary": "/usr/bin/agy",
+        "config": "/home/u/.gemini",
+        "configFound": false,
         "level": "partial",
         "dir": "/home/u/.dotai/isolated/gemini",
         "pointers": [
@@ -67,6 +79,12 @@
       },
       {
         "id": "opencode",
+        "required": true,
+        "managed": true,
+        "detected": true,
+        "binary": "",
+        "config": "/home/u/.config/opencode",
+        "configFound": true,
         "level": "partial",
         "dir": "/home/u/.dotai/isolated/opencode",
         "pointers": [
@@ -162,6 +180,7 @@
         "beforeLink": ""
       }
     ],
+    "notices": [],
     "diagnostics": [],
     "backup": {
       "id": "20261029T101500.000Z_install",
