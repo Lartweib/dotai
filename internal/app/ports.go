@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 
-	"github.com/lartweib/dotai/internal/proc"
 	"github.com/lartweib/dotai/internal/rulesync"
 )
 
@@ -16,7 +15,7 @@ import (
 type Ports struct {
 	FetchRulesync func(ctx context.Context, cacheDir, version string, progress Progress) (rulesync.Result, error)
 	RunRulesync   func(ctx context.Context, bin rulesync.Result, harnesses []string, jobs ...rulesync.Job) error
-	Processes     func() ([]proc.Process, error)
+	Processes     processList
 }
 
 func (p Ports) fetch() fetchFunc {

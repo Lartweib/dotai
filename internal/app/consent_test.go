@@ -66,6 +66,11 @@ func TestReplaceRunningCheck(t *testing.T) {
 	}{
 		{name: "claude running", procs: []proc.Process{{PID: 10, Name: "claude"}}, want: "claudecode"},
 		{name: "agy running", procs: []proc.Process{{PID: 10, Name: "agy"}}, want: "antigravity-cli"},
+		{name: "claude started through a link to its versioned binary", procs: []proc.Process{{PID: 10, Name: "2.1.30", Argv0: "claude"}}, want: "claudecode"},
+		{name: "claude installed through npm", procs: []proc.Process{{PID: 10, Name: "node", Argv0: "node", Args: "node /usr/lib/node_modules/@anthropic-ai/claude-code/cli.js"}}, want: "claudecode"},
+		{name: "opencode installed through npm", procs: []proc.Process{{PID: 10, Name: "node", Args: "node /usr/lib/node_modules/opencode-ai/bin/opencode"}}, want: "opencode"},
+		{name: "another node program", procs: []proc.Process{{PID: 10, Name: "node", Args: "node /srv/server.js"}}},
+		{name: "a program that names the package but is not node", procs: []proc.Process{{PID: 10, Name: "less", Args: "less /usr/lib/node_modules/@anthropic-ai/claude-code/README.md"}}},
 		{name: "dotai's own process", procs: []proc.Process{{PID: 99, Name: "claude"}}},
 		{name: "another program", procs: []proc.Process{{PID: 10, Name: "claudette"}}},
 		{name: "ignored", procs: []proc.Process{{PID: 10, Name: "opencode"}}, ignore: true},
@@ -93,5 +98,30 @@ func TestReplaceRunningCheck(t *testing.T) {
 			}
 			diff(t, "home after the refusal", homeEntries(t, home), before)
 		})
+	}
+}
+
+// TestRunningErrorReads checks the message of a refusal for one harness
+// and for several, of an install and of a restore, and the message of a
+// consent refusal, which names every kind of change consent covers.
+func TestRunningErrorReads(t *testing.T) {
+	one := []app.RunningHarness{{Harness: "opencode", PID: 7, Name: "opencode"}}
+	two := append([]app.RunningHarness{{Harness: "claudecode", PID: 5, Name: "claude"}}, one...)
+	for _, tt := range []struct {
+		err  error
+		want string
+	}{
+		{&app.RunningError{Operation: "install", Running: one, Harnesses: []string{"opencode"}},
+			"opencode (opencode 7) is running, and the replace install would rewrite its configuration under it; the install wrote nothing: close it, then run again;"},
+		{&app.RunningError{Operation: "restore", Running: two, Harnesses: []string{"claudecode", "opencode"}},
+			"claudecode (claude 5), opencode (opencode 7) are running, and the restore would put back their configuration under them; the restore wrote nothing: close them, then run again;"},
+		{&app.RunningError{Operation: "restore", Harnesses: []string{"claudecode", "opencode"}, Err: errors.New("no access")},
+			"dotai could not check whether claudecode, opencode are running (no access), and the restore would put back their configuration while they run: the restore wrote nothing; close them, then run again with --ignore-running"},
+		{&app.ConsentError{Entries: 2, Files: 1, Keys: 3},
+			"the replace install would move into its backup what dotai does not own: 2 entries it wipes, 1 file it overwrites and 3 keys of ~/.claude.json it deletes; the install wrote nothing: run it again with --yes"},
+	} {
+		if got := tt.err.Error(); !strings.HasPrefix(got, tt.want) {
+			t.Errorf("Error() = %q, want it to start with %q", got, tt.want)
+		}
 	}
 }

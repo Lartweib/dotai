@@ -36,9 +36,15 @@ type RunningError struct {
 }
 
 func (e *RunningError) Error() string {
+	what := "the replace install would rewrite"
+	if e.Operation == "restore" {
+		what = "the restore would put back"
+	}
 	if e.Err != nil {
-		return fmt.Sprintf("dotai could not check whether %s is running (%v), and a replace %s must not write under a running harness: "+
-			"close it, then run again with --ignore-running", strings.Join(e.Harnesses, ", "), e.Err, e.Operation)
+		return fmt.Sprintf("dotai could not check whether %s %s running (%v), and %s %s configuration while %s: "+
+			"the %s wrote nothing; close %s, then run again with --ignore-running",
+			strings.Join(e.Harnesses, ", "), pick(len(e.Harnesses), "is", "are"), e.Err, what, pick(len(e.Harnesses), "its", "their"),
+			pick(len(e.Harnesses), "it runs", "they run"), e.Operation, pick(len(e.Harnesses), "it", "them"))
 	}
 	var items []string
 	for _, id := range e.Harnesses {
@@ -52,13 +58,18 @@ func (e *RunningError) Error() string {
 			items = append(items, fmt.Sprintf("%s (%s)", id, strings.Join(procs, ", ")))
 		}
 	}
-	verb := "are"
-	if len(items) == 1 {
-		verb = "is"
+	n := len(items)
+	return fmt.Sprintf("%s %s running, and %s %s configuration under %s; the %s wrote nothing: "+
+		"close %s, then run again; --ignore-running skips this check when dotai mistakes another program for a harness",
+		strings.Join(items, ", "), pick(n, "is", "are"), what, pick(n, "its", "their"), pick(n, "it", "them"), e.Operation, pick(n, "it", "them"))
+}
+
+// pick is one for a count of 1, and many for any other.
+func pick(n int, one, many string) string {
+	if n == 1 {
+		return one
 	}
-	return fmt.Sprintf("%s %s running, and the replace %s would rewrite its configuration under it; nothing was written: "+
-		"close it, then run again; --ignore-running skips this check when dotai mistakes another program for a harness",
-		strings.Join(items, ", "), verb, e.Operation)
+	return many
 }
 
 func (e *RunningError) Unwrap() error { return e.Err }
@@ -80,7 +91,7 @@ func running(h host, operation string, ids []string) error {
 	var found []RunningHarness
 	for _, a := range adapters {
 		for _, p := range procs {
-			if p.PID != h.self && a.Real.RunsAs(p.Name, h.goos == "windows") {
+			if p.PID != h.self && runsHarness(a.Real, p, h.goos == "windows") {
 				found = append(found, RunningHarness{Harness: a.ID, PID: p.PID, Name: p.Name})
 			}
 		}
@@ -89,6 +100,39 @@ func running(h host, operation string, ids []string) error {
 		return &RunningError{Operation: operation, Running: found, Harnesses: ids}
 	}
 	return nil
+}
+
+// runsHarness reports whether p shows the harness of r running: its
+// executable's name, or the name it was started as, is one of r's
+// Processes, or it is node running one of r's NodePackages, as an npm
+// install does.
+func runsHarness(r harness.Real, p proc.Process, fold bool) bool {
+	node := false
+	for _, name := range []string{p.Name, p.Argv0} {
+		if name == "" {
+			continue
+		}
+		if r.RunsAs(name, fold) {
+			return true
+		}
+		n := name
+		if fold {
+			n = strings.TrimSuffix(strings.ToLower(n), ".exe")
+		}
+		node = node || n == "node"
+	}
+	return node && r.RunsUnderNode(p.Args)
+}
+
+// runningReminder asks to close every session of ids, which the
+// running-harness check found none of: it finds a harness by its process
+// name, and misses one started another way.
+func runningReminder(ids []string) string {
+	if len(ids) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("close every session of %s before going on: dotai found none running, but it finds them by process name and misses some launchers, such as an npm install on Windows",
+		strings.Join(ids, ", "))
 }
 
 // ConsentError is a replace install that wipes or overwrites what dotai
@@ -101,18 +145,9 @@ type ConsentError struct {
 }
 
 func (e *ConsentError) Error() string {
-	var what []string
-	if e.Entries > 0 {
-		what = append(what, plural(e.Entries, "entry", "entries")+" of the harnesses' own configuration")
-	}
-	if e.Keys > 0 {
-		what = append(what, plural(e.Keys, "key", "keys")+" of ~/.claude.json")
-	}
-	if e.Files > 0 {
-		what = append(what, plural(e.Files, "file", "files")+" it would overwrite")
-	}
-	return "the replace install wipes " + strings.Join(what, ", ") + " that dotai does not own, " +
-		"into its backup, and nothing was written: run it again with --yes to wipe them, after reading the plan"
+	return fmt.Sprintf("the replace install would move into its backup what dotai does not own: %s it wipes, %s it overwrites and %s of ~/.claude.json it deletes; "+
+		"the install wrote nothing: run it again with --yes to allow them, after reading the plan",
+		plural(e.Entries, "entry", "entries"), plural(e.Files, "file", "files"), plural(e.Keys, "key", "keys"))
 }
 
 func plural(n int, one, many string) string {

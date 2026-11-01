@@ -48,6 +48,10 @@ type Real struct {
 	// replace install and its restore refuse while one runs (decision
 	// 0038).
 	Processes []string
+	// NodePackages are the npm packages whose path in a node process's
+	// command line shows the harness running as node, as an npm install
+	// runs it.
+	NodePackages []string
 }
 
 // KeepKind is why an entry of an Area is kept.
@@ -182,6 +186,14 @@ func (r Real) RunsAs(name string, fold bool) bool {
 	})
 }
 
+// RunsUnderNode reports whether args, the command line of a node process,
+// runs one of the harness's NodePackages: it names the package's
+// directory, with either separator.
+func (r Real) RunsUnderNode(args string) bool {
+	args = strings.ReplaceAll(args, `\`, "/")
+	return slices.ContainsFunc(r.NodePackages, func(p string) bool { return strings.Contains(args, "/"+p+"/") })
+}
+
 // InstallDir is where the harness's Staging installs in mode m, relative
 // to the home directory.
 func (a Adapter) InstallDir(m Mode) string {
@@ -269,7 +281,8 @@ var (
 		}},
 		Relocation: []string{"CLAUDE_CONFIG_DIR"},
 		// The native install's executable; an npm install runs as node.
-		Processes: []string{"claude"},
+		Processes:    []string{"claude"},
+		NodePackages: []string{"@anthropic-ai/claude-code"},
 	}
 	agyReal = Real{
 		Dir: ".gemini",
@@ -326,14 +339,15 @@ var (
 		Relocation: []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "OPENCODE_CONFIG*", "OPENCODE_DB"},
 		// The background service runs from a copy of the binary in the
 		// cache, opencode-service-<pid>-<hash> (HARNESS-NOTES).
-		Processes: []string{"opencode", "opencode-service-*"},
+		Processes:    []string{"opencode", "opencode-service-*"},
+		NodePackages: []string{"opencode-ai"},
 	}
 )
 
 // clone is r in a copy the caller may change.
 func (r Real) clone() Real {
 	r.Moves, r.Leaks, r.Relocation = slices.Clone(r.Moves), slices.Clone(r.Leaks), slices.Clone(r.Relocation)
-	r.Processes = slices.Clone(r.Processes)
+	r.Processes, r.NodePackages = slices.Clone(r.Processes), slices.Clone(r.NodePackages)
 	r.Areas = slices.Clone(r.Areas)
 	for i := range r.Areas {
 		r.Areas[i].Keep = slices.Clone(r.Areas[i].Keep)

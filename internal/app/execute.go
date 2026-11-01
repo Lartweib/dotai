@@ -224,10 +224,12 @@ func install(ctx context.Context, d executeFS, h host, fetch fetchFunc, run runF
 		if len(p.plan.Refusals) > 0 {
 			return &RefusedError{Refusals: p.plan.Refusals, Plan: p.plan}
 		}
+		var reminder string
 		if p.plan.Mode == ModeReplace && !opts.IgnoreRunning {
 			if err := running(h, "install", p.harnesses); err != nil {
 				return err
 			}
+			reminder = runningReminder(p.harnesses)
 		}
 		entries, keys, files, err := foreign(d, p)
 		if err != nil {
@@ -244,7 +246,7 @@ func install(ctx context.Context, d executeFS, h host, fetch fetchFunc, run runF
 				return &ConsentError{Plan: p.plan, Entries: entries, Keys: keys, Files: files}
 			}
 		}
-		for _, w := range append(sharedWarnings(p.plan.SharedSkills), settingsWarning(p)) {
+		for _, w := range append(sharedWarnings(p.plan.SharedSkills), settingsWarning(p), reminder) {
 			if w == "" {
 				continue
 			}
@@ -270,9 +272,14 @@ func install(ctx context.Context, d executeFS, h host, fetch fetchFunc, run runF
 // settingsWarning asks to close each harness whose settings file the plan
 // p replaces or removes, since a harness that is running writes there too
 // (decision 0035), or is "" when there is none. A settings file the plan
-// creates was missing, so no harness was writing it. dotai does not detect
-// a running harness (decision 0018, rule 5).
+// creates was missing, so no harness was writing it. The isolated mode
+// does not check for a running harness (decision 0018, rule 5); the
+// replace mode does, and reminds of what the check misses instead
+// (runningReminder).
 func settingsWarning(p planned) string {
+	if p.plan.Mode == ModeReplace {
+		return ""
+	}
 	var harnesses []string
 	for _, op := range p.ops {
 		if op.Settings && (op.Action == plan.Replace || op.Action == plan.Remove) && !slices.Contains(harnesses, op.Harness) {

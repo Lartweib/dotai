@@ -299,3 +299,24 @@ func TestRunsAs(t *testing.T) {
 		}
 	}
 }
+
+// TestRunsUnderNode checks the npm packages that show a harness running
+// as node: Claude Code's and OpenCode's, found in node's command line.
+func TestRunsUnderNode(t *testing.T) {
+	tests := []struct {
+		id, args string
+		want     bool
+	}{
+		{"claudecode", "node /usr/lib/node_modules/@anthropic-ai/claude-code/cli.js --resume", true},
+		{"claudecode", `C:\Program Files\nodejs\node.exe C:\Users\u\AppData\Roaming\npm\node_modules\@anthropic-ai\claude-code\cli.js`, true},
+		{"claudecode", "node /srv/app/server.js", false},
+		{"opencode", "node /usr/lib/node_modules/opencode-ai/bin/opencode", true},
+		{"opencode", "node /usr/lib/node_modules/@anthropic-ai/claude-code/cli.js", false},
+		{"antigravity-cli", "node /usr/lib/node_modules/@anthropic-ai/claude-code/cli.js", false},
+	}
+	for _, tt := range tests {
+		if got := adapter(t, tt.id).Real.RunsUnderNode(tt.args); got != tt.want {
+			t.Errorf("%s RunsUnderNode(%q) = %v, want %v", tt.id, tt.args, got, tt.want)
+		}
+	}
+}
