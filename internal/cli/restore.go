@@ -225,9 +225,15 @@ func writeRestore(w io.Writer, r app.RestoreResult, color bool) error {
 }
 
 // TerminalPrompt is the Prompt of Env that asks on the terminal in and
-// out, or nil when in is not a terminal, so that no one can answer.
-func TerminalPrompt(in *os.File, out io.Writer) func(context.Context, string) (bool, error) {
-	if !term.IsTerminal(int(in.Fd())) {
+// out, or nil when either is not a terminal: no one can answer, or, with
+// out piped elsewhere such as to tee, no one sees the question, which
+// would wait for an answer that never comes.
+func TerminalPrompt(in, out *os.File) func(context.Context, string) (bool, error) {
+	return terminalPrompt(in, out, term.IsTerminal)
+}
+
+func terminalPrompt(in, out *os.File, isTerminal func(fd int) bool) func(context.Context, string) (bool, error) {
+	if !isTerminal(int(in.Fd())) || !isTerminal(int(out.Fd())) {
 		return nil
 	}
 	return func(ctx context.Context, question string) (bool, error) { return ask(ctx, in, out, question) }
