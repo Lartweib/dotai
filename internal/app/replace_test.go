@@ -562,3 +562,29 @@ func TestPlanReplaceFindsOwnedTargetsWithoutCase(t *testing.T) {
 		t.Errorf("wipes = %+v, want the user's skill wiped", p.Wipes)
 	}
 }
+
+// TestPlanInstallOfAnInvalidPackReportsItsMode checks that the plan of a
+// pack with problems has the mode asked for, or the one the install state
+// records, with its root, and that an unknown mode is a usage error even
+// then.
+func TestPlanInstallOfAnInvalidPackReportsItsMode(t *testing.T) {
+	home, h := realHome(t)
+	dir := copyPack(t)
+	editPack(t, dir, "dotai.yaml", "harnesses: [claudecode, antigravity-cli, opencode]", "harnesses: [claudecode, vscode]")
+	f := quiet(t)
+	plan := func(opts app.InstallOptions) (app.InstallPlan, error) {
+		return app.PlanInstallHost(context.Background(), app.OSInstallFS{}, h, f.fetch, f.run, dir, home, opts)
+	}
+	if p, err := plan(app.InstallOptions{Mode: app.ModeReplace}); err != nil || len(p.Diagnostics) == 0 || p.Mode != app.ModeReplace || p.Root != home {
+		t.Errorf("PlanInstall(replace) = %q, %q, %v, want the diagnostics in replace mode at the home directory", p.Mode, p.Root, err)
+	}
+	var usage *app.UsageError
+	if _, err := plan(app.InstallOptions{Mode: "bogus"}); !errors.As(err, &usage) {
+		t.Errorf("PlanInstall(bogus) error = %v, want a usage error", err)
+	}
+	writeState(t, at(home, ".dotai/state.json"), state.State{Schema: state.Schema, Pack: state.Pack{Name: "minimal-pack"}, Mode: app.ModeReplace,
+		Harnesses: []string{"claudecode"}, Files: []state.File{}})
+	if p, err := plan(app.InstallOptions{}); err != nil || p.Mode != app.ModeReplace || p.Root != home {
+		t.Errorf("PlanInstall() over a replace state = %q, %q, %v, want the recorded replace mode", p.Mode, p.Root, err)
+	}
+}

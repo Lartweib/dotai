@@ -108,7 +108,7 @@ func planRun(d executeFS, lookPath func(string) (string, error), goos, home, id 
 		return RunPlan{}, fmt.Errorf("%s is not installed (installed: %s): add it to the pack's harnesses and run dotai install", id, installed)
 	}
 	root := filepath.Join(home, filepath.FromSlash(harness.IsolatedDir))
-	h := harnessPlan(root, a, goos, s.SharedSkills)
+	h := harnessPlan(harness.Isolated, home, a, goos, s.SharedSkills)
 	dirs := []string{root, h.Dir}
 	if a.Install != "" {
 		dir := h.Dir

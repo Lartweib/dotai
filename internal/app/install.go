@@ -196,21 +196,25 @@ type installFS interface {
 	CanLink(dest string) error
 }
 
-// PlanInstall plans the isolated install of the user scope of the pack in
-// dir, with the variant of opts or the pack's default, into the absolute
-// home directory home, for the harnesses selectHarnesses chooses from
-// opts, the saved selection and what is detected. It stages the pack as Stage does, into a temporary
-// directory it removes, with ${DOTAI_TOOLS} at home's tools directory,
-// then compares each staged file with its target. A file the previous
+// PlanInstall plans the install of the user scope of the pack in dir into
+// the absolute home directory home, with the options opts: the variant of
+// opts or the pack's default; the mode of opts, the one the install state
+// records, or isolated (resolveMode); and the harnesses selectHarnesses
+// chooses from opts, the saved --harness choice and what is detected. It
+// stages the pack as Stage does, into a temporary directory it removes,
+// with ${DOTAI_TOOLS} at home's tools directory, then compares each staged
+// file with its target in the layout of the mode. In the replace mode it
+// also plans what is wiped and kept of each harness's own configuration,
+// and why the install would refuse (planWipes). A file the previous
 // install owned, by its state in ~/.dotai/state.json, that the pack no
 // longer stages is removed; an owned file the user edited fails the plan
 // with a *plan.EditedError. A harness's settings file is planned key by
 // key (decision 0035): the keys dotai owns there are checked, not the
 // whole file, which the harness writes too. Apart from fetching rulesync,
-// it writes
-// nothing else. A pack with problems, including a staged file that
-// nothing installs, gives diagnostics. rulesync is fetched into cacheDir
-// as FetchRulesync does; progress may be nil.
+// it writes nothing. A pack with problems, including a staged file that
+// nothing installs, gives diagnostics, with the mode and its root.
+// rulesync is fetched into cacheDir as FetchRulesync does; progress may be
+// nil.
 func PlanInstall(ctx context.Context, cacheDir, dir, home string, opts InstallOptions, progress Progress) (InstallPlan, error) {
 	return planInstall(ctx, osInstallFS{}, osHost(), download, generate, cacheDir, dir, home, opts, progress)
 }
@@ -255,6 +259,20 @@ func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run run
 		return fmt.Errorf("home directory %q is not absolute", home)
 	}
 	home = filepath.Clean(home)
+	// The mode comes first, so that the plan of a pack with problems has
+	// it too, and a mode the install cannot use stops it before anything
+	// is staged.
+	prev, err := readState(d, home)
+	if err != nil {
+		return err
+	}
+	mode, err := resolveMode(opts.Mode, prev)
+	if err != nil {
+		return err
+	}
+	if write && mode == ModeReplace {
+		return errReplaceUnavailable(opts.Mode == "")
+	}
 	tmp, err := d.StagingDir()
 	if err != nil {
 		return err
@@ -271,23 +289,12 @@ func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run run
 	out := filepath.Join(tmp, "staging")
 	tools := ToolsIn(home, "")
 	tools.Project, tools.ProjectErr = "", errors.New("an install covers the user scope only")
-	// The previous install and the selection are read only for a pack that
-	// is valid, before rulesync is fetched.
-	var prev *state.State
+	// The harnesses are detected and selected only for a pack that is
+	// valid, before rulesync is fetched.
 	var detected map[string]Detection
 	var notices, choice []string
-	mode := ModeIsolated
 	pick := func(m pack.Manifest) ([]string, error) {
 		var err error
-		if prev, err = readState(d, home); err != nil {
-			return nil, err
-		}
-		if mode, err = resolveMode(opts.Mode, prev); err != nil {
-			return nil, err
-		}
-		if write && mode == ModeReplace {
-			return nil, errReplaceUnavailable(opts.Mode == "")
-		}
 		if detected, err = detectAll(d, h, home, m); err != nil {
 			return nil, err
 		}
@@ -299,8 +306,12 @@ func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run run
 	if err != nil {
 		return err
 	}
+	root := filepath.Join(home, filepath.FromSlash(harness.IsolatedDir))
+	if mode == ModeReplace {
+		root = home
+	}
 	res := InstallPlan{
-		Pack: s.Pack, Variant: opts.Variant, Mode: ModeIsolated, Root: filepath.Join(home, filepath.FromSlash(harness.IsolatedDir)),
+		Pack: s.Pack, Variant: opts.Variant, Mode: mode, Root: root,
 		Harnesses: []HarnessPlan{}, Ops: []InstallOp{}, Notices: []string{}, Diagnostics: s.Diagnostics,
 		Wipes: []WipePlan{}, Keeps: []KeepPlan{}, WipeKeys: []WipeKey{}, Refusals: []Refusal{},
 	}
@@ -315,12 +326,10 @@ func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run run
 		return err
 	}
 	res.Notices = append(res.Notices, notices...)
-	res.Mode = mode
 	shared := slices.Contains(s.Pack.SharedSkills, res.Variant)
 	tree := filepath.Join(out, ScopeUser)
 	var rp replacePlan
 	if mode == ModeReplace {
-		res.Root = home
 		if rp, err = planWipes(ctx, d, h, home, adapters, shared, ownedTargets(prev)); err != nil {
 			return err
 		}
@@ -344,11 +353,7 @@ func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run run
 		hp := HarnessPlan{ID: a.ID, Required: slices.Contains(s.Pack.Harnesses, a.ID), Detection: detected[a.ID],
 			Pointers: []PointerPlan{}, Leaks: []string{}, Tools: []ToolCommand{}}
 		if slices.Contains(s.Harnesses, a.ID) {
-			hp = harnessPlan(res.Root, a, h.goos, shared)
-			if mode == ModeReplace {
-				hp = HarnessPlan{ID: a.ID, Dir: filepath.Join(home, filepath.FromSlash(a.Real.Dir)), Relogin: string(harness.ReloginNo),
-					Pointers: []PointerPlan{}, Leaks: []string{}, Tools: []ToolCommand{}}
-			}
+			hp = harnessPlan(harness.Mode(mode), home, a, h.goos, shared)
 			hp.Required, hp.Managed, hp.Detection = slices.Contains(s.Pack.Harnesses, a.ID), true, detected[a.ID]
 		}
 		for _, c := range s.ToolCommands {
@@ -649,11 +654,17 @@ func unmappedDiagnostics(u *plan.UnmappedError) []Diagnostic {
 	return diags
 }
 
-// harnessPlan is the isolation of a on goos, with its directory under
-// root, for an install whose variant shares the user's skills or not
-// (decision 0036).
-func harnessPlan(root string, a harness.Adapter, goos string, shared bool) HarnessPlan {
-	dir := filepath.Join(root, filepath.FromSlash(a.Dir))
+// harnessPlan is how a, a harness the install manages, runs after an
+// install in mode into home. In the replace mode, that is its own
+// directory, where it keeps its login. In the isolated mode, it is its
+// isolation on goos, with its directory under the isolated root, for an
+// install whose variant shares the user's skills or not (decision 0036).
+func harnessPlan(mode harness.Mode, home string, a harness.Adapter, goos string, shared bool) HarnessPlan {
+	if mode == harness.Replace {
+		return HarnessPlan{ID: a.ID, Dir: filepath.Join(home, filepath.FromSlash(a.Root(mode))), Relogin: string(harness.ReplaceRelogin),
+			Pointers: []PointerPlan{}, Leaks: []string{}, Tools: []ToolCommand{}}
+	}
+	dir := filepath.Join(home, filepath.FromSlash(a.Root(mode)))
 	h := HarnessPlan{
 		ID: a.ID, Level: string(a.Isolation.Level), Dir: dir, Pointers: []PointerPlan{},
 		Relogin: string(a.Isolation.ReloginOn(goos)), Leaks: a.Isolation.LeaksOn(goos, shared), Tools: []ToolCommand{},

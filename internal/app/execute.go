@@ -150,9 +150,11 @@ type executeFS interface {
 }
 
 // Install installs the user scope of the pack in dir, with the options
-// opts as PlanInstall reads them, isolated into the absolute home
-// directory home, as
-// decisions 0018, 0028 and 0032 describe. It plans as PlanInstall does,
+// opts as PlanInstall reads them, into the absolute home directory home,
+// as decisions 0018, 0028 and 0032 describe; only in the isolated mode for
+// now: an install in the replace mode, asked for or recorded in the state,
+// is a *UsageError before anything is staged or written, since its backup by
+// move does not exist yet (decision 0038). It plans as PlanInstall does,
 // including the removal of the files the previous install owned and the
 // pack no longer stages. A pack with problems gives diagnostics and
 // writes nothing.
