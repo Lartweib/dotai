@@ -4,7 +4,7 @@ Verified behavior of the v1 harnesses that the adapters rely on. Each fact names
 
 ## Claude Code (2.1.x)
 
-- **Rules files:** there is no user-level `AGENTS.md`. A project `AGENTS.md` loads only when there is no `CLAUDE.md` ([0012](decisions/0012-rules-file-per-harness.md)).
+- **Rules files:** there is no user-level `AGENTS.md`. A project `AGENTS.md` loads only when there is no `CLAUDE.md` ([0012](decisions/0012-rules-file-per-harness.md)). On 2.1.316, in an isolated configuration directory, a project `AGENTS.md` alone did not load at all; an import does load it (see the [project scope inventory](#project-scope-inventory)).
 - **MCP:** a `mcpServers` block in `settings.json` is not loaded. MCP servers go in `.mcp.json` (project) or `~/.claude.json` (user).
 - **`PreToolUse` hook on `Agent`:** `tool_input` includes `model` only when the model sends it, so a hook can detect a missing model. Effort is not in `tool_input`; the session effort is the top-level `effort.level` field (also `$CLAUDE_EFFORT`). `updatedInput` can set `model` (checked with the `sonnet` alias) and must copy every original field. Effort cannot be set per launch ([0024](decisions/0024-models-declared-per-harness-no-tiers.md)).
 - **Settings:** `~/.claude/settings.json` and `.claude/settings.json`; the schema rejects unknown keys ([0025](decisions/0025-settings-as-per-harness-passthrough.md)).
@@ -72,7 +72,54 @@ What each harness creates and reads at user level, for the keep-lists of the rep
 - **Verified, walk-up:** for a working directory under the home directory, `opencode debug config` lists `~/.opencode` as a configuration source and `opencode debug agents` lists an agent from `~/.opencode/agents/`; for one outside the home directory, neither. Skills in `~/.agents/skills` and `~/.claude/skills` are listed by `opencode api skill.list` and watched for both. The file watcher subscribes to `~/AGENTS.md` for a working directory under the home directory, next to `<cwd>/AGENTS.md` and `~/.config/opencode/AGENTS.md`, and not for one outside it; it watched no `AGENTS.md` in the directories above the home directory, and never `~/CLAUDE.md`, with or without `~/AGENTS.md`. It also watches `C:\ProgramData`.
 - **Verified, interactive (`opencode run` with `OPENCODE_TEST_HOME=<home>` and a working directory below it):** `~/AGENTS.md` reaches the prompt, and an `AGENTS.md` in the directory above the home does not: the walk-up of rules files stops at the home directory. The session added only `~/.local/share/opencode/shell/<hash>/` (cache and state).
 
+## Project scope inventory
+
+What each harness reads in a project, for the project scope of [0041](decisions/0041-project-scope-local-and-untracked.md). Checked on Windows 11 on 2026-11-02 with non-interactive sessions in throwaway git repositories (`git init`, one commit), with every `CLAUDE*`, `XDG_*`, `OPENCODE*`, `GEMINI*` and `ANTIGRAVITY*` variable removed and `HOME`, `USERPROFILE`, `APPDATA` and `LOCALAPPDATA` pointed at a temporary home; Claude Code with `CLAUDE_CONFIG_DIR` and a copied login, OpenCode with the four `XDG_*` variables, `OPENCODE_TEST_HOME` and `--standalone` (or `opencode serve --port <n>` for the API), agy with `--gemini_dir=<abs>` and the shared keyring login. Each file held a unique marker; the session was asked to list the markers in its context, and Claude Code's `stream-json` init message gave the loaded skills, agents, commands and model. A fact marked **model report** rests on the session's answer only. The repositories were under the real home directory, so OpenCode's walk-up also listed the real `~/.claude/skills` and `~/.agents/skills`; the test names did not clash with them. Linux and macOS were not checked.
+
+**Files listed in `.git/info/exclude` load as usual, in all three harnesses.** This held for every kind checked: in Claude Code `CLAUDE.local.md`, `.claude/settings.local.json`, `.claude/skills/<name>/`, `.claude/agents/<name>.md`, `.claude/commands/<name>.md` and `.claude/rules/<name>.md`; in OpenCode `.opencode/opencode.json`, a file named in its `instructions`, `.opencode/agents/<name>.md` and `.opencode/skills/<name>/`; in agy `.agents/rules/<name>.md`, `.agents/skills/<name>/` and `.agents/agents/<name>.md`. Each excluded item sat next to one of the same kind that was not excluded, and both loaded. Not checked: an excluded `.agents/hooks.json`, `.agents/mcp_config.json` or `.opencode/plugins/` file.
+
+### Claude Code (2.1.316, Windows)
+
+- **Verified, model report:** a project with `AGENTS.md` and no `CLAUDE.md` did not get `AGENTS.md` into the context, with or without `CLAUDE.local.md` or `.claude/rules/`, and with or without workspace trust. The binary describes an `instructionFiles` option whose default, `claude-md-or-agents-md`, loads `AGENTS.md` where the project has no `CLAUDE.md`; why it did not apply here is open. So whether `CLAUDE.local.md` alone turns `AGENTS.md` off could not be told apart.
+- **Verified, model report:** `@AGENTS.md` in a root `CLAUDE.local.md` loads `AGENTS.md`. In `.claude/rules/<name>.md` an import resolves against the rules file: `@../../AGENTS.md` loaded it, `@AGENTS.md` did not.
+- **Verified, model report:** `CLAUDE.md` and `CLAUDE.local.md` both load; `AGENTS.md` next to them does not. `.claude/rules/*.md` load, with or without frontmatter.
+- **Verified (init message):** `model` in `.claude/settings.local.json` wins over `.claude/settings.json`. Verified by the files a session could create: `permissions.allow` of both files combine, each allowing one command.
+- **Verified:** without workspace trust, `claude -p` ignores `permissions.allow` of `.claude/settings.json` and says so on stderr ("this workspace has not been trusted"), while the allow rules of `.claude/settings.local.json` and the hooks of `.claude/settings.json` still apply.
+- **Verified (init message and model report):** a skill in `<config>/skills/<name>/` wins over a project skill of the same name; the project one is not listed.
+- **Not session-checked:** project-private MCP servers live only in `~/.claude.json` under `projects["<absolute path>"].mcpServers`, which `claude mcp add -s local` writes (see the [replace inventory](#replace-inventory)).
+
+### OpenCode (2.0.30, Windows)
+
+- **Verified (`config.get`):** the configuration sources are, in order, the global directory, the root `opencode.json`, `.opencode/opencode.json` and the `.opencode` directory. Verified (exported session): a `model` in `.opencode/opencode.json` wins over the root's. Verified, model report: `instructions` combine, the files named in both reach the prompt.
+- **Verified, model report:** with `CLAUDE.md` and no `AGENTS.md` in the project, and `OPENCODE_DISABLE_CLAUDE_CODE` unset, the `CLAUDE.md` marker did not reach the prompt. The session ran on a free model (`opencode models` listed only OpenCode's free models: the copied OpenAI OAuth login was not offered), so this rests on a weak report.
+- **Verified:** project agents and skills appear in `agent.list` and `skill.list` only after the server has started, as for global skills.
+- **Not checked:** an `opencode.local.json` or other local override file; none is documented, and `config.get` lists none.
+
+### agy (1.4.12, Windows)
+
+- **Verified, model report:** same-name skills: the project's `.agents/skills/<name>/` wins over `<dir>/config/skills/<name>/`; the user one is not listed. Same-name rules: both `.agents/rules/<name>.md` and `<dir>/config/rules/<name>.md` load.
+- **Verified:** in `-p` mode a shell command needs an allow rule; `--settings '{"permissions":{"allow":["command(<cmd>)"]}}'` gives one for the session only.
+- **Documented by agy, not checked:** project permission grants live in `~/.gemini/config/projects/`; there is no project settings file and no local override file.
+
+### Hook commands
+
+rulesync 41.0.0 renders `.rulesync/hooks.jsonc` per project to `.claude/settings.json` (`hooks`), `.agents/hooks.json` (a `rulesync` group with `SessionStart`, `PreToolUse`, `PostToolUse`, `PreInvocation` and `Stop`) and `.opencode/plugins/rulesync-hooks.js`. It skips `sessionEnd` and `beforeSubmitPrompt` for agy and `sessionEnd` for OpenCode, with a message. Checked with a PowerShell script in a directory with a space and one without, called as `powershell.exe -NoProfile -ExecutionPolicy Bypass -File <path> <label>`, each run writing its own file, on the same versions as above.
+
+| Command form | Claude Code | OpenCode | agy |
+|---|---|---|---|
+| Path in double quotes, `/` or `\`, with a space | runs | runs | fails: the quote reaches PowerShell as part of the path |
+| Bare path with a space | fails: split at the space | fails: split at the space | fails: split at the space |
+| Bare path with `\`, no space | fails: bash drops the backslashes | runs | runs |
+| Bare path with `/`, no space | runs | runs | runs |
+| `echo x>> <file>` (shell redirection) | runs | runs | fails |
+
+- **Claude Code:** commands run through Git Bash on Windows. Hooks of one event run in parallel: two writing the same file collided. In `-p` mode `SessionStart`, `UserPromptSubmit`, `PreToolUse` (matcher `Bash`), `PostToolUse`, `Stop` and `SessionEnd` fired; `SessionEnd` ran and was also reported as "Hook cancelled" on stderr.
+- **OpenCode:** the plugin runs each command through Bun Shell, a bash-like parser inside the process. `sessionStart`, `beforeSubmitPrompt`, `preModelInvocation`, `postToolUse` and `stop` fired. `preToolUse` with matcher `Bash` did not: the tool is `bash`, and the generated test is a case-sensitive regular expression.
+- **agy:** commands run without a shell, split at whitespace, with quotes passed on, as for the statusline ([0037](decisions/0037-tool-commands-resolved-per-os.md)); `cli.log` names each hook `jsonhook__rulesync_<Event>_<group>_<index>`. `SessionStart`, `PreInvocation`, `PostToolUse` and `Stop` fired; `PreToolUse` with matcher `Bash` did not, since agy's shell tool has another name.
+- So a hook that runs a tool needs the quoting rules of 0037 for its harness: double quotes for Claude Code and OpenCode, a bare path without whitespace for agy. Matchers name each harness's own tools.
+
 ## rulesync (41.0.0)
 
 - Per-target subagent blocks pass `model` (and `effort` for `claudecode`). For agy subagents the block must be `antigravity-cli:`; a subagent `antigravity:` block is dropped silently ([0024](decisions/0024-models-declared-per-harness-no-tiers.md)).
+- At project scope (`generate` without `--global`, checked 2026-11-02) the root rule goes to `CLAUDE.md` and one `AGENTS.md` shared by agy and OpenCode; other rules to `.claude/rules/`, `.agents/rules/` and `.opencode/memories/` (listed in `AGENTS.md`); MCP to `.mcp.json`, `.agents/mcp_config.json` and the root `opencode.jsonc`; permissions to `.claude/settings.json` and the root `opencode.jsonc`; agents and skills to `.claude/`, `.agents/` and `.opencode/` ([0041](decisions/0041-project-scope-local-and-untracked.md)).
 - A top-level `dotai:` frontmatter block is tolerated and stripped from the output. A skill's `metadata` map is passed through ([0021](decisions/0021-go-engine-orchestrates-rulesync.md)).
