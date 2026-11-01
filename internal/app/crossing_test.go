@@ -243,3 +243,23 @@ func TestTamperedCrossingJournalDeletesNothing(t *testing.T) {
 		})
 	}
 }
+
+// TestRemoveAllInClearsReadOnly checks that removing a source's leftovers
+// or a partial copy removes a read-only file in it, and a directory
+// without write permission, as removing one file does.
+func TestRemoveAllInClearsReadOnly(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, ".agents.dotai-0123456789abcdef", "locked", "ro.txt"), "x")
+	if err := os.Chmod(filepath.Join(root, ".agents.dotai-0123456789abcdef", "locked", "ro.txt"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(root, ".agents.dotai-0123456789abcdef", "locked"), 0o555); err != nil {
+		t.Fatal(err)
+	}
+	if err := (app.OSInstallFS{}).RemoveAllIn(root, ".agents.dotai-0123456789abcdef"); err != nil {
+		t.Fatalf("RemoveAllIn() error = %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(root, ".agents.dotai-0123456789abcdef")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("leftovers: %v, want them removed", err)
+	}
+}

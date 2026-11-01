@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -239,14 +240,58 @@ func copyFile(r *os.Root, from, to string) (n int64, err error) {
 }
 
 // RemoveAllIn removes name, a slash path inside root, and everything in
-// it, through root, never following a link.
+// it, through root, never following a link. As RemoveIn, it clears a
+// read-only attribute that would stop it, and gives the owner write
+// permission on each directory inside, which a copy keeps from its source.
 func (osInstallFS) RemoveAllIn(root, name string) error {
 	r, err := os.OpenRoot(root)
 	if err != nil {
 		return err
 	}
 	defer r.Close()
+	if err := removable(r, name); err != nil {
+		return err
+	}
 	return retry(func() error { return r.RemoveAll(name) })
+}
+
+// removable clears what would stop the removal of name and everything in
+// it inside r: a read-only attribute on a file, and a directory the owner
+// cannot write. A link is never followed.
+func removable(r *os.Root, name string) error {
+	info, err := r.Lstat(name)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	mode := info.Mode()
+	switch {
+	case mode.IsRegular():
+		return clearReadOnly(r, name, mode)
+	case mode.IsDir() && mode&(fs.ModeSymlink|fs.ModeIrregular) == 0:
+		if mode&0o700 != 0o700 {
+			if err := r.Chmod(name, mode.Perm()|0o700); err != nil {
+				return err
+			}
+		}
+		d, err := r.Open(name)
+		if err != nil {
+			return err
+		}
+		names, err := d.Readdirnames(-1)
+		d.Close()
+		if err != nil {
+			return err
+		}
+		for _, n := range names {
+			if err := removable(r, path.Join(name, n)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (osInstallFS) MkdirIn(root, name string) error {
