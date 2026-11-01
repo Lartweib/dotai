@@ -28,7 +28,7 @@ Every layer has the same shape:
 | `dotai/settings.yaml` | dotai | Settings rulesync does not cover: `statusLine`, `env`, model defaults |
 | `dotai/tools/` | dotai | Scripts, binaries and config files the layer installs ([0030](decisions/0030-tools-paths-and-project-config.md)) |
 
-A layer may omit any of these paths. A pack contains no symbolic links, only regular files and directories, and every file the engine reads is at most 1 MiB.
+A layer may omit any of these paths. A pack contains no symbolic links, only regular files and directories, and every file the engine reads is at most 1 MiB. The old rulesync names `.rulesync/mcp.json`, `.rulesync/hooks.json` and `.rulesync/permissions.json` are an error, `legacy-file-name`: rulesync ignores such a file when the `.jsonc` one exists, which another layer may provide, and the merge rules read only the `.jsonc` names. Rename the file to its `.jsonc` name.
 
 ## Manifest
 
