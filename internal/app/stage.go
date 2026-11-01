@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/lartweib/dotai/internal/merge"
+	"github.com/lartweib/dotai/internal/pack"
 	"github.com/lartweib/dotai/internal/rulesync"
 )
 
@@ -35,6 +36,8 @@ type StageResult struct {
 	// ToolCommands are the tool commands the settings run (decision 0037),
 	// which an install plan shows.
 	ToolCommands []ToolCommand `json:"-"`
+	// Harnesses are the harnesses it rendered, which an install plans.
+	Harnesses []string `json:"-"`
 }
 
 // StagedFile is one written file: its scope, its path inside the scope's
@@ -86,13 +89,18 @@ type stageFS interface {
 // nothing is written. rulesync is fetched into cacheDir as FetchRulesync
 // does; progress may be nil.
 func Stage(ctx context.Context, cacheDir, dir, out string, sel Selection, tools ToolPaths, force bool, progress Progress) (StageResult, error) {
-	return stage(ctx, osStageFS{}, download, generate, cacheDir, dir, out, sel, tools, force, progress)
+	return stage(ctx, osStageFS{}, download, generate, cacheDir, dir, out, sel, nil, tools, force, progress)
 }
+
+// pickHarnesses chooses, once the pack is valid, the harnesses a stage
+// renders, in the manifest's order; nil renders every harness the pack
+// supports, the optional ones included (decision 0038).
+type pickHarnesses func(m pack.Manifest) ([]string, error)
 
 // GeneratorRulesync is the Generator of the files rulesync renders.
 const GeneratorRulesync = "rulesync"
 
-func stage(ctx context.Context, w stageFS, fetch fetchFunc, run runFunc, cacheDir, dir, out string, sel Selection, tools ToolPaths, force bool, progress Progress) (StageResult, error) {
+func stage(ctx context.Context, w stageFS, fetch fetchFunc, run runFunc, cacheDir, dir, out string, sel Selection, pick pickHarnesses, tools ToolPaths, force bool, progress Progress) (StageResult, error) {
 	if err := checkOut(dir, out); err != nil {
 		return StageResult{}, err
 	}
@@ -113,11 +121,18 @@ func stage(ctx context.Context, w stageFS, fetch fetchFunc, run runFunc, cacheDi
 		res.Diagnostics = diags
 		return res, nil
 	}
+	harnesses := p.Manifest.AllHarnesses()
+	if pick != nil {
+		if harnesses, err = pick(p.Manifest); err != nil {
+			return StageResult{}, err
+		}
+	}
+	res.Harnesses = harnesses
 	for _, t := range []struct {
 		scope    string
 		settings map[string][]merge.Setting
 	}{{ScopeUser, s.UserSettings}, {ScopeProject, s.ProjectSettings}} {
-		commands, err := toolCommands(t.scope, p.Manifest.Harnesses, t.settings, tools)
+		commands, err := toolCommands(t.scope, harnesses, t.settings, tools)
 		if err != nil {
 			return StageResult{}, err
 		}
@@ -159,7 +174,7 @@ func stage(ctx context.Context, w stageFS, fetch fetchFunc, run runFunc, cacheDi
 			}
 		}
 		if len(jobs) > 0 {
-			if err := run(ctx, bin, p.Manifest.Harnesses, jobs...); err != nil {
+			if err := run(ctx, bin, harnesses, jobs...); err != nil {
 				return nil, err
 			}
 		}
@@ -169,7 +184,7 @@ func stage(ctx context.Context, w stageFS, fetch fetchFunc, run runFunc, cacheDi
 			settings map[string][]merge.Setting
 		}{{ScopeUser, s.UserSettings}, {ScopeProject, s.ProjectSettings}} {
 			dir := filepath.Join(tmp, t.scope)
-			written, err := renderSettings(w, dir, t.scope, p.Manifest.Harnesses, t.settings, tools)
+			written, err := renderSettings(w, dir, t.scope, harnesses, t.settings, tools)
 			if err != nil {
 				return nil, err
 			}

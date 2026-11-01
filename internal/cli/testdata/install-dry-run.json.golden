@@ -13,6 +13,7 @@
         "antigravity-cli",
         "opencode"
       ],
+      "optionalHarnesses": [],
       "profiles": [],
       "variants": [],
       "defaultVariant": "",

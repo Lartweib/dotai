@@ -11,7 +11,7 @@ type StageFS = stageFS
 // StageWith is Stage writing through w, fetching through fetch and
 // running rulesync through run.
 func StageWith(w stageFS, fetch fetchFunc, run runFunc, dir, out string, sel Selection, tools ToolPaths, force bool) (StageResult, error) {
-	return stage(context.Background(), w, fetch, run, "cache", dir, out, sel, tools, force, nil)
+	return stage(context.Background(), w, fetch, run, "cache", dir, out, sel, nil, tools, force, nil)
 }
 
 // FetchRulesyncWith is FetchRulesync downloading through fetch.

@@ -233,7 +233,7 @@ func withPlan(ctx context.Context, d installFS, fetch fetchFunc, run runFunc, ca
 	out := filepath.Join(tmp, "staging")
 	tools := ToolsIn(home, "")
 	tools.Project, tools.ProjectErr = "", errors.New("an install covers the user scope only")
-	s, err := stage(ctx, d, fetch, run, cacheDir, dir, out, Selection{Variant: variant}, tools, false, progress)
+	s, err := stage(ctx, d, fetch, run, cacheDir, dir, out, Selection{Variant: variant}, nil, tools, false, progress)
 	if err != nil {
 		return err
 	}
@@ -247,7 +247,7 @@ func withPlan(ctx context.Context, d installFS, fetch fetchFunc, run runFunc, ca
 	if len(s.Diagnostics) > 0 {
 		return then(planned{plan: res})
 	}
-	adapters, err := harness.Lookup(s.Pack.Harnesses)
+	adapters, err := harness.Lookup(s.Harnesses)
 	if err != nil {
 		return err
 	}
@@ -278,7 +278,7 @@ func withPlan(ctx context.Context, d installFS, fetch fetchFunc, run runFunc, ca
 			Link: op.Link, BeforeLink: op.BeforeLink,
 		})
 	}
-	return then(planned{plan: res, shared: shared, ops: p.Ops, tree: tree, prev: prev, harnesses: s.Pack.Harnesses, owned: p.Owned, keys: p.Keys, ignoreExec: !d.ExecBit()})
+	return then(planned{plan: res, shared: shared, ops: p.Ops, tree: tree, prev: prev, harnesses: s.Harnesses, owned: p.Owned, keys: p.Keys, ignoreExec: !d.ExecBit()})
 }
 
 // buildPlan plans the user-scope staging tree tree into home. A first

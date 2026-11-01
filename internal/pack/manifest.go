@@ -24,11 +24,20 @@ type Manifest struct {
 	Schema    string
 	Name      string
 	Version   string
-	Engine    string // semver range of supported engine versions
-	Rulesync  string // exact rulesync version
-	Harnesses []string
-	Profiles  []Profile // in declaration order
-	Variants  []Variant // in declaration order
+	Engine    string   // semver range of supported engine versions
+	Rulesync  string   // exact rulesync version
+	Harnesses []string // required: an install stops when one is missing (decision 0038)
+	// OptionalHarnesses are the other harnesses the pack supports: an
+	// install skips one that is not installed (decision 0038).
+	OptionalHarnesses []string
+	Profiles          []Profile // in declaration order
+	Variants          []Variant // in declaration order
+}
+
+// AllHarnesses is every harness the pack supports: the required ones,
+// then the optional ones, in declaration order.
+func (m Manifest) AllHarnesses() []string {
+	return append(slices.Clone(m.Harnesses), m.OptionalHarnesses...)
 }
 
 // Profile is a project-level layer.
@@ -54,9 +63,10 @@ type Detect struct {
 
 func decodeManifest(fsys fs.FS, r reader, root *yaml.Node, rulesyncVersions []string) Manifest {
 	o := r.object(nil, root, ManifestFile,
-		"schema", "name", "version", "engine", "rulesync", "harnesses", "profiles", "variants")
+		"schema", "name", "version", "engine", "rulesync", "harnesses", "optional-harnesses", "profiles", "variants")
 	m := decodeIdentity(r, o, rulesyncVersions)
 	m.Harnesses = decodeHarnesses(r, o)
+	m.OptionalHarnesses = decodeOptionalHarnesses(r, o, m.Harnesses)
 	m.Profiles = decodeProfiles(fsys, r, o)
 	var declared int
 	m.Variants, declared = decodeVariants(fsys, r, o)
@@ -103,6 +113,23 @@ func decodeHarnesses(r reader, o object) []string {
 	for i, h := range hs {
 		if !slices.Contains(Harnesses, h) {
 			r.report(nodes[i], CodeHarnessUnknown, "unknown harness %q, want one of %v", h, Harnesses)
+		}
+	}
+	return hs
+}
+
+// decodeOptionalHarnesses reads optional-harnesses: known harnesses, each
+// once, none of them also in required.
+func decodeOptionalHarnesses(r reader, o object, required []string) []string {
+	hs, nodes := o.list("optional-harnesses", false)
+	for i, h := range hs {
+		switch {
+		case !slices.Contains(Harnesses, h):
+			r.report(nodes[i], CodeHarnessUnknown, "unknown harness %q, want one of %v", h, Harnesses)
+		case slices.Contains(required, h):
+			r.report(nodes[i], CodeHarnessDuplicate, "harness %q is in both harnesses and optional-harnesses", h)
+		case slices.Contains(hs[:i], h):
+			r.report(nodes[i], CodeHarnessDuplicate, "harness %q is given twice in optional-harnesses", h)
 		}
 	}
 	return hs

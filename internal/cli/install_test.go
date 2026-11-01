@@ -18,7 +18,7 @@ import (
 // installPlan is a plan with fixed paths, so that its output reads the
 // same on every OS.
 var installPlan = app.InstallPlan{
-	Pack:    &app.PackSummary{Name: "minimal-pack", Version: "0.1.0", Harnesses: []string{"claudecode", "antigravity-cli", "opencode"}, Profiles: []string{}, Variants: []string{}, SharedSkills: []string{}, Layers: []app.LayerSummary{}},
+	Pack:    &app.PackSummary{Name: "minimal-pack", Version: "0.1.0", Harnesses: []string{"claudecode", "antigravity-cli", "opencode"}, OptionalHarnesses: []string{}, Profiles: []string{}, Variants: []string{}, SharedSkills: []string{}, Layers: []app.LayerSummary{}},
 	Variant: "standalone", Mode: app.ModeIsolated, Root: "/home/u/.dotai/isolated",
 	Harnesses: []app.HarnessPlan{
 		{ID: "claudecode", Level: "partial", Dir: "/home/u/.dotai/isolated/claude", Relogin: "unknown",

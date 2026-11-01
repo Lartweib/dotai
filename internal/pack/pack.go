@@ -28,6 +28,7 @@ const (
 	CodeEngineInvalid      = "engine-invalid"
 	CodeRulesyncInvalid    = "rulesync-invalid"
 	CodeHarnessUnknown     = "harness-unknown"
+	CodeHarnessDuplicate   = "harness-duplicate"
 	CodeLayerPathInvalid   = "layer-path-invalid"
 	CodeLayerMissing       = "layer-missing"
 	CodeVariantDefault     = "variant-default"
@@ -172,7 +173,7 @@ func LoadWith(fsys fs.FS, rulesyncVersions []string) (*Pack, []Diagnostic, error
 		}
 	}
 	for _, l := range layers {
-		if err = loadLayer(fsys, &diags, &l, p.Manifest.Harnesses); err != nil {
+		if err = loadLayer(fsys, &diags, &l, p.Manifest.AllHarnesses()); err != nil {
 			return nil, nil, err
 		}
 		p.Layers = append(p.Layers, l)

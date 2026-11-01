@@ -30,7 +30,7 @@ func TestValidateFS(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		res, err := app.ValidateFS(fstest.MapFS{
 			"dotai.yaml": {Data: []byte("schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\n" +
-				"rulesync: 41.0.0\nharnesses: [opencode]\nvariants:\n  a: {path: variants/a, default: true}\n  b: {path: variants/b, shared-skills: true}\n")},
+				"rulesync: 41.0.0\nharnesses: [opencode]\noptional-harnesses: [claudecode]\nvariants:\n  a: {path: variants/a, default: true}\n  b: {path: variants/b, shared-skills: true}\n")},
 			"base/.rulesync/rules/r.md":       {Data: []byte("# R\n")},
 			"variants/a/.rulesync/rules/x.md": {Data: []byte("# X\n")},
 			"variants/b/.rulesync/rules/y.md": {Data: []byte("# Y\n")},
@@ -39,7 +39,7 @@ func TestValidateFS(t *testing.T) {
 			Valid: true,
 			Pack: &app.PackSummary{
 				Name: "p", Version: "1.0.0", Engine: ">=0.1.0", Rulesync: "41.0.0",
-				Harnesses: []string{"opencode"}, Profiles: []string{}, Variants: []string{"a", "b"}, DefaultVariant: "a",
+				Harnesses: []string{"opencode"}, OptionalHarnesses: []string{"claudecode"}, Profiles: []string{}, Variants: []string{"a", "b"}, DefaultVariant: "a",
 				SharedSkills: []string{"b"},
 				Layers: []app.LayerSummary{
 					{Kind: "base", Name: "base", Path: "base", Items: 1},

@@ -30,16 +30,19 @@ type ValidateResult struct {
 
 // PackSummary describes a loaded pack. Lists are never nil.
 type PackSummary struct {
-	Name           string         `json:"name"`
-	Version        string         `json:"version"`
-	Engine         string         `json:"engine"`
-	Rulesync       string         `json:"rulesync"`
-	Harnesses      []string       `json:"harnesses"`
-	Profiles       []string       `json:"profiles"`
-	Variants       []string       `json:"variants"`
-	DefaultVariant string         `json:"defaultVariant"`
-	SharedSkills   []string       `json:"sharedSkills"` // the variants that share the user's skills (decision 0036)
-	Layers         []LayerSummary `json:"layers"`
+	Name      string   `json:"name"`
+	Version   string   `json:"version"`
+	Engine    string   `json:"engine"`
+	Rulesync  string   `json:"rulesync"`
+	Harnesses []string `json:"harnesses"`
+	// OptionalHarnesses are the harnesses an install skips when they are
+	// not installed (decision 0038).
+	OptionalHarnesses []string       `json:"optionalHarnesses"`
+	Profiles          []string       `json:"profiles"`
+	Variants          []string       `json:"variants"`
+	DefaultVariant    string         `json:"defaultVariant"`
+	SharedSkills      []string       `json:"sharedSkills"` // the variants that share the user's skills (decision 0036)
+	Layers            []LayerSummary `json:"layers"`
 }
 
 // LayerSummary describes one layer and how many items it defines.
@@ -99,8 +102,8 @@ func validate(fsys fs.FS, sel Selection) (ValidateResult, *pack.Pack, error) {
 	m := p.Manifest
 	s := &PackSummary{
 		Name: m.Name, Version: m.Version, Engine: m.Engine, Rulesync: m.Rulesync,
-		Harnesses: append([]string{}, m.Harnesses...),
-		Profiles:  []string{}, Variants: []string{}, SharedSkills: []string{}, Layers: []LayerSummary{},
+		Harnesses: append([]string{}, m.Harnesses...), OptionalHarnesses: append([]string{}, m.OptionalHarnesses...),
+		Profiles: []string{}, Variants: []string{}, SharedSkills: []string{}, Layers: []LayerSummary{},
 	}
 	for _, pr := range m.Profiles {
 		s.Profiles = append(s.Profiles, pr.Name)
