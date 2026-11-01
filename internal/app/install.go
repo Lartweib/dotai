@@ -21,8 +21,12 @@ import (
 	"github.com/lartweib/dotai/internal/state"
 )
 
-// ModeIsolated is the install mode of decision 0031, the only one so far.
-const ModeIsolated = "isolated"
+// The install modes: isolated (decision 0031), and replace, which resets
+// each selected harness to a fresh install (decision 0038).
+const (
+	ModeIsolated = string(harness.Isolated)
+	ModeReplace  = string(harness.Replace)
+)
 
 // The files of dotai under the home directory besides the isolated root
 // and the tools directory (decision 0032): the install state, the backups
@@ -654,4 +658,14 @@ func (c ctxReader) Read(p []byte) (int, error) {
 		return 0, err
 	}
 	return c.r.Read(p)
+}
+
+// layouts are the layouts the targets of p may be in: that of its mode,
+// and that of the install before it, whose files it may remove.
+func (p planned) layouts() []harness.Mode {
+	out := []harness.Mode{harness.Mode(cmp.Or(p.plan.Mode, ModeIsolated))}
+	if p.prev != nil && p.prev.Mode != "" && harness.Mode(p.prev.Mode) != out[0] {
+		out = append(out, harness.Mode(p.prev.Mode))
+	}
+	return out
 }

@@ -2,8 +2,9 @@
 // a command will carry out, decided before anything is written. It does no
 // I/O; the caller hashes the staged files and the current targets.
 //
-// It covers the user scope of an isolated install (decision 0031): each
-// staged file is created, replaced or left unchanged at its install path,
+// It covers the user scope of an install, isolated (decision 0031) or in
+// the replace layout (decision 0038): each staged file is created,
+// replaced or left unchanged at its install path,
 // and each file an earlier install owned that the pack no longer stages is
 // removed (decision 0032). A harness's settings file is planned key by key
 // instead (decision 0035): the harness writes into it too, so dotai owns
@@ -117,13 +118,17 @@ type Owned struct {
 // behaves the same on every OS. Content holds the content of each settings
 // target in Disk that is staged with its Data or owned.
 type Input struct {
-	Home       string            // the absolute home directory
-	Adapters   []harness.Adapter // the harnesses of the pack's manifest
-	Files      []File
-	Disk       map[string]Current
-	Content    map[string][]byte
-	Owned      map[string]Owned
-	IgnoreExec bool
+	Home string // the absolute home directory
+	// Mode is the layout the staged files install in, harness.Isolated
+	// when empty, and PrevMode that of the install Owned records, Mode
+	// when empty: an owned target may be in either.
+	Mode, PrevMode harness.Mode
+	Adapters       []harness.Adapter // the harnesses the install is for
+	Files          []File
+	Disk           map[string]Current
+	Content        map[string][]byte
+	Owned          map[string]Owned
+	IgnoreExec     bool
 	// FoldCase compares link destinations without case, for a file system
 	// that ignores it, such as on Windows and macOS (FoldsCase).
 	FoldCase bool
@@ -240,15 +245,17 @@ func (e *EditedError) Error() string {
 
 // Build plans the install of the user-scope staging tree. A file under
 // one of the adapters' staging paths installs into that harness's
-// isolated directory, a file under the tools directory into the user's
+// directory of the mode, a file under the tools directory into the user's
 // tools directory, and rulesync's sources are skipped. Any other file is
 // an UnmappedError, so that nothing staged is dropped silently. A path
 // Windows cannot store is an error on every OS, and so are two files with
-// one target, a harness given twice and a harness without isolation.
+// one target, a harness given twice and, in the isolated mode, a harness
+// without isolation.
 //
 // A target in Owned that no staged file installs is removed when it still
 // exists; one that is missing needs nothing. An owned target outside the
-// isolated root and the tools directory is an error, and so is an owned
+// tools directory and the harness directories of Mode and PrevMode is an
+// error, and so is an owned
 // target that exists with a hash or exec bit that is neither what Owned
 // records nor in its Also or Foreign: an EditedError, so that nothing the
 // user changed is overwritten or removed. A target in its Foreign is not
@@ -265,7 +272,7 @@ func Build(in Input) (Plan, error) {
 		if seen[a.ID] {
 			return Plan{}, fmt.Errorf("harness %q is given twice", a.ID)
 		}
-		if a.Isolation.Level == harness.None {
+		if in.mode() == harness.Isolated && a.Isolation.Level == harness.None {
 			return Plan{}, fmt.Errorf("harness %q does not offer the isolated mode (decision 0018)", a.ID)
 		}
 		seen[a.ID] = true
@@ -284,7 +291,7 @@ func Build(in Input) (Plan, error) {
 		if f.Link != "" {
 			f.Hash, f.Exec, f.Data = LinkHash(f.Link), false, nil
 		}
-		h, target, ok := Locate(in.Home, in.Adapters, f.Path)
+		h, target, ok := Locate(in.Home, in.mode(), in.Adapters, f.Path)
 		if ok && f.Link != "" {
 			if err := CheckLinkDest(in.Home, target, f.Link, in.FoldCase); err != nil {
 				return Plan{}, err
@@ -326,9 +333,8 @@ func Build(in Input) (Plan, error) {
 	}
 	edited := &EditedError{}
 	for target, o := range in.Owned {
-		if !installed(in.Home, target) {
-			return Plan{}, fmt.Errorf("owned target %s is not under %s or %s, where an install writes", target,
-				filepath.Join(in.Home, filepath.FromSlash(harness.IsolatedDir)), filepath.Join(in.Home, filepath.FromSlash(merge.ToolsDir)))
+		if !installed(in.Home, target, in.modes()...) {
+			return Plan{}, fmt.Errorf("owned target %s is not under %s, where an install writes", target, orList(installDirs(in.Home, in.modes()...)))
 		}
 		if st, ok := settings[target]; ok {
 			st.owned = &o
@@ -386,43 +392,64 @@ func Build(in Input) (Plan, error) {
 	return p, nil
 }
 
-// Locate returns the harness that installs the staged file source, "" for
-// a tool, and its absolute target under home with the OS separator. Build
-// uses it, so a caller that builds Input.Disk with it gets the same keys.
-// ok is false when nothing installs source. rulesync's sources are not
-// special here; Build skips them before it calls Locate.
-func Locate(home string, adapters []harness.Adapter, source string) (h, target string, ok bool) {
+// Locate returns the harness that installs the staged file source in mode,
+// "" for a tool, and its absolute target under home with the OS separator.
+// Build uses it, so a caller that builds Input.Disk with it gets the same
+// keys. ok is false when nothing installs source. rulesync's sources are
+// not special here; Build skips them before it calls Locate.
+func Locate(home string, mode harness.Mode, adapters []harness.Adapter, source string) (h, target string, ok bool) {
 	at := func(rel string) string { return filepath.Join(home, filepath.FromSlash(rel)) }
 	if rest, ok := strings.CutPrefix(source, merge.ToolsDir+"/"); ok {
 		return "", at(path.Join(merge.ToolsDir, rest)), true
 	}
 	for _, a := range adapters {
 		if rest, ok := strings.CutPrefix(source, a.Staging+"/"); ok {
-			for _, m := range a.Moves {
+			for _, m := range a.MovesIn(mode) {
+				if rest == m.From {
+					rest = m.To
+					break
+				}
 				if moved, ok := strings.CutPrefix(rest, m.From+"/"); ok {
 					rest = path.Join(m.To, moved)
 					break
 				}
 			}
-			return a.ID, at(path.Join(harness.IsolatedDir, a.Dir, a.Install, rest)), true
+			return a.ID, at(path.Join(a.InstallDir(mode), rest)), true
 		}
 	}
 	return "", "", false
 }
 
 // MovedFrom reports whether target, an absolute path under home, is on the
-// old side of a move of some harness: where an install before the move
-// put the files that now install elsewhere.
+// old side of a move of a directory of some harness, in either layout:
+// where an install before the move put the files that now install
+// elsewhere.
 func MovedFrom(home, target string) bool {
 	for _, a := range harness.All() {
-		for _, m := range a.Moves {
-			dir := filepath.Join(home, filepath.FromSlash(path.Join(harness.IsolatedDir, a.Dir, a.Install, m.From)))
-			if strings.HasPrefix(target, dir+string(filepath.Separator)) {
-				return true
+		for _, mode := range modes {
+			for _, m := range a.Moves {
+				dir := filepath.Join(home, filepath.FromSlash(path.Join(a.InstallDir(mode), m.From)))
+				if strings.HasPrefix(target, dir+string(filepath.Separator)) {
+					return true
+				}
 			}
 		}
 	}
 	return false
+}
+
+// modes are the install modes, each with its layout.
+var modes = []harness.Mode{harness.Isolated, harness.Replace}
+
+// mode is the layout the staged files install in.
+func (in Input) mode() harness.Mode { return cmp.Or(in.Mode, harness.Isolated) }
+
+// modes are the layouts an owned target may be in.
+func (in Input) modes() []harness.Mode {
+	if prev := cmp.Or(in.PrevMode, in.mode()); prev != in.mode() {
+		return []harness.Mode{in.mode(), prev}
+	}
+	return []harness.Mode{in.mode()}
 }
 
 // same reports whether a and b have the same content and exec bit, unless
@@ -431,15 +458,49 @@ func (in Input) same(a, b Current) bool {
 	return a.Hash == b.Hash && (in.IgnoreExec || a.Exec == b.Exec)
 }
 
-// installed reports whether target is a path inside the isolated root or
-// the tools directory under home, the only places an install writes.
-func installed(home, target string) bool {
+// installed reports whether target is a path inside one of the
+// installDirs of modes under home, the only places an install writes.
+func installed(home, target string, modes ...harness.Mode) bool {
 	rel, err := filepath.Rel(home, target)
 	if err != nil || !filepath.IsLocal(rel) {
 		return false
 	}
 	rel = filepath.ToSlash(rel)
-	return strings.HasPrefix(rel, harness.IsolatedDir+"/") || strings.HasPrefix(rel, merge.ToolsDir+"/")
+	return slices.ContainsFunc(installRels(modes...), func(dir string) bool { return strings.HasPrefix(rel, dir+"/") })
+}
+
+// installRels are the directories an install in one of modes writes in,
+// relative to the home directory: the isolated root, or each harness's
+// configuration directory, and then the tools directory.
+func installRels(modes ...harness.Mode) []string {
+	var dirs []string
+	for _, m := range modes {
+		if m != harness.Replace {
+			dirs = append(dirs, harness.IsolatedDir)
+			continue
+		}
+		for _, a := range harness.All() {
+			dirs = append(dirs, a.Root(harness.Replace))
+		}
+	}
+	return append(dirs, merge.ToolsDir)
+}
+
+// installDirs are the installRels of modes under home.
+func installDirs(home string, modes ...harness.Mode) []string {
+	var out []string
+	for _, rel := range installRels(modes...) {
+		out = append(out, filepath.Join(home, filepath.FromSlash(rel)))
+	}
+	return out
+}
+
+// orList joins items as "a, b or c".
+func orList(items []string) string {
+	if len(items) < 2 {
+		return strings.Join(items, "")
+	}
+	return strings.Join(items[:len(items)-1], ", ") + " or " + items[len(items)-1]
 }
 
 // reserved are the device names Windows refuses as a file name, with or

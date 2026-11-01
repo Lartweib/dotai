@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -295,6 +296,9 @@ type vfile struct {
 // the installs it undoes. r.p.ops holds its operations.
 func (r *restorer) planned(s state.State, id string) (RestoreResult, []undone, error) {
 	res := RestoreResult{Warnings: []string{}, State: filepath.Join(r.home, dotaiDir, stateFile)}
+	if err := restorable(s.Mode, "the install state "+res.State); err != nil {
+		return RestoreResult{}, nil, err
+	}
 	chain, err := r.chain(s, id)
 	if err != nil {
 		return RestoreResult{}, nil, err
@@ -332,7 +336,7 @@ func (r *restorer) write(res *RestoreResult, chain []undone) error {
 
 	ref := (*BackupRef)(nil)
 	if len(r.p.ops) > 0 {
-		info := backup.Info{Mode: ModeIsolated, Harnesses: []string{}}
+		info := backup.Info{Mode: cmp.Or(chain[len(chain)-1].m.Mode, ModeIsolated), Harnesses: []string{}}
 		if prior != nil {
 			info = backup.Info{Mode: prior.Mode, Pack: backup.Pack(prior.Pack), Variant: prior.Variant, Harnesses: prior.Harnesses}
 		}
@@ -379,14 +383,16 @@ func (r *restorer) write(res *RestoreResult, chain []undone) error {
 	return nil
 }
 
-// removeEmptyRoots removes, once nothing dotai installed is left, each
+// removeEmptyRoots removes, once nothing dotai installed is left, the
+// directories of the isolated layout, when restore writes in it: each
 // harness's isolated directory and the tools directory when they are
 // empty real directories, then the isolated root when it is empty too. It
-// never removes the backups or the dotai directory, and does its best: a
-// directory that holds anything, such as a harness's login, stays.
+// never removes a harness's own configuration directory, the backups or
+// the dotai directory, and does its best: a directory that holds
+// anything, such as a harness's login, stays.
 func (r *restorer) removeEmptyRoots() {
 	isolated := filepath.Join(r.home, filepath.FromSlash(harness.IsolatedDir))
-	if checkDir(r.d, isolated) == nil {
+	if (len(r.layouts) == 0 || slices.Contains(r.layouts, harness.Isolated)) && checkDir(r.d, isolated) == nil {
 		names, _ := r.d.List(isolated)
 		for _, name := range names {
 			if checkDir(r.d, filepath.Join(isolated, name)) == nil {
@@ -503,6 +509,8 @@ func (r *restorer) load(id string, restoreBackup bool) (undone, error) {
 		return undone{}, fmt.Errorf("the backup %s is not one an install took: restore undoes installs", id)
 	case m.Restored != nil:
 		return undone{}, fmt.Errorf("the backup %s is already restored, yet the install state leads to it: it was edited, so restore stops", id)
+	case restorable(m.Mode, "the backup "+id) != nil:
+		return undone{}, restorable(m.Mode, "the backup "+id)
 	case m.PriorState == nil:
 		return undone{}, fmt.Errorf("the backup %s was taken by an older dotai, which did not keep the install state from before it, so restore cannot put that state back: "+
 			"its files/ holds the copies to put back by hand", id)
@@ -538,6 +546,9 @@ func (r *restorer) load(id string, restoreBackup bool) (undone, error) {
 	}
 	if prior.Pending != nil {
 		return undone{}, fmt.Errorf("the backup %s keeps a state with a journal: it was edited, so restore stops", id)
+	}
+	if err := restorable(prior.Mode, "the state the backup "+id+" keeps"); err != nil {
+		return undone{}, err
 	}
 	for _, f := range prior.Files {
 		if _, _, err := installRoot(r.home, f.Target); err != nil {
@@ -848,4 +859,15 @@ func (r *restorer) mark(u undone, ref *BackupRef) error {
 		return err
 	}
 	return r.d.WriteIn(u.dir, backup.ManifestName, data, 0o600)
+}
+
+// restorable refuses what, of the install mode mode, unless restore can
+// undo that mode: only the isolated one so far, since undoing a replace
+// install moves wiped entries back (roadmap PR 9b-3). An empty mode is
+// one written before the replace mode existed.
+func restorable(mode, what string) error {
+	if mode == "" || mode == ModeIsolated {
+		return nil
+	}
+	return fmt.Errorf("%s is of a %s install, which this version of dotai cannot restore yet", what, mode)
 }

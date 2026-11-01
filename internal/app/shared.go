@@ -116,7 +116,7 @@ func sharedSkills(ctx context.Context, d installFS, tree, home string, adapters 
 				continue // it reads the folder itself
 			}
 			source := path.Join(a.Staging, a.SharedSkills, name)
-			_, target, _ := plan.Locate(home, adapters, source)
+			_, target, _ := plan.Locate(home, harness.Isolated, adapters, source)
 			if slices.ContainsFunc(ops, func(op plan.Op) bool { return samePath(op.Target, target) || below(target, op.Target) }) {
 				sp.Skipped = append(sp.Skipped, SkippedSkill{Name: name, Harness: a.ID, Reason: ReasonPackSkill})
 				continue

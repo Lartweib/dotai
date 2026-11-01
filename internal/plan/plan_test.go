@@ -191,7 +191,7 @@ func TestLocate(t *testing.T) {
 		if strings.HasPrefix(source, ".rulesync/") {
 			continue
 		}
-		h, target, ok := plan.Locate(home, all, source)
+		h, target, ok := plan.Locate(home, harness.Isolated, all, source)
 		if !ok {
 			t.Errorf("Locate(%q) found no target", source)
 			continue
@@ -201,7 +201,7 @@ func TestLocate(t *testing.T) {
 			t.Errorf("Build() of %s = %+v, %v, want one unchanged op at %s for %q", source, got.Ops, err, target, h)
 		}
 	}
-	if _, _, ok := plan.Locate(home, all, "notes.md"); ok {
+	if _, _, ok := plan.Locate(home, harness.Isolated, all, "notes.md"); ok {
 		t.Error("Locate(notes.md) found a target")
 	}
 }
@@ -478,6 +478,11 @@ func TestMovedFrom(t *testing.T) {
 		".dotai/isolated/gemini/antigravity-cli/settings.json":     false,
 		".dotai/isolated/gemini/config/skills/a/SKILL.md":          false,
 		".dotai/isolated/claude/skills/a/SKILL.md":                 false,
+		// The replace layout moves agy's skills too, but not its rules file
+		// in the other direction.
+		".gemini/antigravity-cli/skills/a/SKILL.md": true,
+		".gemini/GEMINI.md":                         false,
+		".gemini/config/GEMINI.md":                  false,
 	} {
 		if got := plan.MovedFrom(home, under(home, rel)); got != want {
 			t.Errorf("MovedFrom(%s) = %t, want %t", rel, got, want)
@@ -603,5 +608,109 @@ func TestValidName(t *testing.T) {
 		if got := plan.ValidName(name); got != want {
 			t.Errorf("ValidName(%q) = %t, want %t", name, got, want)
 		}
+	}
+}
+
+// TestLocateInReplaceMode checks where each staged file of the example
+// tree installs in the replace mode (decision 0038): in the harness's own
+// configuration directory, with agy's rules file moved into config/ and
+// its skills where it reads them, and the tools in the tools directory.
+func TestLocateInReplaceMode(t *testing.T) {
+	home := t.TempDir()
+	all := adapters(t, pack.Harnesses...)
+	want := map[string]string{
+		".claude/CLAUDE.md":                                      ".claude/CLAUDE.md",
+		".claude/settings.json":                                  ".claude/settings.json",
+		".config/opencode/AGENTS.md":                             ".config/opencode/AGENTS.md",
+		".config/opencode/opencode.jsonc":                        ".config/opencode/opencode.jsonc",
+		".dotai/tools/hello.sh":                                  ".dotai/tools/hello.sh",
+		".gemini/GEMINI.md":                                      ".gemini/config/GEMINI.md",
+		".gemini/antigravity-cli/settings.json":                  ".gemini/antigravity-cli/settings.json",
+		".gemini/antigravity-cli/skills/commit-message/SKILL.md": ".gemini/config/skills/commit-message/SKILL.md",
+		".gemini/config/rules/standalone.md":                     ".gemini/config/rules/standalone.md",
+	}
+	for source, rel := range want {
+		if _, target, ok := plan.Locate(home, harness.Replace, all, source); !ok || target != under(home, rel) {
+			t.Errorf("Locate(replace, %s) = %s, %v, want %s", source, target, ok, rel)
+		}
+		if _, target, _ := plan.Locate(home, harness.Isolated, all, source); target == under(home, rel) && !strings.HasPrefix(rel, ".dotai/tools/") {
+			t.Errorf("Locate(isolated, %s) = %s, the replace target", source, target)
+		}
+	}
+	got, err := plan.Build(plan.Input{Home: home, Mode: harness.Replace, Adapters: all, Files: staged(exampleTree...)})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	for _, op := range got.Ops {
+		if strings.HasPrefix(op.Target, under(home, ".dotai/isolated")) {
+			t.Errorf("op %+v installs under the isolated root in replace mode", op)
+		}
+	}
+}
+
+// TestBuildOwnedTargetsPerMode checks where an owned target may be: under
+// the layout of the mode the plan is for, or of the mode of the install it
+// follows, whose files it may remove, and never anywhere else.
+func TestBuildOwnedTargetsPerMode(t *testing.T) {
+	home := t.TempDir()
+	for _, tt := range []struct {
+		mode, prev harness.Mode
+		rel        string
+		ok         bool
+	}{
+		{harness.Isolated, "", ".claude/CLAUDE.md", false},
+		{harness.Isolated, harness.Isolated, ".gemini/config/GEMINI.md", false},
+		{harness.Replace, "", ".claude/CLAUDE.md", true},
+		{harness.Replace, "", ".gemini/config/GEMINI.md", true},
+		{harness.Replace, "", ".config/opencode/AGENTS.md", true},
+		{harness.Replace, "", ".dotai/isolated/claude/CLAUDE.md", false},
+		{harness.Replace, harness.Isolated, ".dotai/isolated/claude/CLAUDE.md", true},
+		{harness.Replace, harness.Isolated, ".claude/CLAUDE.md", true},
+		{harness.Replace, "", ".claude.json", false},
+		{harness.Replace, "", ".config/other/x", false},
+		{harness.Replace, "", ".dotai/state.json", false},
+	} {
+		target := under(home, tt.rel)
+		in := plan.Input{Home: home, Mode: tt.mode, PrevMode: tt.prev, Owned: map[string]plan.Owned{target: {Harness: "claudecode", Hash: "h"}}, Disk: map[string]plan.Current{target: {Hash: "h"}}}
+		got, err := plan.Build(in)
+		if tt.ok && (err != nil || len(got.Ops) != 1 || got.Ops[0].Action != plan.Remove) {
+			t.Errorf("%s after %q: Build() of an owned %s = %+v, %v, want it removed", tt.mode, tt.prev, tt.rel, got.Ops, err)
+		}
+		if !tt.ok && (err == nil || !strings.Contains(err.Error(), "is not under")) {
+			t.Errorf("%s after %q: Build() of an owned %s error = %v, want it outside the install directories", tt.mode, tt.prev, tt.rel, err)
+		}
+	}
+}
+
+// TestSettingsOfEitherLayout checks that a harness's settings file is one
+// in both layouts, so that an install planned in one mode releases the
+// keys dotai owned there in the other.
+func TestSettingsOfEitherLayout(t *testing.T) {
+	home := t.TempDir()
+	for rel, want := range map[string]string{
+		".dotai/isolated/claude/settings.json":                    "claudecode",
+		".claude/settings.json":                                   "claudecode",
+		".gemini/antigravity-cli/settings.json":                   "antigravity-cli",
+		".dotai/isolated/opencode/config/opencode/opencode.jsonc": "opencode",
+		".config/opencode/opencode.jsonc":                         "opencode",
+		".gemini/settings.json":                                   "",
+	} {
+		if got, ok := plan.SettingsOf(home, under(home, rel)); got != want || ok != (want != "") {
+			t.Errorf("SettingsOf(%s) = %q, %v, want %q", rel, got, ok, want)
+		}
+	}
+}
+
+// TestBuildInReplaceModeTakesAHarnessWithoutIsolation checks that the
+// isolation level matters only to the isolated mode.
+func TestBuildInReplaceModeTakesAHarnessWithoutIsolation(t *testing.T) {
+	a := adapters(t, "claudecode")
+	a[0].Isolation.Level = harness.None
+	home := t.TempDir()
+	if _, err := plan.Build(plan.Input{Home: home, Mode: harness.Replace, Adapters: a, Files: staged(".claude/CLAUDE.md")}); err != nil {
+		t.Errorf("Build(replace) error = %v, want no isolation needed", err)
+	}
+	if _, err := plan.Build(plan.Input{Home: home, Adapters: a, Files: staged(".claude/CLAUDE.md")}); err == nil {
+		t.Error("Build(isolated) of a harness without isolation succeeded")
 	}
 }

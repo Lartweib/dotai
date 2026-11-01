@@ -204,7 +204,7 @@ func install(ctx context.Context, d executeFS, fetch fetchFunc, run runFunc, cac
 				warn(w)
 			}
 		}
-		r := runner{ctx: ctx, d: d, home: home, p: p, pack: state.Pack{Name: p.plan.Pack.Name, Version: p.plan.Pack.Version, Path: packPath}}
+		r := runner{ctx: ctx, d: d, home: home, p: p, pack: state.Pack{Name: p.plan.Pack.Name, Version: p.plan.Pack.Version, Path: packPath}, layouts: p.layouts()}
 		return r.run(&res)
 	})
 	if se, ok := err.(*stagingError); ok { // the install itself succeeded
@@ -235,13 +235,15 @@ func settingsWarning(p planned) string {
 	return fmt.Sprintf("close %s before installing: a harness that is running may rewrite its settings file while dotai writes its keys there", strings.Join(harnesses, ", "))
 }
 
-// runner carries out one install plan.
+// runner carries out one install plan. layouts are the layouts its
+// targets may be in, the isolated one when empty.
 type runner struct {
-	ctx  context.Context
-	d    executeFS
-	home string
-	p    planned
-	pack state.Pack
+	ctx     context.Context
+	d       executeFS
+	home    string
+	p       planned
+	pack    state.Pack
+	layouts []harness.Mode
 }
 
 // applied is an operation carried out, or, without a target, one that
@@ -265,7 +267,7 @@ func (r runner) run(res *InstallResult) error {
 		}
 	}
 	prev := r.p.prev
-	next := state.New(r.pack, r.p.plan.Variant, ModeIsolated, time.Time{}, r.p.harnesses, "", r.p.ops)
+	next := state.New(r.pack, r.p.plan.Variant, r.p.plan.Mode, time.Time{}, r.p.harnesses, "", r.p.ops)
 	next.SharedSkills = r.p.shared
 	if len(writes) == 0 && prev != nil && prev.SameInstall(next) {
 		res.State = statePath
@@ -306,7 +308,7 @@ func (r runner) write(res *InstallResult, writes []plan.Op, next state.State) er
 		prior = &base
 	}
 	info := backup.Info{
-		Mode: ModeIsolated, Pack: backup.Pack{Name: r.pack.Name, Version: r.pack.Version, Path: r.pack.Path},
+		Mode: r.p.plan.Mode, Pack: backup.Pack{Name: r.pack.Name, Version: r.pack.Version, Path: r.pack.Path},
 		Variant: r.p.plan.Variant, Harnesses: r.p.harnesses,
 	}
 	ref, err := r.backup(backup.OperationInstall, info, prior, writes)
@@ -403,7 +405,7 @@ func (r runner) removeTemps(p *state.Pending) {
 		targets = append(targets, op.Target)
 	}
 	for _, target := range targets {
-		root, name, err := installRoot(r.home, target)
+		root, name, err := installRoot(r.home, target, r.layouts...)
 		if target == targets[0] {
 			root, name, err = filepath.Join(r.home, dotaiDir), stateFile, nil
 		}
@@ -567,7 +569,7 @@ func (r runner) apply(op plan.Op) (applied, error) {
 	if err := r.ctx.Err(); err != nil {
 		return a, err
 	}
-	root, name, err := installRoot(r.home, op.Target)
+	root, name, err := installRoot(r.home, op.Target, r.layouts...)
 	if err != nil {
 		return a, err
 	}
@@ -638,9 +640,12 @@ func (r runner) apply(op plan.Op) (applied, error) {
 	return a, r.d.WriteIn(root, name, data, perm(op.Exec))
 }
 
-// installRoot is the directory target is written in, a harness's isolated
-// directory or the tools directory, and target's slash path inside it.
-func installRoot(home, target string) (root, name string, err error) {
+// installRoot is the directory target is written in, the tools directory
+// or a harness's directory in one of layouts, the isolated one when there
+// is none, and target's slash path inside it. In the isolated layout that
+// directory is the harness's isolated directory; in the replace layout,
+// its own configuration directory (decision 0038).
+func installRoot(home, target string, layouts ...harness.Mode) (root, name string, err error) {
 	rel, err := backup.Rel(home, target)
 	if err != nil {
 		return "", "", err
@@ -648,9 +653,23 @@ func installRoot(home, target string) (root, name string, err error) {
 	if rest, ok := strings.CutPrefix(rel, merge.ToolsDir+"/"); ok {
 		return filepath.Join(home, filepath.FromSlash(merge.ToolsDir)), rest, nil
 	}
-	if rest, ok := strings.CutPrefix(rel, harness.IsolatedDir+"/"); ok {
-		if dir, rest, ok := strings.Cut(rest, "/"); ok && rest != "" {
-			return filepath.Join(home, filepath.FromSlash(harness.IsolatedDir), dir), rest, nil
+	if len(layouts) == 0 {
+		layouts = []harness.Mode{harness.Isolated}
+	}
+	for _, layout := range layouts {
+		if layout == harness.Replace {
+			for _, a := range harness.All() {
+				dir := a.Root(harness.Replace)
+				if rest, ok := strings.CutPrefix(rel, dir+"/"); ok && rest != "" {
+					return filepath.Join(home, filepath.FromSlash(dir)), rest, nil
+				}
+			}
+			continue
+		}
+		if rest, ok := strings.CutPrefix(rel, harness.IsolatedDir+"/"); ok {
+			if dir, rest, ok := strings.Cut(rest, "/"); ok && rest != "" {
+				return filepath.Join(home, filepath.FromSlash(harness.IsolatedDir), dir), rest, nil
+			}
 		}
 	}
 	return "", "", fmt.Errorf("target %s is not inside a harness directory or the tools directory", target)
@@ -717,7 +736,7 @@ func (r runner) rollback(dir string, done []applied) error {
 
 func (r runner) undo(dir string, a applied) error {
 	op := a.op
-	_, name, err := installRoot(r.home, op.Target)
+	_, name, err := installRoot(r.home, op.Target, r.layouts...)
 	if err != nil {
 		return err
 	}
