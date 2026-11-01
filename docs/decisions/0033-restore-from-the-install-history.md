@@ -47,3 +47,5 @@ tags: [engine, restore, backup, state]
 - [CLI-JSON](../CLI-JSON.md): `restore`, the install state and the backup manifest.
 
 Update 2026-10-31: restore puts back and removes the links of shared skills ([0036](0036-shared-skills-per-variant.md)) from their record in the manifests, and takes a link that points elsewhere as a conflict, like a changed file. Where a link and a directory of the pack's own skill trade places, the files below the link's path are written after the link is removed, and the link is made after they are removed.
+
+Update 2026-11-01: a restore of a replace install ([0038](0038-replace-mode-resets-harness-to-fresh-install.md)) moves each wiped entry back from its backup exactly, and restores `~/.claude.json` key by key. Its checks accept the targets of the replace layout, outside the isolated directories, and restore refuses while a selected harness is detected running, unless `--ignore-running`, instead of only warning.

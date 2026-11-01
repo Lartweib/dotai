@@ -6,6 +6,8 @@ tags: [product, scope, roadmap, v1, install]
 
 # 0034 · The replace install mode is part of v1
 
+> **Partially superseded by [0038](0038-replace-mode-resets-harness-to-fresh-install.md): replace wipes by keep-list instead of an allowlist,** splits `~/.claude.json` by key, and wipes generic paths such as `~/.agents/skills` for a closed variant. Still in force: replace in v1 for the three harnesses, after isolated mode for agy and OpenCode, isolated stays, and `dotai restore` is the way back.
+
 ## Context
 
 [0018](0018-install-modes-and-mandatory-backup.md) defines three install modes. Replace backs up, removes the files the harness owns and applies the pack, working on an allowlist of owned paths declared by each adapter. [0020](0020-v1-scope-engine-and-pack.md) put the replace mode after v1, [0031](0031-isolated-install-root.md) states that isolated is the only mode in v1, and the [roadmap](../ROADMAP.md) followed them.
@@ -43,3 +45,5 @@ This supersedes only the part of 0020 that puts the replace mode after v1, and t
 
 - Maintainer decision, 2026-10-30.
 - [0018](0018-install-modes-and-mandatory-backup.md), [0020](0020-v1-scope-engine-and-pack.md), [0032](0032-install-state-backup-and-isolated-launch.md), [0033](0033-restore-from-the-install-history.md).
+
+Update 2026-11-01: the pending items are decided by [0038](0038-replace-mode-resets-harness-to-fresh-install.md): each adapter declares a keep-list for its harness directories and explicit leak entries outside them, install and restore refuse while a selected harness is detected running unless `--ignore-running`, and restore's checks cover the replace targets. Roadmap row 9b is split into 9b-1 to 9b-4.
