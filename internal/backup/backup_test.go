@@ -342,3 +342,94 @@ func mustEncode(t *testing.T, m backup.Manifest) []byte {
 	}
 	return data
 }
+
+// TestCheckWipesAndSplits checks the entries a replace install moves into
+// its backup, and the split files it rewrites by key (decision 0038): a
+// valid manifest passes, and each way an edited one can point elsewhere is
+// refused.
+func TestCheckWipesAndSplits(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home")
+	id, restoreID := "20261029T131500.123Z_install", "20261029T131600.000Z_restore"
+	agents := filepath.Join(home, ".claude", "agents")
+	valid := func() backup.Manifest {
+		return backup.Manifest{Schema: backup.Schema, ID: id, Operation: backup.OperationInstall, Home: home, Pinned: true,
+			PriorState: &backup.PriorState{None: true}, Ops: []backup.Op{
+				{Action: plan.Create, Target: filepath.Join(agents, "pack.md"), After: &backup.Content{SHA256: "p"}},
+			},
+			Wipes: []backup.Wipe{
+				{Harness: "claudecode", Path: agents, Kind: backup.KindDir, File: "files/.claude/agents", Items: []backup.Item{
+					{Path: "", Kind: backup.KindDir}, {Path: "a.md", Kind: backup.KindFile, SHA256: "a"},
+					{Path: "sub", Kind: backup.KindDir}, {Path: "sub/b.md", Kind: backup.KindFile, SHA256: "b", Exec: true},
+					{Path: "sub/l", Kind: backup.KindLink, Link: "/elsewhere"},
+				}},
+				{Harness: "claudecode", Path: filepath.Join(home, "CLAUDE.md"), Kind: backup.KindLink, File: "files/CLAUDE.md",
+					Items: []backup.Item{{Kind: backup.KindLink}}},
+			},
+			Splits: []backup.Split{{Harness: "claudecode", Target: filepath.Join(home, ".claude.json"), File: "files/.claude.json",
+				Before: backup.Content{SHA256: "b"}, After: backup.Content{SHA256: "a"}, Keys: [][]string{{"mcpServers"}}}},
+		}
+	}
+	if err := backup.Check(valid(), id, home); err != nil {
+		t.Fatalf("Check() = %v, want a valid manifest", err)
+	}
+	r := valid()
+	r.ID, r.Operation, r.Pinned, r.Splits = restoreID, backup.OperationRestore, false, nil
+	r.Wipes = r.Wipes[1:]
+	r.Wipes[0].File = "moved/" + id + "/CLAUDE.md"
+	if err := backup.Check(r, restoreID, home); err != nil {
+		t.Fatalf("Check() of a restore = %v, want a valid manifest", err)
+	}
+	if got, err := backup.MovedFile(home, id, filepath.Join(home, "CLAUDE.md")); err != nil || got != r.Wipes[0].File {
+		t.Errorf("MovedFile() = %q, %v, want %q", got, err, r.Wipes[0].File)
+	}
+	for name, tt := range map[string]struct {
+		change func(*backup.Manifest)
+		want   string
+	}{
+		"a wipe outside":         {func(m *backup.Manifest) { m.Wipes[0].Path = filepath.Join(filepath.Dir(home), "x") }, "not under the home directory"},
+		"a wipe moved elsewhere": {func(m *backup.Manifest) { m.Wipes[0].File = "files/../../x" }, "moved to"},
+		"a wipe inside another":  {func(m *backup.Manifest) { m.Wipes[1].Path = filepath.Join(agents, "sub") }, "overlaps"},
+		"a wipe twice":           {func(m *backup.Manifest) { m.Wipes[1].Path = agents }, "overlaps"},
+		"a wipe of no kind":      {func(m *backup.Manifest) { m.Wipes[0].Kind = "pipe" }, "kind"},
+		"no items":               {func(m *backup.Manifest) { m.Wipes[0].Items = nil }, "items"},
+		"an item outside":        {func(m *backup.Manifest) { m.Wipes[0].Items[1].Path = "../x" }, "inside"},
+		"an item twice":          {func(m *backup.Manifest) { m.Wipes[0].Items[2] = m.Wipes[0].Items[1] }, "inside"},
+		"an item below no dir":   {func(m *backup.Manifest) { m.Wipes[0].Items[3].Path = "a.md/b.md" }, "inside"},
+		"an item in a file": {func(m *backup.Manifest) {
+			m.Wipes[1].Items = append(m.Wipes[1].Items, backup.Item{Path: "x", Kind: backup.KindDir})
+		}, "inside"},
+		"a file without a hash":  {func(m *backup.Manifest) { m.Wipes[0].Items[1].SHA256 = "" }, "SHA-256"},
+		"a split outside":        {func(m *backup.Manifest) { m.Splits[0].Target = filepath.Join(filepath.Dir(home), "x") }, "not under the home directory"},
+		"a split copy elsewhere": {func(m *backup.Manifest) { m.Splits[0].File = "files/x" }, "copy"},
+		"a split without keys":   {func(m *backup.Manifest) { m.Splits[0].Keys = nil }, "keys"},
+		"a split without a hash": {func(m *backup.Manifest) { m.Splits[0].After = backup.Content{} }, "SHA-256"},
+		"a split that is an op too": {func(m *backup.Manifest) {
+			m.Splits[0].Target = m.Ops[0].Target
+			m.Splits[0].File = "files/.claude/agents/pack.md"
+		}, "twice"},
+		"a pinned restore": {func(m *backup.Manifest) { m.Operation = backup.OperationRestore }, "operation"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := valid()
+			tt.change(&m)
+			if err := backup.Check(m, id, home); err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("Check() = %v, want an error about %s", err, tt.want)
+			}
+		})
+	}
+	for name, file := range map[string]string{"in files": "files/CLAUDE.md", "from a restore": "moved/" + restoreID + "/CLAUDE.md", "elsewhere": "moved/" + id + "/x"} {
+		t.Run("a restore's wipe moved "+name, func(t *testing.T) {
+			m := r
+			m.Wipes = []backup.Wipe{r.Wipes[0]}
+			m.Wipes[0].File = file
+			if err := backup.Check(m, restoreID, home); err == nil || !strings.Contains(err.Error(), "moved to") {
+				t.Errorf("Check() = %v, want the entry refused", err)
+			}
+		})
+	}
+	m := valid()
+	m.ID, m.Operation = restoreID, backup.OperationRestore
+	if err := backup.Check(m, restoreID, home); err == nil || !strings.Contains(err.Error(), "pinned") {
+		t.Errorf("Check() of a pinned restore = %v, want it refused", err)
+	}
+}

@@ -9,6 +9,7 @@ package backup
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -31,12 +32,22 @@ const (
 )
 
 // ManifestName is the manifest's name in a backup directory, FilesDir the
-// directory that holds the copies and StateName the copy of the install
-// state from before the operation.
+// directory that holds the copies and the entries a replace install moved
+// there, MovedDir the one that holds what a restore moved out of the way of
+// the entries it moved back, and StateName the copy of the install state
+// from before the operation.
 const (
 	ManifestName = "manifest.json"
 	FilesDir     = "files"
+	MovedDir     = "moved"
 	StateName    = "state.json"
+)
+
+// The kinds of a wiped entry and of each item in it.
+const (
+	KindFile = "file"
+	KindDir  = "dir"
+	KindLink = "link"
 )
 
 // idTime is the layout of the timestamp of an id: UTC with milliseconds
@@ -84,7 +95,66 @@ type Manifest struct {
 	Info
 	PriorState *PriorState `json:"priorState,omitempty"`
 	Restored   *Restored   `json:"restored,omitempty"`
-	Ops        []Op        `json:"ops"`
+	// Pinned marks the first backup of a replace install in the home
+	// directory, which holds the configuration from before dotai: retention
+	// never prunes it, nor the history from the install state back to it,
+	// until a restore undoes it (decision 0038).
+	Pinned bool `json:"pinned,omitempty"`
+	Ops    []Op `json:"ops"`
+	// Wipes are the entries the operation moved into the backup: those a
+	// replace install wiped, or those a restore moved out of the way of the
+	// entries it moved back. Splits are the files it rewrote by key.
+	Wipes  []Wipe  `json:"wipes,omitempty"`
+	Splits []Split `json:"splits,omitempty"`
+}
+
+// Wipe is an entry moved into the backup, a file, a directory with
+// everything in it or a link, never followed (decision 0038): the harness
+// it belongs to, its absolute Path, its Kind, File, the slash path it was
+// moved to inside the backup directory, and Items, what it held.
+type Wipe struct {
+	Harness string `json:"harness"`
+	Path    string `json:"path"`
+	Kind    string `json:"kind"`
+	File    string `json:"file"`
+	Items   []Item `json:"items"`
+}
+
+// Item is one path of a wiped entry, in walk order: Path, its slash path
+// inside the entry, "" for the entry itself, its Kind, and for a file its
+// SHA-256 and exec bit, for a link its destination, "" when it cannot be
+// read, such as a reparse point that is not a junction.
+type Item struct {
+	Path   string `json:"path"`
+	Kind   string `json:"kind"`
+	SHA256 string `json:"sha256,omitempty"`
+	Exec   bool   `json:"exec"`
+	Link   string `json:"link,omitempty"`
+}
+
+// Split is a file that mixes configuration and state, such as
+// ~/.claude.json, whose keys the operation deleted or put back, keeping
+// the rest of it (decision 0038): its harness, its absolute Target, File,
+// the copy of what it held before, Before and After, and the Keys, each a
+// path from the top of the file.
+type Split struct {
+	Harness string     `json:"harness"`
+	Target  string     `json:"target"`
+	File    string     `json:"file"`
+	Before  Content    `json:"before"`
+	After   Content    `json:"after"`
+	Keys    [][]string `json:"keys"`
+}
+
+// MovedFile is the slash path inside a restore's backup that the entry at
+// target, under home, is moved to when it stands where the restore moves
+// back an entry of the install backup id.
+func MovedFile(home, id, target string) (string, error) {
+	rel, err := Rel(home, target)
+	if err != nil {
+		return "", err
+	}
+	return path.Join(MovedDir, id, rel), nil
 }
 
 // PriorState is the install state from before the operation: None when
@@ -280,6 +350,120 @@ func Check(m Manifest, id, home string) error {
 		}
 		if o.File != want {
 			return fmt.Errorf("backup manifest %s: the copy of %s is %q, want %q", id, o.Target, o.File, want)
+		}
+	}
+	if err := checkWipes(m, id, home); err != nil {
+		return err
+	}
+	return checkSplits(m, id, home, seen)
+}
+
+// checkWipes reports a wipe of m that is not one this format writes: a
+// path outside home, named twice or at or below another wiped entry, an
+// unknown kind, an install's entry that is not at its path under FilesDir
+// or a restore's that is not at its path under MovedDir and the id of an
+// install backup, or items that do not describe an entry of its kind. A
+// pinned backup must be an install's.
+func checkWipes(m Manifest, id, home string) error {
+	seen := map[string]bool{}
+	if m.Pinned && m.Operation != OperationInstall {
+		return fmt.Errorf("backup manifest %s: only an install's backup is pinned", id)
+	}
+	for _, w := range m.Wipes {
+		rel, err := Rel(home, w.Path)
+		if err != nil || !filepath.IsAbs(w.Path) {
+			return fmt.Errorf("backup manifest %s: wiped entry %s is not under the home directory %s", id, w.Path, home)
+		}
+		for target := range seen {
+			if target == w.Path || strings.HasPrefix(target, w.Path+string(filepath.Separator)) || strings.HasPrefix(w.Path, target+string(filepath.Separator)) {
+				return fmt.Errorf("backup manifest %s: wiped entry %s overlaps %s", id, w.Path, target)
+			}
+		}
+		seen[w.Path] = true
+		want := path.Join(FilesDir, rel)
+		if m.Operation == OperationRestore {
+			from, ok := strings.CutPrefix(w.File, MovedDir+"/")
+			from, inner, _ := strings.Cut(from, "/")
+			if op, _ := Operation(from); !ok || op != OperationInstall || inner != rel {
+				return fmt.Errorf("backup manifest %s: the entry %s was moved to %q, want %s/<install backup id>/%s", id, w.Path, w.File, MovedDir, rel)
+			}
+			want = w.File
+		}
+		if w.File != want {
+			return fmt.Errorf("backup manifest %s: the entry %s was moved to %q, want %q", id, w.Path, w.File, want)
+		}
+		if err := checkItems(w); err != nil {
+			return fmt.Errorf("backup manifest %s: the entry %s: %w", id, w.Path, err)
+		}
+	}
+	return nil
+}
+
+// checkItems reports items of w that do not describe an entry of its kind:
+// the entry itself first, then, for a directory only, each path inside it
+// once, below a directory of the list, as a file with a SHA-256, a
+// directory or a link with nothing else.
+func checkItems(w Wipe) error {
+	if len(w.Items) == 0 || w.Items[0].Path != "" || w.Items[0].Kind != w.Kind {
+		return fmt.Errorf("its items must start with the entry itself, of the kind %q", w.Kind)
+	}
+	dirs, seen := map[string]bool{"": true}, map[string]bool{}
+	for i, it := range w.Items {
+		switch it.Kind {
+		case KindFile:
+			if it.SHA256 == "" || it.Link != "" {
+				return fmt.Errorf("the file %q needs a SHA-256 and no link", it.Path)
+			}
+		case KindDir, KindLink:
+			if it.SHA256 != "" || it.Exec || it.Kind == KindDir && it.Link != "" {
+				return fmt.Errorf("the %s %q has a SHA-256 or an exec bit", it.Kind, it.Path)
+			}
+		default:
+			return fmt.Errorf("%q has the kind %q, want file, dir or link", it.Path, it.Kind)
+		}
+		if i == 0 {
+			continue
+		}
+		if w.Kind != KindDir || seen[it.Path] || !fs.ValidPath(it.Path) || !dirs[parentOf(it.Path)] {
+			return fmt.Errorf("the item %q is not a new path inside a directory of the entry", it.Path)
+		}
+		seen[it.Path] = true
+		if it.Kind == KindDir {
+			dirs[it.Path] = true
+		}
+	}
+	return nil
+}
+
+// parentOf is the slash path of the directory that holds p inside a wiped
+// entry, "" for the entry itself.
+func parentOf(p string) string {
+	if d := path.Dir(p); d != "." {
+		return d
+	}
+	return ""
+}
+
+// checkSplits reports a split file of m that is not one this format
+// writes: a target outside home or named twice, a copy that is not at its
+// path under FilesDir, a before or after without a SHA-256, or no key, or
+// a key without a path.
+func checkSplits(m Manifest, id, home string, seen map[string]bool) error {
+	for _, s := range m.Splits {
+		rel, err := Rel(home, s.Target)
+		if err != nil || !filepath.IsAbs(s.Target) {
+			return fmt.Errorf("backup manifest %s: split file %s is not under the home directory %s", id, s.Target, home)
+		}
+		if seen[s.Target] {
+			return fmt.Errorf("backup manifest %s: target %s is named twice", id, s.Target)
+		}
+		seen[s.Target] = true
+		if s.File != path.Join(FilesDir, rel) {
+			return fmt.Errorf("backup manifest %s: the copy of %s is %q, want %q", id, s.Target, s.File, path.Join(FilesDir, rel))
+		}
+		if s.Before.SHA256 == "" || s.After.SHA256 == "" || s.Before.Link != "" || s.After.Link != "" || len(s.Keys) == 0 ||
+			slices.ContainsFunc(s.Keys, func(k []string) bool { return len(k) == 0 }) {
+			return fmt.Errorf("backup manifest %s: the split file %s needs a SHA-256 before and after, and keys with paths", id, s.Target)
 		}
 	}
 	return nil

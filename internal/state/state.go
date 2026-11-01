@@ -49,10 +49,15 @@ type State struct {
 }
 
 // Pending is the journal of an install that is writing: its backup and
-// each operation it carries out.
+// each operation it carries out. Wipes are the entries it moves into its
+// backup, or out of it, and Splits the files it rewrites by key (decision
+// 0038), which dotai does not own: the backup's manifest records what each
+// held.
 type Pending struct {
 	Backup string      `json:"backup"`
 	Ops    []PendingOp `json:"ops"`
+	Wipes  []string    `json:"wipes,omitempty"`
+	Splits []string    `json:"splits,omitempty"`
 }
 
 // PendingOp is one operation of an install that is writing: what its
@@ -262,6 +267,11 @@ func Decode(data []byte) (State, error) {
 		return State{}, fmt.Errorf("install state has schema %q, want %q", s.Schema, Schema)
 	}
 	if s.Pending != nil {
+		for _, name := range slices.Concat(s.Pending.Wipes, s.Pending.Splits) {
+			if !filepath.IsAbs(name) {
+				return State{}, fmt.Errorf("install state: pending path %q is not absolute", name)
+			}
+		}
 		for _, op := range s.Pending.Ops {
 			if !filepath.IsAbs(op.Target) {
 				return State{}, fmt.Errorf("install state: pending target %q is not absolute", op.Target)
