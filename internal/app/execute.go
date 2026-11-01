@@ -355,6 +355,9 @@ func (r runner) write(res *InstallResult, writes []plan.Op, next state.State) er
 		split, err = r.writeSplits(ex.splits)
 	}
 	if err == nil && resets {
+		err = r.recordItems(ref.Path, ex)
+	}
+	if err == nil && resets {
 		err = r.writeState(journal(base, ref.ID, writes, ex))
 	}
 	var done []applied

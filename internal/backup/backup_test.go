@@ -379,6 +379,17 @@ func TestCheckWipesAndSplits(t *testing.T) {
 	if err := backup.Check(r, restoreID, home); err != nil {
 		t.Fatalf("Check() of a restore = %v, want a valid manifest", err)
 	}
+	// An install killed before it recorded the items of what it moved.
+	unrecorded := valid()
+	unrecorded.Wipes[0].Items = nil
+	if err := backup.Check(unrecorded, id, home); err != nil {
+		t.Errorf("Check() of an install's wipe without items = %v, want it valid", err)
+	}
+	r.Wipes[0].Items, r.Wipes[0].File = nil, "moved/"+id+"/CLAUDE.md"
+	if err := backup.Check(r, restoreID, home); err == nil || !strings.Contains(err.Error(), "items") {
+		t.Errorf("Check() of a restore's wipe without items = %v, want it refused", err)
+	}
+	r.Wipes[0].Items = []backup.Item{{Kind: backup.KindLink}}
 	// A restore that puts back a split file that is missing has no copy.
 	r.Splits = []backup.Split{{Harness: "claudecode", Target: filepath.Join(home, ".claude.json"), After: backup.Content{SHA256: "a"}, Keys: [][]string{{"mcpServers"}}}}
 	if err := backup.Check(r, restoreID, home); err != nil {
@@ -396,15 +407,15 @@ func TestCheckWipesAndSplits(t *testing.T) {
 		change func(*backup.Manifest)
 		want   string
 	}{
-		"a wipe outside":         {func(m *backup.Manifest) { m.Wipes[0].Path = filepath.Join(filepath.Dir(home), "x") }, "not under the home directory"},
-		"a wipe moved elsewhere": {func(m *backup.Manifest) { m.Wipes[0].File = "files/../../x" }, "moved to"},
-		"a wipe inside another":  {func(m *backup.Manifest) { m.Wipes[1].Path = filepath.Join(agents, "sub") }, "overlaps"},
-		"a wipe twice":           {func(m *backup.Manifest) { m.Wipes[1].Path = agents }, "overlaps"},
-		"a wipe of no kind":      {func(m *backup.Manifest) { m.Wipes[0].Kind = "pipe" }, "kind"},
-		"no items":               {func(m *backup.Manifest) { m.Wipes[0].Items = nil }, "items"},
-		"an item outside":        {func(m *backup.Manifest) { m.Wipes[0].Items[1].Path = "../x" }, "inside"},
-		"an item twice":          {func(m *backup.Manifest) { m.Wipes[0].Items[2] = m.Wipes[0].Items[1] }, "inside"},
-		"an item below no dir":   {func(m *backup.Manifest) { m.Wipes[0].Items[3].Path = "a.md/b.md" }, "inside"},
+		"a wipe outside":                         {func(m *backup.Manifest) { m.Wipes[0].Path = filepath.Join(filepath.Dir(home), "x") }, "not under the home directory"},
+		"a wipe moved elsewhere":                 {func(m *backup.Manifest) { m.Wipes[0].File = "files/../../x" }, "moved to"},
+		"a wipe inside another":                  {func(m *backup.Manifest) { m.Wipes[1].Path = filepath.Join(agents, "sub") }, "overlaps"},
+		"a wipe twice":                           {func(m *backup.Manifest) { m.Wipes[1].Path = agents }, "overlaps"},
+		"a wipe of no kind":                      {func(m *backup.Manifest) { m.Wipes[0].Kind = "pipe" }, "kind"},
+		"items that do not start with the entry": {func(m *backup.Manifest) { m.Wipes[0].Items = m.Wipes[0].Items[1:] }, "items"},
+		"an item outside":                        {func(m *backup.Manifest) { m.Wipes[0].Items[1].Path = "../x" }, "inside"},
+		"an item twice":                          {func(m *backup.Manifest) { m.Wipes[0].Items[2] = m.Wipes[0].Items[1] }, "inside"},
+		"an item below no dir":                   {func(m *backup.Manifest) { m.Wipes[0].Items[3].Path = "a.md/b.md" }, "inside"},
 		"an item in a file": {func(m *backup.Manifest) {
 			m.Wipes[1].Items = append(m.Wipes[1].Items, backup.Item{Path: "x", Kind: backup.KindDir})
 		}, "inside"},

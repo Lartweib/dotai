@@ -185,7 +185,10 @@ func (r *restorer) planWipes(res *RestoreResult, chain []undone) ([]backup.Wipe,
 		for _, w := range u.m.Wipes {
 			from := filepath.Join(u.dir, filepath.FromSlash(w.File))
 			if _, err := r.d.Lstat(from); errors.Is(err, fs.ErrNotExist) {
-				if !r.sameItems(v.itemsAt(w.Path), w.Items) {
+				// An install killed before it recorded the items of what it
+				// moved left them out: whatever stands at the path of an
+				// entry it never moved is taken as that entry.
+				if there := v.itemsAt(w.Path); len(w.Items) == 0 && len(there) == 0 || len(w.Items) > 0 && !r.sameItems(there, w.Items) {
 					return nil, fmt.Errorf("the backup %s no longer holds %s, and %s does not hold it either: restore cannot put it back; nothing was written", u.m.ID, w.File, w.Path)
 				}
 				continue
@@ -427,10 +430,23 @@ func wipeTargets(home string, m backup.Manifest) error {
 // what its manifest records, and the copy of each split file. An entry no
 // longer in the backup is checked where it goes back, when the restore is
 // planned.
-func (r *restorer) verifyWipes(m backup.Manifest, dir string) error {
-	for _, w := range m.Wipes {
+func (r *restorer) verifyWipes(m *backup.Manifest, dir string) error {
+	for i, w := range m.Wipes {
 		name := filepath.Join(dir, filepath.FromSlash(w.File))
 		if _, err := r.d.Lstat(name); errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if len(w.Items) == 0 {
+			// An install killed before it recorded what it moved: the
+			// backup holds it as it was moved.
+			items, err := r.items(r.ctx, name)
+			if err != nil {
+				return &CorruptBackupError{ID: m.ID, File: w.File, Err: err}
+			}
+			if items[0].Kind != w.Kind {
+				return &CorruptBackupError{ID: m.ID, File: w.File}
+			}
+			m.Wipes[i].Items = items
 			continue
 		}
 		ok, err := r.holds(r.ctx, name, w.Items)

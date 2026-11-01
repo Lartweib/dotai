@@ -185,24 +185,52 @@ func (r runner) backupExtra(dir string, m *backup.Manifest, ex *extra) (map[stri
 		}
 		m.Splits = append(m.Splits, rec)
 	}
-	for i, w := range ex.wipes {
-		if w.Items != nil { // a restore knows what it will move out of the way
+	// An install's entries are recorded once they are moved
+	// (recordItems), so that a file a harness still running changes before
+	// its entry moves is recorded as it is in the backup; a restore knows
+	// what it will move out of the way.
+	for _, w := range ex.wipes {
+		if w.Items != nil {
 			continue
 		}
-		items, err := r.items(r.ctx, w.Path)
-		if errors.Is(err, fs.ErrNotExist) {
+		mode, err := r.d.Lstat(w.Path)
+		if errors.Is(err, fs.ErrNotExist) || err == nil && entryKind(mode) != w.Kind {
 			return nil, &ChangedError{Path: w.Path}
 		}
 		if err != nil {
 			return nil, err
 		}
-		if items[0].Kind != w.Kind {
-			return nil, &ChangedError{Path: w.Path}
+	}
+	m.Wipes = slices.Clone(ex.wipes)
+	return dirs, nil
+}
+
+// recordItems records in the manifest of the backup in dir the items of
+// each entry of ex once it is moved there, read from the backup, and
+// writes the manifest again, before the install writes the pack's files.
+// An install killed before then leaves a manifest without them, which a
+// restore reads from the backup in turn.
+func (r runner) recordItems(dir string, ex *extra) error {
+	for i, w := range ex.wipes {
+		items, err := r.items(r.ctx, filepath.Join(dir, filepath.FromSlash(w.File)))
+		if err != nil {
+			return err
 		}
 		ex.wipes[i].Items = items
 	}
+	data, err := r.d.ReadFile(dir, backup.ManifestName)
+	if err != nil {
+		return err
+	}
+	m, err := backup.Decode(data)
+	if err != nil {
+		return err
+	}
 	m.Wipes = ex.wipes
-	return dirs, nil
+	if data, err = backup.Encode(m); err != nil {
+		return err
+	}
+	return r.d.WriteIn(dir, backup.ManifestName, data, 0o600)
 }
 
 // moved is an entry an operation moved, from and to absolute paths, so

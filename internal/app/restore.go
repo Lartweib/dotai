@@ -579,7 +579,7 @@ func (r *restorer) load(id string, restoreBackup bool) (undone, error) {
 		return undone{}, fmt.Errorf("the backup %s: %w; restore never writes there", id, err)
 	}
 	if m.Operation == backup.OperationInstall {
-		if err := r.verifyWipes(m, dir); err != nil {
+		if err := r.verifyWipes(&m, dir); err != nil {
 			return undone{}, err
 		}
 	}

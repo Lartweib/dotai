@@ -386,7 +386,7 @@ func checkWipes(m Manifest, id, home string) error {
 		if w.File != want {
 			return fmt.Errorf("backup manifest %s: the entry %s was moved to %q, want %q", id, w.Path, w.File, want)
 		}
-		if err := checkItems(w); err != nil {
+		if err := checkItems(w, m.Operation); err != nil {
 			return fmt.Errorf("backup manifest %s: the entry %s: %w", id, w.Path, err)
 		}
 	}
@@ -402,7 +402,10 @@ func Clean(p string) bool { return filepath.IsAbs(p) && p == filepath.Clean(p) }
 // the entry itself first, then, for a directory only, each path inside it
 // once, below a directory of the list, as a file with a SHA-256, a
 // directory or a link with nothing else.
-func checkItems(w Wipe) error {
+func checkItems(w Wipe, op string) error {
+	if len(w.Items) == 0 && op == OperationInstall {
+		return nil // moved, not recorded yet when its install was killed
+	}
 	if len(w.Items) == 0 || w.Items[0].Path != "" || w.Items[0].Kind != w.Kind {
 		return fmt.Errorf("its items must start with the entry itself, of the kind %q", w.Kind)
 	}

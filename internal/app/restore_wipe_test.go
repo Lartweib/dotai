@@ -450,3 +450,41 @@ func TestRestoreReplacePutsBackAMissingSplitFile(t *testing.T) {
 	}
 	diff(t, "home after the restore", homeEntries(t, home), before)
 }
+
+// writeBeforeMoveFS changes the file name, as a harness still running
+// would, right before the install moves the entry that holds it.
+type writeBeforeMoveFS struct {
+	*clockFS
+	home, entry, name string
+	done              bool
+}
+
+func (f *writeBeforeMoveFS) MoveIn(root, from, to string) error {
+	if !f.done && from == f.entry {
+		f.done = true
+		writeFile(f.t, at(f.home, f.name), "changed while it was wiped\n")
+	}
+	return f.clockFS.MoveIn(root, from, to)
+}
+
+// TestRestoreReplaceAfterAFileChangedWhileWiped checks that a file that
+// changes after the plan, before its entry is moved into the backup, is
+// recorded as it was moved, so that a restore still puts it back.
+func TestRestoreReplaceAfterAFileChangedWhileWiped(t *testing.T) {
+	home, h, _ := replaceHome(t)
+	before := homeEntries(t, home)
+	d := &writeBeforeMoveFS{clockFS: newClockFS(t), home: home, entry: ".claude/agents", name: ".claude/agents/mine.md"}
+	if _, err := installReplace(t, d, h, home); err != nil || !d.done {
+		t.Fatalf("Install(replace) error = %v, moved %v", err, d.done)
+	}
+	if _, err := restore(newClockFS(t), home, "", nil); err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+	if got, _ := os.ReadFile(at(home, ".claude/agents/mine.md")); string(got) != "changed while it was wiped\n" {
+		t.Errorf("mine.md = %q, want what it held when it was moved", got)
+	}
+	after := homeEntries(t, home)
+	delete(before, ".claude/agents/mine.md")
+	delete(after, ".claude/agents/mine.md")
+	diff(t, "home after the restore", after, before)
+}
