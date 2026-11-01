@@ -374,6 +374,9 @@ func checkWipes(m Manifest, id, home string) error {
 		if err != nil || !filepath.IsAbs(w.Path) {
 			return fmt.Errorf("backup manifest %s: wiped entry %s is not under the home directory %s", id, w.Path, home)
 		}
+		if !Clean(w.Path) {
+			return fmt.Errorf("backup manifest %s: wiped entry %s is not a clean absolute path", id, w.Path)
+		}
 		for target := range seen {
 			if target == w.Path || strings.HasPrefix(target, w.Path+string(filepath.Separator)) || strings.HasPrefix(w.Path, target+string(filepath.Separator)) {
 				return fmt.Errorf("backup manifest %s: wiped entry %s overlaps %s", id, w.Path, target)
@@ -398,6 +401,11 @@ func checkWipes(m Manifest, id, home string) error {
 	}
 	return nil
 }
+
+// Clean reports whether p is an absolute path in the form filepath.Clean
+// gives, so that no ".." or "." in it can lead a move elsewhere than where
+// a check of its text found it.
+func Clean(p string) bool { return filepath.IsAbs(p) && p == filepath.Clean(p) }
 
 // checkItems reports items of w that do not describe an entry of its kind:
 // the entry itself first, then, for a directory only, each path inside it
@@ -453,6 +461,9 @@ func checkSplits(m Manifest, id, home string, seen map[string]bool) error {
 		rel, err := Rel(home, s.Target)
 		if err != nil || !filepath.IsAbs(s.Target) {
 			return fmt.Errorf("backup manifest %s: split file %s is not under the home directory %s", id, s.Target, home)
+		}
+		if !Clean(s.Target) {
+			return fmt.Errorf("backup manifest %s: split file %s is not a clean absolute path", id, s.Target)
 		}
 		if seen[s.Target] {
 			return fmt.Errorf("backup manifest %s: target %s is named twice", id, s.Target)

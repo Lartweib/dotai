@@ -408,7 +408,16 @@ func TestCheckWipesAndSplits(t *testing.T) {
 		"an item in a file": {func(m *backup.Manifest) {
 			m.Wipes[1].Items = append(m.Wipes[1].Items, backup.Item{Path: "x", Kind: backup.KindDir})
 		}, "inside"},
-		"a file without a hash":  {func(m *backup.Manifest) { m.Wipes[0].Items[1].SHA256 = "" }, "SHA-256"},
+		"a file without a hash": {func(m *backup.Manifest) { m.Wipes[0].Items[1].SHA256 = "" }, "SHA-256"},
+		"an unclean wipe path": {func(m *backup.Manifest) {
+			sep := string(filepath.Separator)
+			m.Wipes[1].Path = home + sep + ".claude" + sep + ".." + sep + ".ssh" + sep + "authorized_keys"
+			m.Wipes[1].File = "files/.ssh/authorized_keys"
+		}, "clean"},
+		"an unclean split path": {func(m *backup.Manifest) {
+			sep := string(filepath.Separator)
+			m.Splits[0].Target = home + sep + "x" + sep + ".." + sep + ".claude.json"
+		}, "clean"},
 		"a split outside":        {func(m *backup.Manifest) { m.Splits[0].Target = filepath.Join(filepath.Dir(home), "x") }, "not under the home directory"},
 		"a split copy elsewhere": {func(m *backup.Manifest) { m.Splits[0].File = "files/x" }, "copy"},
 		"a split without keys":   {func(m *backup.Manifest) { m.Splits[0].Keys = nil }, "keys"},

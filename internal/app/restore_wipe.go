@@ -392,9 +392,13 @@ func canonical(value []byte) string {
 // wipeTargets refuses an entry of m that is not one a replace install
 // wipes, inside an area of an adapter or one of its leak entries, and a
 // split file that is not one an adapter declares, as only an edited
-// manifest can hold.
+// manifest can hold. Each path must be clean, since the check reads its
+// text and a move cleans it.
 func wipeTargets(home string, m backup.Manifest) error {
 	for _, w := range m.Wipes {
+		if !backup.Clean(w.Path) {
+			return fmt.Errorf("%s is not a clean absolute path", w.Path)
+		}
 		if !slices.ContainsFunc(harness.All(), func(a harness.Adapter) bool {
 			return slices.ContainsFunc(a.Real.Areas, func(ar harness.Area) bool { return below(filepath.Join(home, filepath.FromSlash(ar.Dir)), w.Path) }) ||
 				slices.ContainsFunc(a.Real.Leaks, func(l harness.LeakEntry) bool {
@@ -405,6 +409,9 @@ func wipeTargets(home string, m backup.Manifest) error {
 		}
 	}
 	for _, s := range m.Splits {
+		if !backup.Clean(s.Target) {
+			return fmt.Errorf("%s is not a clean absolute path", s.Target)
+		}
 		if !slices.ContainsFunc(harness.All(), func(a harness.Adapter) bool {
 			return slices.ContainsFunc(a.Real.Split, func(sf harness.SplitFile) bool {
 				return samePath(filepath.Join(home, filepath.FromSlash(sf.Path)), s.Target)

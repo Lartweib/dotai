@@ -373,6 +373,13 @@ func TestRestoreRefusesATamperedManifest(t *testing.T) {
 			m.Mode = app.ModeReplace
 			m.Ops = append(m.Ops, backup.Op{Action: plan.Create, Target: at(home, ".ssh/id"), After: &backup.Content{SHA256: sum("x")}})
 		},
+		"not a clean absolute path: a wiped entry that climbs out of an area": func(home string, m *backup.Manifest, dir string) {
+			m.Mode = app.ModeReplace
+			writeFile(t, filepath.Join(dir, "files", ".ssh", "authorized_keys"), "evil\n")
+			sep := string(filepath.Separator)
+			m.Wipes = []backup.Wipe{{Harness: "claudecode", Path: home + sep + ".claude" + sep + ".." + sep + ".ssh" + sep + "authorized_keys", Kind: backup.KindFile,
+				File: "files/.ssh/authorized_keys", Items: []backup.Item{{Kind: backup.KindFile, SHA256: sum("evil\n")}}}}
+		},
 		"restore never writes there: a wiped entry no replace install wipes": func(home string, m *backup.Manifest, dir string) {
 			m.Mode = app.ModeReplace
 			writeFile(t, filepath.Join(dir, "files", ".ssh", "config"), "Host evil\n")
