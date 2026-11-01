@@ -431,7 +431,8 @@ func resolveMode(mode string, prev *state.State) (string, error) {
 }
 
 // errReplaceUnavailable refuses an install that would write in the replace
-// mode, which comes with the backup by move (roadmap PRs 9b-3 and 9b-4).
+// mode, which the CLI cannot ask for until consent and the running-harness
+// check exist (roadmap PR 9b-4).
 func errReplaceUnavailable(fromState bool) error {
 	why := "dotai install --mode replace is not available yet"
 	if fromState {

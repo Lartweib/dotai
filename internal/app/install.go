@@ -81,6 +81,9 @@ type InstallOptions struct {
 	Variant   string
 	Harnesses []string
 	Mode      string
+	// replaceWrites lets an install write in the replace mode, which the
+	// CLI cannot do yet (roadmap PR 9b-4): only the tests set it.
+	replaceWrites bool
 }
 
 // HarnessPlan is one harness of the pack: whether the pack requires it,
@@ -253,7 +256,8 @@ type planned struct {
 // the plan while the staging still exists; the staging is removed after
 // then returns. A staging that cannot be removed is a *stagingError, on
 // its own when nothing else failed. With write set, the plan is for an
-// install that writes, which the replace mode cannot do yet.
+// install that writes, which the replace mode cannot do yet unless
+// opts.replaceWrites is set.
 func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run runFunc, cacheDir, dir, home string, opts InstallOptions, write bool, progress Progress, then func(planned) error) (err error) {
 	if !filepath.IsAbs(home) {
 		return fmt.Errorf("home directory %q is not absolute", home)
@@ -270,7 +274,7 @@ func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run run
 	if err != nil {
 		return err
 	}
-	if write && mode == ModeReplace {
+	if write && mode == ModeReplace && !opts.replaceWrites {
 		return errReplaceUnavailable(opts.Mode == "")
 	}
 	tmp, err := d.StagingDir()

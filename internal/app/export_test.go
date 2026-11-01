@@ -126,3 +126,17 @@ var OrderLinks = orderLinks
 func MakeLinkWith(d executeFS, home, root, name, target, dest string) error {
 	return runner{d: d, home: home}.link(root, name, target, dest)
 }
+
+// InstallReplace is Install through d on the host h in the replace mode,
+// which writes there: the path the CLI cannot reach yet (roadmap PR 9b-4).
+func InstallReplace(ctx context.Context, d executeFS, h Host, fetch fetchFunc, run runFunc, dir, home string, opts InstallOptions) (InstallResult, error) {
+	opts.Mode, opts.replaceWrites = ModeReplace, true
+	return install(ctx, d, h, fetch, run, "cache", dir, home, opts, nil, nil)
+}
+
+// InstallAgainReplace is Install through d on the host h with the mode the
+// install state records, written even when that is replace.
+func InstallAgainReplace(ctx context.Context, d executeFS, h Host, fetch fetchFunc, run runFunc, dir, home string, opts InstallOptions) (InstallResult, error) {
+	opts.replaceWrites = true
+	return install(ctx, d, h, fetch, run, "cache", dir, home, opts, nil, nil)
+}

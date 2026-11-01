@@ -132,6 +132,9 @@ type executeFS interface {
 	WriteIn(root, name string, data []byte, mode fs.FileMode) error
 	RemoveIn(root, name string) error // a file, a link or an empty directory
 	MkdirIn(root, name string) error  // with the missing ones above it
+	// MoveIn renames the entry from to the missing to, a file, a directory
+	// or a link, never followed (decision 0038).
+	MoveIn(root, from, to string) error
 	// LinkIn creates the link name to the absolute dest, a junction on
 	// Windows and a symbolic link elsewhere; name must be missing.
 	LinkIn(root, name, dest string) error
@@ -153,8 +156,13 @@ type executeFS interface {
 // opts as PlanInstall reads them, into the absolute home directory home,
 // as decisions 0018, 0028 and 0032 describe; only in the isolated mode for
 // now: an install in the replace mode, asked for or recorded in the state,
-// is a *UsageError before anything is staged or written, since its backup by
-// move does not exist yet (decision 0038). It plans as PlanInstall does,
+// is a *UsageError before anything is staged or written, since its consent
+// and running-harness check do not exist yet (decision 0038). Only the
+// tests reach the replace write path, through an option the CLI cannot
+// set: there a plan with refusals is a *RefusedError that writes nothing,
+// and each wiped entry is moved into the backup and each split file
+// rewritten by key before the pack's files are written. It plans as
+// PlanInstall does,
 // including the removal of the files the previous install owned and the
 // pack no longer stages. A pack with problems gives diagnostics and
 // writes nothing.
@@ -188,7 +196,7 @@ func install(ctx context.Context, d executeFS, h host, fetch fetchFunc, run runF
 		return InstallResult{}, fmt.Errorf("home directory %q is not absolute", home)
 	}
 	home = filepath.Clean(home)
-	if opts.Mode == ModeReplace {
+	if opts.Mode == ModeReplace && !opts.replaceWrites {
 		return InstallResult{}, errReplaceUnavailable(false)
 	}
 	packPath, err := filepath.Abs(dir)
@@ -200,6 +208,9 @@ func install(ctx context.Context, d executeFS, h host, fetch fetchFunc, run runF
 		res = InstallResult{InstallPlan: p.plan, Warnings: []string{}}
 		if len(p.plan.Diagnostics) > 0 {
 			return nil
+		}
+		if len(p.plan.Refusals) > 0 {
+			return &RefusedError{Refusals: p.plan.Refusals}
 		}
 		for _, w := range append(sharedWarnings(p.plan.SharedSkills), settingsWarning(p)) {
 			if w == "" {
@@ -275,7 +286,7 @@ func (r runner) run(res *InstallResult) error {
 	prev := r.p.prev
 	next := state.New(r.pack, r.p.plan.Variant, r.p.plan.Mode, time.Time{}, r.p.harnesses, "", r.p.ops)
 	next.SharedSkills, next.Selection = r.p.shared, r.p.choice
-	if len(writes) == 0 && prev != nil && prev.SameInstall(next) {
+	if len(writes) == 0 && !r.p.resets() && prev != nil && prev.SameInstall(next) {
 		res.State = statePath
 		return nil
 	}
@@ -294,7 +305,7 @@ func (r runner) write(res *InstallResult, writes []plan.Op, next state.State) er
 		r.removeTemps(prev.Pending)
 	}
 
-	if len(writes) == 0 {
+	if len(writes) == 0 && !r.p.resets() {
 		if prev != nil {
 			next.Backup = settledBackup(*prev)
 		}
@@ -317,21 +328,45 @@ func (r runner) write(res *InstallResult, writes []plan.Op, next state.State) er
 		Mode: r.p.plan.Mode, Pack: backup.Pack{Name: r.pack.Name, Version: r.pack.Version, Path: r.pack.Path},
 		Variant: r.p.plan.Variant, Harnesses: r.p.harnesses,
 	}
-	ref, err := r.backup(backup.OperationInstall, info, prior, writes)
+	ex, err := r.resetWork()
 	if err != nil {
 		return fmt.Errorf("the backup failed, nothing was written: %w", err)
 	}
-	if err := r.writeState(state.Journal(base, ref.ID, writes)); err != nil {
+	ref, err := r.backup(backup.OperationInstall, info, prior, writes, ex)
+	if err != nil {
+		return fmt.Errorf("the backup failed, nothing was written: %w", err)
+	}
+	// A replace install wipes first, so that the pack installs on a clean
+	// base (decision 0038). Its journal has no ops until every wipe is
+	// done: an install killed before then wrote none of the pack's files,
+	// and the user's own entries it had not moved yet are not dotai's.
+	resets := len(ex.wipes) > 0 || len(ex.splits) > 0
+	ops := writes
+	if resets {
+		ops = nil
+	}
+	if err := r.writeState(journal(base, ref.ID, ops, ex)); err != nil {
 		return fmt.Errorf("the install journal could not be written, nothing was written: %w", errors.Join(err, r.d.RemoveAll(ref.Path)))
 	}
 	next.Backup = ref.ID
-	done, err := r.execute(writes)
+	wiped, err := r.wipe(ref.Path, ex.wipes)
+	var split []splitWrite
+	if err == nil {
+		split, err = r.writeSplits(ex.splits)
+	}
+	if err == nil && resets {
+		err = r.writeState(journal(base, ref.ID, writes, ex))
+	}
+	var done []applied
+	if err == nil {
+		done, err = r.execute(writes)
+	}
 	if err == nil {
 		next.InstalledAt = r.d.Now().UTC()
 		err = r.writeState(next)
 	}
 	if err != nil {
-		rb := r.rollback(ref.Path, done)
+		rb := errors.Join(r.rollback(ref.Path, done), r.unsplit(split), r.unmove(wiped))
 		if rb == nil {
 			rb = r.restoreState(prev != nil, base)
 		}
@@ -428,6 +463,17 @@ func (r runner) removeTemps(p *state.Pending) {
 			}
 		}
 	}
+	for _, target := range p.Splits { // a split file is written in the directory that holds it
+		names, err := r.d.List(filepath.Dir(target))
+		if err != nil {
+			continue
+		}
+		for _, n := range names {
+			if isTempOf(n, filepath.Base(target)) {
+				_ = r.d.RemoveIn(filepath.Dir(target), n)
+			}
+		}
+	}
 }
 
 // recheckState checks, under the lock, that the install state is still
@@ -444,12 +490,14 @@ func (r runner) recheckState(statePath string) error {
 	return nil
 }
 
-// backup writes a new backup of operation, which writes writes and
-// installs what info names: a copy of each target that is replaced or
-// removed, checked against the plan, a copy of prior, the install state
-// before the operation (nil for none), and then the manifest, each synced
-// to the disk with its directories. A backup that fails is removed.
-func (r runner) backup(operation string, info backup.Info, prior *state.State, writes []plan.Op) (ref *BackupRef, err error) {
+// backup writes a new backup of operation, which writes writes, what ex
+// names besides, and installs what info names: a copy of each target that
+// is replaced or removed, checked against the plan, a copy of each split
+// file of ex and the record of each entry it moves into the backup
+// (backupExtra), a copy of prior, the install state before the operation
+// (nil for none), and then the manifest, each synced to the disk with its
+// directories. A backup that fails is removed.
+func (r runner) backup(operation string, info backup.Info, prior *state.State, writes []plan.Op, ex *extra) (ref *BackupRef, err error) {
 	root := filepath.Join(r.home, dotaiDir, backupsDir)
 	if err := ensureDir(r.d, r.home, root, 0o700); err != nil {
 		return nil, err
@@ -495,6 +543,11 @@ func (r runner) backup(operation string, info backup.Info, prior *state.State, w
 			dirs[d] = true
 		}
 	}
+	more, err := r.backupExtra(dir, &m, ex)
+	if err != nil {
+		return nil, err
+	}
+	maps.Copy(dirs, more)
 	// Deepest first, so that each directory is synced after what it holds.
 	for _, d := range slices.Backward(slices.Sorted(maps.Keys(dirs))) {
 		if err := r.d.SyncDir(filepath.Join(dir, filepath.FromSlash(d))); err != nil {
@@ -824,16 +877,29 @@ func (r runner) writeState(s state.State) error {
 
 // prune removes the backups retention does not keep, never the backups in
 // protect, with head the backup the install state now names ("" for
-// none), from which the history is followed. A backup whose manifest
-// cannot be read or decoded is left alone; one without a manifest is
-// incomplete.
+// none), from which the history is followed. A pinned backup no restore
+// has undone is never removed either, nor the history from head back to it
+// (decision 0038). A backup whose manifest cannot be read or decoded is
+// left alone; one without a manifest is incomplete.
 func (r runner) prune(head string, protect ...string) error {
 	root := filepath.Join(r.home, dotaiDir, backupsDir)
 	names, err := r.d.List(root)
 	if err != nil {
 		return err
 	}
-	chain := r.history(head)
+	order := r.historyOrder(head)
+	chain := map[string]bool{}
+	for _, id := range order {
+		chain[id] = true
+	}
+	pinned, err := r.pinnedBackups()
+	if err != nil {
+		return err
+	}
+	protect = append(slices.Clone(protect), pinned...)
+	if i := slices.IndexFunc(order, func(id string) bool { return slices.Contains(pinned, id) }); i >= 0 {
+		protect = append(protect, order[:i]...)
+	}
 	var entries []backup.Entry
 	for _, name := range names {
 		if _, ok := backup.ParseID(name); !ok {
@@ -860,17 +926,19 @@ func (r runner) prune(head string, protect ...string) error {
 	return errors.Join(errs...)
 }
 
-// history is the set of backups the install state leads to: head, then
-// the backup the state kept in it names, and so on, as far as each one can
-// be read.
-func (r runner) history(head string) map[string]bool {
+// historyOrder is the backups the install state leads to, newest first:
+// head, then the backup the state kept in it names, and so on, as far as
+// each one can be read.
+func (r runner) historyOrder(head string) []string {
 	root := filepath.Join(r.home, dotaiDir, backupsDir)
 	seen := map[string]bool{}
+	var order []string
 	for id := head; id != "" && !seen[id]; {
 		if _, ok := backup.ParseID(id); !ok {
 			break
 		}
 		seen[id] = true
+		order = append(order, id)
 		dir := filepath.Join(root, id)
 		data, err := r.d.ReadFile(dir, backup.ManifestName)
 		if err != nil {
@@ -889,7 +957,7 @@ func (r runner) history(head string) map[string]bool {
 		}
 		id = prior.Backup
 	}
-	return seen
+	return order
 }
 
 // same reports whether cur is the content hash and exec bit, leaving the

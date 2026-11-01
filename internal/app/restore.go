@@ -341,7 +341,7 @@ func (r *restorer) write(res *RestoreResult, chain []undone) error {
 			info = backup.Info{Mode: prior.Mode, Pack: backup.Pack(prior.Pack), Variant: prior.Variant, Harnesses: prior.Harnesses}
 		}
 		var err error
-		if ref, err = r.backup(backup.OperationRestore, info, &base, r.p.ops); err != nil {
+		if ref, err = r.backup(backup.OperationRestore, info, &base, r.p.ops, &extra{}); err != nil {
 			return fmt.Errorf("the backup failed, nothing was written: %w", err)
 		}
 		if err := r.writeState(state.Journal(base, ref.ID, r.p.ops)); err != nil {
