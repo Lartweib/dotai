@@ -57,15 +57,38 @@ func TestStageWritesEveryStagedFile(t *testing.T) {
 	}
 	// The relative tools paths read the same on every platform.
 	expand := strings.NewReplacer("${DOTAI_TOOLS}", "home/.dotai/tools", "${DOTAI_PROJECT_TOOLS}", "project/.dotai/tools")
+	// The files merged from the layers of the default variant and the web
+	// profile, comments dropped (decision 0040).
+	merged := map[string]string{
+		"user/.rulesync/permissions.jsonc": `{
+  "permission": {
+    "bash": {
+      "git status": "allow",
+      "git diff *": "allow",
+      "git push --force *": "deny"
+    },
+    "read": {
+      ".env": "deny"
+    }
+  }
+}
+`,
+	}
 	want := []string{app.StageMarker}
 	for _, f := range res.Files {
 		want = append(want, f.Scope+"/"+f.Path)
-		if f.Generator != "" || f.Layer == "" { // rendered or merged: no single source
+		if f.Generator != "" {
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join(out, f.Scope, filepath.FromSlash(f.Path)))
 		if err != nil {
 			t.Fatal(err)
+		}
+		if f.Layer == "" { // merged: no single source
+			if w, ok := merged[f.Scope+"/"+f.Path]; !ok || string(data) != w {
+				t.Errorf("merged %s/%s =\n%s\nwant\n%s", f.Scope, f.Path, data, w)
+			}
+			continue
 		}
 		rel := strings.Replace(f.Path, ".dotai/tools/", "dotai/tools/", 1)
 		src, err := os.ReadFile(filepath.Join(examplePack, filepath.FromSlash(f.Layer), filepath.FromSlash(rel)))
