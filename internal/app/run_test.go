@@ -158,6 +158,8 @@ func TestPlanRunErrors(t *testing.T) {
 		{name: "pending journal", home: func(t *testing.T) string {
 			return runHome(t, app.ModeIsolated, []string{"claudecode"}, pending)
 		}, id: "claudecode", wantInErr: []string{"was interrupted", "dotai install", "dotai restore"}},
+		{name: "a replace install", home: func(t *testing.T) string { return runHome(t, app.ModeReplace, []string{"claudecode"}, nil) }, id: "claudecode",
+			wantInErr: []string{"records a replace install", "start it directly (claude)", "without dotai run"}},
 		{name: "another mode", home: func(t *testing.T) string { return runHome(t, "shared", []string{"claudecode"}, nil) }, id: "claudecode",
 			wantInErr: []string{`mode "shared"`, "dotai install"}},
 		{name: "harness not installed", home: func(t *testing.T) string { return runHome(t, app.ModeIsolated, []string{"opencode"}, nil) }, id: "claudecode",

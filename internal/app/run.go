@@ -98,6 +98,9 @@ func planRun(d executeFS, lookPath func(string) (string, error), goos, home, id 
 		return RunPlan{}, fmt.Errorf("there is no install state %s: run dotai install with a pack that has %s first", statePath, id)
 	case s.Pending != nil:
 		return RunPlan{}, fmt.Errorf("the last install or restore was interrupted, the install state %s still holds its journal: run dotai install to finish it or dotai restore to undo it, then run again", statePath)
+	case s.Mode == ModeReplace:
+		// The harness reads the pack from its own directory (decision 0038).
+		return RunPlan{}, fmt.Errorf("the install state %s records a replace install: %s runs from its own configuration directory, so start it directly (%s), without dotai run", statePath, id, a.Command)
 	case s.Mode != ModeIsolated:
 		return RunPlan{}, fmt.Errorf("the install state %s has mode %q, and dotai run launches an %s install: run dotai install", statePath, s.Mode, ModeIsolated)
 	case !slices.Contains(s.Harnesses, id):
