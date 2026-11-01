@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"slices"
 	"strconv"
 	"strings"
@@ -47,11 +48,11 @@ func (s *scope) mergeList(l pack.Layer, f pack.File) {
 	codes := listFiles[f.Rel]
 	src, err := readList(l, f)
 	if err != nil {
-		line := fileLine
-		if d, ok := errors.AsType[*duplicateKey](err); ok {
-			line = d.line
+		line, column := fileLine, 0
+		if p, ok := errors.AsType[*positioned](err); ok {
+			line, column = p.line, p.column
 		}
-		s.report(pack.NewDiagnostic(f.Path, line, 0, codes.invalid, "%v", err))
+		s.report(pack.NewDiagnostic(f.Path, line, column, codes.invalid, "%v", err))
 		return
 	}
 	dst, ok := s.lists[f.Rel]
@@ -86,19 +87,30 @@ func (s *scope) unite(dst, src *node, ptr, code string) {
 	}
 }
 
-// duplicateKey is a key that appears twice in one object of a file.
-type duplicateKey struct {
-	ptr  string
-	line int
+// positioned is a problem at a place in a file; column 0 is the whole line.
+type positioned struct {
+	line, column int
+	msg          string
 }
 
-func (d *duplicateKey) Error() string { return "duplicate key " + d.ptr }
+func (p *positioned) Error() string { return p.msg }
+
+// parseError moves the position hujson writes into its message, "hujson:
+// line L, column C: cause", to a positioned error with the cause alone.
+func parseError(err error) error {
+	var line, column int
+	cause := errors.Unwrap(err)
+	if _, scan := fmt.Sscanf(err.Error(), "hujson: line %d, column %d:", &line, &column); scan != nil || cause == nil {
+		return err
+	}
+	return &positioned{line, column, cause.Error()}
+}
 
 // readList reads a list file, which must hold a JSONC object.
 func readList(l pack.Layer, f pack.File) (*node, error) {
 	v, err := hujson.Parse(slices.Clone(f.Data)) // Parse aliases its input
 	if err != nil {
-		return nil, err
+		return nil, parseError(err)
 	}
 	v.Standardize()
 	if _, ok := v.Value.(*hujson.Object); !ok {
@@ -115,7 +127,7 @@ func readList(l pack.Layer, f pack.File) (*node, error) {
 				k := m.Name.Value.(hujson.Literal).String()
 				p := ptr + "/" + escape(k)
 				if _, ok := n.vals[k]; ok {
-					return nil, &duplicateKey{p, line(m.Name.StartOffset)}
+					return nil, &positioned{line(m.Name.StartOffset), 0, "duplicate key " + p}
 				}
 				child, err := read(m.Value, p, line(m.Name.StartOffset))
 				if err != nil {
@@ -131,7 +143,9 @@ func readList(l pack.Layer, f pack.File) (*node, error) {
 				if err != nil {
 					return nil, err
 				}
-				n.items = append(n.items, it)
+				if !slices.ContainsFunc(n.items, func(d *node) bool { return d.canon == it.canon }) {
+					n.items = append(n.items, it) // an identical item is kept once, within a layer too
+				}
 			}
 		default:
 			return leaf(v.Pack(), l, f.Path, at)
@@ -149,11 +163,37 @@ func leaf(raw []byte, l pack.Layer, file string, line int) (*node, error) {
 	if err := d.Decode(&v); err != nil {
 		return nil, err
 	}
-	canon, err := marshal(v)
+	canon, err := marshal(normalize(v))
 	if err != nil {
 		return nil, err
 	}
 	return &node{raw: raw, canon: string(canon), layer: l, file: file, line: line}, nil
+}
+
+// normalize gives every number of v one spelling, so that 1, 1.0 and 1e0
+// are the same value. A number beyond 2^±4096 keeps its literal: printing
+// it would cost memory in proportion to its exponent.
+func normalize(v any) any {
+	switch c := v.(type) {
+	case json.Number:
+		f, _, err := big.ParseFloat(string(c), 10, 512, big.ToNearestEven)
+		if err != nil || f.IsInf() {
+			return c
+		}
+		if exp := f.MantExp(nil); exp > 4096 || exp < -4096 {
+			return c
+		}
+		return json.Number(f.Text('e', -1))
+	case []any:
+		for i := range c {
+			c[i] = normalize(c[i])
+		}
+	case map[string]any:
+		for k := range c {
+			c[k] = normalize(c[k])
+		}
+	}
+	return v
 }
 
 // marshal is json.Marshal without HTML escaping, so that a command such as

@@ -97,6 +97,24 @@ func TestStageMergesListFiles(t *testing.T) {
 			want:    "{\n  \"permission\": {\n    \"edit\": {\n      \"src/**\": \"allow\",\n      \"~/x\": \"deny\"\n    }\n  }\n}\n",
 			origins: map[string]string{"/permission/edit/src~1**": "base", "/permission/edit/~0~1x": "base"},
 		},
+		{
+			name:    "identical items in the first layer, once",
+			pack:    newPack(base(hooks(`{"hooks": {"stop": [{"command": "a"}, {"command": "a"}, 1, 1.0, 1e0]}}`))),
+			path:    ".rulesync/hooks.jsonc",
+			want:    "{\n  \"hooks\": {\n    \"stop\": [\n      {\n        \"command\": \"a\"\n      },\n      1\n    ]\n  }\n}\n",
+			origins: map[string]string{"/hooks/stop/0": "base", "/hooks/stop/1": "base"},
+		},
+		{
+			name: "numbers that are equal, whatever their spelling",
+			pack: newPack(
+				base(hooks(`{"version": 1, "hooks": {"stop": [{"command": "a", "timeout": 10}]}}`)),
+				variant("v", hooks(`{"version": 1.0, "hooks": {"stop": [{"timeout": 1e1, "command": "a"}, {"command": "a", "timeout": 10.5}]}}`)),
+			),
+			path: ".rulesync/hooks.jsonc",
+			want: "{\n  \"version\": 1,\n  \"hooks\": {\n    \"stop\": [\n      {\n        \"command\": \"a\",\n        \"timeout\": 10\n      },\n" +
+				"      {\n        \"command\": \"a\",\n        \"timeout\": 10.5\n      }\n    ]\n  }\n}\n",
+			origins: map[string]string{"/version": "base", "/hooks/stop/0": "base", "/hooks/stop/1": "variants/v"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -160,9 +178,30 @@ func TestCheckListFiles(t *testing.T) {
 			pack: newPack(base(permissions(`{"permission": [`), hooks(`[]`)),
 				variant("v", permissions(`{"permission": {"bash": {"x": "allow", "x": "deny"}}}`))),
 			want: []string{
-				`base/.rulesync/permissions.jsonc: permissions-invalid: hujson: line 1, column 17: parsing value: unexpected EOF`,
+				`base/.rulesync/permissions.jsonc:1:17: permissions-invalid: parsing value: unexpected EOF`,
 				`base/.rulesync/hooks.jsonc: hooks-invalid: want an object`,
 				`variants/v/.rulesync/permissions.jsonc:1: permissions-invalid: duplicate key /permission/bash/x`,
+			},
+		},
+		{
+			name: "a parse error on a later line",
+			pack: newPack(base(hooks("{\n  \"version\": 1,\n  \"hooks\": {]\n}\n"))),
+			want: []string{`base/.rulesync/hooks.jsonc:3:13: hooks-invalid: invalid character ']' at start of value`},
+		},
+		{
+			name: "a duplicate key in a file of one layer",
+			pack: newPack(base(hooks("{\n  \"version\": 1,\n  \"version\": 1\n}\n"))),
+			want: []string{`base/.rulesync/hooks.jsonc:3: hooks-invalid: duplicate key /version`},
+		},
+		{
+			name: "numbers too large to normalize compare by their literal",
+			pack: newPack(base(hooks(`{"a": 1e999999999, "b": 1e600000000}`)), variant("v", hooks(`{"a": 1e999999999, "b": 1e600000000}`))),
+		},
+		{
+			name: "numbers that differ in value conflict",
+			pack: newPack(base(hooks(`{"version": 1}`)), variant("v", hooks(`{"version": 1.5e0}`))),
+			want: []string{
+				`variants/v/.rulesync/hooks.jsonc:1: hooks-conflict: /version already has a different value in base (first: base/.rulesync/hooks.jsonc:1) (fix: keep the same value; a layer cannot change or remove what an earlier layer of its scope sets)`,
 			},
 		},
 	}
