@@ -25,7 +25,7 @@ Records were renumbered on 2026-10-26, when the records about the reference pack
 | [0015](0015-pack-in-its-own-repository.md) | The reference pack lives in its own repository | accepted | 2026-10-23 |
 | [0016](0016-review-via-external-tracker.md) | Review lives in external tools that the pack declares | accepted | 2026-10-24 |
 | [0017](0017-pack-variants-as-layers.md) | Packs declare variants; the engine applies them as layers | accepted | 2026-10-24 |
-| [0018](0018-install-modes-and-mandatory-backup.md) | Install modes (isolated, replace, merge) with a mandatory backup | accepted | 2026-10-25 |
+| [0018](0018-install-modes-and-mandatory-backup.md) | Install modes (isolated, replace, merge) with a mandatory backup (partially superseded by 0038) | accepted | 2026-10-25 |
 | [0019](0019-v1-harness-targets.md) | v1 harness targets: Claude Code, agy and OpenCode | accepted | 2026-10-24 |
 | [0020](0020-v1-scope-engine-and-pack.md) | v1 scope of the engine (partially superseded by 0034) | accepted | 2026-10-24 |
 | [0021](0021-go-engine-orchestrates-rulesync.md) | The Go engine orchestrates; a pinned rulesync renders | accepted | 2026-10-25 |
@@ -41,10 +41,11 @@ Records were renumbered on 2026-10-26, when the records about the reference pack
 | [0031](0031-isolated-install-root.md) | Isolated installs live under `~/.dotai/isolated/` (partially superseded by 0034) | accepted | 2026-10-29 |
 | [0032](0032-install-state-backup-and-isolated-launch.md) | Install state, backup layout and the isolated launch command (partially superseded by 0035) | accepted | 2026-10-29 |
 | [0033](0033-restore-from-the-install-history.md) | Restore follows the install history kept in the backups (partially superseded by 0035) | accepted | 2026-10-30 |
-| [0034](0034-replace-mode-in-v1.md) | The replace install mode is part of v1 | accepted | 2026-10-30 |
+| [0034](0034-replace-mode-in-v1.md) | The replace install mode is part of v1 (partially superseded by 0038) | accepted | 2026-10-30 |
 | [0035](0035-settings-files-owned-by-key.md) | dotai owns only its keys in a harness's settings file | accepted | 2026-10-30 |
 | [0036](0036-shared-skills-per-variant.md) | A variant can share the user's skills folder in isolated mode | accepted | 2026-10-31 |
 | [0037](0037-tool-commands-resolved-per-os.md) | Tool commands in settings are resolved per OS | accepted | 2026-10-31 |
+| [0038](0038-replace-mode-resets-harness-to-fresh-install.md) | Replace mode resets each selected harness to a fresh install | accepted | 2026-11-01 |
 
 ## Superseded (history only)
 
