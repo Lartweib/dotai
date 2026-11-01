@@ -14,8 +14,18 @@
       ],
       "optionalHarnesses": [],
       "profiles": [
-        "web",
-        "docs"
+        {
+          "name": "web",
+          "path": "profiles/web",
+          "description": "Web projects.",
+          "hints": []
+        },
+        {
+          "name": "docs",
+          "path": "profiles/docs",
+          "description": "Documentation sites.",
+          "hints": []
+        }
       ],
       "variants": [
         "standalone",

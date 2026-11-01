@@ -37,12 +37,22 @@ type PackSummary struct {
 	Harnesses []string `json:"harnesses"`
 	// OptionalHarnesses are the harnesses an install skips when they are
 	// not installed (decision 0038).
-	OptionalHarnesses []string       `json:"optionalHarnesses"`
-	Profiles          []string       `json:"profiles"`
-	Variants          []string       `json:"variants"`
-	DefaultVariant    string         `json:"defaultVariant"`
-	SharedSkills      []string       `json:"sharedSkills"` // the variants that share the user's skills (decision 0036)
-	Layers            []LayerSummary `json:"layers"`
+	OptionalHarnesses []string         `json:"optionalHarnesses"`
+	Profiles          []ProfileSummary `json:"profiles"` // in declaration order
+	Variants          []string         `json:"variants"`
+	DefaultVariant    string           `json:"defaultVariant"`
+	SharedSkills      []string         `json:"sharedSkills"` // the variants that share the user's skills (decision 0036)
+	Layers            []LayerSummary   `json:"layers"`
+}
+
+// ProfileSummary describes one profile as the manifest declares it, for
+// the onboarding agent that picks profiles. Path is empty when the
+// manifest's path is invalid; Hints is never nil.
+type ProfileSummary struct {
+	Name        string   `json:"name"`
+	Path        string   `json:"path"`
+	Description string   `json:"description"`
+	Hints       []string `json:"hints"`
 }
 
 // LayerSummary describes one layer and how many items it defines.
@@ -103,10 +113,10 @@ func validate(fsys fs.FS, sel Selection) (ValidateResult, *pack.Pack, error) {
 	s := &PackSummary{
 		Name: m.Name, Version: m.Version, Engine: m.Engine, Rulesync: m.Rulesync,
 		Harnesses: append([]string{}, m.Harnesses...), OptionalHarnesses: append([]string{}, m.OptionalHarnesses...),
-		Profiles: []string{}, Variants: []string{}, SharedSkills: []string{}, Layers: []LayerSummary{},
+		Profiles: []ProfileSummary{}, Variants: []string{}, SharedSkills: []string{}, Layers: []LayerSummary{},
 	}
 	for _, pr := range m.Profiles {
-		s.Profiles = append(s.Profiles, pr.Name)
+		s.Profiles = append(s.Profiles, ProfileSummary{Name: pr.Name, Path: pr.Path, Description: pr.Description, Hints: append([]string{}, pr.Hints...)})
 	}
 	for _, v := range m.Variants {
 		s.Variants = append(s.Variants, v.Name)

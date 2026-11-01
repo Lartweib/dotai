@@ -16,7 +16,14 @@
       ],
       "optionalHarnesses": [],
       "profiles": [
-        "web"
+        {
+          "name": "web",
+          "path": "profiles/web",
+          "description": "Web projects with a JavaScript toolchain.",
+          "hints": [
+            "package.json"
+          ]
+        }
       ],
       "variants": [
         "standalone",
