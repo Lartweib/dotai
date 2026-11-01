@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -69,6 +70,29 @@ func TestValidateFS(t *testing.T) {
 			t.Errorf("result = %+v, want invalid without pack", res)
 		}
 	})
+}
+
+// TestValidateFSProfilesJSON checks the serialized profiles of a pack whose
+// profiles declare no hints, one with a path outside the pack and one with
+// a path that does not exist: hints are [] and an invalid path is "".
+func TestValidateFSProfilesJSON(t *testing.T) {
+	res, err := app.ValidateFS(fstest.MapFS{
+		"dotai.yaml": {Data: []byte("schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\nrulesync: 41.0.0\n" +
+			"harnesses: [opencode]\nprofiles:\n  out: {path: ../out, description: Outside.}\n  gone: {path: profiles/gone, description: Missing.}\n")},
+		"base/.rulesync/rules/r.md": {Data: []byte("# R\n")},
+	}, app.Selection{})
+	if err != nil || res.Valid || res.Pack == nil {
+		t.Fatalf("result = %+v, err = %v, want an invalid pack with a summary", res, err)
+	}
+	got, err := json.Marshal(res.Pack.Profiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = `[{"name":"out","path":"","description":"Outside.","hints":[]},` +
+		`{"name":"gone","path":"","description":"Missing.","hints":[]}]`
+	if string(got) != want {
+		t.Errorf("profiles = %s\nwant %s", got, want)
+	}
 }
 
 func TestValidateFSMergeRules(t *testing.T) {
