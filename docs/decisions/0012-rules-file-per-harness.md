@@ -37,3 +37,5 @@ The sources do not record other alternatives. Recommendation 6.4.1 of that resea
 ## Evidence
 
 - Internal research (not published) on harness surfaces, §0.1–0.3, §6.3 and §6.4.
+
+Update 2026-11-02: at project scope [0041](0041-project-scope-local-and-untracked.md) writes the rules to `.claude/rules/<pack>.md` for Claude Code and `.agents/rules/<pack>.md` for agy, and to a file named in `instructions` of `.opencode/opencode.json` for OpenCode; dotai never writes a project `CLAUDE.md` or `AGENTS.md`. On Claude Code 2.1.316 a project `AGENTS.md` alone did not load in an isolated configuration; an import from a rules file does ([HARNESS-NOTES](../HARNESS-NOTES.md#project-scope-inventory)).

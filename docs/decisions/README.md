@@ -19,7 +19,7 @@ Records were renumbered on 2026-10-26, when the records about the reference pack
 | [0008](0008-onboarding-by-detection-and-base-profile.md) | Onboarding by detection and base profile (partially superseded by 0023 and 0039) | accepted | 2026-10-20 |
 | [0010](0010-engine-and-pack-separated.md) | Engine and pack separated from day one | accepted | 2026-10-23 |
 | [0011](0011-mods-always-project-scoped.md) | Mods always project-scoped | accepted | 2026-10-23 |
-| [0012](0012-rules-file-per-harness.md) | Rules file per harness: `CLAUDE.md` for Claude Code, `AGENTS.md` for agy and OpenCode | accepted | 2026-10-23 |
+| [0012](0012-rules-file-per-harness.md) | Rules file per harness: `CLAUDE.md` for Claude Code, `AGENTS.md` for agy and OpenCode (partially superseded by 0041) | accepted | 2026-10-23 |
 | [0013](0013-renderer-merges-by-key.md) | The renderer merges by key and never rewrites files with foreign content (partially superseded by 0027) | accepted | 2026-10-23 |
 | [0014](0014-public-docs-in-english.md) | Public docs in English | accepted | 2026-10-23 |
 | [0015](0015-pack-in-its-own-repository.md) | The reference pack lives in its own repository | accepted | 2026-10-23 |
@@ -37,7 +37,7 @@ Records were renumbered on 2026-10-26, when the records about the reference pack
 | [0027](0027-loose-files-and-plugins-only-for-mods.md) | Claude Code content as loose files; plugins only for mods | accepted | 2026-10-26 |
 | [0028](0028-plan-centric-hexagonal-engine.md) | A plan-centric engine with a pure domain and ports (partially superseded by 0029) | accepted | 2026-10-26 |
 | [0029](0029-rulesync-checksums-embedded-in-the-engine.md) | rulesync checksums are embedded in the engine | accepted | 2026-10-28 |
-| [0030](0030-tools-paths-and-project-config.md) | Tool paths, one tools directory, settings overrides and project config | accepted | 2026-10-28 |
+| [0030](0030-tools-paths-and-project-config.md) | Tool paths, one tools directory, settings overrides and project config (partially superseded by 0041) | accepted | 2026-10-28 |
 | [0031](0031-isolated-install-root.md) | Isolated installs live under `~/.dotai/isolated/` (partially superseded by 0034) | accepted | 2026-10-29 |
 | [0032](0032-install-state-backup-and-isolated-launch.md) | Install state, backup layout and the isolated launch command (partially superseded by 0035) | accepted | 2026-10-29 |
 | [0033](0033-restore-from-the-install-history.md) | Restore follows the install history kept in the backups (partially superseded by 0035) | accepted | 2026-10-30 |
@@ -48,6 +48,7 @@ Records were renumbered on 2026-10-26, when the records about the reference pack
 | [0038](0038-replace-mode-resets-harness-to-fresh-install.md) | Replace mode resets each selected harness to a fresh install | accepted | 2026-11-01 |
 | [0039](0039-base-layer-installs-skills-at-user-level.md) | The base layer may install skills and agents at user level | accepted | 2026-11-01 |
 | [0040](0040-list-files-merged-as-a-union.md) | Hooks and permissions merge as a union in layer order | accepted | 2026-11-01 |
+| [0041](0041-project-scope-local-and-untracked.md) | The project scope stays local: excluded from git, never in tracked files | accepted | 2026-11-02 |
 
 ## Superseded (history only)
 

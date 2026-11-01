@@ -23,11 +23,14 @@ The scope is set by [0020](decisions/0020-v1-scope-engine-and-pack.md) and the c
 | 9b-2 | Replace layout in the adapters: keep-lists and leak entries, harness detection and selection (`--harness`), `optional-harnesses` in the manifest, the refusal on relocation variables in the plan, the mode default and switch rules, `~/.agents/skills` per variant | `dotai install --mode replace --dry-run` lists what would be wiped, kept and written per harness, and the detection of each harness |
 | 9b-3 | Backup by move, wipe operations, journal and rollback, restore of wipes, the pinned first replace backup | Tests in a temporary home: a wipe moves entries into the backup, a failure rolls them back, and `dotai restore` moves them back exactly |
 | 9b-4 | Replace enabled: consent, running-harness check, refusals enforced, the `dotai run` message, the move across volumes (copy, sync and delete), CLI-JSON | `dotai install --mode replace` into a temporary home's real harness paths, then `dotai restore` brings the original back |
-| 10 | Project scope: `dotai apply --profile`, merge by key, mods as plugins ([0027](decisions/0027-loose-files-and-plugins-only-for-mods.md)) | Apply a profile to a test project and see foreign content kept |
+| 10-1 | Project scope decision ([0041](decisions/0041-project-scope-local-and-untracked.md)) and the verification of what each harness reads in a project, excluded files and hook commands included | [HARNESS-NOTES](HARNESS-NOTES.md#project-scope-inventory): each fact verified with its version and OS, or marked unverified |
+| 10-2 | Project layout in the adapters: the local target of each kind per harness, the tracked-file check through git, the warnings for a harness with no local slot, the `.git/info/exclude` entries, same-name clashes across scopes | `dotai apply --profile <p> --dry-run` in a test repository lists, per harness, each target, the files skipped because git tracks them, and the exclude entries |
+| 10-3 | `dotai apply --profile` enabled: writes with merge by key and union, the exclude block, the project record in `.dotai/` with its ownership record, rollback, per-project MCP keys in `~/.claude.json`, the first-apply flag in CLI-JSON | Apply a profile to a test repository: `git status` stays clean, foreign content is kept, and a second apply reports it is not the first |
+| 10-4 | Mods as plugins under `.claude/skills/<mod>/` ([0027](decisions/0027-loose-files-and-plugins-only-for-mods.md)), excluded like the rest | Apply a profile with a mod and see it load in Claude Code after workspace trust |
 | 11 | `doctor` | Edit an installed file by hand and see `dotai doctor` report it |
 | 12 | Release: binaries per platform | Install `dotai` from a release and repeat the PR 8 demo |
 
-Checkpoints: PR 4 is the first real harness output, PR 8 the first real use with a safe way back, PR 9b-4 the first install over the real configuration, and PR 10 closes the v1 scope.
+Checkpoints: PR 4 is the first real harness output, PR 8 the first real use with a safe way back, PR 9b-4 the first install over the real configuration, and PR 10-4 closes the v1 scope.
 
 ## After v1
 
