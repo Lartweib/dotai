@@ -5,8 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"path"
 	"path/filepath"
 	"slices"
+	"strings"
+
+	"github.com/lartweib/dotai/internal/backup"
+	"github.com/lartweib/dotai/internal/harness"
 )
 
 // A replace install moves each entry it wipes into its backup by a rename
@@ -57,13 +62,58 @@ func (r runner) readCrossings() ([]crossing, error) {
 		return nil, fmt.Errorf("%s: %w", filepath.Join(dir, crossingFile), err)
 	}
 	for _, c := range cs {
-		for _, p := range []string{c.From, c.To, c.Temp, c.Trash} {
-			if !filepath.IsLocal(filepath.FromSlash(p)) {
-				return nil, fmt.Errorf("%s names %q, which is not a path inside the home directory", filepath.Join(dir, crossingFile), p)
-			}
+		if err := r.checkCrossing(c); err != nil {
+			abs := func(rel string) string { return filepath.Join(r.home, filepath.FromSlash(rel)) }
+			return nil, fmt.Errorf("%s is the journal of a move across volumes that was cut short, but it names a move dotai does not make (%v): "+
+				"from %s, to %s, temp %s, trash %s; dotai deleted nothing: inspect those paths, put back by hand what belongs elsewhere, then delete %s",
+				filepath.Join(dir, crossingFile), err, abs(c.From), abs(c.To), abs(c.Temp), abs(c.Trash), filepath.Join(dir, crossingFile))
 		}
 	}
 	return cs, nil
+}
+
+// checkCrossing refuses a move that dotai does not make: one end must be
+// an entry a replace install wipes, inside an adapter's area or one of its
+// leak entries, and the other a path inside a backup, either way round;
+// Temp must be a temporary name next to To, and Trash one next to From,
+// as tempName gives them. Every path must be a clean slash path inside the
+// home directory.
+func (r runner) checkCrossing(c crossing) error {
+	for _, p := range []string{c.From, c.To, c.Temp, c.Trash} {
+		if p == "" || !filepath.IsLocal(filepath.FromSlash(p)) || path.Clean(p) != p {
+			return fmt.Errorf("%q is not a clean path inside the home directory", p)
+		}
+	}
+	inBackup := func(p string) bool {
+		rest, ok := strings.CutPrefix(p, dotaiDir+"/"+backupsDir+"/")
+		id, below, _ := strings.Cut(rest, "/")
+		_, valid := backup.ParseID(id)
+		return ok && valid && below != ""
+	}
+	if !(inBackup(c.From) && r.wiped(c.To) || inBackup(c.To) && r.wiped(c.From)) {
+		return errors.New("one end must be an entry a replace install wipes and the other a path inside a backup")
+	}
+	if path.Dir(c.Temp) != path.Dir(c.To) || !isTempOf(path.Base(c.Temp), path.Base(c.To)) {
+		return errors.New("temp is not a temporary name next to to")
+	}
+	if path.Dir(c.Trash) != path.Dir(c.From) || !isTempOf(path.Base(c.Trash), path.Base(c.From)) {
+		return errors.New("trash is not a temporary name next to from")
+	}
+	return nil
+}
+
+// wiped reports whether the slash path rel is an entry a replace install
+// wipes, or a path inside one: below an area of an adapter, or one of its
+// leak entries or below it.
+func (r runner) wiped(rel string) bool {
+	p := filepath.Join(r.home, filepath.FromSlash(rel))
+	return slices.ContainsFunc(harness.All(), func(a harness.Adapter) bool {
+		return slices.ContainsFunc(a.Real.Areas, func(ar harness.Area) bool { return below(filepath.Join(r.home, filepath.FromSlash(ar.Dir)), p) }) ||
+			slices.ContainsFunc(a.Real.Leaks, func(l harness.LeakEntry) bool {
+				leak := filepath.Join(r.home, filepath.FromSlash(l.Path))
+				return samePath(leak, p) || below(leak, p)
+			})
+	})
 }
 
 // writeCrossings writes the journal cs, or removes it when cs is empty.

@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -183,5 +184,62 @@ func TestKilledMoveAcrossVolumesIsSettled(t *testing.T) {
 				})
 			}
 		}
+	}
+}
+
+// TestTamperedCrossingJournalDeletesNothing checks that a journal of moves
+// across volumes that names anything but a move dotai makes, between an
+// adapter's area or leak entry and a backup, with its temporary names
+// next to its ends, is refused before anything is deleted, naming its
+// paths, and is left for the user to inspect.
+func TestTamperedCrossingJournalDeletesNothing(t *testing.T) {
+	const id = "20261029T100100.000Z_install"
+	backed := ".dotai/backups/" + id + "/files/.claude/agents"
+	valid := map[string]string{"from": ".claude/agents", "to": backed, "temp": ".dotai/backups/" + id + "/files/.claude/.agents.dotai-0123456789abcdef", "trash": ".claude/.agents.dotai-fedcba9876543210"}
+	with := func(k, v string) map[string]string {
+		c := map[string]string{}
+		for key, val := range valid {
+			c[key] = val
+		}
+		c[k] = v
+		return c
+	}
+	for _, tt := range []struct {
+		name string
+		c    map[string]string
+	}{
+		{"trash names another directory", with("trash", ".ssh")},
+		{"temp names another directory", with("temp", ".ssh")},
+		{"trash is not next to from", with("trash", ".config/.agents.dotai-fedcba9876543210")},
+		{"temp is not next to to", with("temp", ".claude/.agents.dotai-0123456789abcdef")},
+		{"trash has another name", with("trash", ".claude/.other.dotai-fedcba9876543210")},
+		{"temp is not a temporary name", with("temp", ".dotai/backups/"+id+"/files/.claude/.agents.dotai-xyz")},
+		{"from is outside the areas", with("from", "Documents")},
+		{"to is outside the backups", with("to", ".config/agents")},
+		{"to is in a backup with a bad id", with("to", ".dotai/backups/elsewhere/files/.claude/agents")},
+		{"a path climbs out", with("from", "../outside")},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			home, _ := installHome(t)
+			for _, rel := range []string{".ssh/id_ed25519", ".claude/agents/mine.md", ".claude/.agents.dotai-fedcba9876543210/x", "Documents/notes.txt", ".config/.agents.dotai-fedcba9876543210/x"} {
+				writeFile(t, at(home, rel), "keep\n")
+			}
+			data, err := json.Marshal([]map[string]string{tt.c})
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, at(home, ".dotai/crossing.json"), string(data))
+			before := entries(t, home)
+			_, err = restore(newClockFS(t), home, "", nil)
+			if err == nil || !strings.Contains(err.Error(), "journal of a move across volumes") || !strings.Contains(err.Error(), "delete") {
+				t.Fatalf("Restore() error = %v, want the journal refused", err)
+			}
+			for _, p := range tt.c {
+				if !strings.Contains(err.Error(), filepath.FromSlash(p)) && !strings.Contains(err.Error(), p) {
+					t.Errorf("error = %v, want it to name %s", err, p)
+				}
+			}
+			diff(t, "home after the refusal", entries(t, home), before)
+		})
 	}
 }
