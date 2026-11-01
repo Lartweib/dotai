@@ -268,3 +268,55 @@ func TestLooksSensitiveInside(t *testing.T) {
 		}
 	}
 }
+
+// TestRunsAs checks the executable names that show each harness running:
+// its command, and for OpenCode the copy of the binary its background
+// service runs from, compared without case and .exe on Windows only.
+func TestRunsAs(t *testing.T) {
+	tests := []struct {
+		id, name string
+		fold     bool
+		want     bool
+	}{
+		{"claudecode", "claude", false, true},
+		{"claudecode", "claude.exe", true, true},
+		{"claudecode", "Claude.EXE", true, true},
+		{"claudecode", "Claude", false, false},
+		{"claudecode", "claude.exe", false, false},
+		{"claudecode", "claude-helper", false, false},
+		{"claudecode", "node", false, false},
+		{"antigravity-cli", "agy", false, true},
+		{"antigravity-cli", "agy.exe", true, true},
+		{"antigravity-cli", "gemini", false, false},
+		{"opencode", "opencode", false, true},
+		{"opencode", "opencode-service-1234-abcd", false, true},
+		{"opencode", "opencode-service-1234-abcd.exe", true, true},
+		{"opencode", "opencoder", false, false},
+	}
+	for _, tt := range tests {
+		if got := adapter(t, tt.id).Real.RunsAs(tt.name, tt.fold); got != tt.want {
+			t.Errorf("%s RunsAs(%q, fold %v) = %v, want %v", tt.id, tt.name, tt.fold, got, tt.want)
+		}
+	}
+}
+
+// TestRunsUnderNode checks the npm packages that show a harness running
+// as node: Claude Code's and OpenCode's, found in node's command line.
+func TestRunsUnderNode(t *testing.T) {
+	tests := []struct {
+		id, args string
+		want     bool
+	}{
+		{"claudecode", "node /usr/lib/node_modules/@anthropic-ai/claude-code/cli.js --resume", true},
+		{"claudecode", `C:\Program Files\nodejs\node.exe C:\Users\u\AppData\Roaming\npm\node_modules\@anthropic-ai\claude-code\cli.js`, true},
+		{"claudecode", "node /srv/app/server.js", false},
+		{"opencode", "node /usr/lib/node_modules/opencode-ai/bin/opencode", true},
+		{"opencode", "node /usr/lib/node_modules/@anthropic-ai/claude-code/cli.js", false},
+		{"antigravity-cli", "node /usr/lib/node_modules/@anthropic-ai/claude-code/cli.js", false},
+	}
+	for _, tt := range tests {
+		if got := adapter(t, tt.id).Real.RunsUnderNode(tt.args); got != tt.want {
+			t.Errorf("%s RunsUnderNode(%q) = %v, want %v", tt.id, tt.args, got, tt.want)
+		}
+	}
+}

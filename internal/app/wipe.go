@@ -27,6 +27,7 @@ import (
 // 0038), which writes nothing.
 type RefusedError struct {
 	Refusals []Refusal
+	Plan     InstallPlan
 }
 
 func (e *RefusedError) Error() string {
@@ -34,7 +35,7 @@ func (e *RefusedError) Error() string {
 	for i, r := range e.Refusals {
 		msgs[i] = r.Message
 	}
-	return "the replace install is refused, and nothing was written: " + strings.Join(msgs, "; ")
+	return "the replace install is refused, and the install wrote nothing: " + strings.Join(msgs, "; ")
 }
 
 // splitWrite is a split file an operation rewrites by key: its harness,
@@ -245,7 +246,7 @@ type moved struct {
 // home directory, making the directories above to that are missing. The
 // move is a rename inside the home directory, which keeps links,
 // junctions, permissions, timestamps and empty directories; across
-// volumes it fails, and the operation rolls back.
+// volumes, it falls back to a copy (moveAcross).
 func (r runner) moveEntry(from, to string) (moved, error) {
 	m := moved{from: from, to: to}
 	if err := r.ctx.Err(); err != nil {
@@ -270,7 +271,14 @@ func (r runner) moveEntry(from, to string) (moved, error) {
 	if _, err := r.d.Lstat(to); err == nil {
 		return m, &ChangedError{Path: to}
 	}
-	return m, r.d.MoveIn(r.home, src, dst)
+	err = r.d.MoveIn(r.home, src, dst)
+	if err != nil && crossDevice(err) {
+		var warning string
+		if warning, err = r.moveAcross(src, dst); warning != "" && r.warnings != nil {
+			*r.warnings = append(*r.warnings, warning)
+		}
+	}
+	return m, err
 }
 
 // wipe moves each entry of wipes, still of the kind its backup records,

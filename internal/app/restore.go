@@ -214,17 +214,30 @@ func (e *RestoreError) Unwrap() []error {
 // plan, such as to close the harnesses whose files it writes, are also
 // given to warn, when it is not nil, before overwrite is asked and before
 // the lock, the backup or any write.
-func Restore(ctx context.Context, home, id string, warn Warn, overwrite func(RestoreResult) (bool, error)) (RestoreResult, error) {
-	return restore(ctx, osInstallFS{}, home, id, warn, overwrite)
+//
+// A restore that writes into a harness's own configuration, undoing a
+// replace install, is refused before it asks or writes while that harness
+// is running, a *RunningError, unless opts.IgnoreRunning (decision 0038).
+func Restore(ctx context.Context, home, id string, opts RestoreOptions, warn Warn, overwrite func(RestoreResult) (bool, error)) (RestoreResult, error) {
+	return Ports{}.Restore(ctx, home, id, opts, warn, overwrite)
 }
 
-func restore(ctx context.Context, d executeFS, home, id string, warn Warn, overwrite func(RestoreResult) (bool, error)) (RestoreResult, error) {
+// RestoreOptions are the choices of a restore besides the backup:
+// IgnoreRunning skips the running-harness check.
+type RestoreOptions struct {
+	IgnoreRunning bool
+}
+
+func restore(ctx context.Context, d executeFS, h host, home, id string, opts RestoreOptions, warn Warn, overwrite func(RestoreResult) (bool, error)) (RestoreResult, error) {
 	if !filepath.IsAbs(home) {
 		return RestoreResult{}, fmt.Errorf("home directory %q is not absolute", home)
 	}
 	home = filepath.Clean(home)
 	if _, ok := backup.ParseID(id); id != "" && !ok {
 		return RestoreResult{}, &UsageError{fmt.Sprintf("%q is not a backup id, such as 20261029T101500.000Z_install", id)}
+	}
+	if err := settleCrossings(runner{ctx: ctx, d: d, home: home}); err != nil {
+		return RestoreResult{}, err
 	}
 	s, err := readState(d, home)
 	if err != nil {
@@ -242,6 +255,11 @@ func restore(ctx context.Context, d executeFS, home, id string, warn Warn, overw
 		return RestoreResult{}, err
 	}
 	splits := splitsOf(r.splits)
+	if !opts.IgnoreRunning {
+		if err := running(h, "restore", replaceHarnesses(home, res)); err != nil {
+			return RestoreResult{}, err
+		}
+	}
 	for _, w := range res.Warnings {
 		if warn != nil {
 			warn(w)
@@ -258,6 +276,7 @@ func restore(ctx context.Context, d executeFS, home, id string, warn Warn, overw
 			return RestoreResult{}, &ConflictError{Conflicts: res.Conflicts}
 		}
 	}
+	r.warnings = &res.Warnings
 	err = r.locked(&res.Warnings, func() error {
 		if err := r.recheckState(statePath); err != nil {
 			return &StaleError{What: "the install state " + statePath}

@@ -13,19 +13,25 @@ import (
 
 	"github.com/lartweib/dotai/internal/harness"
 	"github.com/lartweib/dotai/internal/pack"
+	"github.com/lartweib/dotai/internal/proc"
 	"github.com/lartweib/dotai/internal/state"
 )
 
 // host is what an install reads of the machine besides the disk: how a
-// command is found on PATH, the environment and the OS.
+// command is found on PATH, the environment, the OS, and the processes
+// running, besides self, dotai's own; nil processes lists none.
 type host struct {
-	lookPath func(string) (string, error)
-	environ  []string
-	goos     string
+	lookPath  func(string) (string, error)
+	environ   []string
+	goos      string
+	processes processList
+	self      int
 }
 
 // osHost is the host dotai runs on.
-func osHost() host { return host{lookPath: exec.LookPath, environ: os.Environ(), goos: runtime.GOOS} }
+func osHost() host {
+	return host{lookPath: exec.LookPath, environ: os.Environ(), goos: runtime.GOOS, processes: proc.List, self: os.Getpid()}
+}
 
 // Detection is whether a harness is installed, from two separate signals
 // (decision 0038): Binary, its command as found on PATH, "" when it is

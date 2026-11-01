@@ -34,8 +34,8 @@ type Env struct {
 	Stage          func(ctx context.Context, cacheDir, dir, out string, sel app.Selection, tools app.ToolPaths, force bool, progress app.Progress) (app.StageResult, error)
 	FetchRulesync  func(ctx context.Context, cacheDir, dir string, progress app.Progress) (app.RulesyncResult, error)
 	PlanInstall    func(ctx context.Context, cacheDir, dir, home string, opts app.InstallOptions, progress app.Progress) (app.InstallPlan, error)
-	Install        func(ctx context.Context, cacheDir, dir, home string, opts app.InstallOptions, progress app.Progress, warn app.Warn) (app.InstallResult, error)
-	Restore        func(ctx context.Context, home, id string, warn app.Warn, overwrite func(app.RestoreResult) (bool, error)) (app.RestoreResult, error)
+	Install        func(ctx context.Context, cacheDir, dir, home string, opts app.InstallOptions, progress app.Progress, warn app.Warn, consent app.Consent) (app.InstallResult, error)
+	Restore        func(ctx context.Context, home, id string, opts app.RestoreOptions, warn app.Warn, overwrite func(app.RestoreResult) (bool, error)) (app.RestoreResult, error)
 	// PlanRun and Launch are dotai run: Launch gives the harness's exit
 	// code, and on Unix replaces dotai with the harness.
 	PlanRun func(home, id string, args []string) (app.RunPlan, error)
@@ -104,14 +104,23 @@ func Run(args []string, env Env) int {
 	code, exit := output.CodeInternal, ExitInternal
 	var invalid *invalidError
 	var usage *app.UsageError
+	var data any // what explains a refusal, in the envelope
+	consent, refused, running := (*app.ConsentError)(nil), (*app.RefusedError)(nil), (*app.RunningError)(nil)
 	switch {
 	case !started, errors.As(err, &usage):
 		code, exit = output.CodeUsage, ExitUsage
 	case errors.As(err, &invalid):
 		code, exit = output.CodeInvalid, ExitInvalid
+	case errors.As(err, &consent):
+		code, data = output.CodeConsent, consent.Plan
+	case errors.As(err, &refused):
+		code, data = output.CodeRefused, refused.Plan
+	case errors.As(err, &running):
+		code, data = output.CodeRunning, map[string]any{"harnesses": running.Harnesses, "running": runningList(running.Running)}
 	}
 	if parsed && jsonOut || !parsed && jsonRequested(root, args) {
 		e := output.Failure(commandName(cmd), code, err.Error())
+		e.Data = data
 		if conflict, ok := errors.AsType[*app.ConflictError](err); ok {
 			e.Data = map[string]any{"conflicts": conflict.Conflicts}
 		}
@@ -129,6 +138,14 @@ func Run(args []string, env Env) int {
 		fmt.Fprintln(env.Stderr, "Run 'dotai --help' for usage.")
 	}
 	return exit
+}
+
+// runningList is never nil, so that it is [] in an envelope.
+func runningList(r []app.RunningHarness) []app.RunningHarness {
+	if r == nil {
+		return []app.RunningHarness{}
+	}
+	return r
 }
 
 func newVersionCmd(env Env, jsonOut *bool) *cobra.Command {

@@ -53,7 +53,7 @@ type fakeRestore struct {
 	asked bool
 }
 
-func (f *fakeRestore) restore(ctx context.Context, home, id string, warn app.Warn, overwrite func(app.RestoreResult) (bool, error)) (app.RestoreResult, error) {
+func (f *fakeRestore) restore(ctx context.Context, home, id string, _ app.RestoreOptions, warn app.Warn, overwrite func(app.RestoreResult) (bool, error)) (app.RestoreResult, error) {
 	if ctx == nil || overwrite == nil {
 		f.t.Error("Restore called without a context or an overwrite function")
 	}
@@ -316,7 +316,7 @@ func TestRunRestoreUsageErrors(t *testing.T) {
 	restoreHome(t)
 	var stdout bytes.Buffer
 	env := testEnv(&stdout, &bytes.Buffer{})
-	env.Restore = func(context.Context, string, string, app.Warn, func(app.RestoreResult) (bool, error)) (app.RestoreResult, error) {
+	env.Restore = func(context.Context, string, string, app.RestoreOptions, app.Warn, func(app.RestoreResult) (bool, error)) (app.RestoreResult, error) {
 		t.Error("Restore called on a usage error")
 		return app.RestoreResult{}, nil
 	}

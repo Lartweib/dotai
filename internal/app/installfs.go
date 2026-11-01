@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -144,6 +145,158 @@ func (osInstallFS) MoveIn(root, from, to string) error {
 	}
 	defer r.Close()
 	return retry(func() error { return r.Rename(from, to) })
+}
+
+// CopyIn copies the entry from to the missing to, slash paths inside
+// root, through root: a file with its content, permissions and
+// modification time, synced; a directory with everything in it, its
+// permissions and modification time, synced where the OS can; and a link
+// or a junction as a link to the same destination, never followed. It
+// gives the bytes of the files it copied. Anything else, such as a FIFO,
+// is refused. It stops when ctx is done.
+func (osInstallFS) CopyIn(ctx context.Context, root, from, to string) (int64, error) {
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return 0, err
+	}
+	defer r.Close()
+	return copyEntry(ctx, r, from, to)
+}
+
+// copyEntry copies from to to inside r as CopyIn describes, and stops
+// when ctx is done.
+func copyEntry(ctx context.Context, r *os.Root, from, to string) (int64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	info, err := r.Lstat(from)
+	if err != nil {
+		return 0, err
+	}
+	mode := info.Mode()
+	switch {
+	case mode&(fs.ModeSymlink|fs.ModeIrregular) != 0:
+		dest, err := r.Readlink(from)
+		if err != nil {
+			return 0, fmt.Errorf("%s is neither a file, a directory nor a link that can be copied: %w", from, err)
+		}
+		return 0, copyLink(r, mode, dest, to)
+	case mode.IsDir():
+		if err := r.Mkdir(to, mode.Perm()|0o700); err != nil {
+			return 0, err
+		}
+		d, err := r.Open(from)
+		if err != nil {
+			return 0, err
+		}
+		names, err := d.Readdirnames(-1)
+		d.Close()
+		if err != nil {
+			return 0, err
+		}
+		var n int64
+		for _, name := range names {
+			m, err := copyEntry(ctx, r, path.Join(from, name), path.Join(to, name))
+			n += m
+			if err != nil {
+				return n, err
+			}
+		}
+		if err := r.Chmod(to, mode.Perm()); err != nil {
+			return n, err
+		}
+		if err := syncIn(r, to); err != nil {
+			return n, err
+		}
+		return n, r.Chtimes(to, info.ModTime(), info.ModTime())
+	case mode.IsRegular():
+		n, err := copyFile(ctx, r, from, to)
+		if err != nil {
+			return n, err
+		}
+		if err := r.Chmod(to, mode.Perm()); err != nil {
+			return n, err
+		}
+		return n, r.Chtimes(to, info.ModTime(), info.ModTime())
+	}
+	return 0, fmt.Errorf("%s is neither a file, a directory nor a link, and cannot be copied", from)
+}
+
+// copyFile copies the regular file from to the new file to and syncs it.
+func copyFile(ctx context.Context, r *os.Root, from, to string) (n int64, err error) {
+	src, err := r.Open(from)
+	if err != nil {
+		return 0, err
+	}
+	defer src.Close()
+	dst, err := r.OpenFile(to, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return 0, err
+	}
+	defer func() {
+		if cErr := dst.Close(); err == nil {
+			err = cErr
+		}
+	}()
+	if n, err = io.Copy(dst, ctxReader{ctx, src}); err != nil {
+		return n, err
+	}
+	return n, dst.Sync()
+}
+
+// RemoveAllIn removes name, a slash path inside root, and everything in
+// it, through root, never following a link. As RemoveIn, it clears a
+// read-only attribute that would stop it, and gives the owner write
+// permission on each directory inside, which a copy keeps from its source.
+func (osInstallFS) RemoveAllIn(root, name string) error {
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	if err := removable(r, name); err != nil {
+		return err
+	}
+	return retry(func() error { return r.RemoveAll(name) })
+}
+
+// removable clears what would stop the removal of name and everything in
+// it inside r: a read-only attribute on a file, and a directory the owner
+// cannot write. A link is never followed.
+func removable(r *os.Root, name string) error {
+	info, err := r.Lstat(name)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	mode := info.Mode()
+	switch {
+	case mode.IsRegular():
+		return clearReadOnly(r, name, mode)
+	case mode.IsDir() && mode&(fs.ModeSymlink|fs.ModeIrregular) == 0:
+		if mode&0o700 != 0o700 {
+			if err := r.Chmod(name, mode.Perm()|0o700); err != nil {
+				return err
+			}
+		}
+		d, err := r.Open(name)
+		if err != nil {
+			return err
+		}
+		names, err := d.Readdirnames(-1)
+		d.Close()
+		if err != nil {
+			return err
+		}
+		for _, n := range names {
+			if err := removable(r, path.Join(name, n)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (osInstallFS) MkdirIn(root, name string) error {

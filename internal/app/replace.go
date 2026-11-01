@@ -430,14 +430,3 @@ func resolveMode(mode string, prev *state.State) (string, error) {
 	}
 	return ModeIsolated, nil
 }
-
-// errReplaceUnavailable refuses an install that would write in the replace
-// mode, which the CLI cannot ask for until consent and the running-harness
-// check exist (roadmap PR 9b-4).
-func errReplaceUnavailable(fromState bool) error {
-	why := "dotai install --mode replace is not available yet"
-	if fromState {
-		why = "the install state records a replace install, and installing in the replace mode is not available yet"
-	}
-	return &UsageError{why + ": dotai install --mode replace --dry-run shows what it would wipe, keep and install"}
-}

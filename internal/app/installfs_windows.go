@@ -20,6 +20,22 @@ func transient(err error) bool {
 	return errors.Is(err, windows.ERROR_ACCESS_DENIED) || errors.Is(err, windows.ERROR_SHARING_VIOLATION)
 }
 
+// crossDevice reports a rename that failed because it crosses volumes.
+func crossDevice(err error) bool { return errors.Is(err, windows.ERROR_NOT_SAME_DEVICE) }
+
+// copyLink makes a copy of a link inside r at to, pointing at dest: a
+// symbolic link for one, which Windows may refuse without the right to
+// make them, and a junction for a junction.
+func copyLink(r *os.Root, mode fs.FileMode, dest, to string) error {
+	if mode&fs.ModeSymlink != 0 {
+		return r.Symlink(dest, to)
+	}
+	return makeLink(r, to, dest)
+}
+
+// syncIn does nothing, as syncDir.
+func syncIn(*os.Root, string) error { return nil }
+
 // clearReadOnly clears the read-only attribute of name, which would stop a
 // move over it or its removal.
 func clearReadOnly(r *os.Root, name string, mode fs.FileMode) error {

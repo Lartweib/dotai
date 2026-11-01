@@ -5,6 +5,8 @@ import (
 	"context"
 	"path/filepath"
 	"runtime"
+
+	"github.com/lartweib/dotai/internal/proc"
 )
 
 // OSStageFS is the real file system port, for fakes that wrap it.
@@ -46,6 +48,9 @@ func PlanInstallWith(ctx context.Context, d installFS, fetch fetchFunc, run runF
 	return planInstall(ctx, d, everyHarness, fetch, run, "cache", dir, home, InstallOptions{Variant: variant}, nil)
 }
 
+// yes is the consent of a user who answers yes.
+func yes(InstallPlan) (bool, error) { return true, nil }
+
 // Host is what an install reads of the machine besides the disk.
 type Host = host
 
@@ -65,7 +70,25 @@ func PlanInstallHost(ctx context.Context, d installFS, h Host, fetch fetchFunc, 
 
 // InstallHost is Install through d on the host h.
 func InstallHost(ctx context.Context, d executeFS, h Host, fetch fetchFunc, run runFunc, dir, home string, opts InstallOptions) (InstallResult, error) {
-	return install(ctx, d, h, fetch, run, "cache", dir, home, opts, nil, nil)
+	return install(ctx, d, h, fetch, run, "cache", dir, home, opts, nil, nil, yes)
+}
+
+// InstallConsent is InstallHost asking consent.
+func InstallConsent(ctx context.Context, d executeFS, h Host, fetch fetchFunc, run runFunc, dir, home string, opts InstallOptions, consent Consent) (InstallResult, error) {
+	return install(ctx, d, h, fetch, run, "cache", dir, home, opts, nil, nil, consent)
+}
+
+// NewHostListing is NewHost whose processes are procs, with self the id of
+// dotai's own.
+func NewHostListing(lookPath func(string) (string, error), environ []string, procs func() ([]proc.Process, error), self int) Host {
+	h := NewHost(lookPath, environ, "")
+	h.processes, h.self = procs, self
+	return h
+}
+
+// RestoreHost is RestoreWith on the host h with opts.
+func RestoreHost(ctx context.Context, d executeFS, h Host, home, id string, opts RestoreOptions, overwrite func(RestoreResult) (bool, error)) (RestoreResult, error) {
+	return restore(ctx, d, h, home, id, opts, nil, overwrite)
 }
 
 // Detect and SelectHarnesses are the detection of a harness and the
@@ -81,13 +104,13 @@ type ExecuteFS = executeFS
 // InstallWith is Install through d, fetching through fetch and running
 // rulesync through run.
 func InstallWith(ctx context.Context, d executeFS, fetch fetchFunc, run runFunc, dir, variant, home string) (InstallResult, error) {
-	return install(ctx, d, everyHarness, fetch, run, "cache", dir, home, InstallOptions{Variant: variant}, nil, nil)
+	return install(ctx, d, everyHarness, fetch, run, "cache", dir, home, InstallOptions{Variant: variant}, nil, nil, yes)
 }
 
 // InstallWarnWith is InstallWith giving the warnings to read before it
 // writes to warn.
 func InstallWarnWith(ctx context.Context, d executeFS, fetch fetchFunc, run runFunc, dir, variant, home string, warn Warn) (InstallResult, error) {
-	return install(ctx, d, everyHarness, fetch, run, "cache", dir, home, InstallOptions{Variant: variant}, nil, warn)
+	return install(ctx, d, everyHarness, fetch, run, "cache", dir, home, InstallOptions{Variant: variant}, nil, warn, yes)
 }
 
 // RetryWith, Transient and NarrowMode are the retry of a move or a removal,
@@ -100,13 +123,13 @@ var (
 
 // RestoreWith is Restore through d.
 func RestoreWith(ctx context.Context, d executeFS, home, id string, overwrite func(RestoreResult) (bool, error)) (RestoreResult, error) {
-	return restore(ctx, d, home, id, nil, overwrite)
+	return restore(ctx, d, host{}, home, id, RestoreOptions{}, nil, overwrite)
 }
 
 // RestoreWarnWith is RestoreWith giving the warnings to read before it
 // writes to warn.
 func RestoreWarnWith(ctx context.Context, d executeFS, home, id string, warn Warn, overwrite func(RestoreResult) (bool, error)) (RestoreResult, error) {
-	return restore(ctx, d, home, id, warn, overwrite)
+	return restore(ctx, d, host{}, home, id, RestoreOptions{}, warn, overwrite)
 }
 
 // PlanRunWith is PlanRun with environ as the current environment, lookPath
@@ -128,17 +151,16 @@ func MakeLinkWith(d executeFS, home, root, name, target, dest string) error {
 }
 
 // InstallReplace is Install through d on the host h in the replace mode,
-// which writes there: the path the CLI cannot reach yet (roadmap PR 9b-4).
+// with the user's consent.
 func InstallReplace(ctx context.Context, d executeFS, h Host, fetch fetchFunc, run runFunc, dir, home string, opts InstallOptions) (InstallResult, error) {
-	opts.Mode, opts.replaceWrites = ModeReplace, true
-	return install(ctx, d, h, fetch, run, "cache", dir, home, opts, nil, nil)
+	opts.Mode = ModeReplace
+	return install(ctx, d, h, fetch, run, "cache", dir, home, opts, nil, nil, yes)
 }
 
 // InstallAgainReplace is Install through d on the host h with the mode the
-// install state records, written even when that is replace.
+// install state records, with the user's consent.
 func InstallAgainReplace(ctx context.Context, d executeFS, h Host, fetch fetchFunc, run runFunc, dir, home string, opts InstallOptions) (InstallResult, error) {
-	opts.replaceWrites = true
-	return install(ctx, d, h, fetch, run, "cache", dir, home, opts, nil, nil)
+	return install(ctx, d, h, fetch, run, "cache", dir, home, opts, nil, nil, yes)
 }
 
 // PinnedBackup is the id of the pinned first replace backup that the

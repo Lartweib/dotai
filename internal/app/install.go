@@ -76,14 +76,14 @@ type InstallPlan struct {
 // harnesses that are detected (decision 0038).
 //
 // Mode is the install mode, isolated or replace; empty, the mode the
-// install state records, or isolated when there is none.
+// install state records, or isolated when there is none. IgnoreRunning
+// skips the check that refuses a replace install while a harness it
+// resets is running (decision 0038).
 type InstallOptions struct {
-	Variant   string
-	Harnesses []string
-	Mode      string
-	// replaceWrites lets an install write in the replace mode, which the
-	// CLI cannot do yet (roadmap PR 9b-4): only the tests set it.
-	replaceWrites bool
+	Variant       string
+	Harnesses     []string
+	Mode          string
+	IgnoreRunning bool
 }
 
 // HarnessPlan is one harness of the pack: whether the pack requires it,
@@ -224,7 +224,7 @@ func PlanInstall(ctx context.Context, cacheDir, dir, home string, opts InstallOp
 
 func planInstall(ctx context.Context, d installFS, h host, fetch fetchFunc, run runFunc, cacheDir, dir, home string, opts InstallOptions, progress Progress) (InstallPlan, error) {
 	var res InstallPlan
-	err := withPlan(ctx, d, h, fetch, run, cacheDir, dir, home, opts, false, progress, func(p planned) error {
+	err := withPlan(ctx, d, h, fetch, run, cacheDir, dir, home, opts, progress, func(p planned) error {
 		res = p.plan
 		return nil
 	})
@@ -255,10 +255,8 @@ type planned struct {
 // withPlan plans the install as PlanInstall describes and calls then with
 // the plan while the staging still exists; the staging is removed after
 // then returns. A staging that cannot be removed is a *stagingError, on
-// its own when nothing else failed. With write set, the plan is for an
-// install that writes, which the replace mode cannot do yet unless
-// opts.replaceWrites is set.
-func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run runFunc, cacheDir, dir, home string, opts InstallOptions, write bool, progress Progress, then func(planned) error) (err error) {
+// its own when nothing else failed.
+func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run runFunc, cacheDir, dir, home string, opts InstallOptions, progress Progress, then func(planned) error) (err error) {
 	if !filepath.IsAbs(home) {
 		return fmt.Errorf("home directory %q is not absolute", home)
 	}
@@ -273,9 +271,6 @@ func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run run
 	mode, err := resolveMode(opts.Mode, prev)
 	if err != nil {
 		return err
-	}
-	if write && mode == ModeReplace && !opts.replaceWrites {
-		return errReplaceUnavailable(opts.Mode == "")
 	}
 	tmp, err := d.StagingDir()
 	if err != nil {

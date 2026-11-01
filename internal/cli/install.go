@@ -17,7 +17,7 @@ import (
 )
 
 func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
-	var dryRun bool
+	var dryRun, yes, ignoreRunning bool
 	var variant, mode string
 	var harnesses []string
 	cmd := &cobra.Command{
@@ -37,9 +37,13 @@ func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
 			"that is replaced or removed is copied into a backup under ~/.dotai/backups; a failure rolls back from it.\n" +
 			"The install state is written last, to ~/.dotai/state.json. With --dry-run, nothing but the rulesync cache is written.\n" +
 			"--mode replace resets each selected harness to a fresh install, then installs the pack in its own configuration\n" +
-			"directory; for now only its plan exists: with --dry-run it lists what would be wiped, kept and written per harness,\n" +
-			"the keys of ~/.claude.json it would wipe, and why it would refuse. Without --mode, install uses the mode the\n" +
-			"install state records, or isolated; it never switches a replace install to isolated: run dotai restore first.",
+			"directory: each entry it wipes is moved into the backup first, with the keys of ~/.claude.json it wipes, and\n" +
+			"dotai restore moves them back. It wipes what dotai does not own only with your consent: on a terminal you are\n" +
+			"asked once, after the plan; otherwise, and with --json, it is refused unless --yes is given. It is refused, even\n" +
+			"with --yes, when its plan lists refusals, and while a harness it resets is running, unless --ignore-running.\n" +
+			"With --dry-run it lists what would be wiped, kept and written per harness, and why it would refuse. Without\n" +
+			"--mode, install uses the mode the install state records, or isolated; it never switches a replace install to\n" +
+			"isolated: run dotai restore first.",
 		// Checked with the arguments, so these are usage errors.
 		Args: func(cmd *cobra.Command, args []string) error {
 			if cmd.Flags().Changed("profile") {
@@ -51,6 +55,8 @@ func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print the plan and write nothing")
 	cmd.Flags().StringVar(&variant, "variant", "", "variant applied on top of the base")
 	cmd.Flags().StringVar(&mode, "mode", "", "install mode: isolated or replace (default: the mode the install state records, or isolated)")
+	cmd.Flags().BoolVar(&yes, "yes", false, "in the replace mode, wipe what dotai does not own into the backup without asking")
+	cmd.Flags().BoolVar(&ignoreRunning, "ignore-running", false, "in the replace mode, install even when a harness it resets looks like it is running")
 	cmd.Flags().StringSliceVar(&harnesses, "harness", nil, "harnesses to manage, comma-separated (default: the saved selection, or the pack's harnesses that are installed)")
 	cmd.Flags().StringSlice("profile", nil, "not accepted: profiles are project scope")
 	_ = cmd.Flags().MarkHidden("profile")
@@ -67,7 +73,7 @@ func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
 		ctx, stop := interruptible(cmd)
 		defer stop()
 		progress := downloadProgress(env, *jsonOut)
-		opts := app.InstallOptions{Variant: variant, Mode: mode}
+		opts := app.InstallOptions{Variant: variant, Mode: mode, IgnoreRunning: ignoreRunning}
 		if cmd.Flags().Changed("harness") {
 			opts.Harnesses = append([]string{}, harnesses...)
 		}
@@ -85,8 +91,39 @@ func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
 			return writePlan(env.Stdout, res, useColor(env.Stdout), "dry run, nothing was written\n")
 		}
 		warn, warned := earlyWarnings(env, *jsonOut)
-		res, err := env.Install(ctx, cache, packDir(args), home, opts, progress, warn)
+		color := useColor(env.Stdout)
+		asked := false
+		consent := func(p app.InstallPlan) (bool, error) {
+			if yes {
+				return true, nil
+			}
+			if *jsonOut || env.Prompt == nil {
+				return false, nil
+			}
+			asked = true
+			if err := writePlan(env.Stdout, p, color, "nothing was written yet\n"); err != nil {
+				return false, err
+			}
+			return env.Prompt(ctx, "The replace install moves into its backup what dotai does not own: the entries it wipes, the files it overwrites "+
+				"and the keys of ~/.claude.json it deletes, as listed above. Go on? [y/N] ")
+		}
+		res, err := env.Install(ctx, cache, packDir(args), home, opts, progress, warn, consent)
+		if _, ok := errors.AsType[*app.ConsentError](err); ok && asked {
+			return errors.New("the install was cancelled, and it wrote nothing")
+		}
 		if err != nil {
+			// The plan explains a refusal; with --json, the envelope has it.
+			var p *app.InstallPlan
+			if ce, ok := errors.AsType[*app.ConsentError](err); ok {
+				p = &ce.Plan
+			} else if re, ok := errors.AsType[*app.RefusedError](err); ok && re.Plan.Mode != "" {
+				p = &re.Plan
+			}
+			if p != nil && !*jsonOut {
+				if wErr := writePlan(env.Stdout, *p, color, "refused, the install wrote nothing\n"); wErr != nil {
+					return errors.Join(err, wErr)
+				}
+			}
 			return err
 		}
 		if len(res.Diagnostics) > 0 {
@@ -99,7 +136,7 @@ func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
 		if res.Backup != nil {
 			backup = res.Backup.Path
 		}
-		if err := writePlan(env.Stdout, res.InstallPlan, useColor(env.Stdout), "installed\nbackup: "+backup+"\nstate:  "+res.State+"\n"); err != nil {
+		if err := writePlan(env.Stdout, res.InstallPlan, color, "installed\nbackup: "+backup+"\nstate:  "+res.State+"\n"); err != nil {
 			return err
 		}
 		for _, w := range res.Warnings {

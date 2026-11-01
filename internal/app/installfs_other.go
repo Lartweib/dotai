@@ -3,9 +3,27 @@
 package app
 
 import (
+	"errors"
 	"io/fs"
 	"os"
+	"syscall"
 )
+
+// crossDevice reports a rename that failed because it crosses volumes.
+func crossDevice(err error) bool { return errors.Is(err, syscall.EXDEV) }
+
+// copyLink makes the symbolic link to inside r to dest, a copy of a link.
+func copyLink(r *os.Root, _ fs.FileMode, dest, to string) error { return r.Symlink(dest, to) }
+
+// syncIn syncs the directory name inside r.
+func syncIn(r *os.Root, name string) error {
+	f, err := r.Open(name)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return f.Sync()
+}
 
 // transient reports no error as transient: outside Windows, another
 // program having a file open does not stop a move or a removal.
