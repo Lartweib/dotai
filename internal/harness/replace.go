@@ -43,6 +43,11 @@ type Real struct {
 	// configuration, which make a replace refuse; a trailing * is a
 	// prefix.
 	Relocation []string
+	// Processes are the executable names that show the harness running,
+	// without an extension such as .exe; a trailing * is a prefix. A
+	// replace install and its restore refuse while one runs (decision
+	// 0038).
+	Processes []string
 }
 
 // KeepKind is why an entry of an Area is kept.
@@ -158,6 +163,25 @@ func (r Real) Relocated(environ []string, fold bool) []string {
 	return out
 }
 
+// RunsAs reports whether name, the executable name of a running process,
+// is one of the harness's Processes: compared without case and without a
+// trailing .exe where fold is set, as on Windows.
+func (r Real) RunsAs(name string, fold bool) bool {
+	if fold {
+		name = strings.ToLower(name)
+		name = strings.TrimSuffix(name, ".exe")
+	}
+	return slices.ContainsFunc(r.Processes, func(p string) bool {
+		if fold {
+			p = strings.ToLower(p)
+		}
+		if prefix, ok := strings.CutSuffix(p, "*"); ok {
+			return strings.HasPrefix(name, prefix)
+		}
+		return name == p
+	})
+}
+
 // InstallDir is where the harness's Staging installs in mode m, relative
 // to the home directory.
 func (a Adapter) InstallDir(m Mode) string {
@@ -244,6 +268,8 @@ var (
 			ProjectKeys: []string{"mcpServers", "allowedTools", "enabledMcpjsonServers", "disabledMcpjsonServers", "mcpContextUris"},
 		}},
 		Relocation: []string{"CLAUDE_CONFIG_DIR"},
+		// The native install's executable; an npm install runs as node.
+		Processes: []string{"claude"},
 	}
 	agyReal = Real{
 		Dir: ".gemini",
@@ -279,6 +305,7 @@ var (
 			{Path: ".gemini/GEMINI.md", Collateral: "Gemini CLI reads it too, and loses it until a restore"},
 			{Path: ".gemini/AGENTS.md", Collateral: "Gemini CLI reads it too, and loses it until a restore"},
 		},
+		Processes: []string{"agy"},
 	}
 	openCodeReal = Real{
 		Dir: ".config/opencode",
@@ -297,12 +324,16 @@ var (
 		},
 		// The XDG base directories OpenCode honors, and its own variables.
 		Relocation: []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "OPENCODE_CONFIG*", "OPENCODE_DB"},
+		// The background service runs from a copy of the binary in the
+		// cache, opencode-service-<pid>-<hash> (HARNESS-NOTES).
+		Processes: []string{"opencode", "opencode-service-*"},
 	}
 )
 
 // clone is r in a copy the caller may change.
 func (r Real) clone() Real {
 	r.Moves, r.Leaks, r.Relocation = slices.Clone(r.Moves), slices.Clone(r.Leaks), slices.Clone(r.Relocation)
+	r.Processes = slices.Clone(r.Processes)
 	r.Areas = slices.Clone(r.Areas)
 	for i := range r.Areas {
 		r.Areas[i].Keep = slices.Clone(r.Areas[i].Keep)

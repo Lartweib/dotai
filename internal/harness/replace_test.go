@@ -268,3 +268,34 @@ func TestLooksSensitiveInside(t *testing.T) {
 		}
 	}
 }
+
+// TestRunsAs checks the executable names that show each harness running:
+// its command, and for OpenCode the copy of the binary its background
+// service runs from, compared without case and .exe on Windows only.
+func TestRunsAs(t *testing.T) {
+	tests := []struct {
+		id, name string
+		fold     bool
+		want     bool
+	}{
+		{"claudecode", "claude", false, true},
+		{"claudecode", "claude.exe", true, true},
+		{"claudecode", "Claude.EXE", true, true},
+		{"claudecode", "Claude", false, false},
+		{"claudecode", "claude.exe", false, false},
+		{"claudecode", "claude-helper", false, false},
+		{"claudecode", "node", false, false},
+		{"antigravity-cli", "agy", false, true},
+		{"antigravity-cli", "agy.exe", true, true},
+		{"antigravity-cli", "gemini", false, false},
+		{"opencode", "opencode", false, true},
+		{"opencode", "opencode-service-1234-abcd", false, true},
+		{"opencode", "opencode-service-1234-abcd.exe", true, true},
+		{"opencode", "opencoder", false, false},
+	}
+	for _, tt := range tests {
+		if got := adapter(t, tt.id).Real.RunsAs(tt.name, tt.fold); got != tt.want {
+			t.Errorf("%s RunsAs(%q, fold %v) = %v, want %v", tt.id, tt.name, tt.fold, got, tt.want)
+		}
+	}
+}
