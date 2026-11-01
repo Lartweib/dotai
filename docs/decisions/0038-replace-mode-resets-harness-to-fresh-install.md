@@ -56,3 +56,5 @@ What each harness reads and creates at user level was inventoried on Windows ([H
 - Maintainer decision, 2026-11-01.
 - [HARNESS-NOTES](../HARNESS-NOTES.md#replace-inventory): what each harness creates and reads at user level, checked in a temporary home on Windows.
 - [ROADMAP](../ROADMAP.md): rows 9b-1 to 9b-4.
+
+Update 2026-11-01: the pin of the first replace backup is released once a restore undoes it, and the next replace backup is pinned in turn. The move across volumes is not implemented yet: such a move fails and rolls the install back; the copy, sync and delete fallback moves to roadmap PR 9b-4.
