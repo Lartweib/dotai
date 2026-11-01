@@ -1,21 +1,19 @@
 // Package merge applies the layer merge rules of decision 0023 to a loaded
 // pack and builds one staging tree per scope. It does no I/O. Each rule of
 // the "Merge rules" table in docs/PACK-FORMAT.md maps to one function here:
-// claim (Name row), mergeMCP (MCP servers in the Name row), checkRoot (Root
-// rule row), claimPath (every other file) and crossScope (the cross-scope
-// paragraph). claimPath also places a layer's tools at their install path,
-// .dotai/tools/, and reports a tool in two layers of a scope as
-// tool-conflict (decision 0030). mergeSettings applies the Single values
+// claim (Name row), mergeMCP (MCP servers in the Name row), mergeList
+// (Lists row, decision 0040), checkRoot (Root rule row), claimPath (every
+// other file) and crossScope (the cross-scope paragraph). claimPath also
+// places a layer's tools at their install path, .dotai/tools/, and reports
+// a tool in two layers of a scope as tool-conflict (decision 0030). mergeSettings applies the Single values
 // row to dotai/settings.yaml within a scope; a user setting and a project
 // setting never clash, because they go to different files.
 //
 // Not covered yet:
 //   - A variant's detect rule. The user scope uses the variant in the
 //     Selection, or the pack's default.
-//   - Merging lists: hooks.jsonc and permissions.jsonc in two layers of a
-//     scope are reported as merge-pending until their content merge lands
-//     (roadmap PR 5); any other repeated path is a path-conflict, or a
-//     tool-conflict for a tool.
+//   - Removing an entry of an earlier layer from a list file (decision
+//     0040): a later layer only adds to hooks.jsonc and permissions.jsonc.
 package merge
 
 import (
@@ -51,7 +49,10 @@ const (
 	CodeToolConflict          = "tool-conflict"
 	CodeToolMissing           = "tool-missing"
 	CodeToolInvalid           = "tool-invalid"
-	CodeMergePending          = "merge-pending"
+	CodeHooksInvalid          = "hooks-invalid"
+	CodeHooksConflict         = "hooks-conflict"
+	CodePermissionsInvalid    = "permissions-invalid"
+	CodePermissionsConflict   = "permissions-conflict"
 )
 
 const (
@@ -66,10 +67,6 @@ const (
 	toolsSource = "dotai/tools/"
 	ToolsDir    = ".dotai/tools"
 )
-
-// pendingMerge holds the files whose lists will be merged across layers;
-// until then one owner per scope is allowed.
-var pendingMerge = []string{".rulesync/hooks.jsonc", ".rulesync/permissions.jsonc"}
 
 // Selection names the layers to merge.
 type Selection struct {
@@ -246,13 +243,14 @@ type scope struct {
 	files    map[string]staged          // by path in the tree
 	lower    map[string]string          // lower-case path to path
 	servers  map[string]json.RawMessage // MCP server definitions by name
+	lists    map[string]*node           // the merged list files by path
 	settings map[string]setting         // by identity
 	seq      int                        // the next setting's place in the order
 	diags    []pack.Diagnostic
 }
 
 func newScope(layers ...pack.Layer) *scope {
-	s := &scope{names: map[string]owner{}, files: map[string]staged{}, lower: map[string]string{}, servers: map[string]json.RawMessage{}, settings: map[string]setting{}}
+	s := &scope{names: map[string]owner{}, files: map[string]staged{}, lower: map[string]string{}, servers: map[string]json.RawMessage{}, lists: map[string]*node{}, settings: map[string]setting{}}
 	for _, l := range layers {
 		s.add(l)
 	}
@@ -263,7 +261,10 @@ func newScope(layers ...pack.Layer) *scope {
 // diagnostics l causes.
 func (s *scope) with(l pack.Layer) *scope {
 	c := &scope{names: maps.Clone(s.names), root: s.root, files: maps.Clone(s.files), lower: maps.Clone(s.lower), servers: maps.Clone(s.servers),
-		settings: maps.Clone(s.settings), seq: s.seq}
+		lists: map[string]*node{}, settings: maps.Clone(s.settings), seq: s.seq}
+	for p, n := range s.lists {
+		c.lists[p] = n.clone()
+	}
 	c.add(l)
 	return c
 }
@@ -285,6 +286,8 @@ func (s *scope) add(l pack.Layer) {
 			}
 		case f.Rel == mcpFile:
 			s.mergeMCP(l, f)
+		case listFiles[f.Rel] != (listCodes{}):
+			s.mergeList(l, f)
 		case f.Rel == settingsFile: // merged from l.Settings below
 		default:
 			s.claimPath(l, f)
@@ -359,9 +362,8 @@ func (s *scope) checkRoot(l pack.Layer, it pack.Item) {
 	}
 }
 
-// claimPath gives any other file one owner by path. The files of
-// pendingMerge follow the same rule until their content merge lands, with
-// their own code. A tool enters the tree at its install path.
+// claimPath gives any other file one owner by path. A tool enters the tree
+// at its install path.
 func (s *scope) claimPath(l pack.Layer, f pack.File) {
 	at := f.Rel
 	tool, isTool := strings.CutPrefix(f.Rel, toolsSource)
@@ -373,9 +375,6 @@ func (s *scope) claimPath(l pack.Layer, f pack.File) {
 	case taken && isTool:
 		s.report(pack.NewDiagnostic(f.Path, fileLine, 0, CodeToolConflict, "tool %s is also provided by %s", tool, prev.Layer).WithRelated(prev.src, fileLine).
 			WithHint("rename it; a tool has one owner, and a layer that adjusts another layer's tool ships a file with a different name"))
-	case taken && slices.Contains(pendingMerge, f.Rel):
-		s.report(pack.NewDiagnostic(f.Path, fileLine, 0, CodeMergePending, "%s is also provided by %s", f.Rel, prev.Layer).WithRelated(prev.src, fileLine).
-			WithHint("keep it in one layer; merging lists across layers lands in a later version of dotai"))
 	case taken:
 		s.report(pack.NewDiagnostic(f.Path, fileLine, 0, CodePathConflict, "%s is also provided by %s", f.Rel, prev.Layer).WithRelated(prev.src, fileLine).
 			WithHint("keep it in one layer; a file has one owner"))
@@ -441,7 +440,8 @@ func readMCP(data []byte) ([]server, error) {
 }
 
 // tree returns the scope's files in path order, with one merged mcp.jsonc
-// when any layer has MCP servers.
+// when any layer has MCP servers, and one merged file for each list file
+// a layer has.
 func (s *scope) tree() []File {
 	var out []File
 	for _, f := range s.files {
@@ -456,6 +456,9 @@ func (s *scope) tree() []File {
 		f.Data, _ = json.MarshalIndent(map[string]any{"mcpServers": s.servers}, "", "  ")
 		f.Data = append(f.Data, '\n')
 		out = append(out, f)
+	}
+	for p, n := range s.lists {
+		out = append(out, listFile(p, n))
 	}
 	slices.SortFunc(out, func(a, b File) int { return strings.Compare(a.Path, b.Path) })
 	return out

@@ -272,14 +272,6 @@ func TestCheck(t *testing.T) {
 			},
 		},
 		{
-			name: "hooks and permissions in two profiles",
-			pack: newPack(profile("a", plain(".rulesync/hooks.jsonc"), plain(".rulesync/permissions.jsonc")), profile("b", plain(".rulesync/hooks.jsonc"), plain(".rulesync/permissions.jsonc"))),
-			want: []string{
-				`profiles/b/.rulesync/hooks.jsonc: merge-pending: .rulesync/hooks.jsonc is also provided by profiles/a (first: profiles/a/.rulesync/hooks.jsonc) (fix: keep it in one layer; merging lists across layers lands in a later version of dotai)`,
-				`profiles/b/.rulesync/permissions.jsonc: merge-pending: .rulesync/permissions.jsonc is also provided by profiles/a (first: profiles/a/.rulesync/permissions.jsonc) (fix: keep it in one layer; merging lists across layers lands in a later version of dotai)`,
-			},
-		},
-		{
 			name: "same file path in two profiles",
 			pack: newPack(profile("a", plain("dotai/notes.md")), profile("b", plain("dotai/notes.md"))),
 			want: []string{`profiles/b/dotai/notes.md: path-conflict: dotai/notes.md is also provided by profiles/a (first: profiles/a/dotai/notes.md) (fix: keep it in one layer; a file has one owner)`},

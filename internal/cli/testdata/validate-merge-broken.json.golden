@@ -114,16 +114,16 @@
       },
       {
         "file": "variants/standalone/.rulesync/hooks.jsonc",
-        "line": 0,
+        "line": 1,
         "column": 0,
-        "code": "merge-pending",
-        "message": ".rulesync/hooks.jsonc is also provided by base",
+        "code": "hooks-conflict",
+        "message": "/version already has a different value in base",
         "related": {
           "file": "base/.rulesync/hooks.jsonc",
-          "line": 0,
+          "line": 1,
           "column": 0
         },
-        "hint": "keep it in one layer; merging lists across layers lands in a later version of dotai"
+        "hint": "keep the same value; a layer cannot change or remove what an earlier layer of its scope sets"
       },
       {
         "file": "variants/standalone/dotai/settings.yaml",

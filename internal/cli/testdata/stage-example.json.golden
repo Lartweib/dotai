@@ -15,6 +15,15 @@
         "layer": "base"
       },
       {
+        "scope": "user",
+        "path": ".rulesync/permissions.jsonc",
+        "layer": "",
+        "origins": {
+          "/permission/bash/git status": "base",
+          "/permission/bash/tmux *": "variants/tmux"
+        }
+      },
+      {
         "scope": "project",
         "path": ".rulesync/rules/web.md",
         "layer": "profiles/web"
