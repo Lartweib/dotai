@@ -199,7 +199,7 @@ func TestSettings(t *testing.T) {
 		"opencode":        {".config/opencode/opencode.jsonc", ".dotai/isolated/opencode/config/opencode/opencode.jsonc"},
 	}
 	for _, a := range harness.All() {
-		if got := [2]string{a.SettingsSource(), a.SettingsTarget()}; got != want[a.ID] {
+		if got := [2]string{a.SettingsSource(), a.SettingsTarget(harness.Isolated)}; got != want[a.ID] {
 			t.Errorf("%s: settings = %q, want %q", a.ID, got, want[a.ID])
 		}
 	}

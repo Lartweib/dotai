@@ -152,7 +152,7 @@ type settingsFile struct {
 // file of a harness the pack dropped is still one.
 func SettingsOf(home, target string) (string, bool) {
 	for _, a := range harness.All() {
-		if a.Settings != "" && filepath.Join(home, filepath.FromSlash(a.SettingsTarget())) == target {
+		if a.Settings != "" && filepath.Join(home, filepath.FromSlash(a.SettingsTarget(harness.Isolated))) == target {
 			return a.ID, true
 		}
 	}
