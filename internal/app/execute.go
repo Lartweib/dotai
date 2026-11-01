@@ -137,9 +137,9 @@ type executeFS interface {
 	MoveIn(root, from, to string) error
 	// CopyIn copies the entry from to the missing to, a file, a directory
 	// with everything in it or a link, never followed, keeping permissions
-	// and modification times, synced; it gives the bytes copied. A move
-	// across volumes falls back to it.
-	CopyIn(root, from, to string) (int64, error)
+	// and modification times, synced, until ctx is done; it gives the bytes
+	// copied. A move across volumes falls back to it.
+	CopyIn(ctx context.Context, root, from, to string) (int64, error)
 	// RemoveAllIn removes name and everything in it, never following a
 	// link.
 	RemoveAllIn(root, name string) error

@@ -2,10 +2,10 @@ package app
 
 import (
 	"context"
-	"errors"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -153,17 +153,22 @@ func (osInstallFS) MoveIn(root, from, to string) error {
 // permissions and modification time, synced where the OS can; and a link
 // or a junction as a link to the same destination, never followed. It
 // gives the bytes of the files it copied. Anything else, such as a FIFO,
-// is refused.
-func (osInstallFS) CopyIn(root, from, to string) (int64, error) {
+// is refused. It stops when ctx is done.
+func (osInstallFS) CopyIn(ctx context.Context, root, from, to string) (int64, error) {
 	r, err := os.OpenRoot(root)
 	if err != nil {
 		return 0, err
 	}
 	defer r.Close()
-	return copyEntry(r, from, to)
+	return copyEntry(ctx, r, from, to)
 }
 
-func copyEntry(r *os.Root, from, to string) (int64, error) {
+// copyEntry copies from to to inside r as CopyIn describes, and stops
+// when ctx is done.
+func copyEntry(ctx context.Context, r *os.Root, from, to string) (int64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	info, err := r.Lstat(from)
 	if err != nil {
 		return 0, err
@@ -191,7 +196,7 @@ func copyEntry(r *os.Root, from, to string) (int64, error) {
 		}
 		var n int64
 		for _, name := range names {
-			m, err := copyEntry(r, path.Join(from, name), path.Join(to, name))
+			m, err := copyEntry(ctx, r, path.Join(from, name), path.Join(to, name))
 			n += m
 			if err != nil {
 				return n, err
@@ -205,7 +210,7 @@ func copyEntry(r *os.Root, from, to string) (int64, error) {
 		}
 		return n, r.Chtimes(to, info.ModTime(), info.ModTime())
 	case mode.IsRegular():
-		n, err := copyFile(r, from, to)
+		n, err := copyFile(ctx, r, from, to)
 		if err != nil {
 			return n, err
 		}
@@ -218,7 +223,7 @@ func copyEntry(r *os.Root, from, to string) (int64, error) {
 }
 
 // copyFile copies the regular file from to the new file to and syncs it.
-func copyFile(r *os.Root, from, to string) (n int64, err error) {
+func copyFile(ctx context.Context, r *os.Root, from, to string) (n int64, err error) {
 	src, err := r.Open(from)
 	if err != nil {
 		return 0, err
@@ -233,7 +238,7 @@ func copyFile(r *os.Root, from, to string) (n int64, err error) {
 			err = cErr
 		}
 	}()
-	if n, err = io.Copy(dst, src); err != nil {
+	if n, err = io.Copy(dst, ctxReader{ctx, src}); err != nil {
 		return n, err
 	}
 	return n, dst.Sync()

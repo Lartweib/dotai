@@ -225,7 +225,7 @@ func (r runner) moveAcross(src, dst string) (string, error) {
 		return "", err
 	}
 	abs := func(rel string) string { return filepath.Join(r.home, filepath.FromSlash(rel)) }
-	size, err := r.d.CopyIn(r.home, src, tmp)
+	size, err := r.d.CopyIn(r.ctx, r.home, src, tmp)
 	if err == nil {
 		err = r.sameTree(abs(src), abs(tmp))
 	}

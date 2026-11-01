@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -54,9 +55,9 @@ func (f *volumesFS) MoveIn(root, from, to string) error {
 	return f.clockFS.MoveIn(root, from, to)
 }
 
-func (f *volumesFS) CopyIn(root, from, to string) (n int64, err error) {
+func (f *volumesFS) CopyIn(ctx context.Context, root, from, to string) (n int64, err error) {
 	err = f.step(func() error {
-		n, err = f.clockFS.CopyIn(root, from, to)
+		n, err = f.clockFS.CopyIn(ctx, root, from, to)
 		return err
 	})
 	return n, err
@@ -261,5 +262,17 @@ func TestRemoveAllInClearsReadOnly(t *testing.T) {
 	}
 	if _, err := os.Lstat(filepath.Join(root, ".agents.dotai-0123456789abcdef")); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("leftovers: %v, want them removed", err)
+	}
+}
+
+// TestCopyInStopsWhenCancelled checks that a copy across volumes stops
+// when its context is done, as on Ctrl-C.
+func TestCopyInStopsWhenCancelled(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "src", "a", "file"), "x")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := (app.OSInstallFS{}).CopyIn(ctx, root, "src", "dst"); !errors.Is(err, context.Canceled) {
+		t.Errorf("CopyIn() after a cancel error = %v, want it cancelled", err)
 	}
 }
