@@ -32,11 +32,16 @@ func osHost() host { return host{lookPath: exec.LookPath, environ: os.Environ(),
 // not, and whether its configuration directory Config exists. Detected is
 // either signal, or only the binary for a harness whose directory another
 // program creates too, such as agy's ~/.gemini.
+//
+// Relative is the command when it was found only in the current directory
+// or through a relative PATH entry, which does not count, so that Why can
+// say so.
 type Detection struct {
 	Detected    bool   `json:"detected"`
 	Binary      string `json:"binary"`
 	Config      string `json:"config"`
 	ConfigFound bool   `json:"configFound"`
+	Relative    string `json:"-"`
 }
 
 // detect detects the harness a in home: its command through lookPath,
@@ -46,8 +51,11 @@ type Detection struct {
 // not an absent harness.
 func detect(d installFS, lookPath func(string) (string, error), home string, a harness.Adapter) (Detection, error) {
 	det := Detection{Config: filepath.Join(home, filepath.FromSlash(a.Real.Dir))}
-	if p, err := lookPath(a.Command); err == nil && p != "" {
+	switch p, err := lookPath(a.Command); {
+	case err == nil && p != "":
 		det.Binary = p
+	case errors.Is(err, exec.ErrDot):
+		det.Relative = p
 	}
 	mode, err := d.Stat(det.Config)
 	switch {
@@ -65,6 +73,8 @@ func (d Detection) Why(a harness.Adapter) string {
 	switch {
 	case d.Detected:
 		return ""
+	case d.Relative != "":
+		return fmt.Sprintf("%s was found only in the current directory or through a relative PATH entry (%s), which dotai does not use", a.Command, d.Relative)
 	case a.Real.NeedsBinary && d.ConfigFound:
 		return fmt.Sprintf("%s not found on PATH; %s alone may be Gemini CLI's", a.Command, d.Config)
 	case a.Real.NeedsBinary:

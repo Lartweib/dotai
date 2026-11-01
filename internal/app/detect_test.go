@@ -70,7 +70,11 @@ func TestDetect(t *testing.T) {
 			"opencode not found on PATH and no " + at(home, ".config/opencode") + " directory"},
 		{"opencode", found(bin, "opencode"), app.Detection{Binary: filepath.Join(bin, "opencode"), Config: at(home, ".config/opencode"), Detected: true}, ""},
 		// A command found only through a relative PATH entry is not one.
-		{"claudecode", func(string) (string, error) { return filepath.Join("bin", "claude"), exec.ErrDot }, app.Detection{Config: at(home, ".claude"), ConfigFound: true, Detected: true}, ""},
+		{"claudecode", func(string) (string, error) { return filepath.Join("bin", "claude"), exec.ErrDot },
+			app.Detection{Config: at(home, ".claude"), ConfigFound: true, Detected: true, Relative: filepath.Join("bin", "claude")}, ""},
+		{"antigravity-cli", func(string) (string, error) { return filepath.Join("bin", "agy"), exec.ErrDot },
+			app.Detection{Config: at(home, ".gemini"), ConfigFound: true, Relative: filepath.Join("bin", "agy")},
+			"agy was found only in the current directory or through a relative PATH entry (" + filepath.Join("bin", "agy") + "), which dotai does not use"},
 	}
 	for _, tt := range tests {
 		got, err := app.Detect(app.OSInstallFS{}, tt.lookPath, home, adapterOf(t, tt.id))
