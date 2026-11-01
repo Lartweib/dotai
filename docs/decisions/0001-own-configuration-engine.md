@@ -36,3 +36,5 @@ Build an own engine that configures Claude Code, OpenCode and agy from a single 
 
 - Internal research (not published): workflow alternatives and component catalog.
 - Internal research (not published): discovery of harness capabilities.
+
+Update 2026-11-01: [0039](0039-base-layer-installs-skills-at-user-level.md) lets the base and variants install skills and agents at user level within the always-on budget of [0007](0007-always-on-context-budget.md). The need for per-project configuration is met by profiles, which add the project-specific items, and by that budget, which bounds what a global install costs on every request.

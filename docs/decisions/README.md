@@ -16,7 +16,7 @@ Records were renumbered on 2026-10-26, when the records about the reference pack
 | [0004](0004-installer-language-and-shape.md) | Installer language and shape (partially superseded by 0006) | accepted | 2026-10-19 |
 | [0005](0005-working-name-dotai.md) | Working name: `dotai` | accepted | 2026-10-19 |
 | [0007](0007-always-on-context-budget.md) | Always-on context budget | proposed | 2026-10-20 |
-| [0008](0008-onboarding-by-detection-and-base-profile.md) | Onboarding by detection and base profile (partially superseded by 0023) | accepted | 2026-10-20 |
+| [0008](0008-onboarding-by-detection-and-base-profile.md) | Onboarding by detection and base profile (partially superseded by 0023 and 0039) | accepted | 2026-10-20 |
 | [0010](0010-engine-and-pack-separated.md) | Engine and pack separated from day one | accepted | 2026-10-23 |
 | [0011](0011-mods-always-project-scoped.md) | Mods always project-scoped | accepted | 2026-10-23 |
 | [0012](0012-rules-file-per-harness.md) | Rules file per harness: `CLAUDE.md` for Claude Code, `AGENTS.md` for agy and OpenCode | accepted | 2026-10-23 |
@@ -46,6 +46,7 @@ Records were renumbered on 2026-10-26, when the records about the reference pack
 | [0036](0036-shared-skills-per-variant.md) | A variant can share the user's skills folder in isolated mode | accepted | 2026-10-31 |
 | [0037](0037-tool-commands-resolved-per-os.md) | Tool commands in settings are resolved per OS | accepted | 2026-10-31 |
 | [0038](0038-replace-mode-resets-harness-to-fresh-install.md) | Replace mode resets each selected harness to a fresh install | accepted | 2026-11-01 |
+| [0039](0039-base-layer-installs-skills-at-user-level.md) | The base layer may install skills and agents at user level | accepted | 2026-11-01 |
 
 ## Superseded (history only)
 
