@@ -379,6 +379,16 @@ func TestCheckWipesAndSplits(t *testing.T) {
 	if err := backup.Check(r, restoreID, home); err != nil {
 		t.Fatalf("Check() of a restore = %v, want a valid manifest", err)
 	}
+	// A restore that puts back a split file that is missing has no copy.
+	r.Splits = []backup.Split{{Harness: "claudecode", Target: filepath.Join(home, ".claude.json"), After: backup.Content{SHA256: "a"}, Keys: [][]string{{"mcpServers"}}}}
+	if err := backup.Check(r, restoreID, home); err != nil {
+		t.Fatalf("Check() of a restore putting back a missing split file = %v, want a valid manifest", err)
+	}
+	r.Splits[0].Before.SHA256 = "b"
+	if err := backup.Check(r, restoreID, home); err == nil {
+		t.Error("Check() of a split file with a before and no copy passed")
+	}
+	r.Splits = nil
 	if got, err := backup.MovedFile(home, id, filepath.Join(home, "CLAUDE.md")); err != nil || got != r.Wipes[0].File {
 		t.Errorf("MovedFile() = %q, %v, want %q", got, err, r.Wipes[0].File)
 	}

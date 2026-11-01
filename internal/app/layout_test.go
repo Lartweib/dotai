@@ -53,21 +53,20 @@ func TestInstallRoot(t *testing.T) {
 	}
 }
 
-// TestRestoreRefusesAReplaceInstallState checks that restore does not undo
-// a replace install, which this version cannot restore yet (roadmap PR
-// 9b-3), and writes nothing.
-func TestRestoreRefusesAReplaceInstallState(t *testing.T) {
+// TestRestoreRefusesAnUnknownMode checks that restore does not undo an
+// install of a mode it does not know, and writes nothing.
+func TestRestoreRefusesAnUnknownMode(t *testing.T) {
 	home, _ := installHome(t)
 	if _, err := quiet(t).install(newClockFS(t), examplePack, home); err != nil {
 		t.Fatal(err)
 	}
 	name := at(home, ".dotai/state.json")
 	s := readJSON(t, name, state.Decode)
-	s.Mode = app.ModeReplace
+	s.Mode = "merge"
 	writeState(t, name, s)
 	before := snapshot(t, home)
-	if _, err := restore(newClockFS(t), home, "", nil); err == nil || !strings.Contains(err.Error(), "cannot restore yet") {
-		t.Fatalf("Restore() error = %v, want a replace install refused", err)
+	if _, err := restore(newClockFS(t), home, "", nil); err == nil || !strings.Contains(err.Error(), "does not know") {
+		t.Fatalf("Restore() error = %v, want the unknown mode refused", err)
 	}
 	if got := snapshot(t, home); !reflect.DeepEqual(got, before) {
 		t.Errorf("home = %v, want nothing written", got)

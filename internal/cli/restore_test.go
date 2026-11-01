@@ -34,6 +34,8 @@ var restoreResult = app.RestoreResult{
 		{Action: plan.Create, Harness: "opencode", Target: "/home/u/.dotai/isolated/opencode/config/opencode/opencode.jsonc", From: "20261029T103000.000Z_install", After: "dd", Keys: []plan.KeyChange{}},
 		{Action: plan.Remove, Target: "/home/u/.dotai/tools/hello.sh", Before: "ee", BeforeExec: true, Keys: []plan.KeyChange{}},
 	},
+	Wipes:     []app.RestoreWipe{},
+	WipeKeys:  []app.WipeKey{},
 	Conflicts: []app.RestoreConflict{{Target: "/home/u/.dotai/isolated/claude/agents/reviewer.md", Harness: "claudecode", Backup: "20261029T103000.000Z_install", Expected: "c0", Current: "cc"}},
 	Harnesses: []string{"claudecode", "opencode"},
 	Backup:    &app.BackupRef{ID: "20261029T110000.000Z_restore", Path: "/home/u/.dotai/backups/20261029T110000.000Z_restore"},
@@ -122,6 +124,34 @@ func TestRunRestore(t *testing.T) {
 			assertGolden(t, filepath.Join("testdata", tt.golden), stdout.Bytes())
 		})
 	}
+}
+
+// TestRunRestoreOfAReplaceInstall checks the text of a restore that moves
+// back what a replace install wiped and puts back the keys of
+// ~/.claude.json (decision 0038).
+func TestRunRestoreOfAReplaceInstall(t *testing.T) {
+	restoreHome(t)
+	res := restoreResult
+	res.Undone = res.Undone[1:]
+	res.Ops = []app.RestoreOp{{Action: plan.Remove, Harness: "claudecode", Target: "/home/u/.claude/CLAUDE.md", Before: "cc", Keys: []plan.KeyChange{}}}
+	res.Wipes = []app.RestoreWipe{
+		{Harness: "claudecode", Path: "/home/u/.claude/CLAUDE.md", Kind: "file", From: res.Undone[0].ID},
+		{Harness: "claudecode", Path: "/home/u/.claude/agents", Kind: "dir", From: res.Undone[0].ID, Conflict: true},
+		{Harness: "opencode", Path: "/home/u/AGENTS.md", Kind: "file", From: res.Undone[0].ID},
+	}
+	res.WipeKeys = []app.WipeKey{
+		{Harness: "claudecode", File: "/home/u/.claude.json", Key: []string{"mcpServers"}},
+		{Harness: "claudecode", File: "/home/u/.claude.json", Key: []string{"projects", "/home/u/work", "allowedTools"}},
+	}
+	res.Conflicts = []app.RestoreConflict{{Target: "/home/u/.claude/agents", Harness: "claudecode", Backup: res.Undone[0].ID}}
+	res.Uninstalled = true
+	var stdout, stderr bytes.Buffer
+	env := testEnv(&stdout, &stderr)
+	env.Restore = (&fakeRestore{t: t, res: res}).restore
+	if code := cli.Run([]string{"restore", "--yes"}, env); code != cli.ExitOK {
+		t.Fatalf("exit code = %d, stderr %s", code, stderr.String())
+	}
+	assertGolden(t, filepath.Join("testdata", "restore-replace.txt.golden"), stdout.Bytes())
 }
 
 func TestRunRestoreJSONShape(t *testing.T) {

@@ -458,10 +458,12 @@ func checkSplits(m Manifest, id, home string, seen map[string]bool) error {
 			return fmt.Errorf("backup manifest %s: target %s is named twice", id, s.Target)
 		}
 		seen[s.Target] = true
-		if s.File != path.Join(FilesDir, rel) {
-			return fmt.Errorf("backup manifest %s: the copy of %s is %q, want %q", id, s.Target, s.File, path.Join(FilesDir, rel))
+		// A restore that puts back a split file that is missing has no copy
+		// of what was there.
+		if want := path.Join(FilesDir, rel); s.File != want && !(m.Operation == OperationRestore && s.File == "" && s.Before == Content{}) {
+			return fmt.Errorf("backup manifest %s: the copy of %s is %q, want %q", id, s.Target, s.File, want)
 		}
-		if s.Before.SHA256 == "" || s.After.SHA256 == "" || s.Before.Link != "" || s.After.Link != "" || len(s.Keys) == 0 ||
+		if s.File != "" && s.Before.SHA256 == "" || s.After.SHA256 == "" || s.Before.Link != "" || s.After.Link != "" || len(s.Keys) == 0 ||
 			slices.ContainsFunc(s.Keys, func(k []string) bool { return len(k) == 0 }) {
 			return fmt.Errorf("backup manifest %s: the split file %s needs a SHA-256 before and after, and keys with paths", id, s.Target)
 		}

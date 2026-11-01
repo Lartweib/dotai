@@ -141,6 +141,11 @@ func writeRestore(w io.Writer, r app.RestoreResult, color bool) error {
 			groups = append(groups, op.Harness)
 		}
 	}
+	for _, w := range r.Wipes {
+		if !slices.Contains(groups, w.Harness) {
+			groups = append(groups, w.Harness)
+		}
+	}
 	groups = append(groups, "") // the tools come last
 	restored, deleted := 0, 0
 	for _, g := range groups {
@@ -150,7 +155,19 @@ func writeRestore(w io.Writer, r app.RestoreResult, color bool) error {
 				ops = append(ops, op)
 			}
 		}
-		if len(ops) == 0 {
+		var wipes []app.RestoreWipe
+		for _, w := range r.Wipes {
+			if w.Harness == g {
+				wipes = append(wipes, w)
+			}
+		}
+		var keys []app.WipeKey
+		for _, k := range r.WipeKeys {
+			if k.Harness == g {
+				keys = append(keys, k)
+			}
+		}
+		if len(ops) == 0 && len(wipes) == 0 && len(keys) == 0 {
 			continue
 		}
 		name := g
@@ -173,6 +190,20 @@ func writeRestore(w io.Writer, r app.RestoreResult, color bool) error {
 			fmt.Fprintf(&b, "  %s  %s%s%s\n", verb, op.Target, linkTo(op.Link, op.BeforeLink), changed)
 			writeKeys(&b, color, len("  restore  "), op.Keys)
 		}
+		// A replace install's wiped entries and keys (decision 0038).
+		for _, w := range wipes {
+			changed := ""
+			if w.Conflict {
+				changed = "  " + paint(color, styleDim, "(something else was there, kept in the restore backup)")
+			}
+			fmt.Fprintf(&b, "  %s  %s%s\n", paint(color, styleGreen, "move back"), w.Path, changed)
+		}
+		for i, k := range keys {
+			if i == 0 || keys[i-1].File != k.File {
+				fmt.Fprintf(&b, "  %s  %s\n", paint(color, styleGreen, "restore keys"), k.File)
+			}
+			fmt.Fprintf(&b, "    %s\n", strings.Join(k.Key, "."))
+		}
 	}
 	backup := "none, no file was written"
 	if r.Backup != nil {
@@ -182,7 +213,11 @@ func writeRestore(w io.Writer, r app.RestoreResult, color bool) error {
 	if r.Uninstalled {
 		st = "removed, nothing dotai installed is left (" + r.State + ")"
 	}
-	fmt.Fprintf(&b, "\n%d restore, %d delete · restored\nbackup: %s\nstate:  %s\n", restored, deleted, backup, st)
+	moved := ""
+	if len(r.Wipes) > 0 {
+		moved = fmt.Sprintf(", %d move back", len(r.Wipes))
+	}
+	fmt.Fprintf(&b, "\n%d restore, %d delete%s · restored\nbackup: %s\nstate:  %s\n", restored, deleted, moved, backup, st)
 	_, err := io.WriteString(w, b.String())
 	return err
 }

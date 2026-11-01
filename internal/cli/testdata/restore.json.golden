@@ -102,6 +102,8 @@
         "beforeLink": ""
       }
     ],
+    "wipes": [],
+    "wipeKeys": [],
     "conflicts": [
       {
         "target": "/home/u/.dotai/isolated/claude/agents/reviewer.md",

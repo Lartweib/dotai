@@ -31,8 +31,13 @@ import (
 // path of the install state, which Uninstalled says was removed because
 // no install is left. Lists are never nil.
 type RestoreResult struct {
-	Undone      []UndoneInstall   `json:"undone"`
-	Ops         []RestoreOp       `json:"ops"`
+	Undone []UndoneInstall `json:"undone"`
+	Ops    []RestoreOp     `json:"ops"`
+	// Wipes are the entries of replace installs it moves back, in the order
+	// it moves them, and WipeKeys the keys of split files such as
+	// ~/.claude.json it puts back (decision 0038).
+	Wipes       []RestoreWipe     `json:"wipes"`
+	WipeKeys    []WipeKey         `json:"wipeKeys"`
 	Conflicts   []RestoreConflict `json:"conflicts"`
 	Harnesses   []string          `json:"harnesses"`
 	Backup      *BackupRef        `json:"backup"`
@@ -187,9 +192,13 @@ func (e *RestoreError) Unwrap() []error {
 // undoing.
 //
 // Everything is checked before the first write: each manifest is one an
-// install wrote for home with every target inside a harness's isolated
-// directory or the tools directory, each copy holds what its manifest
-// records, and each target holds what the install wrote. A target that
+// install wrote for home with every target inside a harness's directory
+// in the layout of its mode or the tools directory, each copy and each
+// entry a replace install moved into it holds what its manifest records,
+// and each target holds what the install wrote. A replace install is
+// undone by moving back the entries it wiped and putting back the keys it
+// deleted (planWipes, planSplits), once the pack's files are gone. A
+// target that
 // holds something else, and not what the restore puts there either, is a
 // conflict: overwrite is asked once with the plan, before the lock is
 // taken, and the restore writes nothing unless it answers true; a nil
@@ -232,6 +241,7 @@ func restore(ctx context.Context, d executeFS, home, id string, warn Warn, overw
 	if err != nil {
 		return RestoreResult{}, err
 	}
+	splits := splitsOf(r.splits)
 	for _, w := range res.Warnings {
 		if warn != nil {
 			warn(w)
@@ -256,7 +266,8 @@ func restore(ctx context.Context, d executeFS, home, id string, warn Warn, overw
 		if err != nil {
 			return err
 		}
-		if !reflect.DeepEqual(again.Ops, res.Ops) || !reflect.DeepEqual(again.Conflicts, res.Conflicts) {
+		if !reflect.DeepEqual(again.Ops, res.Ops) || !reflect.DeepEqual(again.Conflicts, res.Conflicts) ||
+			!reflect.DeepEqual(again.Wipes, res.Wipes) || !reflect.DeepEqual(again.WipeKeys, res.WipeKeys) || !reflect.DeepEqual(splitsOf(r.splits), splits) {
 			return &StaleError{What: "a file the restore writes"}
 		}
 		return r.write(&res, chain)
@@ -272,6 +283,9 @@ func restore(ctx context.Context, d executeFS, home, id string, warn Warn, overw
 // the operations once they are planned.
 type restorer struct {
 	runner
+	moves  []restoreMove // the entries moved back, and out of their way
+	aside  []backup.Wipe // what is moved out of the way, as the restore's backup records it
+	splits []splitWrite  // the split files whose keys are put back
 }
 
 // undone is an install backup a restore undoes: its manifest, directory
@@ -280,6 +294,7 @@ type undone struct {
 	m     backup.Manifest
 	dir   string
 	prior *state.State
+	ops   []backup.Op // the ops to undo: none for an install killed before it started them
 }
 
 // vfile is what a target holds at one step of a restore: nothing, or
@@ -295,13 +310,26 @@ type vfile struct {
 // planned plans the restore of id from s, as plan describes, and gives
 // the installs it undoes. r.p.ops holds its operations.
 func (r *restorer) planned(s state.State, id string) (RestoreResult, []undone, error) {
-	res := RestoreResult{Warnings: []string{}, State: filepath.Join(r.home, dotaiDir, stateFile)}
+	res := RestoreResult{Warnings: []string{}, State: filepath.Join(r.home, dotaiDir, stateFile), Wipes: []RestoreWipe{}, WipeKeys: []WipeKey{}}
+	r.moves, r.aside, r.splits = nil, nil, nil
 	if err := restorable(s.Mode, "the install state "+res.State); err != nil {
 		return RestoreResult{}, nil, err
 	}
+	r.layouts = layoutsOf(s.Mode)
 	chain, err := r.chain(s, id)
 	if err != nil {
 		return RestoreResult{}, nil, err
+	}
+	for i, u := range chain {
+		chain[i].ops = u.m.Ops
+		if i == 0 && s.Pending != nil && len(s.Pending.Ops) == 0 && u.m.Operation == backup.OperationInstall {
+			// A replace install killed while it wiped, before it wrote any of
+			// the pack's files.
+			chain[i].ops = nil
+		}
+		if u.m.Mode == ModeReplace || u.m.Operation == backup.OperationRestore || u.prior != nil && u.prior.Mode == ModeReplace {
+			r.layouts = layoutsOf(ModeReplace)
+		}
 	}
 	if err := r.plan(&res, s, chain); err != nil {
 		return RestoreResult{}, nil, err
@@ -335,24 +363,41 @@ func (r *restorer) write(res *RestoreResult, chain []undone) error {
 	}
 
 	ref := (*BackupRef)(nil)
-	if len(r.p.ops) > 0 {
+	if len(r.p.ops) > 0 || len(r.moves) > 0 || len(r.splits) > 0 {
 		info := backup.Info{Mode: cmp.Or(chain[len(chain)-1].m.Mode, ModeIsolated), Harnesses: []string{}}
 		if prior != nil {
 			info = backup.Info{Mode: prior.Mode, Pack: backup.Pack(prior.Pack), Variant: prior.Variant, Harnesses: prior.Harnesses}
 		}
 		var err error
-		if ref, err = r.backup(backup.OperationRestore, info, &base, r.p.ops, &extra{}); err != nil {
+		ex := &extra{wipes: r.aside, splits: r.splits}
+		if ref, err = r.backup(backup.OperationRestore, info, &base, r.p.ops, ex); err != nil {
 			return fmt.Errorf("the backup failed, nothing was written: %w", err)
 		}
-		if err := r.writeState(state.Journal(base, ref.ID, r.p.ops)); err != nil {
+		j := journal(base, ref.ID, r.p.ops, ex)
+		for _, mv := range r.moves {
+			if !mv.aside {
+				j.Pending.Wipes = append(j.Pending.Wipes, mv.to)
+			}
+		}
+		if err := r.writeState(j); err != nil {
 			return fmt.Errorf("the restore journal could not be written, nothing was written: %w", errors.Join(err, r.d.RemoveAll(ref.Path)))
 		}
+		// The pack's files go first, so that each wiped entry goes back to
+		// a path that is free.
 		done, err := r.execute(r.p.ops)
+		var split []splitWrite
+		if err == nil {
+			split, err = r.writeSplits(r.splits)
+		}
+		var back []moved
+		if err == nil {
+			back, err = r.moveBack(ref.Path)
+		}
 		if err == nil {
 			err = finish()
 		}
 		if err != nil {
-			rb := r.rollback(ref.Path, done)
+			rb := errors.Join(r.unmove(back), r.unsplit(split), r.rollback(ref.Path, done))
 			if rb == nil {
 				rb = r.restoreState(true, s)
 			}
@@ -515,14 +560,26 @@ func (r *restorer) load(id string, restoreBackup bool) (undone, error) {
 		return undone{}, fmt.Errorf("the backup %s was taken by an older dotai, which did not keep the install state from before it, so restore cannot put that state back: "+
 			"its files/ holds the copies to put back by hand", id)
 	}
+	layouts := layoutsOf(m.Mode)
+	if m.Operation == backup.OperationRestore {
+		layouts = layoutsOf(ModeReplace)
+	}
 	for _, op := range m.Ops {
-		if _, _, err := installRoot(r.home, op.Target); err != nil {
+		if _, _, err := installRoot(r.home, op.Target, layouts...); err != nil {
 			return undone{}, fmt.Errorf("the backup %s: %w; restore never writes there", id, err)
 		}
 		if op.File == "" {
 			continue
 		}
 		if err := r.verify(id, dir, op.File, op.Before.SHA256); err != nil {
+			return undone{}, err
+		}
+	}
+	if err := wipeTargets(r.home, m); err != nil {
+		return undone{}, fmt.Errorf("the backup %s: %w; restore never writes there", id, err)
+	}
+	if m.Operation == backup.OperationInstall {
+		if err := r.verifyWipes(m, dir); err != nil {
 			return undone{}, err
 		}
 	}
@@ -551,7 +608,7 @@ func (r *restorer) load(id string, restoreBackup bool) (undone, error) {
 		return undone{}, err
 	}
 	for _, f := range prior.Files {
-		if _, _, err := installRoot(r.home, f.Target); err != nil {
+		if _, _, err := installRoot(r.home, f.Target, layoutsOf(prior.Mode)...); err != nil {
 			return undone{}, fmt.Errorf("the state the backup %s keeps owns a file restore never writes: %w", id, err)
 		}
 	}
@@ -609,12 +666,15 @@ func (r *restorer) plan(res *RestoreResult, s state.State, chain []undone) error
 	if err != nil {
 		return err
 	}
+	// A settings file the pack wrote where a replace install wiped the
+	// user's own is undone whole: the user's file goes back by move.
+	wiped := wipedPaths(chain)
 	for i, u := range chain {
 		res.Undone = append(res.Undone, UndoneInstall{
 			ID: u.m.ID, Path: u.dir, CreatedAt: u.m.CreatedAt, Pack: u.m.Pack, Variant: u.m.Variant, Harnesses: u.m.Harnesses,
 		})
-		for _, op := range slices.Backward(u.m.Ops) {
-			if _, ok := plan.SettingsOf(r.home, op.Target); ok {
+		for _, op := range slices.Backward(u.ops) {
+			if _, ok := plan.SettingsOf(r.home, op.Target); ok && !inWiped(wiped, op.Target) {
 				if _, seen := steps[op.Target]; !seen {
 					order = append(order, op.Target)
 				}
@@ -654,7 +714,14 @@ func (r *restorer) plan(res *RestoreResult, s state.State, chain []undone) error
 
 	conflicted := map[string]bool{}
 	res.Conflicts = []RestoreConflict{}
+	back, err := r.alreadyBack(chain)
+	if err != nil {
+		return err
+	}
 	for _, c := range checks {
+		if back(c.target, c.seen) {
+			continue
+		}
 		end := virtual[c.target]
 		var expect, found plan.Current
 		if c.expect != nil {
@@ -713,7 +780,7 @@ func (r *restorer) plan(res *RestoreResult, s state.State, chain []undone) error
 			continue
 		}
 		cur, end := disk[target], virtual[target]
-		if !cur.exists && !end.exists || cur.exists && end.exists && r.same(cur.cur, end.cur.Hash, end.cur.Exec) {
+		if !cur.exists && !end.exists || cur.exists && end.exists && r.same(cur.cur, end.cur.Hash, end.cur.Exec) || back(target, cur) {
 			continue
 		}
 		op := plan.Op{Target: target, Harness: harnessOf[target]}
@@ -747,9 +814,17 @@ func (r *restorer) plan(res *RestoreResult, s state.State, chain []undone) error
 	}
 	links := orderLinks(r.p.ops)
 	r.p.ops, res.Ops = permute(r.p.ops, links), permute(res.Ops, links)
+	if err := r.planSplits(res, chain); err != nil {
+		return err
+	}
+	if r.aside, err = r.planWipes(res, chain); err != nil {
+		return err
+	}
 	res.Harnesses = []string{}
 	for _, h := range slices.Concat(s.Harnesses, harnessesOf(chain)) {
-		if !slices.Contains(res.Harnesses, h) && slices.ContainsFunc(res.Ops, func(op RestoreOp) bool { return op.Harness == h }) {
+		if !slices.Contains(res.Harnesses, h) && (slices.ContainsFunc(res.Ops, func(op RestoreOp) bool { return op.Harness == h }) ||
+			slices.ContainsFunc(res.Wipes, func(w RestoreWipe) bool { return w.Harness == h }) ||
+			slices.ContainsFunc(r.splits, func(s splitWrite) bool { return s.harness == h })) {
 			res.Harnesses = append(res.Harnesses, h)
 		}
 	}
@@ -768,7 +843,7 @@ func (r *restorer) plan(res *RestoreResult, s state.State, chain []undone) error
 func (r *restorer) inspectLinks(chain []undone, dirs map[string]error) (map[string]vfile, map[string]bool, error) {
 	linked, realDirs := map[string]vfile{}, map[string]bool{}
 	for _, u := range chain {
-		for _, op := range u.m.Ops {
+		for _, op := range u.ops {
 			if _, seen := linked[op.Target]; seen || (op.Before == nil || op.Before.Link == "") && (op.After == nil || op.After.Link == "") {
 				continue
 			}
@@ -862,12 +937,21 @@ func (r *restorer) mark(u undone, ref *BackupRef) error {
 }
 
 // restorable refuses what, of the install mode mode, unless restore can
-// undo that mode: only the isolated one so far, since undoing a replace
-// install moves wiped entries back (roadmap PR 9b-3). An empty mode is
-// one written before the replace mode existed.
+// undo that mode: isolated, or replace, whose wiped entries it moves back
+// (decision 0038). An empty mode is one written before the replace mode
+// existed.
 func restorable(mode, what string) error {
-	if mode == "" || mode == ModeIsolated {
+	if mode == "" || mode == ModeIsolated || mode == ModeReplace {
 		return nil
 	}
-	return fmt.Errorf("%s is of a %s install, which this version of dotai cannot restore yet", what, mode)
+	return fmt.Errorf("%s is of a %s install, which this version of dotai does not know", what, mode)
+}
+
+// splitsOf is what splits write, to compare a plan made again.
+func splitsOf(splits []splitWrite) []string {
+	out := []string{}
+	for _, s := range splits {
+		out = append(out, s.target+" "+s.before.Hash+" "+contentHash(s.data))
+	}
+	return out
 }
