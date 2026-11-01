@@ -239,6 +239,7 @@ type planned struct {
 	tree       string
 	prev       *state.State
 	harnesses  []string
+	choice     []string                // the --harness choice to save, nil for none
 	owned      map[string]plan.Current // the targets the previous install owns, as they are
 	keys       map[string][]plan.Key   // the keys it owns in each settings file of owned
 	ignoreExec bool
@@ -274,7 +275,7 @@ func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run run
 	// is valid, before rulesync is fetched.
 	var prev *state.State
 	var detected map[string]Detection
-	var notices []string
+	var notices, choice []string
 	mode := ModeIsolated
 	pick := func(m pack.Manifest) ([]string, error) {
 		var err error
@@ -291,7 +292,7 @@ func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run run
 			return nil, err
 		}
 		var selected []string
-		selected, notices, err = selectHarnesses(m, opts.Harnesses, prev, detected)
+		selected, notices, choice, err = selectHarnesses(m, opts.Harnesses, prev, detected)
 		return selected, err
 	}
 	s, err := stage(ctx, d, fetch, run, cacheDir, dir, out, Selection{Variant: opts.Variant}, pick, tools, false, progress)
@@ -364,7 +365,7 @@ func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run run
 			Link: op.Link, BeforeLink: op.BeforeLink,
 		})
 	}
-	return then(planned{plan: res, shared: shared, ops: p.Ops, tree: tree, prev: prev, harnesses: s.Harnesses, owned: p.Owned, keys: p.Keys, ignoreExec: !d.ExecBit()})
+	return then(planned{plan: res, shared: shared, ops: p.Ops, tree: tree, prev: prev, harnesses: s.Harnesses, choice: choice, owned: p.Owned, keys: p.Keys, ignoreExec: !d.ExecBit()})
 }
 
 // buildPlan plans the user-scope staging tree tree into home. A first

@@ -99,28 +99,38 @@ func detectAll(d installFS, h host, home string, m pack.Manifest) (map[string]De
 }
 
 // selectHarnesses chooses the harnesses an install manages, in the order
-// of m's harnesses, required then optional (decision 0038): asked, the
-// --harness list, when it is not nil; otherwise, when the previous install
-// prev was of the same pack, its harnesses, the saved selection, with the
-// required ones; otherwise every harness of m that det detects. A required
-// harness that is not detected stops the install, and so does one asked
-// for; one that asked leaves out, or a harness asked doesn't support, is a
-// *UsageError. An optional harness that is not managed gets a notice,
-// text for people.
-func selectHarnesses(m pack.Manifest, asked []string, prev *state.State, det map[string]Detection) (selected, notices []string, err error) {
+// of m's harnesses, required then optional (decision 0038), and the
+// --harness choice to save in the install state, nil for none. With asked,
+// the --harness list, not nil, it manages those and saves them. Otherwise,
+// when the previous install prev was of the same pack and saved a choice,
+// it reuses that choice, with every required harness, and saves it again
+// as it was; otherwise it manages every harness of m that det detects and
+// saves no choice. So a harness skipped as undetected never changes the
+// saved choice. A required harness that is not detected stops the install,
+// and so does one asked for that is not; a required harness asked leaves
+// out, and a name asked that the pack does not support, are a *UsageError.
+// An optional harness that is not managed gets a notice, text for people.
+func selectHarnesses(m pack.Manifest, asked []string, prev *state.State, det map[string]Detection) (selected, notices, choice []string, err error) {
 	all := m.AllHarnesses()
 	adapters, err := harness.Lookup(all)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	for _, id := range asked {
 		if !slices.Contains(all, id) {
-			return nil, nil, &UsageError{fmt.Sprintf("--harness names %q, which the pack does not support: its harnesses are %s", id, strings.Join(all, ", "))}
+			return nil, nil, nil, &UsageError{fmt.Sprintf("--harness names %q, which the pack does not support: its harnesses are %s", id, strings.Join(all, ", "))}
 		}
 	}
 	var saved []string
-	if asked == nil && prev != nil && prev.Pack.Name == m.Name {
-		saved = prev.Harnesses
+	switch {
+	case asked != nil:
+		for _, id := range all {
+			if slices.Contains(asked, id) {
+				choice = append(choice, id)
+			}
+		}
+	case prev != nil && prev.Pack.Name == m.Name && prev.Selection != nil:
+		saved, choice = prev.Selection, slices.Clone(prev.Selection)
 	}
 	var missing []string
 	for _, a := range adapters {
@@ -128,11 +138,11 @@ func selectHarnesses(m pack.Manifest, asked []string, prev *state.State, det map
 		d := det[a.ID]
 		switch {
 		case asked != nil && !slices.Contains(asked, a.ID) && required:
-			return nil, nil, &UsageError{fmt.Sprintf("the pack requires %s, which --harness leaves out: add it to --harness", a.ID)}
+			return nil, nil, nil, &UsageError{fmt.Sprintf("the pack requires %s, which --harness leaves out: add it to --harness", a.ID)}
 		case asked != nil && !slices.Contains(asked, a.ID):
 			notices = append(notices, fmt.Sprintf("the optional harness %s is not managed: --harness leaves it out", a.ID))
 		case saved != nil && !required && !slices.Contains(saved, a.ID):
-			notices = append(notices, fmt.Sprintf("the optional harness %s is not managed: the saved selection leaves it out; select it with --harness", a.ID))
+			notices = append(notices, fmt.Sprintf("the optional harness %s is not managed: the --harness choice an earlier install saved leaves it out; pass --harness to change it", a.ID))
 		case d.Detected:
 			selected = append(selected, a.ID)
 		case asked != nil:
@@ -144,7 +154,7 @@ func selectHarnesses(m pack.Manifest, asked []string, prev *state.State, det map
 		}
 	}
 	if len(missing) > 0 {
-		return nil, nil, errors.New(strings.Join(missing, "; "))
+		return nil, nil, nil, errors.New(strings.Join(missing, "; "))
 	}
-	return selected, notices, nil
+	return selected, notices, choice, nil
 }

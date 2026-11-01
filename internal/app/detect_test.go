@@ -108,9 +108,11 @@ func adapterOf(t *testing.T, id string) harness.Adapter {
 
 // TestSelectHarnesses checks which harnesses an install manages: the
 // pack's harnesses that are detected by default, --harness when given, and
-// the saved selection on a plain install; a required harness that is
-// missing or left out stops it, a missing optional one is skipped with a
-// notice (decision 0038).
+// the --harness choice an earlier install of the pack saved on a plain
+// install; a required harness that is missing or left out stops it, a
+// missing optional one is skipped with a notice (decision 0038). Only an
+// explicit choice is saved, and a harness skipped as undetected never
+// changes it.
 func TestSelectHarnesses(t *testing.T) {
 	m := pack.Manifest{Name: "p", Harnesses: []string{"claudecode"}, OptionalHarnesses: []string{"antigravity-cli", "opencode"}}
 	det := func(ids ...string) map[string]app.Detection {
@@ -121,7 +123,7 @@ func TestSelectHarnesses(t *testing.T) {
 		return out
 	}
 	saved := func(name string, ids ...string) *state.State {
-		return &state.State{Pack: state.Pack{Name: name}, Harnesses: ids}
+		return &state.State{Pack: state.Pack{Name: name}, Harnesses: ids, Selection: ids}
 	}
 	tests := []struct {
 		name    string
@@ -129,6 +131,7 @@ func TestSelectHarnesses(t *testing.T) {
 		prev    *state.State
 		det     map[string]app.Detection
 		want    []string
+		choice  []string // the choice to save
 		notices []string
 		usage   bool
 		err     string
@@ -139,6 +142,7 @@ func TestSelectHarnesses(t *testing.T) {
 		{name: "a missing required harness stops", det: det("antigravity-cli", "opencode"),
 			err: "the pack requires claudecode, which is not installed (claude not found on PATH and no /h/claudecode directory)"},
 		{name: "--harness selects", asked: []string{"opencode", "claudecode"}, det: det(pack.Harnesses...), want: []string{"claudecode", "opencode"},
+			choice:  []string{"claudecode", "opencode"},
 			notices: []string{"the optional harness antigravity-cli is not managed: --harness leaves it out"}},
 		{name: "--harness leaves out a required harness", asked: []string{"opencode"}, det: det(pack.Harnesses...), usage: true,
 			err: "the pack requires claudecode, which --harness leaves out: add it to --harness"},
@@ -146,20 +150,27 @@ func TestSelectHarnesses(t *testing.T) {
 			err: `--harness names "codex", which the pack does not support: its harnesses are claudecode, antigravity-cli, opencode`},
 		{name: "--harness asks for a missing harness", asked: []string{"claudecode", "antigravity-cli"}, det: det("claudecode"),
 			err: "--harness asks for antigravity-cli, which is not installed (agy not found on PATH)"},
-		{name: "a plain install reuses the saved selection", prev: saved("p", "claudecode", "opencode"), det: det(pack.Harnesses...),
-			want: []string{"claudecode", "opencode"}, notices: []string{"the optional harness antigravity-cli is not managed: the saved selection leaves it out; select it with --harness"}},
-		{name: "a saved harness that is gone is skipped", prev: saved("p", "claudecode", "opencode"), det: det("claudecode"),
-			want: []string{"claudecode"}, notices: []string{
-				"the optional harness antigravity-cli is not managed: the saved selection leaves it out; select it with --harness",
+		{name: "a plain install reuses the saved choice", prev: saved("p", "claudecode", "opencode"), det: det(pack.Harnesses...),
+			want: []string{"claudecode", "opencode"}, choice: []string{"claudecode", "opencode"}, notices: []string{"the optional harness antigravity-cli is not managed: the --harness choice an earlier install saved leaves it out; pass --harness to change it"}},
+		{name: "a harness of the saved choice that is gone is skipped, and stays in the choice", prev: saved("p", "claudecode", "opencode"), det: det("claudecode"),
+			want: []string{"claudecode"}, choice: []string{"claudecode", "opencode"}, notices: []string{
+				"the optional harness antigravity-cli is not managed: the --harness choice an earlier install saved leaves it out; pass --harness to change it",
 				"the optional harness opencode is skipped: it is not installed (opencode not found on PATH and no /h/opencode directory)"}},
-		{name: "another pack's selection is not reused", prev: saved("other", "claudecode"), det: det(pack.Harnesses...),
+		{name: "another pack's choice is not reused", prev: saved("other", "claudecode"), det: det(pack.Harnesses...),
 			want: []string{"claudecode", "antigravity-cli", "opencode"}},
-		{name: "--harness wins over the saved selection", asked: []string{"claudecode", "antigravity-cli"}, prev: saved("p", "claudecode"), det: det(pack.Harnesses...),
-			want: []string{"claudecode", "antigravity-cli"}, notices: []string{"the optional harness opencode is not managed: --harness leaves it out"}},
+		{name: "--harness wins over the saved choice", asked: []string{"claudecode", "antigravity-cli"}, prev: saved("p", "claudecode"), det: det(pack.Harnesses...),
+			want: []string{"claudecode", "antigravity-cli"}, choice: []string{"claudecode", "antigravity-cli"},
+			notices: []string{"the optional harness opencode is not managed: --harness leaves it out"}},
+		// What an install managed without --harness, or an older state, is
+		// no choice: the default applies.
+		{name: "the harnesses an install managed are not a choice", prev: &state.State{Pack: state.Pack{Name: "p"}, Harnesses: []string{"claudecode"}},
+			det: det(pack.Harnesses...), want: []string{"claudecode", "antigravity-cli", "opencode"}},
+		{name: "a required harness the saved choice lacks is managed", prev: saved("p", "opencode"), det: det(pack.Harnesses...),
+			want: []string{"claudecode", "opencode"}, choice: []string{"opencode"}, notices: []string{"the optional harness antigravity-cli is not managed: the --harness choice an earlier install saved leaves it out; pass --harness to change it"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, notices, err := app.SelectHarnesses(m, tt.asked, tt.prev, tt.det)
+			got, notices, choice, err := app.SelectHarnesses(m, tt.asked, tt.prev, tt.det)
 			if tt.err != "" {
 				var usage *app.UsageError
 				if err == nil || err.Error() != tt.err || errors.As(err, &usage) != tt.usage {
@@ -167,8 +178,8 @@ func TestSelectHarnesses(t *testing.T) {
 				}
 				return
 			}
-			if err != nil || !reflect.DeepEqual(got, tt.want) || !reflect.DeepEqual(notices, tt.notices) {
-				t.Errorf("SelectHarnesses() = %v, %q, %v, want %v, %q", got, notices, err, tt.want, tt.notices)
+			if err != nil || !reflect.DeepEqual(got, tt.want) || !reflect.DeepEqual(notices, tt.notices) || !reflect.DeepEqual(choice, tt.choice) {
+				t.Errorf("SelectHarnesses() = %v, %q, choice %v, %v, want %v, %q, choice %v", got, notices, choice, err, tt.want, tt.notices, tt.choice)
 			}
 		})
 	}
@@ -210,19 +221,32 @@ func TestPlanInstallSkipsAMissingOptionalHarness(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := readJSON(t, at(home, ".dotai/state.json"), state.Decode)
-	if !reflect.DeepEqual(s.Harnesses, []string{"claudecode", "opencode"}) {
-		t.Errorf("state harnesses = %v, want the selection", s.Harnesses)
+	if !reflect.DeepEqual(s.Harnesses, []string{"claudecode", "opencode"}) || s.Selection != nil {
+		t.Errorf("state harnesses = %v, selection %v, want what it manages and no choice", s.Harnesses, s.Selection)
 	}
 
-	// agy installed since: a plain install keeps the saved selection.
+	// agy installed since: the next plain install manages it again, since
+	// skipping it as undetected saved no choice.
 	h = app.NewHost(found(at(home, "bin"), "claude", "opencode", "agy"), nil, "")
+	if _, err := app.InstallHost(context.Background(), newClockFS(t), h, f.fetch, f.run, dir, home, app.InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	s = readJSON(t, at(home, ".dotai/state.json"), state.Decode)
+	if !reflect.DeepEqual(s.Harnesses, []string{"claudecode", "opencode", "antigravity-cli"}) || s.Selection != nil {
+		t.Errorf("state harnesses = %v, selection %v, want agy managed again", s.Harnesses, s.Selection)
+	}
+
+	// An explicit choice is saved, and a plain install reuses it.
+	if _, err := app.InstallHost(context.Background(), newClockFS(t), h, f.fetch, f.run, dir, home, app.InstallOptions{Harnesses: []string{"claudecode", "opencode"}}); err != nil {
+		t.Fatal(err)
+	}
+	s = readJSON(t, at(home, ".dotai/state.json"), state.Decode)
+	if !reflect.DeepEqual(s.Selection, []string{"claudecode", "opencode"}) {
+		t.Errorf("state selection = %v, want the --harness choice", s.Selection)
+	}
 	p, err = app.PlanInstallHost(context.Background(), app.OSInstallFS{}, h, f.fetch, f.run, dir, home, app.InstallOptions{})
 	if err != nil || slices.ContainsFunc(p.Ops, func(op app.InstallOp) bool { return op.Harness == "antigravity-cli" }) {
-		t.Errorf("PlanInstall() = %+v, %v, want the saved selection without agy", p.Ops, err)
-	}
-	p, err = app.PlanInstallHost(context.Background(), app.OSInstallFS{}, h, f.fetch, f.run, dir, home, app.InstallOptions{Harnesses: []string{"claudecode", "opencode", "antigravity-cli"}})
-	if err != nil || !slices.ContainsFunc(p.Ops, func(op app.InstallOp) bool { return op.Harness == "antigravity-cli" }) {
-		t.Errorf("PlanInstall(--harness) = %+v, %v, want agy selected", p.Ops, err)
+		t.Errorf("PlanInstall() = %+v, %v, want the saved choice without agy", p.Ops, err)
 	}
 }
 

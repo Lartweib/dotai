@@ -272,7 +272,7 @@ func (r runner) run(res *InstallResult) error {
 	}
 	prev := r.p.prev
 	next := state.New(r.pack, r.p.plan.Variant, r.p.plan.Mode, time.Time{}, r.p.harnesses, "", r.p.ops)
-	next.SharedSkills = r.p.shared
+	next.SharedSkills, next.Selection = r.p.shared, r.p.choice
 	if len(writes) == 0 && prev != nil && prev.SameInstall(next) {
 		res.State = statePath
 		return nil
