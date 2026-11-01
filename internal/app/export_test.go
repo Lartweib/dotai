@@ -126,3 +126,35 @@ var OrderLinks = orderLinks
 func MakeLinkWith(d executeFS, home, root, name, target, dest string) error {
 	return runner{d: d, home: home}.link(root, name, target, dest)
 }
+
+// InstallReplace is Install through d on the host h in the replace mode,
+// which writes there: the path the CLI cannot reach yet (roadmap PR 9b-4).
+func InstallReplace(ctx context.Context, d executeFS, h Host, fetch fetchFunc, run runFunc, dir, home string, opts InstallOptions) (InstallResult, error) {
+	opts.Mode, opts.replaceWrites = ModeReplace, true
+	return install(ctx, d, h, fetch, run, "cache", dir, home, opts, nil, nil)
+}
+
+// InstallAgainReplace is Install through d on the host h with the mode the
+// install state records, written even when that is replace.
+func InstallAgainReplace(ctx context.Context, d executeFS, h Host, fetch fetchFunc, run runFunc, dir, home string, opts InstallOptions) (InstallResult, error) {
+	opts.replaceWrites = true
+	return install(ctx, d, h, fetch, run, "cache", dir, home, opts, nil, nil)
+}
+
+// PinnedBackup is the id of the pinned first replace backup that the
+// install state of home leads to, "" for none.
+func PinnedBackup(t interface{ Fatal(...any) }, home string) string {
+	s, err := readState(osInstallFS{}, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s == nil {
+		return ""
+	}
+	r := runner{ctx: context.Background(), d: osInstallFS{}, home: home}
+	chain := r.pinnedChain(r.historyOrder(settledBackup(*s)))
+	if len(chain) == 0 {
+		return ""
+	}
+	return chain[len(chain)-1]
+}

@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/lartweib/dotai/internal/backup"
 	"github.com/lartweib/dotai/internal/harness"
 	"github.com/lartweib/dotai/internal/state"
 )
@@ -27,11 +28,11 @@ type WipePlan struct {
 	Collateral string `json:"collateral"`
 }
 
-// The kinds of a wiped entry.
+// The kinds of a wiped entry, as its backup records them.
 const (
-	KindFile = "file"
-	KindDir  = "dir"
-	KindLink = "link"
+	KindFile = backup.KindFile
+	KindDir  = backup.KindDir
+	KindLink = backup.KindLink
 )
 
 // KeepPlan is an entry of a harness directory that a replace install
@@ -431,7 +432,8 @@ func resolveMode(mode string, prev *state.State) (string, error) {
 }
 
 // errReplaceUnavailable refuses an install that would write in the replace
-// mode, which comes with the backup by move (roadmap PRs 9b-3 and 9b-4).
+// mode, which the CLI cannot ask for until consent and the running-harness
+// check exist (roadmap PR 9b-4).
 func errReplaceUnavailable(fromState bool) error {
 	why := "dotai install --mode replace is not available yet"
 	if fromState {

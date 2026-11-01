@@ -365,13 +365,44 @@ func TestRestoreRefusesATamperedManifest(t *testing.T) {
 		"not under the home directory: a target outside it": func(home string, m *backup.Manifest, dir string) {
 			m.Ops = append(m.Ops, backup.Op{Action: plan.Create, Target: filepath.Join(filepath.Dir(home), "x"), After: &backup.Content{SHA256: sum("x")}})
 		},
-		// A replace install cannot be restored yet (roadmap PR 9b-3).
-		"cannot restore yet: a backup of a replace install": func(home string, m *backup.Manifest, dir string) {
-			m.Mode = app.ModeReplace
-		},
-		"cannot restore yet: a target in a harness's own directory": func(home string, m *backup.Manifest, dir string) {
-			m.Mode = app.ModeReplace
+		// Only a replace install writes in a harness's own directory.
+		"restore never writes there: a harness's own directory in an isolated backup": func(home string, m *backup.Manifest, dir string) {
 			m.Ops = append(m.Ops, backup.Op{Action: plan.Create, Target: at(home, ".claude/CLAUDE.md"), After: &backup.Content{SHA256: sum("x")}})
+		},
+		"restore never writes there: a target outside the harness directories in a replace backup": func(home string, m *backup.Manifest, dir string) {
+			m.Mode = app.ModeReplace
+			m.Ops = append(m.Ops, backup.Op{Action: plan.Create, Target: at(home, ".ssh/id"), After: &backup.Content{SHA256: sum("x")}})
+		},
+		"not a clean absolute path: a wiped entry that climbs out of an area": func(home string, m *backup.Manifest, dir string) {
+			m.Mode = app.ModeReplace
+			writeFile(t, filepath.Join(dir, "files", ".ssh", "authorized_keys"), "evil\n")
+			sep := string(filepath.Separator)
+			m.Wipes = []backup.Wipe{{Harness: "claudecode", Path: home + sep + ".claude" + sep + ".." + sep + ".ssh" + sep + "authorized_keys", Kind: backup.KindFile,
+				File: "files/.ssh/authorized_keys", Items: []backup.Item{{Kind: backup.KindFile, SHA256: sum("evil\n")}}}}
+		},
+		"restore never writes there: a wiped entry no replace install wipes": func(home string, m *backup.Manifest, dir string) {
+			m.Mode = app.ModeReplace
+			writeFile(t, filepath.Join(dir, "files", ".ssh", "config"), "Host evil\n")
+			m.Wipes = []backup.Wipe{{Harness: "claudecode", Path: at(home, ".ssh/config"), Kind: backup.KindFile, File: "files/.ssh/config",
+				Items: []backup.Item{{Kind: backup.KindFile, SHA256: sum("Host evil\n")}}}}
+		},
+		"restore never writes there: a split file no harness has": func(home string, m *backup.Manifest, dir string) {
+			m.Mode = app.ModeReplace
+			writeFile(t, filepath.Join(dir, "files", ".ssh", "config.json"), "{}")
+			m.Splits = []backup.Split{{Harness: "claudecode", Target: at(home, ".ssh/config.json"), File: "files/.ssh/config.json",
+				Before: backup.Content{SHA256: sum("{}")}, After: backup.Content{SHA256: sum("{ }")}, Keys: [][]string{{"x"}}}}
+		},
+		"is damaged: a wiped entry that does not hold what its manifest records": func(home string, m *backup.Manifest, dir string) {
+			m.Mode = app.ModeReplace
+			writeFile(t, filepath.Join(dir, "files", "CLAUDE.md"), "changed\n")
+			m.Wipes = []backup.Wipe{{Harness: "claudecode", Path: at(home, "CLAUDE.md"), Kind: backup.KindFile, File: "files/CLAUDE.md",
+				Items: []backup.Item{{Kind: backup.KindFile, SHA256: sum("mine\n")}}}}
+		},
+		"is damaged: a split file whose copy is not what its manifest records": func(home string, m *backup.Manifest, dir string) {
+			m.Mode = app.ModeReplace
+			writeFile(t, filepath.Join(dir, "files", ".claude.json"), "{}")
+			m.Splits = []backup.Split{{Harness: "claudecode", Target: at(home, ".claude.json"), File: "files/.claude.json",
+				Before: backup.Content{SHA256: sum(`{"mcpServers":{}}`)}, After: backup.Content{SHA256: sum("{}")}, Keys: [][]string{{"mcpServers"}}}}
 		},
 		"owns a file restore never writes: a prior state with a file outside": func(home string, m *backup.Manifest, dir string) {
 			s := state.State{Schema: state.Schema, Harnesses: []string{}, Files: []state.File{{Target: at(home, ".ssh/config"), SHA256: sum("x")}}}

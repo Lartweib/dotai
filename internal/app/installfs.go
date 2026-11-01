@@ -133,6 +133,19 @@ func (osInstallFS) RemoveIn(root, name string) error {
 	return retry(func() error { return r.Remove(name) })
 }
 
+// MoveIn renames from to to, slash paths inside root, through root, so
+// that neither is followed through a link out of it, and the entry at from
+// moves itself, a link or a junction included. The move is retried as a
+// write is.
+func (osInstallFS) MoveIn(root, from, to string) error {
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	return retry(func() error { return r.Rename(from, to) })
+}
+
 func (osInstallFS) MkdirIn(root, name string) error {
 	r, err := os.OpenRoot(root)
 	if err != nil {

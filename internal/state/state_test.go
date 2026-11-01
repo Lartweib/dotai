@@ -71,6 +71,10 @@ func TestDecodeRejectsABadState(t *testing.T) {
 	dup.Files = append(dup.Files, s.Files[0])
 	rel := s
 	rel.Files = []state.File{{Target: "relative/x", SHA256: "x"}}
+	wipe := s
+	wipe.Pending = &state.Pending{Backup: "b", Ops: []state.PendingOp{}, Wipes: []string{"relative/x"}}
+	split := s
+	split.Pending = &state.Pending{Backup: "b", Ops: []state.PendingOp{}, Splits: []string{".claude.json"}}
 	for name, tt := range map[string]struct {
 		data string
 		want string
@@ -80,6 +84,8 @@ func TestDecodeRejectsABadState(t *testing.T) {
 		"no schema":        {`{}`, `schema ""`},
 		"duplicate target": {encode(t, dup), "twice"},
 		"relative target":  {encode(t, rel), "not absolute"},
+		"relative wipe":    {encode(t, wipe), "not absolute"},
+		"relative split":   {encode(t, split), "not absolute"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := state.Decode([]byte(tt.data)); err == nil || !strings.Contains(err.Error(), tt.want) {

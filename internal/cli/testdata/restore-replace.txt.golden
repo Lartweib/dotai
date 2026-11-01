@@ -1,0 +1,17 @@
+Restore · undid 1 install, newest first
+  20261029T101500.000Z_install · minimal-pack 0.1.0 · variant standalone
+
+claudecode
+  delete   /home/u/.claude/CLAUDE.md
+  move back  /home/u/.claude/CLAUDE.md
+  move back  /home/u/.claude/agents  (something else was there, kept in the restore backup)
+  restore keys  /home/u/.claude.json
+    mcpServers
+    projects["/home/u/work"].allowedTools
+
+opencode
+  move back  /home/u/AGENTS.md
+
+0 restore, 1 delete, 3 move back · restored
+backup: /home/u/.dotai/backups/20261029T110000.000Z_restore
+state:  removed, nothing dotai installed is left (/home/u/.dotai/state.json)
