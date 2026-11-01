@@ -1,6 +1,6 @@
 # Roadmap
 
-The delivery plan for the engine, as a sequence of pull requests. Every PR is a deliverable: it leaves something that can be run or inspected, does one thing, and carries its own tests. PRs are stacked on `main`: each one merges into `main` and the next one starts from there.
+The delivery plan for the engine, as a sequence of pull requests. Every PR is a deliverable: it leaves something that can be run or inspected, does one thing, and carries its own tests. PRs are stacked on `main`: each one merges into `main` and the next one starts from there. Rows split into parts, such as 9b-1 to 9b-4, are sequential PRs in the same way.
 
 Demos use the minimal example pack in the repository (`examples/minimal-pack`) and a temporary home directory. They never touch a real harness configuration.
 
@@ -19,12 +19,15 @@ The scope is set by [0020](decisions/0020-v1-scope-engine-and-pack.md) and the c
 | 7 | `plan` and the adapters as data | `dotai install --dry-run` prints the exact plan, readable or as `--json` |
 | 8 | `backup`, `state` and isolated execution for Claude Code | `dotai install --mode isolated`, then open Claude Code isolated with the pack; `dotai restore` puts everything back |
 | 9 | Isolated mode for agy and OpenCode | The same demo on the other two harnesses |
-| 9b | Replace mode for Claude Code, agy and OpenCode ([0034](decisions/0034-replace-mode-in-v1.md)) | Back up the real configuration, `dotai install --mode replace` into a temporary home's real harness paths, then `dotai restore` brings the original back |
+| 9b-1 | Replace mode decision ([0038](decisions/0038-replace-mode-resets-harness-to-fresh-install.md)) and the verification of what each harness reads and creates at user level | [HARNESS-NOTES](HARNESS-NOTES.md#replace-inventory): each fact verified with its version and OS, or marked unverified |
+| 9b-2 | Replace layout in the adapters: keep-lists and leak entries, harness detection and selection (`--harness`), `optional-harnesses` in the manifest | `dotai install --mode replace --dry-run` lists what would be wiped, kept and written per harness, and the detection of each harness |
+| 9b-3 | Backup by move, wipe operations, journal and rollback, restore of wipes, the pinned first replace backup | Tests in a temporary home: a wipe moves entries into the backup, a failure rolls them back, and `dotai restore` moves them back exactly |
+| 9b-4 | Replace enabled: consent, running-harness check, refusal on relocation variables, mode default and switch rules, `~/.agents/skills` per variant, the `dotai run` message, CLI-JSON | `dotai install --mode replace` into a temporary home's real harness paths, then `dotai restore` brings the original back |
 | 10 | Project scope: `dotai apply --profile`, merge by key, mods as plugins ([0027](decisions/0027-loose-files-and-plugins-only-for-mods.md)) | Apply a profile to a test project and see foreign content kept |
 | 11 | `doctor` | Edit an installed file by hand and see `dotai doctor` report it |
 | 12 | Release: binaries per platform | Install `dotai` from a release and repeat the PR 8 demo |
 
-Checkpoints: PR 4 is the first real harness output, PR 8 the first real use with a safe way back, PR 9b the first install over the real configuration, and PR 10 closes the v1 scope.
+Checkpoints: PR 4 is the first real harness output, PR 8 the first real use with a safe way back, PR 9b-4 the first install over the real configuration, and PR 10 closes the v1 scope.
 
 ## After v1
 

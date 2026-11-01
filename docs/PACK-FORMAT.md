@@ -68,7 +68,8 @@ variants:
 | `name`, `version` | yes | Pack identity. |
 | `engine` | yes | Range of engine versions the pack supports. |
 | `rulesync` | yes | Exact rulesync version the pack was tested with. |
-| `harnesses` | yes | Targets, using rulesync target names: `claudecode`, `antigravity-cli`, `opencode`. |
+| `harnesses` | yes | Targets, using rulesync target names: `claudecode`, `antigravity-cli`, `opencode`. Planned with `optional-harnesses` (roadmap PR 9b-2, [0038](decisions/0038-replace-mode-resets-harness-to-fresh-install.md)): each one listed here is required, and an install where one is missing or deselected stops before writing anything, naming it. |
+| `optional-harnesses` | no | Planned, lands in roadmap PR 9b-2 ([0038](decisions/0038-replace-mode-resets-harness-to-fresh-install.md)); not accepted by this version. Targets the pack also supports, with the same names as `harnesses`: one that is not installed is skipped with a notice. |
 | `profiles.<name>.path`, `variants.<name>.path` | yes | Layer directory, relative to the pack root. |
 | `profiles.<name>.description` | yes | What the profile is for. Read by the onboarding agent. |
 | `profiles.<name>.hints` | no | Evidence for the onboarding agent. The engine never acts on them. |
