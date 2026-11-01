@@ -28,7 +28,7 @@ Every layer has the same shape:
 | `dotai/settings.yaml` | dotai | Settings rulesync does not cover: `statusLine`, `env`, model defaults |
 | `dotai/tools/` | dotai | Scripts, binaries and config files the layer installs ([0030](decisions/0030-tools-paths-and-project-config.md)) |
 
-A layer may omit any of these paths. A pack contains no symbolic links, only regular files and directories, and every file the engine reads is at most 1 MiB.
+A layer may omit any of these paths. A pack contains no symbolic links, only regular files and directories, and every file the engine reads is at most 1 MiB. The old rulesync names `.rulesync/mcp.json`, `.rulesync/hooks.json` and `.rulesync/permissions.json` are an error, `legacy-file-name`: rulesync ignores such a file when the `.jsonc` one exists, which another layer may provide, and the merge rules read only the `.jsonc` names. Rename the file to its `.jsonc` name.
 
 ## Manifest
 
@@ -98,7 +98,7 @@ For each scope:
 
 1. Resolve the layers. User scope: `base` and the variant passed with `--variant`, detected, or default. Project scope: the profiles passed with `--profile`.
 2. Read the `dotai:` blocks from the sources.
-3. Run `dotai validate` over all layers, both scopes included. Structural checks (manifest, layer paths, file types, `dotai:` blocks) run first. The [merge rules](#merge-rules) run only when they found no errors, and their diagnostics come after the structural ones. This version does not merge lists yet: `.rulesync/hooks.jsonc` or `.rulesync/permissions.jsonc` in two layers of a scope is reported as `merge-pending` until their merging lands.
+3. Run `dotai validate` over all layers, both scopes included. Structural checks (manifest, layer paths, file types, `dotai:` blocks) run first. The [merge rules](#merge-rules) run only when they found no errors, and their diagnostics come after the structural ones.
 4. Merge the scope's layers into its own staging tree.
 5. Run the pinned rulesync over the staging `.rulesync/`, writing into staging.
 6. Render `dotai/` content for each harness.
@@ -121,11 +121,13 @@ Layer order is base, variant, then profiles. Profiles are peers and have no orde
 | Element | Identity | Rule |
 |---|---|---|
 | Skills, subagents, commands, rules, MCP servers | Name | One name, one owner. A same name in two layers is an error, unless the later layer declares `dotai: { overrides: true }`. Two profiles can never override each other. |
-| Lists: permissions, hooks per event | Value | Union without duplicates. If an entry is both allowed and denied, deny wins. |
+| Lists: permissions, hooks per event | Value | Union in layer order without duplicates; a later layer cannot remove or change an entry ([0040](decisions/0040-list-files-merged-as-a-union.md)). |
 | Single values: `statusLine`, an `env` variable, the default model | Key | A later layer may replace a value only if it declares the override. The same key in two profiles is an error. |
 | Root rule (root `CLAUDE.md` or `AGENTS.md`) | Unique | Only the base provides it, exactly once, and no layer overrides it. Profiles and variants add named, non-root rules. |
 
 The name of an item comes from its path, not from its frontmatter: the file stem for rules, commands and subagents (`rules/web.md` is `web`), the directory for skills (`skills/seo/SKILL.md` is `seo`), and the key under `mcpServers` in `.rulesync/mcp.jsonc` for MCP servers. Names that differ only by case are a conflict, and so are staged paths that differ only by case, because some file systems cannot hold both. `overrides: true` must replace an item of an earlier layer in the same scope; with nothing to replace it is an error. MCP servers have no override syntax, so a server name in two layers of a scope is always an error; the servers of every layer are merged into one `mcp.jsonc` per scope.
+
+`.rulesync/hooks.jsonc` and `.rulesync/permissions.jsonc` merge into one file per scope, in layer order, with the profiles by name ([0040](decisions/0040-list-files-merged-as-a-union.md)). Objects merge by key: hook events, permission categories, the patterns of a category, and tool-scoped blocks such as `claudecode.hooks`. The items of an array, such as the entries of a hook event, are appended, and an item identical to an earlier one by canonical JSON is kept once, at its first position. Any other value, such as a pattern's action (`allow`, `ask` or `deny`) or `version`, must be the same in every layer that sets it: a different value is `hooks-conflict` or `permissions-conflict`, since these files have no override syntax. A file that is not a JSONC object, or that repeats a key in one object, is `hooks-invalid` or `permissions-invalid`. A `deny` and an `allow` on different patterns are both kept, and rulesync and each harness apply `deny` over `ask` over `allow`.
 
 The rules apply across scopes too, without overrides: an item in a profile with the same name as one in the base or the variant is always an error, because harnesses resolve that conflict differently ([0023](decisions/0023-flat-profiles-and-layer-merge-rules.md)).
 

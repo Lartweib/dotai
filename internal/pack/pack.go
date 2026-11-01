@@ -41,6 +41,7 @@ const (
 	CodeSettingsScope      = "settings-scope"
 	CodeOverridePath       = "override-path-invalid"
 	CodeOverrideKeyUnset   = "override-key-unset"
+	CodeLegacyFileName     = "legacy-file-name"
 
 	// A rulesync pin the engine cannot verify, reported only by LoadWith.
 	CodeRulesyncUnsupported = "rulesync-unsupported"
@@ -197,6 +198,11 @@ func checkBase(fsys fs.FS, diags *[]Diagnostic) (bool, error) {
 	return true, nil
 }
 
+// legacyFiles are the old names of rulesync's JSONC sources. rulesync
+// still reads one, but ignores it when the .jsonc file exists, and the
+// merge rules read only the .jsonc names, so a layer must not ship one.
+var legacyFiles = []string{"hooks.json", "mcp.json", "permissions.json"}
+
 // loadLayer walks the layer l without following links. It reports every
 // link and non-regular file in the layer, and reads the files of its
 // .rulesync/ and dotai/ trees, the items among them, the item each file
@@ -212,6 +218,11 @@ func loadLayer(fsys fs.FS, diags *[]Diagnostic, l *Layer, harnesses []string) er
 		}
 		rel, inRulesync := strings.CutPrefix(p, path.Join(l.Path, rulesyncDir)+"/")
 		if !inRulesync && !strings.HasPrefix(p, path.Join(l.Path, dotaiDir)+"/") {
+			return nil
+		}
+		if inRulesync && slices.Contains(legacyFiles, rel) {
+			*diags = append(*diags, NewDiagnostic(p, 0, 0, CodeLegacyFileName, "%s/%s is an old rulesync file name", rulesyncDir, rel).
+				WithHint("rename it to %sc", rel))
 			return nil
 		}
 		src, problem, err := readLimited(fsys, p)

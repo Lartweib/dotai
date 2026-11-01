@@ -18,9 +18,9 @@ variants/standalone/.rulesync/rules/standalone.md
                            fix:   remove root: true; only the base may provide the root rule
 
 variants/standalone/.rulesync/hooks.jsonc
-  merge-pending            .rulesync/hooks.jsonc is also provided by base
-                           first: base/.rulesync/hooks.jsonc
-                           fix:   keep it in one layer; merging lists across layers lands in a later version of dotai
+  1  hooks-conflict           /version already has a different value in base
+                              first: base/.rulesync/hooks.jsonc:1
+                              fix:   keep the same value; a layer cannot change or remove what an earlier layer of its scope sets
 
 variants/standalone/dotai/settings.yaml
   2:3  override-undeclared      setting claudecode.model already exists in base

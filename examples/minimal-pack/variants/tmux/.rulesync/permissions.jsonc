@@ -1,0 +1,8 @@
+{
+  // Added to the base's permissions when this variant is installed.
+  "permission": {
+    "bash": {
+      "tmux *": "allow"
+    }
+  }
+}

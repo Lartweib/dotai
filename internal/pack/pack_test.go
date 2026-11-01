@@ -384,6 +384,21 @@ func TestLoadDiagnostics(t *testing.T) {
 			want:   []string{`base/.rulesync/rules/pipe.md:0:0: not-regular-file: "base/.rulesync/rules/pipe.md" is not a regular file`},
 		},
 		{
+			name: "old rulesync file names, which rulesync ignores beside the .jsonc",
+			mutate: func(f fstest.MapFS) {
+				f["base/.rulesync/hooks.json"] = file("{}")
+				f["base/.rulesync/permissions.json"] = file("{}")
+				f["base/.rulesync/mcp.json"] = file("{}")
+				f["base/.rulesync/hooks.jsonc"] = file("{}")
+				f["base/.rulesync/rules/mcp.json"] = file("{}") // not a rulesync source file
+			},
+			want: []string{
+				"base/.rulesync/hooks.json:0:0: legacy-file-name: .rulesync/hooks.json is an old rulesync file name",
+				"base/.rulesync/mcp.json:0:0: legacy-file-name: .rulesync/mcp.json is an old rulesync file name",
+				"base/.rulesync/permissions.json:0:0: legacy-file-name: .rulesync/permissions.json is an old rulesync file name",
+			},
+		},
+		{
 			name:   "source too large",
 			mutate: setFile(rule, strings.Repeat("x", 1<<20+1)),
 			want:   []string{rule + `:0:0: file-too-large: "` + rule + `" is larger than 1 MiB`},
@@ -610,5 +625,14 @@ func TestLoadWithRulesyncVersions(t *testing.T) {
 				t.Errorf("diagnostics = %q, %v, want %q", got, err, tt.want)
 			}
 		})
+	}
+}
+
+func TestLoadLegacyFileNameHint(t *testing.T) {
+	fsys := validPack()
+	fsys["variants/orca/.rulesync/permissions.json"] = file("{}")
+	_, diags, err := pack.Load(fsys)
+	if err != nil || len(diags) != 1 || diags[0].Code != pack.CodeLegacyFileName || diags[0].Hint != "rename it to permissions.jsonc" {
+		t.Errorf("Load() = %+v, %v, want one legacy-file-name with a hint to rename it", diags, err)
 	}
 }
