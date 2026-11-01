@@ -9,12 +9,14 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
 	"testing"
 
 	"github.com/lartweib/dotai/internal/app"
+	"github.com/lartweib/dotai/internal/plan"
 	"github.com/lartweib/dotai/internal/rulesync"
 	"github.com/lartweib/dotai/internal/state"
 )
@@ -308,7 +310,11 @@ func TestPlanReplaceRefusals(t *testing.T) {
 	writeFile(t, at(home, ".claude/oauth-backup.json"), "{}")
 	writeFile(t, at(home, ".config/opencode/sessions.db"), "db")
 	writeFile(t, at(home, ".claude.json"), "[1, 2]")
-	h := app.NewHost(found(at(home, "bin"), "claude", "agy", "opencode"), []string{"CLAUDE_CONFIG_DIR=/x", "XDG_CONFIG_HOME=/y", "XDG_RUNTIME_DIR=/run", "PATH=/bin"}, "linux")
+	// Inside a directory it would wipe, and inside a leak entry.
+	writeFile(t, at(home, ".claude/agents/sub/api_token.txt"), "x")
+	writeFile(t, at(home, ".opencode/secrets.json"), "x")
+	h := app.NewHost(found(at(home, "bin"), "claude", "agy", "opencode"),
+		[]string{"CLAUDE_CONFIG_DIR=/x", "XDG_STATE_HOME=/z", "XDG_CONFIG_HOME=/y", "XDG_RUNTIME_DIR=/run", "PATH=/bin"}, "linux")
 	before := hashes(t, home)
 	p, err := planReplace(t, home, h, "")
 	if err != nil {
@@ -324,16 +330,20 @@ func TestPlanReplaceRefusals(t *testing.T) {
 	}
 	want := []refusal{
 		{app.RefuseRelocation, "claudecode", "CLAUDE_CONFIG_DIR"},
+		{app.RefuseUnclassified, "claudecode", at(home, ".claude/agents/sub/api_token.txt")},
 		{app.RefuseUnclassified, "claudecode", at(home, ".claude/oauth-backup.json")},
 		{app.RefuseSplitFile, "claudecode", at(home, ".claude.json")},
 		{app.RefuseRelocation, "opencode", "XDG_CONFIG_HOME"},
+		{app.RefuseRelocation, "opencode", "XDG_STATE_HOME"},
 		{app.RefuseUnclassified, "opencode", at(home, ".config/opencode/sessions.db")},
+		{app.RefuseUnclassified, "opencode", at(home, ".opencode/secrets.json")},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("refusals =\n%+v\nwant\n%+v", got, want)
 	}
 	for _, w := range p.Wipes {
-		if strings.HasSuffix(w.Path, "oauth-backup.json") || strings.HasSuffix(w.Path, "sessions.db") {
+		if strings.HasSuffix(w.Path, "oauth-backup.json") || strings.HasSuffix(w.Path, "sessions.db") ||
+			w.Path == at(home, ".claude/agents") || w.Path == at(home, ".opencode") {
 			t.Errorf("%s is wiped, want it refused unclassified", w.Path)
 		}
 	}
@@ -458,5 +468,97 @@ func TestPlanInstallOfAnInvalidPackHasEmptyLists(t *testing.T) {
 	}
 	if p.Wipes == nil || p.Keeps == nil || p.WipeKeys == nil || p.Refusals == nil || p.Notices == nil || p.Harnesses == nil || p.Ops == nil {
 		t.Errorf("plan = %+v, want every list empty, not nil", p)
+	}
+}
+
+// readFailFS is the real file system with Read failing with err for the
+// file name.
+type readFailFS struct {
+	app.OSInstallFS
+	name string
+	err  error
+}
+
+func (r readFailFS) Read(ctx context.Context, name string) ([]byte, plan.Current, error) {
+	if name == r.name {
+		return nil, plan.Current{}, r.err
+	}
+	return r.OSInstallFS.Read(ctx, name)
+}
+
+// TestPlanReplaceRefusesAnUnreadableSplitFile checks that a ~/.claude.json
+// that cannot be read is a refusal of Claude Code, not a failed dry run.
+func TestPlanReplaceRefusesAnUnreadableSplitFile(t *testing.T) {
+	home, h := realHome(t)
+	f := quiet(t)
+	d := readFailFS{name: at(home, ".claude.json"), err: fs.ErrPermission}
+	p, err := app.PlanInstallHost(context.Background(), d, h, f.fetch, replaceRun(t), examplePack, home, app.InstallOptions{Mode: app.ModeReplace})
+	if err != nil {
+		t.Fatalf("PlanInstall(replace) error = %v, want a refusal", err)
+	}
+	if len(p.Refusals) != 1 || p.Refusals[0].Code != app.RefuseSplitFile || p.Refusals[0].Path != d.name || !strings.Contains(p.Refusals[0].Message, "cannot be read") {
+		t.Errorf("refusals = %+v, want ~/.claude.json refused as unreadable", p.Refusals)
+	}
+}
+
+// TestPlanReplaceRefusesALinkedHarnessDirectory checks that a harness
+// directory that is a link is a refusal of that harness only: the other
+// harnesses are still planned, and nothing is read through the link.
+func TestPlanReplaceRefusesALinkedHarnessDirectory(t *testing.T) {
+	home, h := realHome(t)
+	elsewhere := t.TempDir()
+	writeFile(t, filepath.Join(elsewhere, "settings.json"), "{}")
+	if err := os.RemoveAll(at(home, ".gemini")); err != nil {
+		t.Fatal(err)
+	}
+	makeLink(t, elsewhere, at(home, ".gemini"))
+	p, err := planReplace(t, home, h, "")
+	if err != nil {
+		t.Fatalf("PlanInstall(replace) error = %v, want a refusal", err)
+	}
+	var linked []app.Refusal
+	for _, r := range p.Refusals {
+		if r.Code == app.RefuseLinkedDir {
+			linked = append(linked, r)
+		}
+	}
+	if len(linked) != 1 || linked[0].Harness != "antigravity-cli" || linked[0].Path != at(home, ".gemini") {
+		t.Errorf("refusals = %+v, want one for agy's linked ~/.gemini", p.Refusals)
+	}
+	for _, w := range p.Wipes {
+		if strings.HasPrefix(w.Path, at(home, ".gemini")) {
+			t.Errorf("%s is wiped through the link", w.Path)
+		}
+	}
+	if !slices.ContainsFunc(p.Wipes, func(w app.WipePlan) bool { return w.Path == at(home, ".claude/settings.json") }) ||
+		!slices.ContainsFunc(p.Wipes, func(w app.WipePlan) bool { return w.Path == at(home, ".config/opencode/opencode.json") }) {
+		t.Errorf("wipes = %+v, want Claude Code and OpenCode still planned", p.Wipes)
+	}
+}
+
+// TestPlanReplaceFindsOwnedTargetsWithoutCase checks that, where the file
+// system ignores case, a target dotai owns is found under a wiped entry
+// whatever the case its record has.
+func TestPlanReplaceFindsOwnedTargetsWithoutCase(t *testing.T) {
+	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
+		t.Skip("case is folded on Windows and macOS only")
+	}
+	home, h := realHome(t)
+	writeFile(t, at(home, ".claude/skills/pack/SKILL.md"), "pack\n")
+	owned := at(home, ".claude/SKILLS/Pack/SKILL.md")
+	writeState(t, at(home, ".dotai/state.json"), state.State{Schema: state.Schema, Pack: state.Pack{Name: "minimal-pack"}, Mode: app.ModeReplace,
+		Harnesses: []string{"claudecode", "antigravity-cli", "opencode"}, Files: []state.File{{Target: owned, Harness: "claudecode", SHA256: sum("pack\n")}}})
+	f := quiet(t)
+	p, err := app.PlanInstallHost(context.Background(), app.OSInstallFS{}, h, f.fetch, replaceRun(t), examplePack, home, app.InstallOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range p.Wipes {
+		if strings.EqualFold(w.Path, at(home, ".claude/skills")) || strings.EqualFold(w.Path, at(home, ".claude/skills/pack")) {
+			t.Errorf("%s is wiped, want it looked into, since dotai owns a file below it", w.Path)
+		}
+	}
+	if !slices.ContainsFunc(p.Wipes, func(w app.WipePlan) bool { return w.Path == at(home, ".claude/skills/mine") }) {
+		t.Errorf("wipes = %+v, want the user's skill wiped", p.Wipes)
 	}
 }

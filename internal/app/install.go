@@ -326,7 +326,7 @@ func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run run
 		res.Wipes, res.Keeps = append(res.Wipes, rp.wipes...), append(res.Keeps, rp.keeps...)
 		res.WipeKeys, res.Refusals = append(res.WipeKeys, rp.keys...), append(res.Refusals, rp.refusals...)
 	}
-	p, sp, err := buildPlan(ctx, d, tree, home, harness.Mode(mode), adapters, prev, shared, rp.wiped)
+	p, sp, err := buildPlan(ctx, d, tree, home, harness.Mode(mode), adapters, prev, shared, rp.unread)
 	if u, ok := errors.AsType[*plan.UnmappedError](err); ok {
 		res.Diagnostics = unmappedDiagnostics(u)
 		return then(planned{plan: res})

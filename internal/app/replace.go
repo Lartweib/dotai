@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -52,9 +53,11 @@ type WipeKey struct {
 }
 
 // Refusal is a reason the replace install refuses, which its dry run
-// lists: a relocation variable that is set (Variable), an entry no
-// keep-list classifies whose name looks like a login or history, or a
-// split file that dotai cannot split by key (Path).
+// lists: a relocation variable that is set (Variable), or (Path) an entry
+// no keep-list classifies whose name, or that of something inside it,
+// looks like a login, a secret or a history, a directory on the way to a
+// harness directory or a leak entry that is a link, a junction or a file,
+// or a split file that dotai cannot read or split by key.
 type Refusal struct {
 	Code     string `json:"code"`
 	Harness  string `json:"harness"`
@@ -68,34 +71,42 @@ const (
 	RefuseRelocation   = "relocation-variable"
 	RefuseUnclassified = "unclassified-entry"
 	RefuseSplitFile    = "split-file-invalid"
+	RefuseLinkedDir    = "linked-directory"
 )
 
 // replacePlan is what a replace install does to the harnesses' own
-// configuration besides installing the pack.
+// configuration besides installing the pack. blocked are the directories
+// a refusal keeps it from looking into, such as a harness directory that
+// is a link.
 type replacePlan struct {
 	wipes    []WipePlan
 	keeps    []KeepPlan
 	keys     []WipeKey
 	refusals []Refusal
+	blocked  []string
 }
 
-// wiped reports whether target is a wiped entry or below one: it is
-// missing once the wipe is done.
-func (rp replacePlan) wiped(target string) bool {
-	return slices.ContainsFunc(rp.wipes, func(w WipePlan) bool { return samePath(w.Path, target) || below(w.Path, target) })
+// unread reports whether target is a wiped entry or below one, which is
+// missing once the wipe is done, or below a blocked directory, which the
+// plan does not read through: either way the plan takes it as missing
+// without reading it.
+func (rp replacePlan) unread(target string) bool {
+	return slices.ContainsFunc(rp.wipes, func(w WipePlan) bool { return samePath(w.Path, target) || below(w.Path, target) }) ||
+		slices.ContainsFunc(rp.blocked, func(dir string) bool { return below(dir, target) })
 }
 
 // planWipes plans the reset of each of adapters to a fresh install in home
 // (decision 0038). Each entry of an area that its keep-list does not keep
 // is wiped, unless dotai owns it, in owned, or owns a target below it, in
-// which case the directory is looked into instead. An entry it would wipe
-// whose name looks like a login or history is refused instead. Each leak
-// entry that exists is wiped whole, and each split file has its
-// configuration keys wiped. A relocation variable of h's environment is a
-// refusal. Nothing is followed through a link: an area, or a directory
-// above it, that is a link or not a directory is a *NotRegularError.
+// which case the directory is looked into instead. Each leak entry that
+// exists is wiped whole, and each split file has its configuration keys
+// wiped. Refused instead: an entry it would wipe whose name, or the name
+// of anything inside it, looks like a login, a secret or a history; an
+// area or a leak entry below a link, a junction or a file, which is never
+// looked through; a split file that is not a readable JSON object; and a
+// relocation variable of h's environment.
 func planWipes(ctx context.Context, d installFS, h host, home string, adapters []harness.Adapter, shared bool, owned map[string]bool) (replacePlan, error) {
-	var rp replacePlan
+	rp := replacePlan{}
 	dirs := map[string]error{}
 	for _, a := range adapters {
 		for _, name := range a.Real.Relocated(h.environ, h.goos == "windows") {
@@ -104,11 +115,11 @@ func planWipes(ctx context.Context, d installFS, h host, home string, adapters [
 		}
 		for _, ar := range a.Real.Areas {
 			dir := filepath.Join(home, filepath.FromSlash(ar.Dir))
-			ok, err := realDir(d, home, dir, dirs)
-			if err != nil {
-				return replacePlan{}, err
-			}
-			if !ok {
+			ok, err := rp.realDir(d, a.ID, home, dir, dirs)
+			if err != nil || !ok {
+				if err != nil {
+					return replacePlan{}, err
+				}
 				continue
 			}
 			names, err := d.List(dir)
@@ -129,20 +140,21 @@ func planWipes(ctx context.Context, d installFS, h host, home string, adapters [
 		}
 		for _, l := range a.Real.Leaks {
 			entry := filepath.Join(home, filepath.FromSlash(l.Path))
-			if ok, err := realDir(d, home, filepath.Dir(entry), dirs); err != nil || !ok {
+			ok, err := rp.realDir(d, a.ID, home, filepath.Dir(entry), dirs)
+			if err != nil || !ok {
 				if err != nil {
 					return replacePlan{}, err
 				}
 				continue
 			}
-			mode, err := d.Lstat(entry)
-			switch {
-			case errors.Is(err, fs.ErrNotExist) || err == nil && owned[entry]:
+			if _, err := d.Lstat(entry); errors.Is(err, fs.ErrNotExist) {
 				continue
-			case err != nil:
+			} else if err != nil {
 				return replacePlan{}, err
 			}
-			rp.wipes = append(rp.wipes, WipePlan{Harness: a.ID, Path: entry, Kind: entryKind(mode), Collateral: l.Collateral})
+			if err := rp.wipe(d, a.ID, entry, l.Collateral, owned); err != nil {
+				return replacePlan{}, err
+			}
 		}
 		for _, sf := range a.Real.Split {
 			if err := rp.split(ctx, d, a.ID, filepath.Join(home, filepath.FromSlash(sf.Path)), sf); err != nil {
@@ -153,26 +165,22 @@ func planWipes(ctx context.Context, d installFS, h host, home string, adapters [
 	return rp, nil
 }
 
-// wipe plans the wipe of entry, an entry of a harness directory that no
-// keep-list keeps, for harness h: whole, or, when dotai owns a target
-// below it, entry by entry inside it. An entry dotai owns stays, since the
-// plan takes care of it.
+// wipe plans the wipe of entry, an entry that no keep-list keeps, for
+// harness h: whole, or, when dotai owns a target below it, entry by entry
+// inside it. An entry dotai owns stays, since the plan takes care of it.
+// An entry whose name, or the name of anything inside it, found without
+// following a link, looks like a login, a secret or a history is not
+// wiped: each such path is a refusal.
 func (rp *replacePlan) wipe(d installFS, h, entry, collateral string, owned map[string]bool) error {
-	if owned[entry] {
+	if ownedAt(owned, entry) {
 		return nil
 	}
 	mode, err := d.Lstat(entry)
 	if err != nil {
 		return err
 	}
-	ownsBelow := false
-	for target := range owned {
-		if below(entry, target) {
-			ownsBelow = true
-			break
-		}
-	}
-	if ownsBelow && mode.IsDir() && mode&(fs.ModeSymlink|fs.ModeIrregular) == 0 {
+	real := mode.IsDir() && mode&(fs.ModeSymlink|fs.ModeIrregular) == 0
+	if real && ownedBelow(owned, entry) {
 		names, err := d.List(entry)
 		if err != nil {
 			return err
@@ -185,13 +193,109 @@ func (rp *replacePlan) wipe(d installFS, h, entry, collateral string, owned map[
 		}
 		return nil
 	}
-	if harness.LooksSensitive(filepath.Base(entry)) {
-		rp.refusals = append(rp.refusals, Refusal{Code: RefuseUnclassified, Harness: h, Path: entry,
-			Message: fmt.Sprintf("%s looks like a login or a history, and no keep-list of %s classifies it, so a replace install does not wipe it: move it away if it is neither", entry, h)})
-		return nil
+	sensitive, err := sensitivePaths(d, entry, real)
+	if err != nil {
+		return err
 	}
-	rp.wipes = append(rp.wipes, WipePlan{Harness: h, Path: entry, Kind: entryKind(mode), Collateral: collateral})
+	for _, p := range sensitive {
+		rp.refusals = append(rp.refusals, Refusal{Code: RefuseUnclassified, Harness: h, Path: p,
+			Message: fmt.Sprintf("%s looks like a login, a secret or a history, and no keep-list of %s classifies it, so a replace install does not wipe it: move it away if it is neither", p, h)})
+	}
+	if len(sensitive) == 0 {
+		rp.wipes = append(rp.wipes, WipePlan{Harness: h, Path: entry, Kind: entryKind(mode), Collateral: collateral})
+	}
 	return nil
+}
+
+// sensitivePaths are entry, when its name looks like a login, a secret or
+// a history, and, for a real directory, every path inside it whose name
+// does, in walk order; nothing is followed through a link.
+func sensitivePaths(d installFS, entry string, real bool) ([]string, error) {
+	var out []string
+	if harness.LooksSensitive(filepath.Base(entry)) {
+		out = append(out, entry)
+	}
+	if !real {
+		return out, nil
+	}
+	names, err := d.List(entry)
+	if err != nil {
+		return nil, err
+	}
+	slices.Sort(names)
+	for _, name := range names {
+		child := filepath.Join(entry, name)
+		mode, err := d.Lstat(child)
+		if err != nil {
+			return nil, err
+		}
+		below, err := sensitivePaths(d, child, mode.IsDir() && mode&(fs.ModeSymlink|fs.ModeIrregular) == 0)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, below...)
+	}
+	return out, nil
+}
+
+// ownedAt reports whether dotai owns path, by owned, compared without case
+// where the OS folds it.
+func ownedAt(owned map[string]bool, path string) bool {
+	if owned[path] {
+		return true
+	}
+	for target := range owned {
+		if samePath(target, path) {
+			return true
+		}
+	}
+	return false
+}
+
+// ownedBelow reports whether dotai owns a target below dir, by owned.
+func ownedBelow(owned map[string]bool, dir string) bool {
+	for target := range owned {
+		if below(dir, target) {
+			return true
+		}
+	}
+	return false
+}
+
+// realDir reports whether dir, under home, exists as a real directory, as
+// each directory between home and it does; a missing one gives false. A
+// link, a junction or a file on the way is a refusal of harness h, once
+// per path, and gives false: nothing below it is read. dirs caches the
+// outcome of each directory.
+func (rp *replacePlan) realDir(d installFS, h, home, dir string, dirs map[string]error) (bool, error) {
+	rel, err := filepath.Rel(home, dir)
+	if err != nil || !filepath.IsLocal(rel) {
+		return false, fmt.Errorf("%s is not under the home directory %s", dir, home)
+	}
+	cur := home
+	for seg := range strings.SplitSeq(rel, string(filepath.Separator)) {
+		cur = filepath.Join(cur, seg)
+		err, seen := dirs[cur]
+		if !seen {
+			err = checkDir(d, cur)
+			dirs[cur] = err
+		}
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, nil
+		}
+		if nr, ok := errors.AsType[*NotRegularError](err); ok {
+			if !slices.ContainsFunc(rp.refusals, func(r Refusal) bool { return r.Code == RefuseLinkedDir && r.Harness == h && r.Path == nr.Path }) {
+				rp.refusals = append(rp.refusals, Refusal{Code: RefuseLinkedDir, Harness: h, Path: nr.Path,
+					Message: fmt.Sprintf("%s: a replace install of %s never reads or wipes through it", nr.Error(), h)})
+				rp.blocked = append(rp.blocked, nr.Path)
+			}
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+	}
+	return true, nil
 }
 
 // split plans the wipe of the configuration keys of the split file name
@@ -210,25 +314,30 @@ func (rp *replacePlan) split(ctx context.Context, d installFS, h, name string, s
 			Message: fmt.Sprintf("%s is not a regular file, so a replace install cannot wipe its configuration keys and keep the rest: dotai never follows links", name)})
 		return nil
 	}
+	if err != nil && ctx.Err() == nil {
+		rp.refusals = append(rp.refusals, Refusal{Code: RefuseSplitFile, Harness: h, Path: name,
+			Message: fmt.Sprintf("%s cannot be read (%v), so a replace install cannot wipe its configuration keys and keep the rest", name, err)})
+		return nil
+	}
 	if err != nil {
 		return err
 	}
-	top, ok := object(data)
+	top, ok := jsonObject(data)
 	if !ok {
 		rp.refusals = append(rp.refusals, Refusal{Code: RefuseSplitFile, Harness: h, Path: name,
 			Message: fmt.Sprintf("%s is not a JSON object, so a replace install cannot wipe its configuration keys and keep the rest", name)})
 		return nil
 	}
 	for _, k := range sf.Keys {
-		if holds(top[k]) {
+		if holdsConfig(top[k]) {
 			rp.keys = append(rp.keys, WipeKey{Harness: h, File: name, Key: []string{k}})
 		}
 	}
-	projects, _ := object(top[sf.Projects])
-	for _, p := range slicesSorted(projects) {
-		fields, _ := object(projects[p])
+	projects, _ := jsonObject(top[sf.Projects])
+	for _, p := range slices.Sorted(maps.Keys(projects)) {
+		fields, _ := jsonObject(projects[p])
 		for _, k := range sf.ProjectKeys {
-			if holds(fields[k]) {
+			if holdsConfig(fields[k]) {
 				rp.keys = append(rp.keys, WipeKey{Harness: h, File: name, Key: []string{sf.Projects, p, k}})
 			}
 		}
@@ -236,8 +345,8 @@ func (rp *replacePlan) split(ctx context.Context, d installFS, h, name string, s
 	return nil
 }
 
-// object decodes data as a JSON object, with the raw value of each key.
-func object(data []byte) (map[string]json.RawMessage, bool) {
+// jsonObject decodes data as a JSON object, with the raw value of each key.
+func jsonObject(data []byte) (map[string]json.RawMessage, bool) {
 	var m map[string]json.RawMessage
 	if len(bytes.TrimSpace(data)) == 0 || json.Unmarshal(data, &m) != nil || m == nil {
 		return nil, false
@@ -245,9 +354,10 @@ func object(data []byte) (map[string]json.RawMessage, bool) {
 	return m, true
 }
 
-// holds reports whether raw is a JSON value that holds configuration: not
-// missing, null, false, an empty string, array or object.
-func holds(raw json.RawMessage) bool {
+// holdsConfig reports whether raw is a JSON value that holds
+// configuration: not missing, null, false, an empty string, array or
+// object.
+func holdsConfig(raw json.RawMessage) bool {
 	var v any
 	if len(raw) == 0 || json.Unmarshal(raw, &v) != nil {
 		return false
@@ -267,15 +377,6 @@ func holds(raw json.RawMessage) bool {
 	return true
 }
 
-func slicesSorted(m map[string]json.RawMessage) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	slices.Sort(out)
-	return out
-}
-
 // entryKind is the kind of a wiped entry of mode.
 func entryKind(mode fs.FileMode) string {
 	switch {
@@ -285,33 +386,6 @@ func entryKind(mode fs.FileMode) string {
 		return KindDir
 	}
 	return KindFile
-}
-
-// realDir reports whether dir, under home, exists as a real directory, as
-// each directory between home and it does; a missing one gives false. A
-// link, a junction or a file on the way is a *NotRegularError. dirs caches
-// the outcome of each directory.
-func realDir(d installFS, home, dir string, dirs map[string]error) (bool, error) {
-	rel, err := filepath.Rel(home, dir)
-	if err != nil || !filepath.IsLocal(rel) {
-		return false, fmt.Errorf("%s is not under the home directory %s", dir, home)
-	}
-	cur := home
-	for seg := range strings.SplitSeq(rel, string(filepath.Separator)) {
-		cur = filepath.Join(cur, seg)
-		err, seen := dirs[cur]
-		if !seen {
-			err = checkDir(d, cur)
-			dirs[cur] = err
-		}
-		if errors.Is(err, fs.ErrNotExist) {
-			return false, nil
-		}
-		if err != nil {
-			return false, err
-		}
-	}
-	return true, nil
 }
 
 // ownedTargets are the targets prev owns, in its files and its journal.
