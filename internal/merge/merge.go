@@ -220,6 +220,7 @@ type owner struct {
 	file       string
 	line       int
 	item       pack.Item // zero for an MCP server
+	def        string    // canonical JSON of an MCP server's definition
 }
 
 // clash reports a problem of o with prev, the earlier owner of its name.
@@ -318,6 +319,8 @@ func (s *scope) claim(o owner) bool {
 		return reject(o.clash(prev, CodeNameCaseConflict, "%s differs only by case from %s", o.what, prev.what))
 	case prev.layer.Path == o.layer.Path:
 		return reject(o.clash(prev, CodeNameDuplicate, "%s is defined twice in layer %s", o.what, o.layer.Path))
+	case o.same(prev):
+		return false // an MCP server defined the same way again: kept once, from the first layer
 	case prev.item.Root:
 		return reject(o.clash(prev, CodeRootRuleOverride, "%s replaces the root rule", o.what).
 			WithHint("rename it; the root rule cannot be overridden"))
@@ -325,8 +328,8 @@ func (s *scope) claim(o owner) bool {
 		return reject(o.clash(prev, CodeProfileConflict, "%s is also defined by profile %s", o.what, prev.layer.Name).
 			WithHint("rename one of them; profiles cannot override each other"))
 	case o.item.Kind == "":
-		return reject(o.clash(prev, CodeServerConflict, "%s already exists in %s", o.what, prev.layer.Path).
-			WithHint("rename it; MCP servers cannot be overridden"))
+		return reject(o.clash(prev, CodeServerConflict, "%s already exists in %s with a different definition", o.what, prev.layer.Path).
+			WithHint("rename it, or define it the same way; MCP servers cannot be overridden"))
 	case !o.item.Dotai.Overrides:
 		return reject(o.clash(prev, CodeOverrideUndeclared, "%s already exists in %s", o.what, prev.layer.Path).
 			WithHint("add dotai: {overrides: true} to replace it"))
@@ -336,6 +339,10 @@ func (s *scope) claim(o owner) bool {
 	s.names[o.key] = o
 	return true
 }
+
+// same reports whether o and prev are MCP servers with the same definition
+// by canonical JSON, which is no clash: there is nothing to override.
+func (o owner) same(prev owner) bool { return o.def != "" && o.def == prev.def }
 
 // drop removes the files of the item that prev owned.
 func (s *scope) drop(prev owner) {
@@ -394,7 +401,9 @@ func (s *scope) put(f staged) {
 }
 
 // mergeMCP merges the servers of a layer's mcp.jsonc by name under the Name
-// row. Servers have no override syntax, so a repeated name is an error.
+// row. Servers have no override syntax, so a repeated name is an error,
+// unless both define the server the same way, by canonical JSON: it is
+// then kept once, as the first layer defines it.
 func (s *scope) mergeMCP(l pack.Layer, f pack.File) {
 	servers, err := readMCP(f.Data)
 	if err != nil {
@@ -402,7 +411,7 @@ func (s *scope) mergeMCP(l pack.Layer, f pack.File) {
 		return
 	}
 	for _, sv := range servers {
-		o := owner{key: key(mcpServer, sv.name), name: sv.name, what: fmt.Sprintf("MCP server %q", sv.name), layer: l, file: f.Path, line: sv.line}
+		o := owner{key: key(mcpServer, sv.name), name: sv.name, what: fmt.Sprintf("MCP server %q", sv.name), layer: l, file: f.Path, line: sv.line, def: sv.canon}
 		if s.claim(o) {
 			s.servers[sv.name] = sv.raw
 		}
@@ -410,9 +419,10 @@ func (s *scope) mergeMCP(l pack.Layer, f pack.File) {
 }
 
 type server struct {
-	name string
-	line int
-	raw  json.RawMessage
+	name  string
+	line  int
+	raw   json.RawMessage
+	canon string // canonical JSON of raw, which identifies the definition
 }
 
 // readMCP reads the servers of an mcp.jsonc file, in file order.
@@ -434,7 +444,12 @@ func readMCP(data []byte) ([]server, error) {
 	var out []server
 	for _, m := range list.Members {
 		line := 1 + bytes.Count(data[:m.Name.StartOffset], []byte("\n"))
-		out = append(out, server{m.Name.Value.(hujson.Literal).String(), line, m.Value.Pack()})
+		raw := m.Value.Pack()
+		canon, err := canonical(raw)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, server{m.Name.Value.(hujson.Literal).String(), line, raw, canon})
 	}
 	return out, nil
 }
@@ -466,8 +481,10 @@ func (s *scope) tree() []File {
 
 // crossScope applies the cross-scope paragraph: a project name may not
 // repeat a user name, even with overrides, because harnesses resolve that
-// clash differently. users holds the user scope once per variant; each
-// clash is reported once, against the first variant that has the name.
+// clash differently. An MCP server defined the same way in both scopes is
+// no clash: whichever a harness picks, it runs the same server. users
+// holds the user scope once per variant; each clash is reported once,
+// against the first variant that has the name.
 func crossScope(users []*scope, project *scope) []pack.Diagnostic {
 	owners := slices.SortedFunc(maps.Values(project.names), func(a, b owner) int {
 		return cmp.Or(strings.Compare(a.file, b.file), cmp.Compare(a.line, b.line))
@@ -476,7 +493,7 @@ func crossScope(users []*scope, project *scope) []pack.Diagnostic {
 	for _, o := range owners {
 		for _, u := range users {
 			prev, ok := u.names[o.key]
-			if !ok {
+			if !ok || prev.name == o.name && o.same(prev) {
 				continue
 			}
 			if prev.name != o.name {

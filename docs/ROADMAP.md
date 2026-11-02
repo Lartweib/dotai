@@ -33,7 +33,7 @@ The scope is set by [0020](decisions/0020-v1-scope-engine-and-pack.md) and the c
 Follow-ups from [0041](decisions/0041-project-scope-local-and-untracked.md), not decided yet, to be placed in a row when they are:
 
 - `${DOTAI_TOOL:<name>}` in hook commands, with the quoting per harness of [0037](decisions/0037-tool-commands-resolved-per-os.md): agy runs hooks through `cmd /c` and escapes quotes, so a path without spaces only ([HARNESS-NOTES](HARNESS-NOTES.md#hook-commands)).
-- Identical MCP definitions in several profiles accepted and kept once.
+- Done: identical MCP definitions in several profiles, or in two layers of a scope, accepted and kept once ([PACK-FORMAT](PACK-FORMAT.md#merge-rules)).
 - A `validate` warning when the same hook event is in the shared block and a per-harness block of `hooks.jsonc`, since rulesync 41 drops the shared one for that harness.
 - agy `SessionStart` hooks must print JSON (`injectSteps`); document it for pack authors in [PACK-FORMAT](PACK-FORMAT.md).
 

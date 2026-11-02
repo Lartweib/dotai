@@ -6,7 +6,7 @@ variants/standalone/.rulesync/hooks.jsonc:1: hooks-conflict: /version already ha
 variants/standalone/dotai/settings.yaml:2:3: override-undeclared: setting claudecode.model already exists in base (first: base/dotai/settings.yaml:2) (fix: add claudecode.model to dotai.overrides to replace it)
 variants/tmux/.rulesync/commands/release.md: override-without-target: command "release" has nothing to override (fix: remove dotai: {overrides: true}; no earlier layer of its scope defines it)
 variants/tmux/.rulesync/rules/overview.md: root-rule-override: rule "overview" replaces the root rule (first: base/.rulesync/rules/overview.md) (fix: rename it; the root rule cannot be overridden)
-variants/tmux/.rulesync/mcp.jsonc:1: mcp-server-conflict: MCP server "git" already exists in base (first: base/.rulesync/mcp.jsonc:4) (fix: rename it; MCP servers cannot be overridden)
+variants/tmux/.rulesync/mcp.jsonc:1: mcp-server-conflict: MCP server "git" already exists in base with a different definition (first: base/.rulesync/mcp.jsonc:4) (fix: rename it, or define it the same way; MCP servers cannot be overridden)
 profiles/docs/.rulesync/skills/lint/SKILL.md: override-without-target: skill "lint" has nothing to override (fix: remove dotai: {overrides: true}; no earlier layer of its scope defines it)
 profiles/web/.rulesync/skills/lint/SKILL.md: profile-conflict: skill "lint" is also defined by profile docs (first: profiles/docs/.rulesync/skills/lint/SKILL.md) (fix: rename one of them; profiles cannot override each other)
 profiles/docs/.rulesync/commands/Release.md: name-case-conflict: command "Release" differs only by case from command "release" (first: variants/tmux/.rulesync/commands/release.md)

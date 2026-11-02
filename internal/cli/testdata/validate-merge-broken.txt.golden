@@ -37,9 +37,9 @@ variants/tmux/.rulesync/rules/overview.md
                            fix:   rename it; the root rule cannot be overridden
 
 variants/tmux/.rulesync/mcp.jsonc
-  1  mcp-server-conflict      MCP server "git" already exists in base
+  1  mcp-server-conflict      MCP server "git" already exists in base with a different definition
                               first: base/.rulesync/mcp.jsonc:4
-                              fix:   rename it; MCP servers cannot be overridden
+                              fix:   rename it, or define it the same way; MCP servers cannot be overridden
 
 profiles/docs/.rulesync/skills/lint/SKILL.md
   override-without-target  skill "lint" has nothing to override

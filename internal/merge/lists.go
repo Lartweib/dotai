@@ -157,17 +157,24 @@ func readList(l pack.Layer, f pack.File) (*node, error) {
 
 // leaf returns the leaf of the standard JSON raw.
 func leaf(raw []byte, l pack.Layer, file string, line int) (*node, error) {
+	canon, err := canonical(raw)
+	if err != nil {
+		return nil, err
+	}
+	return &node{raw: raw, canon: canon, layer: l, file: file, line: line}, nil
+}
+
+// canonical is the canonical JSON of the standard JSON raw: keys sorted,
+// insignificant whitespace dropped and every number spelled one way.
+func canonical(raw []byte) (string, error) {
 	d := json.NewDecoder(bytes.NewReader(raw))
 	d.UseNumber()
 	var v any
 	if err := d.Decode(&v); err != nil {
-		return nil, err
+		return "", err
 	}
 	canon, err := marshal(normalize(v))
-	if err != nil {
-		return nil, err
-	}
-	return &node{raw: raw, canon: string(canon), layer: l, file: file, line: line}, nil
+	return string(canon), err
 }
 
 // normalize gives every number of v one spelling, so that 1, 1.0 and 1e0
