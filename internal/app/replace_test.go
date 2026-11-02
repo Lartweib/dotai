@@ -646,3 +646,27 @@ func livingProject(t *testing.T, home, project string) {
 	}
 	writeFile(t, app.RecordPath(home, project), "{}")
 }
+
+// TestPlanReplaceIgnoresTheEntryOfAProjectThatIsGone checks that a
+// replace install does not keep, forever, the servers of a project whose
+// directory or record is gone, and says so.
+func TestPlanReplaceIgnoresTheEntryOfAProjectThatIsGone(t *testing.T) {
+	home, h := realHome(t)
+	writeFile(t, at(home, ".claude.json"), `{"projects":{"C:/gone":{"mcpServers":{"dotai":{"command":"a"}}}}}`)
+	data, err := state.EncodeProjects(state.Projects{}.With(state.ProjectEntry{Project: at(home, "gone"), File: at(home, ".claude.json"),
+		Keys: [][]string{{"projects", "C:/gone", "mcpServers", "dotai"}}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, at(home, ".dotai/projects.json"), string(data))
+	p, err := planReplace(t, home, h, "")
+	if err != nil || len(p.Diagnostics) != 0 {
+		t.Fatalf("PlanInstall(replace) = %+v, %v", p, err)
+	}
+	if !slices.ContainsFunc(p.WipeKeys, func(k app.WipeKey) bool { return strings.Join(k.Key, " ") == "projects C:/gone mcpServers" }) {
+		t.Errorf("key wipes = %+v, want the gone project's servers wiped", p.WipeKeys)
+	}
+	if !slices.ContainsFunc(p.Notices, func(n string) bool { return strings.Contains(n, at(home, "gone")) && strings.Contains(n, "ignored") }) {
+		t.Errorf("notices = %q, want the gone project's entry reported", p.Notices)
+	}
+}
