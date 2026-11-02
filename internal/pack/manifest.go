@@ -40,10 +40,12 @@ func (m Manifest) AllHarnesses() []string {
 	return append(slices.Clone(m.Harnesses), m.OptionalHarnesses...)
 }
 
-// Profile is a project-level layer.
+// Profile is a project-level layer. Mods are the mods of the pack's mods/
+// it installs in the project, which only a profile names (decision 0011).
 type Profile struct {
 	Name, Path, Description string
 	Hints                   []string
+	Mods                    []string
 }
 
 // Variant is a user-level layer applied on top of the base. SharedSkills
@@ -142,10 +144,11 @@ func decodeProfiles(fsys fs.FS, r reader, o object) []Profile {
 	var out []Profile
 	ps := r.object(o.keys["profiles"], o.vals["profiles"], "profiles")
 	for _, name := range ps.order {
-		p := r.object(ps.keys[name], ps.vals[name], "profile "+name, "path", "description", "hints")
+		p := r.object(ps.keys[name], ps.vals[name], "profile "+name, "path", "description", "hints", "mods")
 		pr := Profile{Name: name, Path: layerPath(fsys, p)}
 		pr.Description, _ = p.str("description", true)
 		pr.Hints, _ = p.list("hints", false)
+		pr.Mods = decodeMods(fsys, p)
 		out = append(out, pr)
 	}
 	return out
@@ -160,8 +163,13 @@ func decodeVariants(fsys fs.FS, r reader, o object) (out []Variant, declared int
 	}
 	vs := r.object(o.keys["variants"], o.vals["variants"], "variants")
 	for _, name := range vs.order {
-		v := r.object(vs.keys[name], vs.vals[name], "variant "+name, "path", "default", "detect", "shared-skills")
+		v := r.object(vs.keys[name], vs.vals[name], "variant "+name, "path", "default", "detect", "shared-skills", "mods")
 		va := Variant{Name: name, Path: layerPath(fsys, v)}
+		if v.has("mods") {
+			// A variant applies at user level, where a mod would load in every
+			// project (decision 0011).
+			r.report(v.keys["mods"], CodeModScope, "%s: mods are project-scoped, so only a profile names them", v.what)
+		}
 		var valid bool
 		va.Default, valid = v.boolean("default")
 		if va.Default || v.has("default") && !valid {

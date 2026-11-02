@@ -18,13 +18,15 @@
           "name": "web",
           "path": "profiles/web",
           "description": "Web projects.",
-          "hints": []
+          "hints": [],
+          "mods": []
         },
         {
           "name": "docs",
           "path": "profiles/docs",
           "description": "Documentation sites.",
-          "hints": []
+          "hints": [],
+          "mods": []
         }
       ],
       "variants": [

@@ -51,12 +51,14 @@ type PackSummary struct {
 
 // ProfileSummary describes one profile as the manifest declares it, for
 // the onboarding agent that picks profiles. Path is empty when the
-// manifest's path is invalid; Hints is never nil.
+// manifest's path is invalid; Hints and Mods, the mods the profile
+// installs in a project, are never nil.
 type ProfileSummary struct {
 	Name        string   `json:"name"`
 	Path        string   `json:"path"`
 	Description string   `json:"description"`
 	Hints       []string `json:"hints"`
+	Mods        []string `json:"mods"`
 }
 
 // LayerSummary describes one layer and how many items it defines.
@@ -120,7 +122,7 @@ func validate(fsys fs.FS, sel Selection) (ValidateResult, *pack.Pack, error) {
 		Profiles: []ProfileSummary{}, Variants: []string{}, SharedSkills: []string{}, Layers: []LayerSummary{},
 	}
 	for _, pr := range m.Profiles {
-		s.Profiles = append(s.Profiles, ProfileSummary{Name: pr.Name, Path: pr.Path, Description: pr.Description, Hints: append([]string{}, pr.Hints...)})
+		s.Profiles = append(s.Profiles, ProfileSummary{Name: pr.Name, Path: pr.Path, Description: pr.Description, Hints: append([]string{}, pr.Hints...), Mods: append([]string{}, pr.Mods...)})
 	}
 	for _, v := range m.Variants {
 		s.Variants = append(s.Variants, v.Name)

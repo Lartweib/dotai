@@ -107,19 +107,22 @@ func Check(p *pack.Pack, sel Selection) []pack.Diagnostic {
 		return diags
 	}
 	cross := crossScope(users, project)
-	return slices.Concat(diags, withoutShadowed(project.diags, cross), cross, once(append(users, project), (*scope).checkTools))
+	_, profiles, _ := resolve(p, sel, true)
+	return slices.Concat(diags, withoutShadowed(project.diags, cross), cross, once(append(users, project), (*scope).checkTools), modConflicts(project, modsOf(p, profiles)))
 }
 
 // Warnings returns what is no error in the layers sel names, as Check
 // merges them, but may not do what the pack means: a hook event that both
-// the shared hooks and a tool-scoped block declare. It returns nothing for
+// the shared hooks and a tool-scoped block declare, and a mod's subagent
+// matcher that names its agent bare. It returns nothing for
 // layers that cannot be selected.
 func Warnings(p *pack.Pack, sel Selection) []pack.Diagnostic {
 	users, project, _ := checked(p, sel)
 	if users == nil {
 		return nil
 	}
-	return once(append(users, project), (*scope).shadowedHooks)
+	_, profiles, _ := resolve(p, sel, true)
+	return append(once(append(users, project), (*scope).shadowedHooks), modWarnings(modsOf(p, profiles))...)
 }
 
 // checked merges the layers sel names as Check does: the user scope once
@@ -160,7 +163,8 @@ func once(scopes []*scope, check func(*scope) []pack.Diagnostic) []pack.Diagnost
 }
 
 // Stage merges the base and the selected or default variant into the user
-// tree, and the selected profiles into the project tree. With diagnostics,
+// tree, and the selected profiles into the project tree, with the mods
+// they name under mods/. With diagnostics,
 // the staging is empty.
 func Stage(p *pack.Pack, sel Selection) (Staging, []pack.Diagnostic) {
 	variants, profiles, diags := resolve(p, sel, false)
@@ -170,11 +174,14 @@ func Stage(p *pack.Pack, sel Selection) (Staging, []pack.Diagnostic) {
 	user := newScope(append(layersOf(p, pack.LayerBase), variants...)...)
 	project := newScope(profiles...)
 	cross := crossScope([]*scope{user}, project)
-	if diags = slices.Concat(user.diags, withoutShadowed(project.diags, cross), cross, once([]*scope{user, project}, (*scope).checkTools)); len(diags) > 0 {
+	mods := modsOf(p, profiles)
+	if diags = slices.Concat(user.diags, withoutShadowed(project.diags, cross), cross, once([]*scope{user, project}, (*scope).checkTools), modConflicts(project, mods)); len(diags) > 0 {
 		return Staging{}, diags
 	}
 	project.dropUserServers(user)
-	return Staging{User: user.tree(), Project: project.tree(), UserSettings: user.mergedSettings(), ProjectSettings: project.mergedSettings()}, nil
+	tree := append(project.tree(), modFiles(mods, p.Manifest.Version)...)
+	slices.SortFunc(tree, func(a, b File) int { return strings.Compare(a.Path, b.Path) })
+	return Staging{User: user.tree(), Project: tree, UserSettings: user.mergedSettings(), ProjectSettings: project.mergedSettings()}, nil
 }
 
 // dropUserServers removes from the project scope s each MCP server that

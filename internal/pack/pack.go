@@ -59,6 +59,7 @@ const (
 type Pack struct {
 	Manifest Manifest
 	Layers   []Layer // base (if present), then profiles, then variants
+	Mods     []Mod   // the directories of mods/, in name order
 }
 
 // LayerKind tells where a layer applies.
@@ -178,6 +179,9 @@ func LoadWith(fsys fs.FS, rulesyncVersions []string) (*Pack, []Diagnostic, error
 			return nil, nil, err
 		}
 		p.Layers = append(p.Layers, l)
+	}
+	if p.Mods, err = loadMods(fsys, &diags); err != nil {
+		return nil, nil, err
 	}
 	return p, diags, nil
 }
