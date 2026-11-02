@@ -1,0 +1,90 @@
+{
+  "schema": "dotai.cli/v1",
+  "command": "restore",
+  "ok": true,
+  "data": {
+    "project": "/work/site",
+    "record": "/home/u/.dotai/projects/0123456789abcdef/record.json",
+    "ops": [
+      {
+        "action": "remove",
+        "harness": "claudecode",
+        "kind": "rules",
+        "target": "/work/site/.claude/rules/web.md",
+        "from": "",
+        "conflict": false,
+        "keys": []
+      },
+      {
+        "action": "replace",
+        "harness": "antigravity-cli",
+        "kind": "rules",
+        "target": "/work/site/.agents/rules/web.md",
+        "from": "20261102T101500.000Z_apply",
+        "conflict": false,
+        "keys": []
+      },
+      {
+        "action": "merge",
+        "harness": "claudecode",
+        "kind": "settings",
+        "target": "/work/site/.claude/settings.local.json",
+        "from": "",
+        "conflict": true,
+        "keys": [
+          {
+            "key": [
+              "model"
+            ],
+            "action": "conflict"
+          },
+          {
+            "key": [
+              "env",
+              "A"
+            ],
+            "action": "remove"
+          }
+        ]
+      },
+      {
+        "action": "merge",
+        "harness": "claudecode",
+        "kind": "mcp",
+        "target": "/home/u/.claude.json",
+        "from": "",
+        "conflict": false,
+        "keys": [
+          {
+            "key": [
+              "projects",
+              "/work/site",
+              "mcpServers",
+              "browser"
+            ],
+            "action": "remove"
+          }
+        ]
+      }
+    ],
+    "exclude": {
+      "file": "/work/site/.git/info/exclude",
+      "removed": true
+    },
+    "conflicts": [
+      {
+        "target": "/work/site/.claude/settings.local.json",
+        "harness": "claudecode",
+        "backup": "",
+        "key": "model",
+        "expected": "",
+        "current": ""
+      }
+    ],
+    "backup": {
+      "id": "20261102T111500.000Z_restore",
+      "path": "/home/u/.dotai/projects/0123456789abcdef/backups/20261102T111500.000Z_restore"
+    },
+    "warnings": []
+  }
+}

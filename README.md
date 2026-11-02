@@ -6,7 +6,7 @@ One source of rules, agents, skills, hooks, MCP servers and settings, rendered i
 
 dotai is split into a Go **engine** and **packs** of content. A reference pack is kept in its own repository; you can point the same binary at your own pack instead. See [0010](docs/decisions/0010-engine-and-pack-separated.md) and [0015](docs/decisions/0015-pack-in-its-own-repository.md).
 
-**Status:** early development. dotai validates and stages a pack, installs its user scope isolated or in place of each harness's own configuration with a backup and a restore, launches each harness against the isolated install, and prints the plan of applying profiles to a project. [CLI JSON output](docs/CLI-JSON.md) lists the commands and what each does.
+**Status:** early development. dotai validates and stages a pack, installs its user scope isolated or in place of each harness's own configuration with a backup and a restore, launches each harness against the isolated install, and applies profiles to a project, kept out of git, which `dotai restore --project` undoes. [CLI JSON output](docs/CLI-JSON.md) lists the commands and what each does.
 
 ## Docs
 

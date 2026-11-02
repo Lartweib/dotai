@@ -36,3 +36,5 @@ tags: [engine, install, restore, settings, state]
 
 - Manual test of `dotai install` over a Claude Code launch, 2026-10-30.
 - [CLI-JSON](../CLI-JSON.md): `install`, `restore` and the install state.
+
+Update 2026-11-02 (roadmap PR 10-3): at project scope, the project's record under the home directory owns keys the same way, each with the value it held before dotai first set it, so that a key of the user's that a profile changed gets its value back from a later apply without that profile or from `dotai restore --project` ([0041](0041-project-scope-local-and-untracked.md)).

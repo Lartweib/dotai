@@ -19,9 +19,9 @@ import (
 )
 
 func newRestoreCmd(env Env, jsonOut *bool) *cobra.Command {
-	var yes, ignoreRunning bool
+	var yes, ignoreRunning, project bool
 	cmd := &cobra.Command{
-		Use:   "restore [backup-id]",
+		Use:   "restore [backup-id] | restore --project",
 		Short: "Undo the last install, or every install down to backup-id, from the backups",
 		Long: "Undo the last install that wrote files, from the backup it took under ~/.dotai/backups: each file it created is\n" +
 			"deleted and each file it replaced or removed is put back, with its exec bit, and the install state is put back\n" +
@@ -33,9 +33,23 @@ func newRestoreCmd(env Env, jsonOut *bool) *cobra.Command {
 			"changed after the install is a conflict: on a terminal you are asked once whether to overwrite it; otherwise, and\n" +
 			"with --json, the restore is refused unless\n" +
 			"--yes is given. What the restore overwrites or deletes is first copied into a new backup. Close the harnesses first:\n" +
-			"the restore of a replace install is refused while a harness it writes into is running, unless --ignore-running.",
-		Args: cobra.MaximumNArgs(1),
+			"the restore of a replace install is refused while a harness it writes into is running, unless --ignore-running.\n" +
+			"With --project, undo the profiles applied to the project in the current directory instead, the top of its git\n" +
+			"worktree: every file dotai created there is deleted, every file it overwrote is put back from the backup of the\n" +
+			"apply, every key it set gets back the value it had before the first apply, its block leaves .git/info/exclude and\n" +
+			"its MCP servers leave the .claude.json Claude Code reads; .dotai/ goes, the pack's own files included, into a new\n" +
+			"backup. What changed since dotai wrote it is a conflict, as above.",
+		Args: func(cmd *cobra.Command, args []string) error {
+			if project && len(args) > 0 {
+				return errors.New("restore --project undoes every apply of the project and takes no backup id")
+			}
+			if project && ignoreRunning {
+				return errors.New("--ignore-running does not apply to restore --project, which never checks for a running harness")
+			}
+			return cobra.MaximumNArgs(1)(cmd, args)
+		},
 	}
+	cmd.Flags().BoolVar(&project, "project", false, "undo the profiles applied to the project in the current directory")
 	cmd.Flags().BoolVar(&yes, "yes", false, "overwrite files changed after the install, after copying them into a new backup")
 	cmd.Flags().BoolVar(&ignoreRunning, "ignore-running", false, "restore a replace install even when a harness it writes into looks like it is running")
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
@@ -50,6 +64,9 @@ func newRestoreCmd(env Env, jsonOut *bool) *cobra.Command {
 			id = args[0]
 		}
 		color := useColor(env.Stdout)
+		if project {
+			return runRestoreProject(ctx, cmd, env, *jsonOut, yes, home, color)
+		}
 		warn, warned := earlyWarnings(env, *jsonOut)
 		asked := false
 		overwrite := func(p app.RestoreResult) (bool, error) {
@@ -90,6 +107,89 @@ func newRestoreCmd(env Env, jsonOut *bool) *cobra.Command {
 		return nil
 	}
 	return cmd
+}
+
+// runRestoreProject runs dotai restore --project in the current
+// directory, with consent to overwrite the conflicts when yes is set.
+func runRestoreProject(ctx context.Context, cmd *cobra.Command, env Env, jsonOut, yes bool, home string, color bool) error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("the current directory is unknown: %w", err)
+	}
+	asked := false
+	overwrite := func(p app.ProjectRestoreResult) (bool, error) {
+		if yes {
+			return true, nil
+		}
+		if jsonOut || env.Prompt == nil {
+			return false, nil
+		}
+		asked = true
+		if err := writeConflicts(env.Stdout, p.Conflicts); err != nil {
+			return false, err
+		}
+		q := "Overwrite them? [y/N] "
+		if len(p.Conflicts) == 1 {
+			q = "Overwrite it? [y/N] "
+		}
+		return env.Prompt(ctx, q)
+	}
+	res, err := env.RestoreProject(ctx, cwd, home, overwrite)
+	if _, ok := errors.AsType[*app.ConflictError](err); ok && asked {
+		return errors.New("the restore was cancelled: nothing was written")
+	}
+	if err != nil {
+		return err
+	}
+	if jsonOut {
+		return output.Write(env.Stdout, output.Success(commandName(cmd), res))
+	}
+	if err := writeProjectRestore(env.Stdout, res, color); err != nil {
+		return err
+	}
+	for _, w := range res.Warnings {
+		fmt.Fprintf(env.Stderr, "warning: %s\n", w)
+	}
+	return nil
+}
+
+// writeProjectRestore prints a restore of a project: each target with
+// what it gets, the keys it gives back, the exclude file, and a count.
+func writeProjectRestore(w io.Writer, res app.ProjectRestoreResult, color bool) error {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Restore project · %s\n", res.Project)
+	fmt.Fprintf(&b, "record: %s\n\n", res.Record)
+	count := map[plan.Action]int{}
+	indent := strings.Repeat(" ", keyIndent)
+	for _, op := range res.Ops {
+		count[op.Action]++
+		line := fmt.Sprintf("  %s  %s", paintProjectAction(color, op.Action), op.Target)
+		if op.From != "" {
+			line += " (from " + op.From + ")"
+		}
+		if op.Conflict {
+			line += " " + paint(color, styleRed, "(changed since dotai wrote it)")
+		}
+		b.WriteString(line + "\n")
+		if len(op.Keys) > 0 {
+			items := make([]string, len(op.Keys))
+			for i, k := range op.Keys {
+				items[i] = paint(color, projectStyle[k.Action], string(k.Action)) + " " + projectKey(k.Path)
+			}
+			fmt.Fprintf(&b, "%skeys: %s\n", indent, strings.Join(items, ", "))
+		}
+	}
+	if res.Exclude.Removed {
+		fmt.Fprintf(&b, "\n%s · %s: dotai's block removed\n", paint(color, styleBold, "exclude"), res.Exclude.File)
+	}
+	backup := "none, no file was written"
+	if res.Backup != nil {
+		backup = res.Backup.Path
+	}
+	fmt.Fprintf(&b, "\n%d remove, %d replace, %d merge · restored, .dotai/ removed\nbackup: %s\n",
+		count[plan.Remove], count[plan.Replace], count[plan.Merge], backup)
+	_, err := io.WriteString(w, b.String())
+	return err
 }
 
 // writeConflicts prints the files, and the keys of settings files, that a

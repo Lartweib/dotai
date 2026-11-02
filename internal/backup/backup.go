@@ -25,7 +25,8 @@ import (
 const Schema = "dotai.backup/v1"
 
 // The operations that take a backup: an install, and a restore, which
-// backs up what it overwrites or deletes.
+// backs up what it overwrites or deletes; a restore of a project takes one
+// too, and a project apply takes one of OperationApply (project.go).
 const (
 	OperationInstall = "install"
 	OperationRestore = "restore"

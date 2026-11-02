@@ -39,6 +39,11 @@ type Env struct {
 	// PlanProject is dotai apply --dry-run: the plan of applying profiles
 	// to the project directory.
 	PlanProject func(ctx context.Context, cacheDir, dir, project, home string, opts app.ApplyOptions, progress app.Progress) (app.ProjectPlan, error)
+	// RestoreProject is dotai restore --project: it undoes the applies of
+	// the project in the current directory.
+	RestoreProject func(ctx context.Context, cwd, home string, overwrite func(app.ProjectRestoreResult) (bool, error)) (app.ProjectRestoreResult, error)
+	// Apply is dotai apply: it carries the plan of PlanProject out.
+	Apply func(ctx context.Context, cacheDir, dir, project, home string, opts app.ApplyOptions, progress app.Progress, consent app.ApplyConsent) (app.ApplyResult, error)
 	// PlanRun and Launch are dotai run: Launch gives the harness's exit
 	// code, and on Unix replaces dotai with the harness.
 	PlanRun func(home, id string, args []string) (app.RunPlan, error)
@@ -110,6 +115,7 @@ func Run(args []string, env Env) int {
 	var data any // what explains a refusal, in the envelope
 	consent, refused, running := (*app.ConsentError)(nil), (*app.RefusedError)(nil), (*app.RunningError)(nil)
 	project := (*app.ProjectRefusedError)(nil)
+	applyConsent, applyRefused := (*app.ApplyConsentError)(nil), (*app.ApplyRefusedError)(nil)
 	switch {
 	case !started, errors.As(err, &usage):
 		code, exit = output.CodeUsage, ExitUsage
@@ -123,6 +129,12 @@ func Run(args []string, env Env) int {
 		code, data = output.CodeRunning, map[string]any{"harnesses": running.Harnesses, "running": runningList(running.Running)}
 	case errors.As(err, &project):
 		code = output.CodeProjectRefused
+	case errors.As(err, &applyConsent):
+		code, data = output.CodeConsent, applyConsent.Plan
+	case errors.As(err, &applyRefused):
+		code, data = output.CodeApplyRefused, applyRefused.Plan
+	case errors.As(err, new(*app.RecordInvalidError)):
+		code = output.CodeRecordInvalid
 	}
 	if parsed && jsonOut || !parsed && jsonRequested(root, args) {
 		e := output.Failure(commandName(cmd), code, err.Error())

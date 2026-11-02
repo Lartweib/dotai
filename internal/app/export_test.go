@@ -208,3 +208,25 @@ func PlanProjectWithRulesync(ctx context.Context, g gitPort, cacheDir, dir, proj
 
 // FoldCase is whether paths are compared without case on this OS.
 var FoldCase = foldCase
+
+// ApplyWith is Apply writing through d, asking git through g, fetching
+// through fetch and running rulesync through run, on a host that finds
+// every harness.
+func ApplyWith(ctx context.Context, d executeFS, g gitPort, fetch fetchFunc, run runFunc, dir, project, home string, opts ApplyOptions, consent ApplyConsent) (ApplyResult, error) {
+	return applyProject(ctx, d, everyHarness, g, fetch, run, "cache", dir, project, home, opts, nil, consent)
+}
+
+// RestoreProjectWith is RestoreProject writing through d and asking git
+// through g.
+func RestoreProjectWith(ctx context.Context, d executeFS, g gitPort, project, home string, overwrite func(ProjectRestoreResult) (bool, error)) (ProjectRestoreResult, error) {
+	return restoreProject(ctx, d, g, project, home, overwrite)
+}
+
+// ApplyWithRulesync is Apply asking git through g, with the real rulesync
+// from cacheDir, on a host that finds every harness.
+func ApplyWithRulesync(ctx context.Context, g gitPort, cacheDir, dir, project, home string, opts ApplyOptions) (ApplyResult, error) {
+	return applyProject(ctx, osInstallFS{}, everyHarness, g, download, generate, cacheDir, dir, project, home, opts, nil, nil)
+}
+
+// RecordPath is the record of project under home.
+func RecordPath(home, project string) string { return recordPath(home, project) }

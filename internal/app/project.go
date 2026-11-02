@@ -27,13 +27,21 @@ type ProjectPlan struct {
 	// Project is the absolute project directory: the top of the worktree
 	// the current directory is in, or the current directory outside git.
 	Project string `json:"project"`
-	Record  string `json:"record"` // the project record, <project>/.dotai/state.json
+	// Record is the project's record under the home directory,
+	// ~/.dotai/projects/<project id>/record.json, and Marker the marker in
+	// the project, <project>/.dotai/state.json, which dotai never trusts.
+	Record string `json:"record"`
+	Marker string `json:"marker"`
 	// Harnesses are the harnesses the plan is for, in manifest order.
 	Harnesses []string         `json:"harnesses"`
 	Ops       []plan.ProjectOp `json:"ops"`
 	Skipped   []plan.Skipped   `json:"skipped"`
 	Exclude   ExcludePlan      `json:"exclude"`
 	Warnings  []plan.Warning   `json:"warnings"`
+	// Refusals are why the apply would refuse, which no consent overrides.
+	Refusals []plan.Warning `json:"refusals"`
+	// FirstApply is set when the project has no record of an earlier apply.
+	FirstApply bool `json:"firstApply"`
 	// Notices say why an optional harness is not in the plan, text for
 	// people.
 	Notices     []string     `json:"notices"`
@@ -83,32 +91,95 @@ func PlanProject(ctx context.Context, cacheDir, dir, cwd, home string, opts Appl
 	return planProject(ctx, osInstallFS{}, osHost(), osGit{}, download, generate, cacheDir, dir, cwd, home, opts, progress)
 }
 
-func planProject(ctx context.Context, d installFS, h host, g gitPort, fetch fetchFunc, run runFunc, cacheDir, dir, cwd, home string, opts ApplyOptions, progress Progress) (res ProjectPlan, err error) {
-	if !filepath.IsAbs(home) || !filepath.IsAbs(cwd) {
-		return ProjectPlan{}, fmt.Errorf("home directory %q and current directory %q must be absolute", home, cwd)
-	}
-	home, cwd = filepath.Clean(home), filepath.Clean(cwd)
+func planProject(ctx context.Context, d installFS, h host, g gitPort, fetch fetchFunc, run runFunc, cacheDir, dir, cwd, home string, opts ApplyOptions, progress Progress) (ProjectPlan, error) {
+	var res ProjectPlan
+	err := withProjectPlan(ctx, d, h, g, fetch, run, cacheDir, dir, cwd, home, opts, progress, func(p projectPlanned) error {
+		if p.prev != nil && p.prev.Pending != nil {
+			return &InterruptedError{Record: p.plan.Record}
+		}
+		res = p.plan
+		return nil
+	})
+	return res, err
+}
+
+// InterruptedError is a project whose record holds the journal of an
+// apply or a restore that stopped midway, which a dry run cannot plan
+// from: the next apply or restore rolls it back first.
+type InterruptedError struct {
+	Record string
+}
+
+func (e *InterruptedError) Error() string {
+	return fmt.Sprintf("the project record %s holds the journal of an apply or a restore that stopped midway: run dotai apply or dotai restore --project to roll it back first", e.Record)
+}
+
+// projectPlanned is a project plan with what carrying it out needs: what
+// it was planned with, the record of the earlier apply (nil before the
+// first one), what a record of the project may name, the pack, what dotai
+// owns that the plan leaves since git tracks it, the list of projects
+// whose keys dotai owns in a home file, and the home file of Claude Code's
+// MCP servers.
+type projectPlanned struct {
+	plan    ProjectPlan
+	in      plan.ProjectInput
+	prev    *state.Project
+	scope   recordScope
+	pack    state.Pack
+	kept    map[string]plan.ProjectOwned
+	shared  state.Projects
+	homeMCP string
+}
+
+// findProject is the project of the current directory cwd, as PlanProject
+// finds it, with the key of Claude Code's projects entry for it and the
+// repository it is in, nil outside one; the home directory and a root are
+// refused.
+func findProject(ctx context.Context, g gitPort, cwd, home string) (project, mcpKey string, repo *Repo, err error) {
 	if err := checkProject(cwd, home); err != nil {
-		return ProjectPlan{}, err
+		return "", "", nil, err
 	}
-	repo, err := g.Repo(ctx, cwd)
-	if err != nil {
-		return ProjectPlan{}, err
+	if repo, err = g.Repo(ctx, cwd); err != nil {
+		return "", "", nil, err
 	}
-	project, mcpKey := cwd, filepath.ToSlash(cwd)
+	project, mcpKey = cwd, filepath.ToSlash(cwd)
 	if repo != nil {
 		project, mcpKey = repo.Top, filepath.ToSlash(repo.Main)
 		if err := checkProject(project, home); err != nil {
-			return ProjectPlan{}, err
+			return "", "", nil, err
 		}
+	}
+	return project, mcpKey, repo, nil
+}
+
+// withProjectPlan plans the apply as PlanProject describes, against the
+// project record of the earlier apply, and calls then with the plan while
+// the staging still exists; the staging is removed after then returns.
+func withProjectPlan(ctx context.Context, d installFS, h host, g gitPort, fetch fetchFunc, run runFunc, cacheDir, dir, cwd, home string, opts ApplyOptions, progress Progress, then func(projectPlanned) error) (err error) {
+	if !filepath.IsAbs(home) || !filepath.IsAbs(cwd) {
+		return fmt.Errorf("home directory %q and current directory %q must be absolute", home, cwd)
+	}
+	home, cwd = filepath.Clean(home), filepath.Clean(cwd)
+	project, mcpKey, repo, err := findProject(ctx, g, cwd, home)
+	if err != nil {
+		return err
 	}
 	prev, err := readState(d, home)
 	if err != nil {
-		return ProjectPlan{}, err
+		return err
+	}
+	scope := scopeOf(home, project, mcpKey, repo)
+	record, err := readRecord(ctx, d, scope)
+	if err != nil {
+		return err
+	}
+	shared, err := readProjects(d, home)
+	if err != nil {
+		return err
 	}
 	if dir == "" {
 		if prev == nil || prev.Pack.Path == "" {
-			return ProjectPlan{}, &UsageError{"apply needs the pack: name its directory, or install it first so that the install state records it"}
+			return &UsageError{"apply needs the pack: name its directory, or install it first so that the install state records it"}
 		}
 		dir = prev.Pack.Path
 	}
@@ -118,7 +189,7 @@ func planProject(ctx context.Context, d installFS, h host, g gitPort, fetch fetc
 	}
 	tmp, err := d.StagingDir()
 	if err != nil {
-		return ProjectPlan{}, err
+		return err
 	}
 	defer func() {
 		if rmErr := d.RemoveAll(tmp); rmErr != nil {
@@ -137,12 +208,12 @@ func planProject(ctx context.Context, d installFS, h host, g gitPort, fetch fetc
 	}
 	s, err := stage(ctx, d, fetch, run, cacheDir, dir, filepath.Join(tmp, "staging"), Selection{Variant: variant, Profiles: opts.Profiles}, pick, ToolsIn(home, project), false, progress)
 	if err != nil {
-		return ProjectPlan{}, err
+		return err
 	}
-	res = ProjectPlan{
+	res := ProjectPlan{
 		Pack: s.Pack, Variant: variant, Profiles: append([]string{}, opts.Profiles...), Project: project,
-		Record: filepath.Join(project, filepath.FromSlash(plan.RecordFile)), Harnesses: []string{}, Ops: []plan.ProjectOp{}, Skipped: []plan.Skipped{},
-		Exclude: ExcludePlan{Pending: repo == nil, Entries: []string{}}, Warnings: []plan.Warning{}, Notices: []string{}, Diagnostics: s.Diagnostics,
+		Record: recordPath(home, project), Marker: filepath.Join(project, filepath.FromSlash(plan.MarkerFile)), FirstApply: record == nil, Harnesses: []string{}, Ops: []plan.ProjectOp{}, Skipped: []plan.Skipped{},
+		Exclude: ExcludePlan{Pending: repo == nil, Entries: []string{}}, Warnings: []plan.Warning{}, Refusals: []plan.Warning{}, Notices: []string{}, Diagnostics: s.Diagnostics,
 	}
 	if s.Pack != nil {
 		res.Variant = cmp.Or(variant, s.Pack.DefaultVariant)
@@ -150,30 +221,104 @@ func planProject(ctx context.Context, d installFS, h host, g gitPort, fetch fetc
 	if repo != nil {
 		res.Exclude.File = repo.Exclude
 	}
+	packPath, err := filepath.Abs(dir)
+	if err != nil {
+		return err
+	}
+	tree := filepath.Join(tmp, "staging", ScopeProject)
+	planned := projectPlanned{plan: res, prev: record, scope: scope, shared: shared}
+	if s.Pack != nil {
+		planned.pack = state.Pack{Name: s.Pack.Name, Version: s.Pack.Version, Path: packPath}
+	}
 	if len(s.Diagnostics) > 0 {
-		return res, nil
+		return then(planned)
 	}
 	adapters, err := harness.Lookup(s.Harnesses)
 	if err != nil {
-		return ProjectPlan{}, err
+		return err
 	}
 	res.Harnesses, res.Notices = append(res.Harnesses, s.Harnesses...), append(res.Notices, notices...)
 	in := plan.ProjectInput{Project: project, Home: home, Pack: s.Pack.Name, Adapters: adapters, Repo: repo != nil, MCPKey: mcpKey}
-	err = readProject(ctx, d, g, filepath.Join(tmp, "staging", ScopeProject), prev, &in)
+	if record != nil {
+		in.Owned = record.Owned()
+	}
+	err = readProject(ctx, d, g, tree, prev, &in)
 	if u, ok := errors.AsType[*plan.UnmappedError](err); ok {
 		res.Diagnostics = projectUnmapped(u)
-		return res, nil
+		planned.plan = res
+		return then(planned)
 	}
 	if err != nil {
-		return ProjectPlan{}, err
+		return err
+	}
+	for _, a := range adapters {
+		if m := a.Project.MCP; m != nil {
+			file := m.Real
+			if in.Isolated[a.ID] {
+				file = m.Isolated
+			}
+			planned.homeMCP = filepath.Join(home, filepath.FromSlash(file))
+		}
+	}
+	for _, k := range shared.OwnedKeys(planned.homeMCP) {
+		if len(k) > 1 && k[1] == mcpKey && !ownsKey(record, planned.homeMCP, k) {
+			in.Shared = append(in.Shared, k)
+		}
 	}
 	p, err := plan.BuildProject(in)
 	if err != nil {
-		return ProjectPlan{}, err
+		return err
 	}
 	res.Ops, res.Skipped = append(res.Ops, p.Ops...), append(res.Skipped, p.Skipped...)
 	res.Exclude.Entries, res.Warnings = append(res.Exclude.Entries, p.Exclude...), append(res.Warnings, p.Warnings...)
-	return res, nil
+	res.Refusals = append(res.Refusals, p.Refusals...)
+	planned.plan, planned.in, planned.kept = res, in, p.Kept
+	if err := planned.markerOp(); err != nil {
+		return err
+	}
+	return then(planned)
+}
+
+// CodeMarkerMismatch is the warning of a project marker that does not say
+// what the record under the home directory says, which wins.
+const CodeMarkerMismatch = "marker-mismatch"
+
+// markerOp gives the op of the project marker what it writes, the pack,
+// variant and profiles applied and the record's id, which leaves it
+// unchanged when it holds that already; a marker that holds something
+// else is warned about, since the record under the home directory wins.
+func (p *projectPlanned) markerOp() error {
+	data, err := state.EncodeMarker(state.Marker{Schema: state.MarkerSchema, ID: p.scope.id, Pack: p.pack, Variant: p.plan.Variant, Profiles: p.plan.Profiles})
+	if err != nil {
+		return err
+	}
+	for i, op := range p.plan.Ops {
+		if op.Kind != plan.KindMarker {
+			continue
+		}
+		op.Data, op.After = data, contentHash(data)
+		if cur, ok := p.in.Disk[op.Target]; ok {
+			op.Action = plan.Replace
+			if cur.Hash == op.After {
+				op.Action = plan.Unchanged
+			} else if p.prev != nil {
+				p.plan.Warnings = append(p.plan.Warnings, plan.Warning{Code: CodeMarkerMismatch, Path: op.Target,
+					Message: fmt.Sprintf("%s does not say what the record %s says; the record wins, and the apply rewrites the marker", op.Target, p.plan.Record)})
+			}
+		}
+		p.plan.Ops[i] = op
+	}
+	return nil
+}
+
+// ownsKey reports whether the record r owns the key k of file.
+func ownsKey(r *state.Project, file string, k []string) bool {
+	if r == nil {
+		return false
+	}
+	return slices.ContainsFunc(r.Files, func(f state.ProjectFile) bool {
+		return f.Target == file && slices.ContainsFunc(f.Keys, func(o plan.OwnedKey) bool { return slices.Equal(o.Path, k) })
+	})
 }
 
 // checkProject refuses a project directory that is the home directory or

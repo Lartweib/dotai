@@ -604,3 +604,69 @@ func TestPlanReplaceLooksInsideWipedDirectoriesForCredentialsOnly(t *testing.T) 
 		t.Error("~/.claude/plugins is wiped with a credentials file in it")
 	}
 }
+
+// TestPlanReplaceKeepsTheMCPServersAProjectApplyOwns checks that a replace
+// install never wipes the per-project MCP servers that a project apply
+// recorded in ~/.dotai/projects.json (decision 0041): a server it owns
+// stays, and the foreign servers beside it are wiped one by one.
+func TestPlanReplaceKeepsTheMCPServersAProjectApplyOwns(t *testing.T) {
+	home, h := realHome(t)
+	writeFile(t, at(home, ".claude.json"), `{"projects":{"C:/work":{"mcpServers":{"dotai":{"command":"a"},"mine":{"command":"b"}}},`+
+		`"C:/site":{"mcpServers":{"dotai":{"command":"c"}}}}}`)
+	list := state.Projects{}.With(state.ProjectEntry{Project: at(home, "work"), File: at(home, ".claude.json"), Keys: [][]string{{"projects", "C:/work", "mcpServers", "dotai"}}}).
+		With(state.ProjectEntry{Project: at(home, "site"), File: at(home, ".claude.json"), Keys: [][]string{{"projects", "C:/site", "mcpServers", "dotai"}}})
+	for _, e := range list.Projects {
+		livingProject(t, home, e.Project)
+	}
+	data, err := state.EncodeProjects(list)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, at(home, ".dotai/projects.json"), string(data))
+	p, err := planReplace(t, home, h, "")
+	if err != nil || len(p.Diagnostics) != 0 {
+		t.Fatalf("PlanInstall(replace) = %+v, %v", p, err)
+	}
+	var keys []string
+	for _, k := range p.WipeKeys {
+		keys = append(keys, strings.Join(k.Key, " "))
+	}
+	if want := []string{"projects C:/work mcpServers mine"}; !reflect.DeepEqual(keys, want) {
+		t.Errorf("key wipes = %q, want %q", keys, want)
+	}
+}
+
+// livingProject makes project a directory with a record under home, so
+// that a replace install takes its entry in ~/.dotai/projects.json as
+// that of a project that still exists.
+func livingProject(t *testing.T, home, project string) {
+	t.Helper()
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, app.RecordPath(home, project), "{}")
+}
+
+// TestPlanReplaceIgnoresTheEntryOfAProjectThatIsGone checks that a
+// replace install does not keep, forever, the servers of a project whose
+// directory or record is gone, and says so.
+func TestPlanReplaceIgnoresTheEntryOfAProjectThatIsGone(t *testing.T) {
+	home, h := realHome(t)
+	writeFile(t, at(home, ".claude.json"), `{"projects":{"C:/gone":{"mcpServers":{"dotai":{"command":"a"}}}}}`)
+	data, err := state.EncodeProjects(state.Projects{}.With(state.ProjectEntry{Project: at(home, "gone"), File: at(home, ".claude.json"),
+		Keys: [][]string{{"projects", "C:/gone", "mcpServers", "dotai"}}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, at(home, ".dotai/projects.json"), string(data))
+	p, err := planReplace(t, home, h, "")
+	if err != nil || len(p.Diagnostics) != 0 {
+		t.Fatalf("PlanInstall(replace) = %+v, %v", p, err)
+	}
+	if !slices.ContainsFunc(p.WipeKeys, func(k app.WipeKey) bool { return strings.Join(k.Key, " ") == "projects C:/gone mcpServers" }) {
+		t.Errorf("key wipes = %+v, want the gone project's servers wiped", p.WipeKeys)
+	}
+	if !slices.ContainsFunc(p.Notices, func(n string) bool { return strings.Contains(n, at(home, "gone")) && strings.Contains(n, "ignored") }) {
+		t.Errorf("notices = %q, want the gone project's entry reported", p.Notices)
+	}
+}

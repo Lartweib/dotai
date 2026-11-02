@@ -1,0 +1,35 @@
+Apply plan · minimal-pack 0.1.0 · profile web · variant standalone
+project: /work/site
+record:  /home/u/.dotai/projects/0123456789abcdef/record.json
+marker:  /work/site/.dotai/state.json
+
+claudecode
+  create     /home/u/.claude.json
+             keys: create projects["/work/site"].mcpServers.browser
+  create     /work/site/.claude/rules/web.md
+  merge      /work/site/.claude/settings.local.json
+             keys: merge permissions.allow, unchanged model
+  skipped    skill lint: git tracks /work/site/.claude/skills/lint/SKILL.md
+
+antigravity-cli
+  create     /work/site/.agents/hooks.json
+             keys: create rulesync.SessionStart
+  conflict   /work/site/.agents/rules/web.md
+
+opencode
+  unchanged  /work/site/.opencode/memories/web.md
+  skipped    hook sessionStart: echo hi: git tracks /work/site/.opencode/plugins/rulesync-hooks.js
+
+dotai
+  create     /work/site/.dotai/state.json
+
+exclude · /work/site/.git/info/exclude
+  /.dotai/
+  /.agents/hooks.json
+  /.claude/rules/web.md
+
+warning: claudecode loads the user-level skill lint from /home/u/.claude/skills/lint instead of the project's
+warning: antigravity-cli has no project settings file, so the permissions of the profiles are not installed for it
+
+4 create, 1 merge, 0 remove, 1 unchanged, 1 conflict, 2 skipped · applied, the first apply in this project
+backup: /home/u/.dotai/projects/0123456789abcdef/backups/20261102T101500.000Z_apply

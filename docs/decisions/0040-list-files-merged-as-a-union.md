@@ -54,3 +54,5 @@ The layers of a scope merge each of the two files into one, in layer order: base
 - [0023](0023-flat-profiles-and-layer-merge-rules.md), [PACK-FORMAT](../PACK-FORMAT.md#merge-rules).
 
 Update 2026-11-02: rulesync 41 renders a tool-scoped block's hooks of an event, such as `claudecode.hooks.sessionStart`, instead of the shared hooks of that event for that harness ([HARNESS-NOTES](../HARNESS-NOTES.md#rulesync-4100)). The merge keeps both, as above; `validate` warns about each such event whose shared hooks are not empty with `hooks-shadowed`, which leaves the pack valid ([CLI-JSON](../CLI-JSON.md#diagnostics)).
+
+Update 2026-11-02 (roadmap PR 10-3): in a project, a list the profiles merge into a file that is not dotai's, such as `permissions.allow` in `.claude/settings.local.json`, is a union with the list there, whose entries stay first. The project record keeps the list from before, so that a later apply without the profile, or `dotai restore --project`, gives it back ([0041](0041-project-scope-local-and-untracked.md)).

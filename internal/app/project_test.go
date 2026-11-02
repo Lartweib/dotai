@@ -99,7 +99,7 @@ func TestPlanProjectListsEachTargetAndWritesNothing(t *testing.T) {
 		t.Fatalf("PlanProject() = %+v, %v", p, err)
 	}
 	if p.Pack == nil || p.Pack.Name != "minimal-pack" || p.Variant != "standalone" || !reflect.DeepEqual(p.Profiles, []string{"web"}) ||
-		p.Project != project || p.Record != at(project, ".dotai/state.json") || !reflect.DeepEqual(p.Harnesses, []string{"claudecode", "antigravity-cli", "opencode"}) {
+		p.Project != project || p.Marker != at(project, ".dotai/state.json") || !strings.HasPrefix(p.Record, at(home, ".dotai/projects")+string(filepath.Separator)) || !reflect.DeepEqual(p.Harnesses, []string{"claudecode", "antigravity-cli", "opencode"}) {
 		t.Errorf("header = %+v", p)
 	}
 	var got []string

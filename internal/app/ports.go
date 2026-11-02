@@ -54,3 +54,8 @@ func (p Ports) Install(ctx context.Context, cacheDir, dir, home string, opts Ins
 func (p Ports) Restore(ctx context.Context, home, id string, opts RestoreOptions, warn Warn, overwrite func(RestoreResult) (bool, error)) (RestoreResult, error) {
 	return restore(ctx, osInstallFS{}, p.host(), home, id, opts, warn, overwrite)
 }
+
+// Apply is the package's Apply through p, asking the git on PATH.
+func (p Ports) Apply(ctx context.Context, cacheDir, dir, cwd, home string, opts ApplyOptions, progress Progress, consent ApplyConsent) (ApplyResult, error) {
+	return applyProject(ctx, osInstallFS{}, p.host(), osGit{}, p.fetch(), p.run(), cacheDir, dir, cwd, home, opts, progress, consent)
+}

@@ -25,7 +25,8 @@
       "web"
     ],
     "project": "/work/site",
-    "record": "/work/site/.dotai/state.json",
+    "record": "/home/u/.dotai/projects/0123456789abcdef/record.json",
+    "marker": "/work/site/.dotai/state.json",
     "harnesses": [
       "claudecode",
       "antigravity-cli",
@@ -117,7 +118,7 @@
       {
         "action": "create",
         "harness": "",
-        "kind": "record",
+        "kind": "marker",
         "source": "",
         "target": "/work/site/.dotai/state.json",
         "before": "",
@@ -176,6 +177,8 @@
         "message": "antigravity-cli has no project settings file, so the permissions of the profiles are not installed for it"
       }
     ],
+    "refusals": [],
+    "firstApply": true,
     "notices": [],
     "diagnostics": []
   }

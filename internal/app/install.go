@@ -329,7 +329,17 @@ func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run run
 	tree := filepath.Join(out, ScopeUser)
 	var rp replacePlan
 	if mode == ModeReplace {
-		if rp, err = planWipes(ctx, d, h, home, adapters, shared, ownedTargets(prev)); err != nil {
+		projects, err := readProjects(d, home)
+		if err != nil {
+			return err
+		}
+		var gone []string
+		projects, gone = livingProjects(d, home, projects)
+		for _, p := range gone {
+			res.Notices = append(res.Notices, fmt.Sprintf("the entry of %s in %s is ignored: the project or its record is gone, so the replace install wipes its MCP servers like any other",
+				p, filepath.Join(home, dotaiDir, projectsFile)))
+		}
+		if rp, err = planWipes(ctx, d, h, home, adapters, shared, ownedTargets(prev), projects); err != nil {
 			return err
 		}
 		res.Wipes, res.Keeps = append(res.Wipes, rp.wipes...), append(res.Keeps, rp.keeps...)
@@ -762,4 +772,22 @@ func (p planned) layouts() []harness.Mode {
 		out = append(out, harness.Mode(p.prev.Mode))
 	}
 	return out
+}
+
+// livingProjects is list without the entries of the projects whose
+// directory or record under home is gone, which a replace install no
+// longer keeps the keys of, and gives those projects.
+func livingProjects(d installFS, home string, list state.Projects) (state.Projects, []string) {
+	out := state.Projects{Schema: list.Schema, Projects: []state.ProjectEntry{}}
+	var gone []string
+	for _, e := range list.Projects {
+		_, errDir := d.Lstat(e.Project)
+		_, errRecord := d.Lstat(recordPath(home, e.Project))
+		if errDir != nil || errRecord != nil {
+			gone = append(gone, e.Project)
+			continue
+		}
+		out.Projects = append(out.Projects, e)
+	}
+	return out, gone
 }

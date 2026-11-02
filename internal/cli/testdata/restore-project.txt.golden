@@ -1,0 +1,14 @@
+Restore project · /work/site
+record: /home/u/.dotai/projects/0123456789abcdef/record.json
+
+  remove     /work/site/.claude/rules/web.md
+  replace    /work/site/.agents/rules/web.md (from 20261102T101500.000Z_apply)
+  merge      /work/site/.claude/settings.local.json (changed since dotai wrote it)
+             keys: conflict model, remove env.A
+  merge      /home/u/.claude.json
+             keys: remove projects["/work/site"].mcpServers.browser
+
+exclude · /work/site/.git/info/exclude: dotai's block removed
+
+1 remove, 1 replace, 2 merge · restored, .dotai/ removed
+backup: /home/u/.dotai/projects/0123456789abcdef/backups/20261102T111500.000Z_restore

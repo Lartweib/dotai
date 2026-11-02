@@ -105,8 +105,9 @@ func (rp replacePlan) unread(target string) bool {
 // of anything inside it, looks like a login, a secret or a history; an
 // area or a leak entry below a link, a junction or a file, which is never
 // looked through; a split file that is not a readable JSON object; and a
-// relocation variable of h's environment.
-func planWipes(ctx context.Context, d installFS, h host, home string, adapters []harness.Adapter, shared bool, owned map[string]bool) (replacePlan, error) {
+// relocation variable of h's environment. A key of a split file that a
+// project apply owns, by projects, is never wiped (decision 0041).
+func planWipes(ctx context.Context, d installFS, h host, home string, adapters []harness.Adapter, shared bool, owned map[string]bool, projects state.Projects) (replacePlan, error) {
 	rp := replacePlan{}
 	dirs := map[string]error{}
 	for _, a := range adapters {
@@ -158,7 +159,8 @@ func planWipes(ctx context.Context, d installFS, h host, home string, adapters [
 			}
 		}
 		for _, sf := range a.Real.Split {
-			if err := rp.split(ctx, d, a.ID, filepath.Join(home, filepath.FromSlash(sf.Path)), sf); err != nil {
+			name := filepath.Join(home, filepath.FromSlash(sf.Path))
+			if err := rp.split(ctx, d, a.ID, name, sf, projects.OwnedKeys(name)); err != nil {
 				return replacePlan{}, err
 			}
 		}
@@ -302,10 +304,11 @@ func (rp *replacePlan) realDir(d installFS, h, home, dir string, dirs map[string
 // split plans the wipe of the configuration keys of the split file name
 // of harness h, as sf names them: each top-level key of Keys, and each key
 // of ProjectKeys in every entry of the Projects object, in that order,
-// projects by name, that holds a value that is not empty. A missing file
-// has none; one that is not a regular file holding a JSON object is a
-// refusal.
-func (rp *replacePlan) split(ctx context.Context, d installFS, h, name string, sf harness.SplitFile) error {
+// projects by name, that holds a value that is not empty. A key of a
+// project's entry that holds keys a project apply owns, in kept, is wiped
+// member by member instead, each but those. A missing file has none; one
+// that is not a regular file holding a JSON object is a refusal.
+func (rp *replacePlan) split(ctx context.Context, d installFS, h, name string, sf harness.SplitFile, kept [][]string) error {
 	data, _, err := d.Read(ctx, name)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
@@ -338,8 +341,20 @@ func (rp *replacePlan) split(ctx context.Context, d installFS, h, name string, s
 	for _, p := range slices.Sorted(maps.Keys(projects)) {
 		fields, _ := jsonObject(projects[p])
 		for _, k := range sf.ProjectKeys {
-			if holdsConfig(fields[k]) {
-				rp.keys = append(rp.keys, WipeKey{Harness: h, File: name, Key: []string{sf.Projects, p, k}})
+			at := []string{sf.Projects, p, k}
+			owned := slices.ContainsFunc(kept, func(o []string) bool { return len(o) > len(at) && slices.Equal(o[:len(at)], at) })
+			members, isObject := jsonObject(fields[k])
+			switch {
+			case !holdsConfig(fields[k]):
+			case owned && isObject:
+				for _, m := range slices.Sorted(maps.Keys(members)) {
+					key := append(slices.Clone(at), m)
+					if holdsConfig(members[m]) && !slices.ContainsFunc(kept, func(o []string) bool { return slices.Equal(o, key) }) {
+						rp.keys = append(rp.keys, WipeKey{Harness: h, File: name, Key: key})
+					}
+				}
+			default:
+				rp.keys = append(rp.keys, WipeKey{Harness: h, File: name, Key: at})
 			}
 		}
 	}

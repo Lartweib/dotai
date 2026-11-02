@@ -19,7 +19,7 @@ import (
 // the same on every OS.
 var projectPlan = app.ProjectPlan{
 	Pack:    &app.PackSummary{Name: "minimal-pack", Version: "0.1.0", Harnesses: []string{"claudecode", "antigravity-cli", "opencode"}, OptionalHarnesses: []string{}, Profiles: []app.ProfileSummary{}, Variants: []string{}, SharedSkills: []string{}, Layers: []app.LayerSummary{}},
-	Variant: "standalone", Profiles: []string{"web"}, Project: "/work/site", Record: "/work/site/.dotai/state.json",
+	Variant: "standalone", Profiles: []string{"web"}, Project: "/work/site", Record: "/home/u/.dotai/projects/0123456789abcdef/record.json", Marker: "/work/site/.dotai/state.json",
 	Harnesses: []string{"claudecode", "antigravity-cli", "opencode"},
 	Ops: []plan.ProjectOp{
 		{Action: plan.Create, Harness: "claudecode", Kind: "mcp", Source: ".mcp.json", Target: "/home/u/.claude.json",
@@ -30,7 +30,7 @@ var projectPlan = app.ProjectPlan{
 		{Action: plan.Create, Harness: "claudecode", Kind: "rules", Source: ".claude/rules/web.md", Target: "/work/site/.claude/rules/web.md", After: "bb", Keys: []plan.ProjectKey{}},
 		{Action: plan.Merge, Harness: "claudecode", Kind: "settings", Source: ".claude/settings.json", Target: "/work/site/.claude/settings.local.json", Before: "cc",
 			Keys: []plan.ProjectKey{{Path: []string{"permissions", "allow"}, Action: plan.Merge}, {Path: []string{"model"}, Action: plan.Unchanged}}},
-		{Action: plan.Create, Kind: "record", Target: "/work/site/.dotai/state.json", Keys: []plan.ProjectKey{}},
+		{Action: plan.Create, Kind: "marker", Target: "/work/site/.dotai/state.json", Keys: []plan.ProjectKey{}},
 		{Action: plan.Unchanged, Harness: "opencode", Kind: "rules", Source: ".opencode/memories/web.md", Target: "/work/site/.opencode/memories/web.md", Before: "bb", After: "bb", Keys: []plan.ProjectKey{}},
 	},
 	Skipped: []plan.Skipped{
@@ -42,6 +42,8 @@ var projectPlan = app.ProjectPlan{
 		{Code: plan.CodeScopeClash, Harness: "claudecode", Item: "skill lint", Path: "/home/u/.claude/skills/lint", Message: "claudecode loads the user-level skill lint from /home/u/.claude/skills/lint instead of the project's"},
 		{Code: plan.CodeNoLocalSlot, Harness: "antigravity-cli", Message: "antigravity-cli has no project settings file, so the permissions of the profiles are not installed for it"},
 	},
+	Refusals:    []plan.Warning{},
+	FirstApply:  true,
 	Notices:     []string{},
 	Diagnostics: []app.Diagnostic{},
 }
@@ -94,7 +96,6 @@ func TestRunApplyUsageErrors(t *testing.T) {
 		args []string
 		want string
 	}{
-		{name: "without --dry-run", args: []string{"apply", "--profile", "web", "--json"}, want: "not available yet"},
 		{name: "without a profile", args: []string{"apply", "--dry-run", "--json"}, want: "--profile"},
 		{name: "two paths", args: []string{"apply", "a", "b", "--profile", "web", "--dry-run", "--json"}, want: "arg"},
 	} {
@@ -156,5 +157,123 @@ func TestRunApplyOutsideARepository(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "\nexclude · pending, not in a git repository\n  /.dotai/\n") {
 		t.Errorf("stdout = %q, want the pending entries", stdout.String())
+	}
+}
+
+func TestRunApply(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("DOTAI_CACHE_DIR", "cache")
+	for _, tt := range []struct {
+		name, golden string
+		args         []string
+		first        bool
+		backup       *app.BackupRef
+	}{
+		{name: "text", args: []string{"apply", "--profile", "web"}, golden: "apply.txt.golden", first: true,
+			backup: &app.BackupRef{ID: "20261102T101500.000Z_apply", Path: "/home/u/.dotai/projects/0123456789abcdef/backups/20261102T101500.000Z_apply"}},
+		{name: "second", args: []string{"apply", "--profile", "web"}, golden: "apply-again.txt.golden"},
+		{name: "json", args: []string{"apply", "--profile", "web", "--json"}, golden: "apply.json.golden", first: true,
+			backup: &app.BackupRef{ID: "20261102T101500.000Z_apply", Path: "/home/u/.dotai/projects/0123456789abcdef/backups/20261102T101500.000Z_apply"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			env := testEnv(&stdout, &stderr)
+			env.Apply = func(ctx context.Context, _, _, _, _ string, opts app.ApplyOptions, _ app.Progress, consent app.ApplyConsent) (app.ApplyResult, error) {
+				if ok, err := consent(projectPlan); ok || err != nil {
+					t.Errorf("consent without --yes or a terminal = %v, %v, want false", ok, err)
+				}
+				p := projectPlan
+				p.FirstApply = tt.first
+				return app.ApplyResult{ProjectPlan: p, Backup: tt.backup}, nil
+			}
+			if code := cli.Run(tt.args, env); code != cli.ExitOK || stderr.Len() != 0 {
+				t.Errorf("exit code = %d, stderr = %q, want 0 and empty", code, stderr.String())
+			}
+			assertGolden(t, filepath.Join("testdata", tt.golden), stdout.Bytes())
+		})
+	}
+}
+
+func TestRunApplyRefusals(t *testing.T) {
+	refused := projectPlan
+	refused.Refusals = []plan.Warning{{Code: plan.CodeMCPServerForeign, Harness: "claudecode", Item: "MCP server browser", Path: "/home/u/.claude.json", Message: "/home/u/.claude.json already has an MCP server browser"}}
+	for _, tt := range []struct {
+		name string
+		err  error
+		code string
+	}{
+		{name: "consent", err: &app.ApplyConsentError{Plan: projectPlan, Files: 1}, code: output.CodeConsent},
+		{name: "refused", err: &app.ApplyRefusedError{Plan: refused}, code: output.CodeApplyRefused},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var stdout bytes.Buffer
+			env := testEnv(&stdout, &bytes.Buffer{})
+			env.Apply = func(context.Context, string, string, string, string, app.ApplyOptions, app.Progress, app.ApplyConsent) (app.ApplyResult, error) {
+				return app.ApplyResult{}, tt.err
+			}
+			if code := cli.Run([]string{"apply", "--profile", "web", "--json"}, env); code != cli.ExitInternal {
+				t.Errorf("exit code = %d, want %d", code, cli.ExitInternal)
+			}
+			e := decodeOne(t, stdout.Bytes())
+			if e.OK || e.Error == nil || e.Error.Code != tt.code || !strings.Contains(stdout.String(), `"data": {`) {
+				t.Errorf("envelope = %+v, want %s with the plan", e, tt.code)
+			}
+		})
+	}
+	// In text, the plan explains the refusal, and the error goes to stderr.
+	var stdout, stderr bytes.Buffer
+	env := testEnv(&stdout, &stderr)
+	env.Apply = func(context.Context, string, string, string, string, app.ApplyOptions, app.Progress, app.ApplyConsent) (app.ApplyResult, error) {
+		return app.ApplyResult{}, &app.ApplyRefusedError{Plan: refused}
+	}
+	if code := cli.Run([]string{"apply", "--profile", "web"}, env); code != cli.ExitInternal ||
+		!strings.Contains(stdout.String(), "\nrefused\n  /home/u/.claude.json already has an MCP server browser\n") || !strings.Contains(stdout.String(), "refused, the apply wrote nothing") ||
+		!strings.Contains(stderr.String(), "the apply wrote nothing") {
+		t.Errorf("exit code = %d, stdout = %q, stderr = %q, want the plan with its refusal, and the error", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestRunApplyAsksOnATerminal(t *testing.T) {
+	for _, answer := range []bool{true, false} {
+		var stdout bytes.Buffer
+		env := testEnv(&stdout, &bytes.Buffer{})
+		env.Prompt = func(context.Context, string) (bool, error) { return answer, nil }
+		env.Apply = func(_ context.Context, _, _, _, _ string, _ app.ApplyOptions, _ app.Progress, consent app.ApplyConsent) (app.ApplyResult, error) {
+			if ok, _ := consent(projectPlan); !ok {
+				return app.ApplyResult{}, &app.ApplyConsentError{Plan: projectPlan, Files: 1}
+			}
+			return app.ApplyResult{ProjectPlan: projectPlan}, nil
+		}
+		code := cli.Run([]string{"apply", "--profile", "web"}, env)
+		if answer && code != cli.ExitOK || !answer && code != cli.ExitInternal || !strings.Contains(stdout.String(), "nothing was written yet") {
+			t.Errorf("answer %v: exit code = %d, stdout = %q", answer, code, stdout.String())
+		}
+	}
+	var stdout bytes.Buffer
+	env := testEnv(&stdout, &bytes.Buffer{})
+	env.Apply = func(_ context.Context, _, _, _, _ string, _ app.ApplyOptions, _ app.Progress, consent app.ApplyConsent) (app.ApplyResult, error) {
+		if ok, _ := consent(projectPlan); !ok {
+			t.Error("consent with --yes = false, want true")
+		}
+		return app.ApplyResult{ProjectPlan: projectPlan}, nil
+	}
+	if code := cli.Run([]string{"apply", "--profile", "web", "--yes"}, env); code != cli.ExitOK {
+		t.Errorf("--yes: exit code = %d", code)
+	}
+}
+
+func TestRunApplyRefusesAnInvalidRecord(t *testing.T) {
+	var stdout bytes.Buffer
+	env := testEnv(&stdout, &bytes.Buffer{})
+	env.Apply = func(context.Context, string, string, string, string, app.ApplyOptions, app.Progress, app.ApplyConsent) (app.ApplyResult, error) {
+		return app.ApplyResult{}, &app.RecordInvalidError{Path: "/home/u/.dotai/projects/0123456789abcdef/record.json", Why: "owns /home/u/.ssh/authorized_keys"}
+	}
+	if code := cli.Run([]string{"apply", "--profile", "web", "--json"}, env); code != cli.ExitInternal {
+		t.Errorf("exit code = %d, want %d", code, cli.ExitInternal)
+	}
+	if e := decodeOne(t, stdout.Bytes()); e.Error == nil || e.Error.Code != output.CodeRecordInvalid {
+		t.Errorf("envelope = %+v, want record-invalid", e)
 	}
 }
