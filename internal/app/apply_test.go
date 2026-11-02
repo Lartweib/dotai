@@ -122,7 +122,7 @@ func TestApplyWritesThePlanAndASecondApplyIsNotTheFirst(t *testing.T) {
 		t.Errorf("second Apply() = first %v, backup %v, want not the first, and nothing written", again.FirstApply, again.Backup)
 	}
 	for _, op := range again.Ops {
-		if op.Action != plan.Unchanged && op.Kind != plan.KindRecord {
+		if op.Action != plan.Unchanged {
 			t.Errorf("second Apply() op %+v, want everything unchanged", op)
 		}
 	}

@@ -217,6 +217,11 @@ type write struct {
 func (a applier) run(res *ApplyResult) error {
 	next := a.nextRecord()
 	if a.p.prev != nil && !a.changes() && sameRecord(*a.p.prev, next) {
+		for i, op := range res.Ops {
+			if op.Kind == plan.KindRecord {
+				res.Ops[i].Action = plan.Unchanged // it would hold the same
+			}
+		}
 		return nil
 	}
 	warnings := []string{}
