@@ -173,7 +173,22 @@ func Stage(p *pack.Pack, sel Selection) (Staging, []pack.Diagnostic) {
 	if diags = slices.Concat(user.diags, withoutShadowed(project.diags, cross), cross, once([]*scope{user, project}, (*scope).checkTools)); len(diags) > 0 {
 		return Staging{}, diags
 	}
+	project.dropUserServers(user)
 	return Staging{User: user.tree(), Project: project.tree(), UserSettings: user.mergedSettings(), ProjectSettings: project.mergedSettings()}, nil
+}
+
+// dropUserServers removes from the project scope s each MCP server that
+// the user scope defines the same way: it is staged once, at user level,
+// so that a harness that lets a project server shadow a user one, as
+// Claude Code does, never runs a copy that goes stale when the user scope
+// changes.
+func (s *scope) dropUserServers(user *scope) {
+	for name := range s.servers {
+		o := s.names[key(mcpServer, name)]
+		if prev, ok := user.names[o.key]; ok && prev.name == o.name && o.same(prev) {
+			delete(s.servers, name)
+		}
+	}
 }
 
 // resolve returns the variant and profile layers sel names. With all, an
@@ -510,7 +525,7 @@ func (s *scope) tree() []File {
 // crossScope applies the cross-scope paragraph: a project name may not
 // repeat a user name, even with overrides, because harnesses resolve that
 // clash differently. An MCP server defined the same way in both scopes is
-// no clash: whichever a harness picks, it runs the same server. users
+// no clash, and Stage keeps it at user level only (dropUserServers). users
 // holds the user scope once per variant; each clash is reported once,
 // against the first variant that has the name.
 func crossScope(users []*scope, project *scope) []pack.Diagnostic {

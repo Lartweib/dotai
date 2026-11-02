@@ -3,6 +3,7 @@ package merge_test
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -462,10 +463,11 @@ func TestStageMergesMCPServers(t *testing.T) {
 
 // TestStageKeepsIdenticalMCPServersOnce checks that an MCP server that two
 // layers of a scope define the same way, by canonical JSON, is staged once,
-// with the definition and the origin of the first layer.
+// with the definition and the origin of the first layer, and that one a
+// profile defines as the user scope does is staged in the user scope only.
 func TestStageKeepsIdenticalMCPServersOnce(t *testing.T) {
 	p := newPack(base(mcp(baseMCP)), variant("v", mcp(`{"mcpServers": {"git": {"command": "git-mcp"}, "web": {"command": "web-mcp"}}}`)),
-		profile("a", mcp(webMCP)), profile("b", mcp(`{"mcpServers": {"web": { "command": "web-mcp" }}}`)))
+		profile("a", mcp(`{"mcpServers": {"web": {"command": "web-mcp"}, "docs": {"command": "docs-mcp"}}}`)), profile("b", mcp(`{"mcpServers": {"web": { "command": "web-mcp" }}}`)))
 	s, diags := merge.Stage(p, merge.Selection{Profiles: []string{"b", "a"}})
 	if len(diags) != 0 {
 		t.Fatalf("Stage() diagnostics = %v, want none", format(diags))
@@ -479,8 +481,17 @@ func TestStageKeepsIdenticalMCPServersOnce(t *testing.T) {
 	if origins := map[string]string{"git": "base", "web": "variants/v"}; !reflect.DeepEqual(user.Origins, origins) {
 		t.Errorf("user origins = %v, want %v", user.Origins, origins)
 	}
-	if origins := map[string]string{"web": "profiles/a"}; !reflect.DeepEqual(project.Origins, origins) {
+	if want := "{\n  \"mcpServers\": {\n    \"docs\": {\n      \"command\": \"docs-mcp\"\n    }\n  }\n}\n"; string(project.Data) != want {
+		t.Errorf("project mcp.jsonc =\n%s\nwant\n%s", project.Data, want)
+	}
+	if origins := map[string]string{"docs": "profiles/a"}; !reflect.DeepEqual(project.Origins, origins) {
 		t.Errorf("project origins = %v, want %v", project.Origins, origins)
+	}
+
+	// With nothing else, the project scope has no mcp.jsonc.
+	s, diags = merge.Stage(newPack(base(mcp(webMCP)), profile("a", mcp(webMCP))), merge.Selection{Profiles: []string{"a"}})
+	if len(diags) != 0 || slices.ContainsFunc(s.Project, func(f merge.File) bool { return f.Path == ".rulesync/mcp.jsonc" }) {
+		t.Errorf("Stage() = %+v, %v, want no project mcp.jsonc", s.Project, format(diags))
 	}
 }
 
