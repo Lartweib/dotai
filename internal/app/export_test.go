@@ -221,3 +221,9 @@ func ApplyWith(ctx context.Context, d executeFS, g gitPort, fetch fetchFunc, run
 func RestoreProjectWith(ctx context.Context, d executeFS, g gitPort, project, home string, overwrite func(ProjectRestoreResult) (bool, error)) (ProjectRestoreResult, error) {
 	return restoreProject(ctx, d, g, project, home, overwrite)
 }
+
+// ApplyWithRulesync is Apply asking git through g, with the real rulesync
+// from cacheDir, on a host that finds every harness.
+func ApplyWithRulesync(ctx context.Context, g gitPort, cacheDir, dir, project, home string, opts ApplyOptions) (ApplyResult, error) {
+	return applyProject(ctx, osInstallFS{}, everyHarness, g, download, generate, cacheDir, dir, project, home, opts, nil, nil)
+}
