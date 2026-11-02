@@ -25,6 +25,16 @@ A setting that runs a pack tool, such as a statusline, named the script by its p
 - **Shown.** The install plan lists each resolved command with its harness and settings key, so the dry run shows what the settings file will run.
 - **Elsewhere.** The variable is expanded only in settings values, which are encoded as JSON after the expansion; any other file keeps it as written. `${DOTAI_TOOLS}` and `${DOTAI_PROJECT_TOOLS}` work as before.
 
+**Update, 2026-11-02: hook commands.** The variable is also expanded in the `command` of each hook of the merged `.rulesync/hooks.jsonc` ([0040](0040-list-files-merged-as-a-union.md)), with the same checks (`tool-missing`, `tool-invalid`). agy runs hooks through `cmd /c` with every `"` passed as `\"`, Claude Code through bash (Git Bash on Windows) and OpenCode through Bun Shell ([HARNESS-NOTES](../HARNESS-NOTES.md#hook-commands)), so:
+
+- a hook of a tool-scoped block is written for that block's harness: in double quotes for `claudecode` and `opencode`, bare for `antigravity-cli`;
+- a shared hook reaches every rendered harness through one string, so it is bare when agy is rendered and quoted otherwise;
+- a bare path in a hook uses forward slashes, Windows included, because Git Bash drops the backslashes of a bare path and all three harnesses run the bare form with `/`;
+- a bare path in a hook cannot hold whitespace, a quote, or one of `& | < > ^ ( ) ; * ? [ ] { }`, which `cmd.exe` or a shell would read as an operator or a pattern; such a tools directory is the diagnostic `hook-path-unquotable`, naming the hook and the harness, from `stage` and `install`, and nothing is written;
+- a block of a harness the stage does not render keeps the variable as written.
+
+This goes beyond the Decision above, which expanded the variable in settings values only, and keeps its quoting rules for settings unchanged.
+
 ## Considered options
 
 - **A (chosen):** one variable resolved per OS at stage time, two scripts per tool.

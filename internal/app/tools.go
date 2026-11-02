@@ -47,25 +47,37 @@ func (t ToolPaths) forHarness(id string) ToolPaths {
 }
 
 // quoting is how the harness of t reads a command in its settings.
-func (t ToolPaths) quoting() harness.Quoting {
-	if a, err := harness.Lookup([]string{t.harness}); err == nil && a[0].Commands != "" {
+func (t ToolPaths) quoting() harness.Quoting { return quotingOf(t.harness) }
+
+// quotingOf is how the harness id reads a command: through a shell when
+// its adapter does not say.
+func quotingOf(id string) harness.Quoting {
+	if a, err := harness.Lookup([]string{id}); err == nil && a[0].Commands != "" {
 		return a[0].Commands
 	}
 	return harness.ShellQuoted
 }
 
+// dir is the tools directory of the scope of t, or why it is unknown.
+func (t ToolPaths) dir() (string, error) {
+	if t.project {
+		return t.Project, t.ProjectErr
+	}
+	return t.User, t.UserErr
+}
+
+// goos is the OS the tool commands of t are resolved for.
+func (t ToolPaths) goos() string { return cmp.Or(t.OS, runtime.GOOS) }
+
 // expandSetting expands a string value of a harness's settings: each tool
 // command variable of decision 0037, then the path variables.
 func expandSetting(s string, tools ToolPaths) (string, error) {
-	dir, err := tools.User, tools.UserErr
-	if tools.project {
-		dir, err = tools.Project, tools.ProjectErr
-	}
+	dir, err := tools.dir()
 	s, cerr := merge.ExpandTools(s, func(name string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("${DOTAI_TOOL:%s} cannot be expanded: %w", name, err)
 		}
-		return toolCommand(dir, name, cmp.Or(tools.OS, runtime.GOOS), tools.harness, tools.quoting())
+		return toolCommand(dir, name, tools.goos(), tools.harness, tools.quoting(), false)
 	})
 	if cerr != nil {
 		return "", cerr
@@ -96,8 +108,9 @@ func unquoted(goos string) string {
 // splits the command itself at whitespace and passes quotes on, as agy
 // does, gets the path bare, and a directory with whitespace or a quote is
 // refused for it; so is one with a character a shell would expand, in
-// case it does use one somewhere.
-func toolCommand(dir, name, goos, h string, quoting harness.Quoting) (string, error) {
+// case it does use one somewhere. With slashes, the path has forward
+// slashes on Windows too, as a bare path that bash may read must.
+func toolCommand(dir, name, goos, h string, quoting harness.Quoting, slashes bool) (string, error) {
 	if goos == "windows" && (strings.HasPrefix(dir, `\\`) || strings.HasPrefix(dir, "//")) {
 		return "", fmt.Errorf(`${DOTAI_TOOL:%s} cannot be expanded: the tools directory %s starts with \\ or //, as a network path does, and bash, which a harness may run the command through, reads \\ inside double quotes as a single \: put the home directory on a local drive`, name, dir)
 	}
@@ -115,6 +128,9 @@ func toolCommand(dir, name, goos, h string, quoting harness.Quoting) (string, er
 	}
 	if goos == "windows" {
 		script := strings.ReplaceAll(dir, "/", `\`) + `\` + name + ".ps1"
+		if slashes {
+			script = strings.ReplaceAll(script, `\`, "/")
+		}
 		return `powershell.exe -NoProfile -ExecutionPolicy Bypass -File ` + quote + script + quote, nil
 	}
 	return `sh ` + quote + filepath.ToSlash(dir) + "/" + name + `.sh` + quote, nil

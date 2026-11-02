@@ -125,3 +125,65 @@ func TestStageMergesListFilesWithRealRulesync(t *testing.T) {
 		}
 	}
 }
+
+// TestStageExpandsHookToolsWithRealRulesync stages a copy of the example
+// pack with a shared hook and a claudecode hook that run the tool hello
+// (decision 0037), and checks that rulesync passes each command on as dotai
+// wrote it: the shared one bare, for agy, into every harness, and the
+// claudecode one quoted. It runs only with DOTAI_E2E=1.
+func TestStageExpandsHookToolsWithRealRulesync(t *testing.T) {
+	if os.Getenv("DOTAI_E2E") != "1" {
+		t.Skip("set DOTAI_E2E=1 to run rulesync")
+	}
+	cache, err := filepath.Abs(cmp.Or(os.Getenv("DOTAI_CACHE_DIR"), t.TempDir()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(t.TempDir(), "pack")
+	if err := os.CopyFS(dir, os.DirFS(examplePack)); err != nil {
+		t.Fatal(err)
+	}
+	hooks := `{"version": 1, "hooks": {"sessionStart": [{"command": "${DOTAI_TOOL:hello} shared"}]}, "claudecode": {"hooks": {"stop": [{"command": "${DOTAI_TOOL:hello} claude"}]}}}`
+	if err := os.WriteFile(filepath.Join(dir, "base", ".rulesync", "hooks.jsonc"), []byte(hooks), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(t.TempDir(), "staging")
+	tools := app.ToolsIn(t.TempDir(), t.TempDir())
+	if strings.ContainsAny(tools.User, " \t") {
+		t.Skipf("the temporary directory %s has a space, which agy cannot take", tools.User)
+	}
+	if res, err := app.Stage(context.Background(), cache, dir, out, app.Selection{}, tools, false, nil); err != nil || len(res.Diagnostics) != 0 {
+		t.Fatalf("Stage() = %+v, %v", res.Diagnostics, err)
+	}
+	bare, quoted := `sh `+filepath.ToSlash(tools.User)+`/hello.sh`, `sh "`+filepath.ToSlash(tools.User)+`/hello.sh"`
+	if runtime.GOOS == "windows" {
+		bare = `powershell.exe -NoProfile -ExecutionPolicy Bypass -File ` + filepath.ToSlash(tools.User) + `/hello.ps1`
+		quoted = `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "` + tools.User + `\hello.ps1"`
+	}
+	encode := func(s string) string {
+		b, err := json.Marshal(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	for name, want := range map[string][]string{
+		".claude/settings.json":     {encode(bare + " shared"), encode(quoted + " claude")},
+		".gemini/config/hooks.json": {encode(bare + " shared")},
+	} {
+		got, err := os.ReadFile(filepath.Join(out, "user", filepath.FromSlash(name)))
+		if err != nil {
+			t.Errorf("staging has no user/%s: %v", name, err)
+			continue
+		}
+		for _, w := range want {
+			if !strings.Contains(string(got), w) {
+				t.Errorf("user/%s has no %s:\n%s", name, w, got)
+			}
+		}
+	}
+	plugin, err := os.ReadFile(filepath.Join(out, "user", ".config", "opencode", "plugins", "rulesync-hooks.js"))
+	if err != nil || !strings.Contains(string(plugin), "hello") || strings.Contains(string(plugin), "${DOTAI_TOOL") {
+		t.Errorf("OpenCode's hooks plugin = %s, %v, want the expanded shared command", plugin, err)
+	}
+}
