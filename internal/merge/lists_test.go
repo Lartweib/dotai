@@ -253,6 +253,12 @@ func TestWarningsForShadowedHooks(t *testing.T) {
 			newPack(profile("p", hooks(shared)), profile("q", hooks(`{"claudecode": {"hooks": {"stop": [{"command": "c"}]}}}`))),
 			[]string{"profiles/q/.rulesync/hooks.jsonc:1: hooks-shadowed: claudecode.hooks.stop replaces the shared hooks.stop for claudecode (first: profiles/p/.rulesync/hooks.jsonc:1)"},
 		},
+		{"an empty shared event, which loses nothing", newPack(base(hooks(`{"hooks": {"stop": []}, "claudecode": {"hooks": {"stop": [{"command": "c"}]}}}`))), nil},
+		{
+			"an empty event in the block, which drops the shared hooks",
+			newPack(base(hooks(`{"hooks": {"stop": [{"command": "s"}]}, "claudecode": {"hooks": {"stop": []}}}`))),
+			[]string{"base/.rulesync/hooks.jsonc:1: hooks-shadowed: claudecode.hooks.stop replaces the shared hooks.stop for claudecode (first: base/.rulesync/hooks.jsonc:1)"},
+		},
 		{"the user and the project scope apart", newPack(base(hooks(shared)), profile("p", hooks(`{"claudecode": {"hooks": {"stop": [{"command": "c"}]}}}`))), nil},
 	}
 	for _, tt := range tests {

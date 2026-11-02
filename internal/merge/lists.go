@@ -313,8 +313,8 @@ func (s *scope) shadowedHooks() []pack.Diagnostic {
 		}
 		for _, event := range hooks.keys {
 			prev, ok := shared.vals[event]
-			if !ok {
-				continue
+			if !ok || prev.kind == '[' && len(prev.items) == 0 {
+				continue // no shared hook of the event to lose
 			}
 			at := hooks.vals[event]
 			out = append(out, pack.NewDiagnostic(at.file, at.line, 0, CodeHooksShadowed, "%s.hooks.%s replaces the shared hooks.%s for %s", block, event, event, block).WithRelated(prev.file, prev.line).
