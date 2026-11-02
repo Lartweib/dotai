@@ -86,7 +86,7 @@ variants:
 | Layers | Scope | When |
 |---|---|---|
 | `base` and the chosen variant | User level, in each harness | Once per machine (`dotai install`) |
-| Profiles | Project level (`.claude/`, `.agents/`, `.opencode/`) | Once per project (`dotai apply --profile ...`) |
+| Profiles | Project level, in local files excluded from git (`.claude/`, `.agents/`, `.opencode/`, [0041](decisions/0041-project-scope-local-and-untracked.md)) | Once per project (`dotai apply --profile ...`; so far `--dry-run` prints its plan) |
 
 Profiles are flat and combinable: a project has zero or more of them (for example `--profile web,astro-cloudflare`). There are no sub-profiles. A stack-specific profile exists only when the stack repeats across projects; what is specific to one project goes in that project's own rules.
 
@@ -120,7 +120,7 @@ Decided in [0030](decisions/0030-tools-paths-and-project-config.md).
 
   A bare path, in a hook or in agy's settings, cannot hold whitespace, a quote, or any of `& | < > ^ ( ) ; * ? [ ] { } !`, which `cmd.exe` or a shell would read as an operator or a pattern: a hook that agy reads from such a tools directory fails the stage, the dry run and the install with `hook-path-unquotable`, at the `hooks.jsonc` of the hook's layer, naming the hook and the harness, before anything is written. `validate` does not know the home directory, so it cannot report it. The characters refused inside double quotes, and network paths, fail as for a setting.
 - agy reads a `SessionStart` hook's standard output as JSON and drops plain text (checked on agy 1.4.12, [HARNESS-NOTES](HARNESS-NOTES.md#hook-commands)): a hook that gives agy context must print an `injectSteps` object, such as `{"injectSteps":[{"systemMessage":{"systemMessage":"<text>"}}]}`. How Claude Code and OpenCode read that JSON was not checked, so a hook that gives agy context belongs in `antigravity-cli.hooks.sessionStart`; that block then replaces the shared `sessionStart` hooks for agy (`hooks-shadowed`, under [Merge rules](#merge-rules)), so repeat there any shared one agy still needs.
-- `.dotai/config.yaml` in a project belongs to the user and the pack; the engine never writes it. Tools find it by walking up from the current directory to the nearest `.dotai/`. The engine records the applied profiles in its own file in the same directory.
+- `.dotai/config.yaml` in a project belongs to the user and the pack; the engine never writes it. Tools find it by walking up from the current directory to the nearest `.dotai/`. The engine records the applied profiles in its own file in the same directory, `.dotai/state.json`. `.dotai/` stays local: apply lists it in `.git/info/exclude` and never commits it ([0041](decisions/0041-project-scope-local-and-untracked.md)).
 
 ## Merge rules
 
@@ -193,5 +193,7 @@ opencode:
 | `claudecode` | `~/.claude/settings.json` | `.claude/settings.json` |
 | `antigravity-cli` | `~/.gemini/antigravity-cli/settings.json` | none: profiles cannot carry agy settings |
 | `opencode` | `~/.config/opencode/opencode.jsonc` | `opencode.jsonc` |
+
+The project files are where staging writes them, as rulesync does. A project apply never writes those, which are the team's: it installs `.claude/settings.json` into `.claude/settings.local.json` and `opencode.jsonc` into `.opencode/opencode.json`, merged by key, and leaves a file git tracks untouched, naming each key it skips ([0041](decisions/0041-project-scope-local-and-untracked.md), [CLI-JSON](CLI-JSON.md)).
 
 The merged settings are written after rulesync, which writes some of these files itself when the pack has hooks, permissions or MCP: `$schema`, `hooks` and `permissions` for Claude Code, `permissions` for agy, and `permissions`, `instructions` and `mcp` for OpenCode. dotai keeps rulesync's keys and appends its own; a top-level key written by both is a `settings-conflict` diagnostic, and nothing is staged.
