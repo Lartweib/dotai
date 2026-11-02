@@ -102,7 +102,7 @@ For each scope:
 4. Merge the scope's layers into its own staging tree.
 5. Run the pinned rulesync over the staging `.rulesync/`, writing into staging.
 6. Render `dotai/` content for each harness.
-7. Apply the staging output to the harnesses with the active install mode and backup ([0018](decisions/0018-install-modes-and-mandatory-backup.md)).
+7. Apply the staging output to the harnesses with the active install mode and backup ([0018](decisions/0018-install-modes-and-mandatory-backup.md)). For the project scope, `dotai apply --profile` writes each harness's local targets and keeps its record in `.dotai/state.json` ([0041](decisions/0041-project-scope-local-and-untracked.md)). `.dotai/packs/<pack>/` is the pack's own, for files such as the marker of its onboarding: apply never writes or reads it, and `dotai restore --project` removes it with the rest of `.dotai/`, into its backup.
 
 ## Tools and project config
 
