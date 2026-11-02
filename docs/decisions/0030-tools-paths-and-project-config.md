@@ -38,3 +38,5 @@ A pack's hooks, skills and scripts need to call the tools the pack installs, but
 - [0021](0021-go-engine-orchestrates-rulesync.md), [0022](0022-pack-format-and-manifest.md), [0028](0028-plan-centric-hexagonal-engine.md): `runners` always appears next to `tools`, with no separate semantics.
 
 Update 2026-10-31: [0037](0037-tool-commands-resolved-per-os.md) adds `${DOTAI_TOOL:<name>}` to settings values: the command that runs `<name>.ps1` through PowerShell on Windows or `<name>.sh` through `sh` elsewhere, resolved while staging where the path variables of settings values are expanded. The path variables are unchanged.
+
+Update 2026-11-02: [0041](0041-project-scope-local-and-untracked.md) keeps `.dotai/` local: the engine adds it to `.git/info/exclude` on apply and never commits it, so a fresh clone or `git clean -fdx` loses `config.yaml`. The record name is still pending.

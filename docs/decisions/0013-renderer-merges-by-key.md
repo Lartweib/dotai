@@ -38,3 +38,5 @@ In addition, a Claude Code plugin cannot carry `permissions`, `env` or `statusLi
 - Internal research (not published) on harness surfaces, §0.6, §1 (local state), §5.1 and §6.4 (recommendations 2 and 3).
 
 Update 2026-10-30: for the settings files of the isolated installs, the record of owned keys lives in `state.json`, as [0035](0035-settings-files-owned-by-key.md) decides.
+
+Update 2026-11-02: at project scope the merge by key applies to the local variants of [0041](0041-project-scope-local-and-untracked.md) (`.claude/settings.local.json`, `.opencode/opencode.json`, `.agents/mcp_config.json`, per-project MCP keys in `~/.claude.json`), the record of owned keys lives in `.dotai/`, and a file git tracks is never written.

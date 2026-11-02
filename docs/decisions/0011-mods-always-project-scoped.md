@@ -31,3 +31,5 @@ Mods are always installed with project or local scope, never user scope. A pack'
 
 - Incident observed on 2026-10-23.
 - Internal research (not published) on harness surfaces, §1 (Mods) and §5.1.
+
+Update 2026-11-02: [0041](0041-project-scope-local-and-untracked.md) keeps every project output local: a mod placed under `.claude/skills/<mod>/` is excluded from git through `.git/info/exclude` and never committed, so each person installs it for themselves.
