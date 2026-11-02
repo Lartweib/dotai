@@ -496,11 +496,12 @@ func TestRestoreReplaceAfterAFileChangedWhileWiped(t *testing.T) {
 func TestReplaceAndItsRestoreKeepAProjectApplysMCPServer(t *testing.T) {
 	home, h, _ := replaceHome(t)
 	writeFile(t, at(home, ".claude.json"), `{"numStartups":3,"projects":{"C:/work":{"mcpServers":{"dotai":{"command":"a"},"mine":{"command":"b"}}}}}`)
-	data, err := state.EncodeProjects(state.Projects{}.With(at(home, "work"), at(home, ".claude.json"), [][]string{{"projects", "C:/work", "mcpServers", "dotai"}}))
+	data, err := state.EncodeProjects(state.Projects{}.With(state.ProjectEntry{Project: at(home, "work"), File: at(home, ".claude.json"), Keys: [][]string{{"projects", "C:/work", "mcpServers", "dotai"}}}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	writeFile(t, at(home, ".dotai/projects.json"), string(data))
+	livingProject(t, home, at(home, "work"))
 	if _, err := installReplace(t, newClockFS(t), h, home); err != nil {
 		t.Fatal(err)
 	}

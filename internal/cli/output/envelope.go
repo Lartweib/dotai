@@ -30,6 +30,9 @@ const (
 	// A project apply whose plan has refusals, such as an MCP server of
 	// the name of one dotai does not own, which no flag overrides.
 	CodeApplyRefused = "apply-refused"
+	// A project's record under the home directory that names what an apply
+	// of the project never writes, refused before anything was written.
+	CodeRecordInvalid = "record-invalid"
 )
 
 // Envelope is the single JSON document a command prints with --json.

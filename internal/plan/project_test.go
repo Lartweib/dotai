@@ -101,7 +101,7 @@ func TestBuildProjectPlacesEachKindInItsLocalTarget(t *testing.T) {
 		".opencode/plugins/rulesync-hooks.js": {"opencode", "hooks", ".opencode/plugins/rulesync-hooks.js"},
 		".opencode/skills/lint/SKILL.md":      {"opencode", "skills", ".opencode/skills/lint/SKILL.md"},
 		".dotai/tools/check.sh":               {"", "tools", ".dotai/tools/check.sh"},
-		".dotai/state.json":                   {"", "record", ""},
+		".dotai/state.json":                   {"", "marker", ""},
 	}
 	got := opsByTarget(p, in.Project)
 	claudeJSON := filepath.Join(in.Home, ".claude.json")
@@ -325,7 +325,7 @@ func TestBuildProjectComparesExistingTargets(t *testing.T) {
   "permissions": {"allow": ["Bash(npm test)"]},
   "theme": "dark"
 }`)
-	in.Disk[at(".dotai/state.json")] = plan.Current{Hash: "record"}
+	in.Disk[at(".dotai/state.json")] = plan.Current{Hash: "marker"}
 	claudeJSON := filepath.Join(in.Home, ".claude.json")
 	in.Disk[claudeJSON] = plan.Current{Hash: "y"}
 	in.Content[claudeJSON] = []byte(`{"projects":{"` + filepath.ToSlash(in.Project) + `":{"mcpServers":{"browser":{"type":"stdio","command":"npx","args":["browser-mcp"]}}}}}`)
@@ -354,7 +354,7 @@ func TestBuildProjectComparesExistingTargets(t *testing.T) {
 		t.Errorf("~/.claude.json = %+v, want unchanged", op)
 	}
 	if op := ops[".dotai/state.json"]; op.Action != plan.Replace {
-		t.Errorf("record = %+v, want replace", op)
+		t.Errorf("marker = %+v, want replace", op)
 	}
 	for _, rel := range []string{".claude/rules/web.md", ".claude/agents/webdev.md", ".claude/settings.local.json"} {
 		if slices.Contains(p.Exclude, "/"+rel) {

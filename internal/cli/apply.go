@@ -155,6 +155,7 @@ func writeProjectPlan(w io.Writer, p app.ProjectPlan, color bool, footer string)
 	fmt.Fprintf(&b, "Apply plan · %s%s %s · %s\n", subject, word, strings.Join(p.Profiles, ", "), variant)
 	fmt.Fprintf(&b, "project: %s\n", p.Project)
 	fmt.Fprintf(&b, "record:  %s\n", p.Record)
+	fmt.Fprintf(&b, "marker:  %s\n", p.Marker)
 	for _, n := range p.Notices {
 		fmt.Fprintf(&b, "note: %s\n", n)
 	}

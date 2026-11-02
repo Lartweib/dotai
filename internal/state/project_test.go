@@ -69,14 +69,15 @@ func TestDecodeProjectRejectsAnotherProject(t *testing.T) {
 func TestProjectsListsTheKeysOfEachProject(t *testing.T) {
 	file := filepath.Join(t.TempDir(), ".claude.json")
 	a, b := filepath.Join(t.TempDir(), "a"), filepath.Join(t.TempDir(), "b")
-	l := state.Projects{}.With(b, file, [][]string{{"projects", "b", "mcpServers", "y"}}).With(a, file, [][]string{{"projects", "a", "mcpServers", "x"}})
+	l := state.Projects{}.With(state.ProjectEntry{Project: b, File: file, Keys: [][]string{{"projects", "b", "mcpServers", "y"}}}).
+		With(state.ProjectEntry{Project: a, File: file, Keys: [][]string{{"projects", "a", "mcpServers", "x"}}})
 	if len(l.Projects) != 2 || l.Projects[0].Project != a {
 		t.Errorf("With() = %+v, want both projects in order", l)
 	}
 	if got := l.OwnedKeys(file); len(got) != 2 {
 		t.Errorf("OwnedKeys() = %q, want both keys", got)
 	}
-	l = l.With(a, file, nil)
+	l = l.With(state.ProjectEntry{Project: a, File: file})
 	data, err := state.EncodeProjects(l)
 	if err != nil {
 		t.Fatal(err)
@@ -84,5 +85,25 @@ func TestProjectsListsTheKeysOfEachProject(t *testing.T) {
 	got, err := state.DecodeProjects(data)
 	if err != nil || len(got.Projects) != 1 || got.Projects[0].Project != b {
 		t.Errorf("DecodeProjects() = %+v, %v, want b alone", got, err)
+	}
+}
+
+// TestProjectsHandsTheObjectsItCreatedOverToTheProjectsLeft checks that a
+// project whose entry goes leaves the objects and the file its apply
+// created to the projects that still have keys under them.
+func TestProjectsHandsTheObjectsItCreatedOverToTheProjectsLeft(t *testing.T) {
+	file := filepath.Join(t.TempDir(), ".claude.json")
+	a, b, c := filepath.Join(t.TempDir(), "a"), filepath.Join(t.TempDir(), "b"), filepath.Join(t.TempDir(), "c")
+	server := []string{"projects", "/repo", "mcpServers", "x"}
+	l := state.Projects{}.
+		With(state.ProjectEntry{Project: a, File: file, Keys: [][]string{server}, Parents: [][]string{{"projects", "/repo"}, {"projects", "/repo", "mcpServers"}}, Created: true}).
+		With(state.ProjectEntry{Project: b, File: file, Keys: [][]string{server}}).
+		With(state.ProjectEntry{Project: c, File: file, Keys: [][]string{{"projects", "/other", "mcpServers", "y"}}})
+	l = l.With(state.ProjectEntry{Project: a, File: file})
+	if e := l.Entry(b); e == nil || len(e.Parents) != 2 || !e.Created {
+		t.Errorf("entry of b = %+v, want the parents and the file handed over", e)
+	}
+	if e := l.Entry(c); e == nil || len(e.Parents) != 0 || e.Created {
+		t.Errorf("entry of c = %+v, want nothing handed over to another project's entry", e)
 	}
 }

@@ -27,7 +27,11 @@ type ProjectPlan struct {
 	// Project is the absolute project directory: the top of the worktree
 	// the current directory is in, or the current directory outside git.
 	Project string `json:"project"`
-	Record  string `json:"record"` // the project record, <project>/.dotai/state.json
+	// Record is the project's record under the home directory,
+	// ~/.dotai/projects/<project id>/record.json, and Marker the marker in
+	// the project, <project>/.dotai/state.json, which dotai never trusts.
+	Record string `json:"record"`
+	Marker string `json:"marker"`
 	// Harnesses are the harnesses the plan is for, in manifest order.
 	Harnesses []string         `json:"harnesses"`
 	Ops       []plan.ProjectOp `json:"ops"`
@@ -110,25 +114,21 @@ func (e *InterruptedError) Error() string {
 	return fmt.Sprintf("the project record %s holds the journal of an apply or a restore that stopped midway: run dotai apply or dotai restore --project to roll it back first", e.Record)
 }
 
-// projectPlanned is a project plan with what carrying it out needs: the
-// staging tree it was planned from, what it was planned with, the project
-// record of the earlier apply (nil before the first one), the install
-// state (nil before an install), the repository (nil outside one), the
-// key of Claude Code's projects entry, what dotai owns that the plan
-// leaves since git tracks it, the list of projects whose keys dotai owns
-// in a home file, and the home file of Claude Code's MCP servers.
+// projectPlanned is a project plan with what carrying it out needs: what
+// it was planned with, the record of the earlier apply (nil before the
+// first one), what a record of the project may name, the pack, what dotai
+// owns that the plan leaves since git tracks it, the list of projects
+// whose keys dotai owns in a home file, and the home file of Claude Code's
+// MCP servers.
 type projectPlanned struct {
 	plan    ProjectPlan
-	tree    string
 	in      plan.ProjectInput
 	prev    *state.Project
-	user    *state.State
-	repo    *Repo
-	mcpKey  string
+	scope   recordScope
+	pack    state.Pack
 	kept    map[string]plan.ProjectOwned
 	shared  state.Projects
 	homeMCP string
-	packDir string
 }
 
 // findProject is the project of the current directory cwd, as PlanProject
@@ -168,7 +168,8 @@ func withProjectPlan(ctx context.Context, d installFS, h host, g gitPort, fetch 
 	if err != nil {
 		return err
 	}
-	record, err := readRecord(ctx, d, project)
+	scope := scopeOf(home, project, mcpKey, repo)
+	record, err := readRecord(ctx, d, scope)
 	if err != nil {
 		return err
 	}
@@ -211,7 +212,7 @@ func withProjectPlan(ctx context.Context, d installFS, h host, g gitPort, fetch 
 	}
 	res := ProjectPlan{
 		Pack: s.Pack, Variant: variant, Profiles: append([]string{}, opts.Profiles...), Project: project,
-		Record: filepath.Join(project, filepath.FromSlash(plan.RecordFile)), FirstApply: record == nil, Harnesses: []string{}, Ops: []plan.ProjectOp{}, Skipped: []plan.Skipped{},
+		Record: recordPath(home, project), Marker: filepath.Join(project, filepath.FromSlash(plan.MarkerFile)), FirstApply: record == nil, Harnesses: []string{}, Ops: []plan.ProjectOp{}, Skipped: []plan.Skipped{},
 		Exclude: ExcludePlan{Pending: repo == nil, Entries: []string{}}, Warnings: []plan.Warning{}, Refusals: []plan.Warning{}, Notices: []string{}, Diagnostics: s.Diagnostics,
 	}
 	if s.Pack != nil {
@@ -220,7 +221,15 @@ func withProjectPlan(ctx context.Context, d installFS, h host, g gitPort, fetch 
 	if repo != nil {
 		res.Exclude.File = repo.Exclude
 	}
-	planned := projectPlanned{packDir: dir, plan: res, tree: filepath.Join(tmp, "staging", ScopeProject), prev: record, user: prev, repo: repo, mcpKey: mcpKey, shared: shared}
+	packPath, err := filepath.Abs(dir)
+	if err != nil {
+		return err
+	}
+	tree := filepath.Join(tmp, "staging", ScopeProject)
+	planned := projectPlanned{plan: res, prev: record, scope: scope, shared: shared}
+	if s.Pack != nil {
+		planned.pack = state.Pack{Name: s.Pack.Name, Version: s.Pack.Version, Path: packPath}
+	}
 	if len(s.Diagnostics) > 0 {
 		return then(planned)
 	}
@@ -233,7 +242,7 @@ func withProjectPlan(ctx context.Context, d installFS, h host, g gitPort, fetch 
 	if record != nil {
 		in.Owned = record.Owned()
 	}
-	err = readProject(ctx, d, g, planned.tree, prev, &in)
+	err = readProject(ctx, d, g, tree, prev, &in)
 	if u, ok := errors.AsType[*plan.UnmappedError](err); ok {
 		res.Diagnostics = projectUnmapped(u)
 		planned.plan = res
@@ -264,7 +273,42 @@ func withProjectPlan(ctx context.Context, d installFS, h host, g gitPort, fetch 
 	res.Exclude.Entries, res.Warnings = append(res.Exclude.Entries, p.Exclude...), append(res.Warnings, p.Warnings...)
 	res.Refusals = append(res.Refusals, p.Refusals...)
 	planned.plan, planned.in, planned.kept = res, in, p.Kept
+	if err := planned.markerOp(); err != nil {
+		return err
+	}
 	return then(planned)
+}
+
+// CodeMarkerMismatch is the warning of a project marker that does not say
+// what the record under the home directory says, which wins.
+const CodeMarkerMismatch = "marker-mismatch"
+
+// markerOp gives the op of the project marker what it writes, the pack,
+// variant and profiles applied and the record's id, which leaves it
+// unchanged when it holds that already; a marker that holds something
+// else is warned about, since the record under the home directory wins.
+func (p *projectPlanned) markerOp() error {
+	data, err := state.EncodeMarker(state.Marker{Schema: state.MarkerSchema, ID: p.scope.id, Pack: p.pack, Variant: p.plan.Variant, Profiles: p.plan.Profiles})
+	if err != nil {
+		return err
+	}
+	for i, op := range p.plan.Ops {
+		if op.Kind != plan.KindMarker {
+			continue
+		}
+		op.Data, op.After = data, contentHash(data)
+		if cur, ok := p.in.Disk[op.Target]; ok {
+			op.Action = plan.Replace
+			if cur.Hash == op.After {
+				op.Action = plan.Unchanged
+			} else if p.prev != nil {
+				p.plan.Warnings = append(p.plan.Warnings, plan.Warning{Code: CodeMarkerMismatch, Path: op.Target,
+					Message: fmt.Sprintf("%s does not say what the record %s says; the record wins, and the apply rewrites the marker", op.Target, p.plan.Record)})
+			}
+		}
+		p.plan.Ops[i] = op
+	}
+	return nil
 }
 
 // ownsKey reports whether the record r owns the key k of file.

@@ -613,8 +613,11 @@ func TestPlanReplaceKeepsTheMCPServersAProjectApplyOwns(t *testing.T) {
 	home, h := realHome(t)
 	writeFile(t, at(home, ".claude.json"), `{"projects":{"C:/work":{"mcpServers":{"dotai":{"command":"a"},"mine":{"command":"b"}}},`+
 		`"C:/site":{"mcpServers":{"dotai":{"command":"c"}}}}}`)
-	list := state.Projects{}.With(at(home, "work"), at(home, ".claude.json"), [][]string{{"projects", "C:/work", "mcpServers", "dotai"}}).
-		With(at(home, "site"), at(home, ".claude.json"), [][]string{{"projects", "C:/site", "mcpServers", "dotai"}})
+	list := state.Projects{}.With(state.ProjectEntry{Project: at(home, "work"), File: at(home, ".claude.json"), Keys: [][]string{{"projects", "C:/work", "mcpServers", "dotai"}}}).
+		With(state.ProjectEntry{Project: at(home, "site"), File: at(home, ".claude.json"), Keys: [][]string{{"projects", "C:/site", "mcpServers", "dotai"}}})
+	for _, e := range list.Projects {
+		livingProject(t, home, e.Project)
+	}
 	data, err := state.EncodeProjects(list)
 	if err != nil {
 		t.Fatal(err)
@@ -631,4 +634,15 @@ func TestPlanReplaceKeepsTheMCPServersAProjectApplyOwns(t *testing.T) {
 	if want := []string{"projects C:/work mcpServers mine"}; !reflect.DeepEqual(keys, want) {
 		t.Errorf("key wipes = %q, want %q", keys, want)
 	}
+}
+
+// livingProject makes project a directory with a record under home, so
+// that a replace install takes its entry in ~/.dotai/projects.json as
+// that of a project that still exists.
+func livingProject(t *testing.T, home, project string) {
+	t.Helper()
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, app.RecordPath(home, project), "{}")
 }

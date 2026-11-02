@@ -4,7 +4,7 @@
   "ok": true,
   "data": {
     "project": "/work/site",
-    "record": "/work/site/.dotai/state.json",
+    "record": "/home/u/.dotai/projects/0123456789abcdef/record.json",
     "ops": [
       {
         "action": "remove",

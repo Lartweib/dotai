@@ -19,7 +19,7 @@ import (
 // the same on every OS.
 var projectPlan = app.ProjectPlan{
 	Pack:    &app.PackSummary{Name: "minimal-pack", Version: "0.1.0", Harnesses: []string{"claudecode", "antigravity-cli", "opencode"}, OptionalHarnesses: []string{}, Profiles: []app.ProfileSummary{}, Variants: []string{}, SharedSkills: []string{}, Layers: []app.LayerSummary{}},
-	Variant: "standalone", Profiles: []string{"web"}, Project: "/work/site", Record: "/work/site/.dotai/state.json",
+	Variant: "standalone", Profiles: []string{"web"}, Project: "/work/site", Record: "/home/u/.dotai/projects/0123456789abcdef/record.json", Marker: "/work/site/.dotai/state.json",
 	Harnesses: []string{"claudecode", "antigravity-cli", "opencode"},
 	Ops: []plan.ProjectOp{
 		{Action: plan.Create, Harness: "claudecode", Kind: "mcp", Source: ".mcp.json", Target: "/home/u/.claude.json",
@@ -30,7 +30,7 @@ var projectPlan = app.ProjectPlan{
 		{Action: plan.Create, Harness: "claudecode", Kind: "rules", Source: ".claude/rules/web.md", Target: "/work/site/.claude/rules/web.md", After: "bb", Keys: []plan.ProjectKey{}},
 		{Action: plan.Merge, Harness: "claudecode", Kind: "settings", Source: ".claude/settings.json", Target: "/work/site/.claude/settings.local.json", Before: "cc",
 			Keys: []plan.ProjectKey{{Path: []string{"permissions", "allow"}, Action: plan.Merge}, {Path: []string{"model"}, Action: plan.Unchanged}}},
-		{Action: plan.Create, Kind: "record", Target: "/work/site/.dotai/state.json", Keys: []plan.ProjectKey{}},
+		{Action: plan.Create, Kind: "marker", Target: "/work/site/.dotai/state.json", Keys: []plan.ProjectKey{}},
 		{Action: plan.Unchanged, Harness: "opencode", Kind: "rules", Source: ".opencode/memories/web.md", Target: "/work/site/.opencode/memories/web.md", Before: "bb", After: "bb", Keys: []plan.ProjectKey{}},
 	},
 	Skipped: []plan.Skipped{
@@ -261,5 +261,19 @@ func TestRunApplyAsksOnATerminal(t *testing.T) {
 	}
 	if code := cli.Run([]string{"apply", "--profile", "web", "--yes"}, env); code != cli.ExitOK {
 		t.Errorf("--yes: exit code = %d", code)
+	}
+}
+
+func TestRunApplyRefusesAnInvalidRecord(t *testing.T) {
+	var stdout bytes.Buffer
+	env := testEnv(&stdout, &bytes.Buffer{})
+	env.Apply = func(context.Context, string, string, string, string, app.ApplyOptions, app.Progress, app.ApplyConsent) (app.ApplyResult, error) {
+		return app.ApplyResult{}, &app.RecordInvalidError{Path: "/home/u/.dotai/projects/0123456789abcdef/record.json", Why: "owns /home/u/.ssh/authorized_keys"}
+	}
+	if code := cli.Run([]string{"apply", "--profile", "web", "--json"}, env); code != cli.ExitInternal {
+		t.Errorf("exit code = %d, want %d", code, cli.ExitInternal)
+	}
+	if e := decodeOne(t, stdout.Bytes()); e.Error == nil || e.Error.Code != output.CodeRecordInvalid {
+		t.Errorf("envelope = %+v, want record-invalid", e)
 	}
 }

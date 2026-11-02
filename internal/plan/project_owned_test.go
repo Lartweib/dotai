@@ -239,16 +239,16 @@ func TestBuildProjectCreatesTheMCPEntryAndRecordsItsParents(t *testing.T) {
 	}
 }
 
-func TestBuildProjectRefusesATrackedRecord(t *testing.T) {
+func TestBuildProjectRefusesATrackedMarker(t *testing.T) {
 	in := projectInput(t)
-	record := filepath.Join(in.Project, ".dotai", "state.json")
-	in.Tracked[record] = true
+	marker := filepath.Join(in.Project, ".dotai", "state.json")
+	in.Tracked[marker] = true
 	p, err := plan.BuildProject(in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(p.Refusals) != 1 || p.Refusals[0].Code != plan.CodeRecordTracked || p.Refusals[0].Path != record {
-		t.Errorf("refusals = %+v, want the tracked record refused", p.Refusals)
+	if len(p.Refusals) != 1 || p.Refusals[0].Code != plan.CodeMarkerTracked || p.Refusals[0].Path != marker {
+		t.Errorf("refusals = %+v, want the tracked marker refused", p.Refusals)
 	}
 }
 

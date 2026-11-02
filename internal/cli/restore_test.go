@@ -352,7 +352,7 @@ func dirExists(name string) bool {
 
 // projectRestore is a restore of a project with fixed paths.
 var projectRestore = app.ProjectRestoreResult{
-	Project: "/work/site", Record: "/work/site/.dotai/state.json",
+	Project: "/work/site", Record: "/home/u/.dotai/projects/0123456789abcdef/record.json",
 	Ops: []app.ProjectRestoreOp{
 		{Action: plan.Remove, Harness: "claudecode", Kind: "rules", Target: "/work/site/.claude/rules/web.md", Keys: []plan.ProjectKey{}},
 		{Action: plan.Replace, Harness: "antigravity-cli", Kind: "rules", Target: "/work/site/.agents/rules/web.md", From: "20261102T101500.000Z_apply", Keys: []plan.ProjectKey{}},

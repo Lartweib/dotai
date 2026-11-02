@@ -102,7 +102,7 @@ func TestApplyWritesThePlanAndASecondApplyIsNotTheFirst(t *testing.T) {
 	if v, ok, _ := plan.GetKey(claudeJSON, []string{"projects", filepath.ToSlash(project), "mcpServers", "browser", "command"}); err != nil || !ok || string(v) != `"npx"` {
 		t.Errorf("~/.claude.json = %s, %v, want the server under the project's entry", claudeJSON, err)
 	}
-	r := readJSON(t, at(project, ".dotai/state.json"), func(data []byte) (state.Project, error) { return state.DecodeProject(data, project) })
+	r := readJSON(t, res.Record, func(data []byte) (state.Project, error) { return state.DecodeProject(data, project) })
 	if r.Pending != nil || len(r.Backups) != 1 || r.FirstApply.IsZero() || !slices.Contains(r.Exclude.Entries, "/.dotai/") {
 		t.Errorf("record = %+v, want one backup, the first apply and the exclude entries", r)
 	}
@@ -229,10 +229,11 @@ func TestApplyRemovesWhatADroppedProfileGave(t *testing.T) {
 func TestApplyOutsideARepositoryKeepsTheExcludeEntriesPending(t *testing.T) {
 	project, home, _ := projectDirs(t)
 	g := &fakeGit{outside: true}
-	if _, err := applyWith(t, newClockFS(t), g, profileTree, project, home, nil); err != nil {
+	res, err := applyWith(t, newClockFS(t), g, profileTree, project, home, nil)
+	if err != nil {
 		t.Fatal(err)
 	}
-	r := readJSON(t, at(project, ".dotai/state.json"), func(data []byte) (state.Project, error) { return state.DecodeProject(data, project) })
+	r := readJSON(t, res.Record, func(data []byte) (state.Project, error) { return state.DecodeProject(data, project) })
 	if !r.Exclude.Pending || r.Exclude.File != "" || !slices.Contains(r.Exclude.Entries, "/.claude/rules/web.md") {
 		t.Errorf("record exclude = %+v, want the entries pending", r.Exclude)
 	}
@@ -333,7 +334,7 @@ type failRecordFS struct {
 }
 
 func (f *failRecordFS) WriteIn(root, name string, data []byte, mode os.FileMode) error {
-	if root == f.project && name == plan.RecordFile {
+	if name == "record.json" {
 		if f.journal {
 			return errDisk
 		}

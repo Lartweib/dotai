@@ -133,6 +133,8 @@ func Run(args []string, env Env) int {
 		code, data = output.CodeConsent, applyConsent.Plan
 	case errors.As(err, &applyRefused):
 		code, data = output.CodeApplyRefused, applyRefused.Plan
+	case errors.As(err, new(*app.RecordInvalidError)):
+		code = output.CodeRecordInvalid
 	}
 	if parsed && jsonOut || !parsed && jsonRequested(root, args) {
 		e := output.Failure(commandName(cmd), code, err.Error())

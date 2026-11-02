@@ -14,13 +14,16 @@ import (
 )
 
 // ProjectSchema is the version of the project record format: the record
-// of a project apply (decision 0041), kept in <project>/.dotai/state.json.
+// of a project apply (decision 0041), kept under the home directory in
+// ~/.dotai/projects/<project id>/record.json, beside the project's
+// backups, never in the project, which a repository could ship.
 const ProjectSchema = "dotai.project/v1"
 
 // Project is the record of the profiles applied to a project: the pack,
 // its variant, the profiles and the harnesses; the project, the top of its
-// worktree, and MCPKey, the entry of Claude Code's projects object its MCP
-// servers go under; when the first apply ran and when the last one did;
+// worktree, its id, and MCPKey, the entry of Claude Code's projects object
+// its MCP servers go under; when the first apply ran and when the last one
+// did;
 // the backup of each apply that wrote, oldest first; what dotai owns, by
 // target; the directories it created in the project, slash paths relative
 // to it; and its block in the exclude file. Pending is the journal of an
@@ -32,6 +35,7 @@ type Project struct {
 	Profiles   []string       `json:"profiles"`
 	Harnesses  []string       `json:"harnesses"`
 	Project    string         `json:"project"`
+	ID         string         `json:"id"`
 	MCPKey     string         `json:"mcpKey"`
 	FirstApply time.Time      `json:"firstApply"`
 	AppliedAt  time.Time      `json:"appliedAt"`
@@ -50,14 +54,13 @@ type ProjectFile struct {
 
 // ProjectExclude is dotai's block in the exclude file: File, the exclude
 // file, "" outside a git repository, where the Entries are Pending; Created
-// marks an exclude file dotai created, and Newline one whose last line had
-// no line break, which dotai added before its block.
+// marks an exclude file dotai created. A line break dotai added before its
+// block is recorded in the block itself (plan.WithExcludeBlock).
 type ProjectExclude struct {
 	File    string   `json:"file"`
 	Pending bool     `json:"pending"`
 	Entries []string `json:"entries"`
 	Created bool     `json:"created,omitempty"`
-	Newline bool     `json:"newline,omitempty"`
 }
 
 // ApplyJournal is the journal of a project apply or restore that is
@@ -74,17 +77,57 @@ type ApplyJournal struct {
 // held, nil when it was missing, with Copy, its copy in the backup; After,
 // what it gets, nil when it is removed. A file the harness rewrites, whose
 // keys dotai edits as it finds it, has Undo instead: the edits that put
-// back its keys. Dirs are the directories the write creates, slash paths
-// inside Root, outermost first.
+// back its keys, and with RemoveIfEmpty, a file it created, which goes
+// when it is left without a key. A file other projects write too, the
+// exclude file or the list of projects, is Shared (SharedExclude or
+// SharedProjects) and undone by giving back this project's own part of it,
+// PriorBlock, the entries of its block before (nil for no block), or
+// PriorEntry, its entry before (nil for none), whatever the others wrote
+// since. Dirs are the directories the write creates, slash paths inside
+// Root, outermost first.
 type JournalOp struct {
-	Target string         `json:"target"`
-	Root   string         `json:"root"`
-	Name   string         `json:"name"`
-	Before *Content       `json:"before,omitempty"`
-	Copy   string         `json:"copy,omitempty"`
-	After  *Content       `json:"after,omitempty"`
-	Undo   []plan.KeyEdit `json:"undo,omitempty"`
-	Dirs   []string       `json:"dirs,omitempty"`
+	Target        string         `json:"target"`
+	Root          string         `json:"root"`
+	Name          string         `json:"name"`
+	Before        *Content       `json:"before,omitempty"`
+	Copy          string         `json:"copy,omitempty"`
+	After         *Content       `json:"after,omitempty"`
+	Undo          []plan.KeyEdit `json:"undo,omitempty"`
+	RemoveIfEmpty bool           `json:"removeIfEmpty,omitempty"`
+	Shared        string         `json:"shared,omitempty"`
+	PriorBlock    []string       `json:"priorBlock,omitempty"`
+	PriorEntry    *ProjectEntry  `json:"priorEntry,omitempty"`
+	Dirs          []string       `json:"dirs,omitempty"`
+}
+
+// The files a JournalOp may share with other projects.
+const (
+	SharedExclude  = "exclude"
+	SharedProjects = "projects"
+)
+
+// MarkerSchema is the version of the project marker, <project>/.dotai/
+// state.json: what was applied there, for people and the pack to read.
+// dotai writes it and removes it, and never trusts it.
+const MarkerSchema = "dotai.project-marker/v1"
+
+// Marker is the project marker: the id of the project's record under the
+// home directory, and the pack, variant and profiles applied.
+type Marker struct {
+	Schema   string   `json:"schema"`
+	ID       string   `json:"id"`
+	Pack     Pack     `json:"pack"`
+	Variant  string   `json:"variant"`
+	Profiles []string `json:"profiles"`
+}
+
+// EncodeMarker is the marker as indented JSON with a final newline.
+func EncodeMarker(m Marker) ([]byte, error) {
+	data, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(data, '\n'), nil
 }
 
 // Owned is the record's ownership, by target, as the plan reads it.
@@ -199,11 +242,28 @@ type Projects struct {
 }
 
 // ProjectEntry is one project and the keys its apply owns in File, each a
-// path from the top of the file, sorted.
+// path from the top of the file, sorted; Parents are the objects dotai
+// created on the way to them, and Created marks a File dotai created. The
+// projects whose keys share an entry of Claude Code's projects object, as
+// the worktrees of a repository do, own those jointly: the last one to
+// drop its keys removes them.
 type ProjectEntry struct {
 	Project string     `json:"project"`
 	File    string     `json:"file"`
 	Keys    [][]string `json:"keys"`
+	Parents [][]string `json:"parents,omitempty"`
+	Created bool       `json:"created,omitempty"`
+}
+
+// Entry is the entry of project in p, nil for none.
+func (p Projects) Entry(project string) *ProjectEntry {
+	for _, e := range p.Projects {
+		if e.Project == project {
+			e := e
+			return &e
+		}
+	}
+	return nil
 }
 
 // OwnedKeys is every key of the entries of p in file.
@@ -217,22 +277,51 @@ func (p Projects) OwnedKeys(file string) [][]string {
 	return out
 }
 
-// With is p with the entry of project in file holding keys, or without it
-// when keys is empty, in project order.
-func (p Projects) With(project, file string, keys [][]string) Projects {
+// With is p with e as the entry of its project, or without that entry
+// when e has no key, in project order. An entry that goes hands the
+// objects and the file it created over to each entry left that has a key
+// under one of them, which owns them jointly.
+func (p Projects) With(e ProjectEntry) Projects {
 	out := Projects{Schema: ProjectsSchema, Projects: []ProjectEntry{}}
-	for _, e := range p.Projects {
-		if e.Project != project {
-			out.Projects = append(out.Projects, e)
+	var gone *ProjectEntry
+	for _, o := range p.Projects {
+		if o.Project != e.Project {
+			out.Projects = append(out.Projects, o)
+		} else {
+			gone = &o
 		}
 	}
-	if len(keys) > 0 {
-		k := slices.Clone(keys)
-		slices.SortFunc(k, func(a, b []string) int { return strings.Compare(strings.Join(a, "\x00"), strings.Join(b, "\x00")) })
-		out.Projects = append(out.Projects, ProjectEntry{Project: project, File: file, Keys: k})
+	if len(e.Keys) > 0 {
+		e.Keys = slices.Clone(e.Keys)
+		slices.SortFunc(e.Keys, comparePaths)
+		out.Projects = append(out.Projects, e)
+	} else if gone != nil {
+		for i, o := range out.Projects {
+			if o.File != gone.File {
+				continue
+			}
+			for _, q := range gone.Parents {
+				if underAny(o.Keys, q) && !slices.ContainsFunc(o.Parents, func(r []string) bool { return slices.Equal(r, q) }) {
+					out.Projects[i].Parents = append(out.Projects[i].Parents, q)
+				}
+			}
+			if gone.Created && slices.ContainsFunc(gone.Parents, func(q []string) bool { return underAny(o.Keys, q) }) {
+				out.Projects[i].Created = true
+			}
+		}
 	}
 	slices.SortFunc(out.Projects, func(a, b ProjectEntry) int { return strings.Compare(a.Project, b.Project) })
 	return out
+}
+
+// underAny reports whether a key of keys is below the object q.
+func underAny(keys [][]string, q []string) bool {
+	return slices.ContainsFunc(keys, func(k []string) bool { return len(k) > len(q) && slices.Equal(k[:len(q)], q) })
+}
+
+// comparePaths orders key paths.
+func comparePaths(a, b []string) int {
+	return strings.Compare(strings.Join(a, "\x00"), strings.Join(b, "\x00"))
 }
 
 // EncodeProjects is the list as indented JSON with a final newline.

@@ -22,10 +22,11 @@ import (
 // in .git/info/exclude. BuildProject plans it from what the caller read of
 // the disk and of git; it does no I/O either.
 
-// RecordFile is the project record, relative to the project directory: the
-// engine's record of what it applied there, as ~/.dotai/state.json is at
-// user level.
-const RecordFile = ".dotai/state.json"
+// MarkerFile is the project marker, relative to the project directory: what
+// was applied there, for people and the pack to read. dotai never trusts it:
+// its record of what it owns in the project is kept under the home
+// directory, where a repository cannot ship one.
+const MarkerFile = ".dotai/state.json"
 
 // Actions of a project plan besides Create, Replace and Unchanged: an
 // existing file merged by key, and an existing file that is not dotai's
@@ -36,10 +37,10 @@ const (
 )
 
 // The kinds of the ops no harness owns: the project's tools, under
-// .dotai/tools/, and the project record.
+// .dotai/tools/, and the project marker.
 const (
 	KindTools  = "tools"
-	KindRecord = "record"
+	KindMarker = "marker"
 )
 
 // Warning codes of a project plan.
@@ -62,7 +63,7 @@ const (
 	dotaiDir            = ".dotai/"
 	hooksSource         = ".rulesync/hooks.jsonc"
 	importItem          = "import of AGENTS.md"
-	recordItem          = "project record"
+	markerItem          = "project marker"
 	projectSourcesMatch = ".rulesync/"
 )
 
@@ -98,7 +99,7 @@ var (
 // file of its ImportFiles imports. Isolated holds the harnesses the user
 // installed isolated, whose home file is in their isolated directory.
 // Exists holds each path of ProjectProbes that exists. Owned is what the
-// project record of an earlier apply says dotai owns, by target, and
+// record of the earlier apply, under the home directory, says dotai owns, by target, and
 // Shared the keys of the home file of a harness's MCP servers that the
 // apply of another project owns, such as another worktree of the
 // repository, which shares the entry: such a key is dotai's, never a
@@ -139,7 +140,7 @@ type Placement struct {
 }
 
 // ProjectOp is one target of a project plan. Harness is "" for the tools
-// and the record. Source is the path in the project staging tree, "" for a
+// and the marker. Source is the path in the project staging tree, "" for a
 // file dotai makes. Before is the SHA-256 of the target, "" when it is
 // missing, and After that of what it gets when it is written whole, "" for
 // a file merged by key, whose Keys are the keys the profiles write there,
@@ -150,7 +151,7 @@ type Placement struct {
 // written, the merged content of a file merged by key; Edits, for the home
 // file of a harness's MCP servers, which the harness rewrites, are the
 // edits made on the file as it is when it is written. Owns is what dotai
-// owns in the target afterwards, nil for none and for the record. A
+// owns in the target afterwards, nil for none and for the marker. A
 // conflict with Removal set removes an owned file edited since; PutBack is
 // the backup whose copy a replace puts back, for a file dotai wrote over
 // another that the profiles no longer give.
@@ -211,7 +212,7 @@ func ImportHash(line string) string {
 }
 
 // located is a target of the plan: the staged file, or what dotai makes,
-// the harness, "" for the tools and the record, and where it goes. name is
+// the harness, "" for the tools and the marker, and where it goes. name is
 // the item's name, such as lint for a skill, and dir its directory for an
 // item that is one; home marks the home file of the harness's MCP servers.
 type located struct {
@@ -385,9 +386,9 @@ func BuildProject(in ProjectInput) (Placement, error) {
 	}
 	slices.Sort(p.Exclude[1:])
 	for _, sk := range p.Skipped {
-		if sk.Item == recordItem {
-			p.Refusals = append(p.Refusals, Warning{Code: CodeRecordTracked, Path: sk.Target,
-				Message: fmt.Sprintf("git tracks %s, the project record, which stays local: untrack it (git rm --cached), then apply again", sk.Target)})
+		if sk.Item == markerItem {
+			p.Refusals = append(p.Refusals, Warning{Code: CodeMarkerTracked, Path: sk.Target,
+				Message: fmt.Sprintf("git tracks %s, the project marker, which stays local: untrack it (git rm --cached), then apply again", sk.Target)})
 		}
 	}
 	slices.SortFunc(p.Ops, func(a, b ProjectOp) int { return cmp.Compare(a.Target, b.Target) })
@@ -432,7 +433,7 @@ func ProjectProbes(in ProjectInput) ([]string, error) {
 }
 
 // locate gives every target of the plan, by harness in the order of
-// in.Adapters, the tools and the record last, each in target order.
+// in.Adapters, the tools and the marker last, each in target order.
 func (in ProjectInput) locate() ([]located, error) {
 	var out []located
 	var unmapped []string
@@ -482,7 +483,7 @@ func (in ProjectInput) locate() ([]located, error) {
 			out = append(out, located{file: File{Hash: ImportHash(line), Data: []byte(line + "\n")}, harness: a.ID, kind: string(harness.ProjectRules), item: importItem, target: in.at(rel)})
 		}
 	}
-	out = append(out, located{kind: KindRecord, item: recordItem, target: in.at(RecordFile)})
+	out = append(out, located{kind: KindMarker, item: markerItem, target: in.at(MarkerFile)})
 	seen := map[string]located{}
 	for _, t := range out {
 		if prev, ok := seen[t.target]; ok {
@@ -512,7 +513,7 @@ func (in ProjectInput) opOf(t located) (ProjectOp, []Warning, error) {
 	}
 	owned, isOwned := in.Owned[t.target]
 	switch {
-	case t.kind == KindRecord:
+	case t.kind == KindMarker:
 		if exists {
 			op.Action = Replace
 		}
@@ -604,25 +605,18 @@ func (in ProjectInput) removal(target string, owned ProjectOwned, cur Current) (
 		if err != nil {
 			return ProjectOp{}, fmt.Errorf("%s: not a JSON object dotai can edit key by key: %w; fix it or move it away, then apply again", target, err)
 		}
-		t := located{harness: owned.Harness, kind: owned.Kind, target: target, file: File{Data: []byte("{}")}}
-		if owned.Kind == string(harness.ProjectMCP) && !in.inProject(target) {
-			t.home = &harness.HomeKeys{}
-		}
-		keys, edits, _, _, err := in.mergeKeys(t, doc, &owned)
-		if err != nil {
-			return ProjectOp{}, err
-		}
+		home := !in.inProject(target)
+		keys, edits := in.dropKeys(doc, &owned, nil, home)
+		prunes, _ := PruneEdits(owned.Parents, nil)
 		if len(keys) == 0 {
 			return ProjectOp{}, nil
 		}
-		op.Action, op.Keys, op.Edits = Merge, keys, edits
-		if op.Data, err = ApplyEdits(in.Content[target], edits); err != nil {
+		op.Action, op.Keys, op.Edits = Merge, keys, append(edits, prunes...)
+		if op.Data, err = ApplyEdits(in.Content[target], op.Edits); err != nil {
 			return ProjectOp{}, fmt.Errorf("%s: %w", target, err)
 		}
-		if d, err := jsonc.Parse(op.Data); err == nil && owned.Created && t.home == nil {
-			if names, _ := d.Keys(nil); len(names) == 0 {
-				op.Action, op.Data = Remove, nil
-			}
+		if names, err := TopKeys(op.Data); err == nil && owned.Created && !home && len(names) == 0 {
+			op.Action, op.Data = Remove, nil
 		}
 		return op, nil
 	}

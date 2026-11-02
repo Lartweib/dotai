@@ -548,16 +548,7 @@ func (r runner) backup(operation string, info backup.Info, prior *state.State, w
 	if err := ensureDir(r.d, r.home, root, 0o700); err != nil {
 		return nil, err
 	}
-	t := r.d.Now()
-	var id, dir string
-	for range 1000 { // ids have milliseconds; another backup in the same one moves this one on
-		id = backup.ID(t, operation)
-		dir = filepath.Join(root, id)
-		if err = r.d.Mkdir(dir, 0o700); !errors.Is(err, fs.ErrExist) {
-			break
-		}
-		t = t.Add(time.Millisecond)
-	}
+	id, dir, t, err := newBackupDir(r.d, root, r.d.Now(), operation)
 	if err != nil {
 		return nil, err
 	}
@@ -623,6 +614,22 @@ func (r runner) backup(operation string, info backup.Info, prior *state.State, w
 		return nil, err
 	}
 	return &BackupRef{ID: id, Path: dir}, nil
+}
+
+// newBackupDir makes the directory of a new backup of operation under
+// root, an existing directory, taken at t, and gives its id, its path and
+// the time its id records: ids have milliseconds, so another backup in the
+// same millisecond moves this one on.
+func newBackupDir(d executeFS, root string, t time.Time, operation string) (id, dir string, at time.Time, err error) {
+	for range 1000 {
+		id = backup.ID(t, operation)
+		dir = filepath.Join(root, id)
+		if err = d.Mkdir(dir, 0o700); !errors.Is(err, fs.ErrExist) {
+			break
+		}
+		t = t.Add(time.Millisecond)
+	}
+	return id, dir, t, err
 }
 
 // execute carries out writes in order and stops at the first failure. It

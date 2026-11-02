@@ -227,3 +227,6 @@ func RestoreProjectWith(ctx context.Context, d executeFS, g gitPort, project, ho
 func ApplyWithRulesync(ctx context.Context, g gitPort, cacheDir, dir, project, home string, opts ApplyOptions) (ApplyResult, error) {
 	return applyProject(ctx, osInstallFS{}, everyHarness, g, download, generate, cacheDir, dir, project, home, opts, nil, nil)
 }
+
+// RecordPath is the record of project under home.
+func RecordPath(home, project string) string { return recordPath(home, project) }
