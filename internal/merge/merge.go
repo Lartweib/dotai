@@ -108,12 +108,11 @@ type Staging struct {
 // on top of it, since variants are alternatives. The selected profiles are
 // peers that may be combined, so they are merged together.
 func Check(p *pack.Pack, sel Selection) []pack.Diagnostic {
-	users, project, diags := checked(p, sel)
+	users, project, profiles, diags := checked(p, sel)
 	if users == nil {
 		return diags
 	}
 	cross := crossScope(users, project)
-	_, profiles, _ := resolve(p, sel, true)
 	return slices.Concat(diags, withoutShadowed(project.diags, cross), cross, once(append(users, project), (*scope).checkTools), modConflicts(project, modsOf(p, profiles)))
 }
 
@@ -123,22 +122,21 @@ func Check(p *pack.Pack, sel Selection) []pack.Diagnostic {
 // matcher that names its agent bare. It returns nothing for
 // layers that cannot be selected.
 func Warnings(p *pack.Pack, sel Selection) []pack.Diagnostic {
-	users, project, _ := checked(p, sel)
+	users, project, profiles, _ := checked(p, sel)
 	if users == nil {
 		return nil
 	}
-	_, profiles, _ := resolve(p, sel, true)
 	return append(once(append(users, project), (*scope).shadowedHooks), modWarnings(modsOf(p, profiles))...)
 }
 
 // checked merges the layers sel names as Check does: the user scope once
 // per selected variant, on one merge of the base, and the project scope.
-// It returns the diagnostics of the user scopes, and no scope when sel
-// names layers that do not exist.
-func checked(p *pack.Pack, sel Selection) (users []*scope, project *scope, diags []pack.Diagnostic) {
+// It returns the profile layers too, the diagnostics of the user scopes,
+// and no scope when sel names layers that do not exist.
+func checked(p *pack.Pack, sel Selection) (users []*scope, project *scope, profiles []pack.Layer, diags []pack.Diagnostic) {
 	variants, profiles, diags := resolve(p, sel, true)
 	if len(diags) > 0 {
-		return nil, nil, diags
+		return nil, nil, nil, diags
 	}
 	base := newScope(layersOf(p, pack.LayerBase)...)
 	diags = base.diags
@@ -151,7 +149,7 @@ func checked(p *pack.Pack, sel Selection) (users []*scope, project *scope, diags
 		diags = append(diags, u.diags...)
 		users = append(users, u)
 	}
-	return users, newScope(profiles...), diags
+	return users, newScope(profiles...), profiles, diags
 }
 
 // once is check over scopes, each problem once: what the base has is in
@@ -185,7 +183,7 @@ func Stage(p *pack.Pack, sel Selection) (Staging, []pack.Diagnostic) {
 		return Staging{}, diags
 	}
 	project.dropUserServers(user)
-	tree := append(project.tree(), modFiles(mods, p.Manifest.Version)...)
+	tree := append(project.tree(), modFiles(mods, p.Manifest)...)
 	slices.SortFunc(tree, func(a, b File) int { return strings.Compare(a.Path, b.Path) })
 	return Staging{User: user.tree(), Project: tree, UserSettings: user.mergedSettings(), ProjectSettings: project.mergedSettings()}, nil
 }

@@ -81,8 +81,8 @@ func TestApplyInstallsAModAndRestoreRemovesIt(t *testing.T) {
 		t.Fatalf("Apply() error = %v", err)
 	}
 	got := files(t, project)
-	if m := got[helloFiles[0]]; m != "{\n  \"name\": \"hello\",\n  \"version\": \"0.1.0\"\n}\n" {
-		t.Errorf("plugin.json = %q, want the mod's name and the pack's version", m)
+	if m := got[helloFiles[0]]; m != "{\n  \"name\": \"hello\",\n  \"version\": \"0.1.0\",\n  \"description\": \"A minimal example pack for the dotai engine.\",\n  \"author\": {\n    \"name\": \"dotai examples\"\n  }\n}\n" {
+		t.Errorf("plugin.json = %q, want the mod's name and the pack's version, description and author", m)
 	}
 	src, err := os.ReadFile(at(examplePack, "mods/hello/hooks/register.js"))
 	if err != nil || got[helloFiles[2]] != string(src) {
@@ -102,15 +102,16 @@ func TestApplyInstallsAModAndRestoreRemovesIt(t *testing.T) {
 	}
 }
 
-func TestApplyNeedsConsentForAForeignFolderOfTheModsName(t *testing.T) {
+func TestApplyNeedsConsentOnlyToOverwriteAFileInAFolderOfTheModsName(t *testing.T) {
 	project, home, g := applyRepo(t)
 	writeFile(t, at(project, ".claude/skills/hello/notes.md"), "mine\n")
+	writeFile(t, at(project, helloFiles[1]), `{"modules": ["./other.js"]}`)
 	_, err := applyWith(t, newClockFS(t), g, profileTree, project, home, nil)
-	if c, ok := errors.AsType[*app.ApplyConsentError](err); !ok || c.Files != 3 {
-		t.Fatalf("Apply() error = %v, want it to need consent for the mod's 3 files", err)
+	if c, ok := errors.AsType[*app.ApplyConsentError](err); !ok || c.Files != 1 {
+		t.Fatalf("Apply() error = %v, want it to need consent for the one file it overwrites", err)
 	}
-	if _, err := os.Lstat(at(project, helloFiles[1])); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("%s = %v, want nothing written without consent", helloFiles[1], err)
+	if _, err := os.Lstat(at(project, helloFiles[2])); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("%s = %v, want nothing written without consent", helloFiles[2], err)
 	}
 	if _, err := applyWith(t, newClockFS(t), g, profileTree, project, home, yes); err != nil {
 		t.Fatalf("Apply() with consent error = %v", err)
@@ -118,8 +119,32 @@ func TestApplyNeedsConsentForAForeignFolderOfTheModsName(t *testing.T) {
 	if _, err := restoreProject(t, g, project, home, nil); err != nil {
 		t.Fatalf("RestoreProject() error = %v", err)
 	}
-	if got := files(t, project); got[".claude/skills/hello/notes.md"] != "mine\n" || got[helloFiles[1]] != "" {
+	got := files(t, project)
+	if got[".claude/skills/hello/notes.md"] != "mine\n" || got[helloFiles[1]] != `{"modules": ["./other.js"]}` || got[helloFiles[2]] != "" {
 		t.Errorf("project after the restore = %v, want the user's folder as it was", got)
+	}
+}
+
+func TestApplyAgainAfterARestoreKeepsWhatSomeoneAddedToTheMod(t *testing.T) {
+	project, home, g := applyRepo(t)
+	if _, err := applyWith(t, newClockFS(t), g, profileTree, project, home, nil); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, at(project, ".claude/skills/hello/notes.md"), "mine\n")
+	if _, err := restoreProject(t, g, project, home, nil); err != nil {
+		t.Fatalf("RestoreProject() error = %v", err)
+	}
+	if _, err := applyWith(t, newClockFS(t), g, profileTree, project, home, nil); err != nil {
+		t.Fatalf("Apply() after the restore, without consent, error = %v, want it to create the mod's files", err)
+	}
+	got := files(t, project)
+	if got[".claude/skills/hello/notes.md"] != "mine\n" {
+		t.Errorf("notes.md = %q, want it kept", got[".claude/skills/hello/notes.md"])
+	}
+	for _, rel := range helloFiles {
+		if _, ok := got[rel]; !ok {
+			t.Errorf("%s is missing, want the mod installed again", rel)
+		}
 	}
 }
 
@@ -156,4 +181,20 @@ func applyFrom(t *testing.T, dir string, g app.GitPort, project, home string) (a
 	t.Helper()
 	f := &treeRulesync{t: t, tree: profileTree}
 	return app.ApplyWith(context.Background(), newClockFS(t), g, f.fetch, f.run, dir, project, home, app.ApplyOptions{Profiles: []string{"web"}}, nil)
+}
+
+func TestStageCopiesAModByteForByte(t *testing.T) {
+	dir := copyPack(t)
+	const js = "// runs ${DOTAI_TOOLS}/x.sh and ${DOTAI_PROJECT_TOOLS}/y.sh\r\nexport function register(on) {}\r\n"
+	writeFile(t, at(dir, "mods/hello/hooks/register.js"), js)
+	out := at(t.TempDir(), "staging")
+	fr := quiet(t)
+	fr.tools = app.ToolsIn("home", "project")
+	res, err := fr.stage(dir, out, app.Selection{Profiles: []string{"web"}}, false)
+	if err != nil || len(res.Diagnostics) != 0 {
+		t.Fatalf("Stage() = %+v, %v", res.Diagnostics, err)
+	}
+	if got, err := os.ReadFile(at(out, "project/mods/hello/hooks/register.js")); err != nil || string(got) != js {
+		t.Errorf("staged register.js = %q, %v, want the pack's bytes, path variables included", got, err)
+	}
 }

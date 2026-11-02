@@ -21,12 +21,15 @@ var Harnesses = []string{"claudecode", "antigravity-cli", "opencode"}
 
 // Manifest is the content of dotai.yaml.
 type Manifest struct {
-	Schema    string
-	Name      string
-	Version   string
-	Engine    string   // semver range of supported engine versions
-	Rulesync  string   // exact rulesync version
-	Harnesses []string // required: an install stops when one is missing (decision 0038)
+	Schema   string
+	Name     string
+	Version  string
+	Engine   string // semver range of supported engine versions
+	Rulesync string // exact rulesync version
+	// Description and Author describe the pack, "" when the manifest has
+	// none; the plugin manifest dotai writes for a mod carries them.
+	Description, Author string
+	Harnesses           []string // required: an install stops when one is missing (decision 0038)
 	// OptionalHarnesses are the other harnesses the pack supports: an
 	// install skips one that is not installed (decision 0038).
 	OptionalHarnesses []string
@@ -65,7 +68,7 @@ type Detect struct {
 
 func decodeManifest(fsys fs.FS, r reader, root *yaml.Node, rulesyncVersions []string) Manifest {
 	o := r.object(nil, root, ManifestFile,
-		"schema", "name", "version", "engine", "rulesync", "harnesses", "optional-harnesses", "profiles", "variants")
+		"schema", "name", "version", "description", "author", "engine", "rulesync", "harnesses", "optional-harnesses", "profiles", "variants")
 	m := decodeIdentity(r, o, rulesyncVersions)
 	m.Harnesses = decodeHarnesses(r, o)
 	m.OptionalHarnesses = decodeOptionalHarnesses(r, o, m.Harnesses)
@@ -87,6 +90,8 @@ func decodeIdentity(r reader, o object, rulesyncVersions []string) Manifest {
 		r.report(n, CodeSchemaUnknown, "unknown schema %q, want %q", m.Schema, SchemaV1)
 	}
 	m.Name, _ = o.str("name", true)
+	m.Description, _ = o.str("description", false)
+	m.Author, _ = o.str("author", false)
 	if m.Version, n = o.str("version", true); n != nil && !isExactVersion(m.Version) {
 		r.report(n, CodeVersionInvalid, "version %q is not a semantic version", m.Version)
 	}

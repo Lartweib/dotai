@@ -2,6 +2,7 @@ package harness_test
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/lartweib/dotai/internal/harness"
@@ -137,6 +138,16 @@ func TestProjectLayoutSpecials(t *testing.T) {
 	}
 	if !reflect.DeepEqual(wins, want) {
 		t.Errorf("project wins = %v, want %v", wins, want)
+	}
+}
+
+// TestEveryLayoutTakesModsOrWarns checks that a harness without a place
+// for mods says so, so that a plan without Claude Code warns about them.
+func TestEveryLayoutTakesModsOrWarns(t *testing.T) {
+	for _, a := range harness.All() {
+		if a.Project.Takes(harness.ProjectMods) == slices.Contains(a.Project.NoSlot, harness.ProjectMods) {
+			t.Errorf("%s: takes mods %v, no slot %v: want exactly one", a.ID, a.Project.Takes(harness.ProjectMods), a.Project.NoSlot)
+		}
 	}
 }
 

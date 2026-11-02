@@ -15,6 +15,9 @@ import (
 // Mod diagnostic and warning codes.
 const (
 	CodeModUnknown         = "mod-unknown"
+	CodeModDuplicate       = "mod-duplicate"
+	CodeModPathInvalid     = "mod-path-invalid"
+	CodeModPathCase        = "mod-path-case-conflict"
 	CodeModNameInvalid     = "mod-name-invalid"
 	CodeModScope           = "mod-scope"
 	CodeModHooksInvalid    = "mod-hooks-invalid"
@@ -43,8 +46,16 @@ var modName = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
 const modNameRule = "must be lower-case letters, digits and single hyphens, starting with a letter or a digit"
 
-// validModName reports whether name can name a mod.
-func validModName(name string) bool { return len(name) <= 64 && modName.MatchString(name) }
+// modNameProblem says why name cannot name a mod, "" when it can.
+func modNameProblem(name string) string {
+	switch {
+	case len(name) > 64 || !modName.MatchString(name):
+		return modNameRule
+	case BadName(name):
+		return "is a device name Windows refuses as a folder"
+	}
+	return ""
+}
 
 // Mod is a directory of the pack's mods/: a Claude Code plugin tree that a
 // project apply installs whole, as the pack ships it.
@@ -69,11 +80,11 @@ func decodeMods(fsys fs.FS, o object) []string {
 	names, nodes := o.list("mods", false)
 	var out []string
 	for i, name := range names {
-		switch {
-		case !validModName(name):
-			o.r.report(nodes[i], CodeModNameInvalid, "%s: mod name %q %s", o.what, name, modNameRule)
+		switch problem := modNameProblem(name); {
+		case problem != "":
+			o.r.report(nodes[i], CodeModNameInvalid, "%s: mod name %q %s", o.what, name, problem)
 		case slices.Contains(out, name):
-			o.r.report(nodes[i], CodeModUnknown, "%s: mod %q is named twice", o.what, name)
+			o.r.report(nodes[i], CodeModDuplicate, "%s: mod %q is named twice", o.what, name)
 		default:
 			if info, link, err := lstat(fsys, path.Join(ModsDir, name)); err != nil || link != "" || !info.IsDir() {
 				o.r.report(nodes[i], CodeModUnknown, "%s: mod %q is not a directory under %s/", o.what, name, ModsDir)
@@ -111,8 +122,8 @@ func loadMods(fsys fs.FS, diags *[]Diagnostic) ([]Mod, error) {
 			*diags = append(*diags, NewDiagnostic(dir, 0, 0, code, "%s", msg))
 			continue
 		}
-		if !validModName(e.Name()) {
-			*diags = append(*diags, NewDiagnostic(dir, 0, 0, CodeModNameInvalid, "mod name %q %s", e.Name(), modNameRule))
+		if problem := modNameProblem(e.Name()); problem != "" {
+			*diags = append(*diags, NewDiagnostic(dir, 0, 0, CodeModNameInvalid, "mod name %q %s", e.Name(), problem))
 			continue
 		}
 		m := Mod{Name: e.Name(), Path: dir}
@@ -142,10 +153,35 @@ func loadMods(fsys fs.FS, diags *[]Diagnostic) ([]Mod, error) {
 		if err != nil {
 			return nil, err
 		}
+		*diags = append(*diags, m.checkPaths()...)
 		*diags = append(*diags, m.check()...)
 		out = append(out, m)
 	}
 	return out, nil
+}
+
+// checkPaths reports each file of the mod whose path some OS dotai
+// supports cannot store, as the staged paths of a project are checked, and
+// each path that differs only by case from an earlier one, which a file
+// system that ignores case holds as one file.
+func (m Mod) checkPaths() []Diagnostic {
+	var out []Diagnostic
+	seen := map[string]string{}
+	for _, f := range m.Files {
+		for seg := range strings.SplitSeq(f.Rel, "/") {
+			if BadName(seg) {
+				out = append(out, NewDiagnostic(f.Path, 0, 0, CodeModPathInvalid, "%q is not a file name every OS can store: %q", f.Rel, seg))
+				break
+			}
+		}
+		low := strings.ToLower(f.Rel)
+		if prev, ok := seen[low]; ok {
+			out = append(out, NewDiagnostic(f.Path, 0, 0, CodeModPathCase, "%q differs only by case from %q", f.Rel, prev).WithRelated(path.Join(m.Path, prev), 0))
+			continue
+		}
+		seen[low] = f.Rel
+	}
+	return out
 }
 
 // modHooks is what dotai reads of a mod's hooks/hooks.json.

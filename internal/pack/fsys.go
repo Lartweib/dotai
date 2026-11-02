@@ -4,8 +4,29 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"slices"
 	"strings"
 )
+
+// ReservedNames are the device names Windows refuses as a file name, with
+// or without an extension.
+var ReservedNames = []string{"CON", "PRN", "AUX", "NUL",
+	"COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+	"LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"}
+
+// forbiddenChars are the characters Windows refuses in a file name,
+// besides the control characters and the separators.
+const forbiddenChars = `:<>"|?*`
+
+// BadName reports whether seg, one segment of a path, is a file name that
+// some OS dotai supports cannot store: one with a backslash, which
+// separates on Windows, a control character such as NUL, a character
+// Windows refuses, or a device name.
+func BadName(seg string) bool {
+	base, _, _ := strings.Cut(seg, ".")
+	return strings.ContainsFunc(seg, func(r rune) bool { return r < 0x20 || r == '\\' }) ||
+		strings.ContainsAny(seg, forbiddenChars) || slices.Contains(ReservedNames, strings.ToUpper(base))
+}
 
 // maxFileSize is the largest file the engine reads from a pack.
 const maxFileSize = 1 << 20

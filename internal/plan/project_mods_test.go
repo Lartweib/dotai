@@ -104,35 +104,35 @@ func TestBuildProjectSkipsAModWhenGitTracksAnythingInIt(t *testing.T) {
 	}
 }
 
-func TestBuildProjectReportsAForeignFolderOfTheModsName(t *testing.T) {
+func TestBuildProjectPlansAModOverAFolderOfItsName(t *testing.T) {
 	in := modInput(t)
 	dir := filepath.Join(in.Project, ".claude", "skills", "panel")
-	in.Exists[dir] = true
-	same := filepath.Join(dir, "hooks", "hooks.json")
-	in.Disk[same] = plan.Current{Hash: "new:mods/panel/hooks/hooks.json"} // even a file that holds the same
+	in.Exists[dir] = true // someone's folder, or what a restore left of dotai's
+	in.Disk[filepath.Join(dir, "hooks", "hooks.json")] = plan.Current{Hash: "new:mods/panel/hooks/hooks.json"}
+	in.Disk[filepath.Join(dir, "hooks", "register.js")] = plan.Current{Hash: "other"}
 	p, err := plan.BuildProject(in)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ops := modOps(p, in.Project)
-	for _, target := range modTargets {
-		op := ops[target]
-		if op.Action != plan.Conflict || op.Owns == nil {
-			t.Errorf("%s = %+v, want a conflict dotai owns once it is overwritten", target, op)
+	want := map[string]plan.Action{
+		".claude/skills/panel/.claude-plugin/plugin.json": plan.Create,    // missing: created, no consent needed
+		".claude/skills/panel/hooks/hooks.json":           plan.Unchanged, // holds the same already
+		".claude/skills/panel/hooks/register.js":          plan.Conflict,  // holds something else: overwritten only with consent
+	}
+	for target, action := range want {
+		if ops[target].Action != action {
+			t.Errorf("%s = %s, want %s", target, ops[target].Action, action)
 		}
 	}
-	if ops[".claude/skills/panel/hooks/hooks.json"].Owns.Created || !ops[".claude/skills/panel/hooks/register.js"].Owns.Created {
-		t.Errorf("created = %v and %v, want only the missing file created", ops[".claude/skills/panel/hooks/hooks.json"].Owns.Created, ops[".claude/skills/panel/hooks/register.js"].Owns.Created)
-	}
-	want := []string{"/.claude/skills/panel/.claude-plugin/plugin.json", "/.claude/skills/panel/hooks/register.js"}
 	var got []string
 	for _, e := range p.Exclude {
 		if strings.HasPrefix(e, "/.claude/skills/panel") {
 			got = append(got, e)
 		}
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("exclude = %v, want each file the apply would create in the folder", got)
+	if want := []string{"/.claude/skills/panel/.claude-plugin/plugin.json"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("exclude = %v, want the file the apply creates in the existing folder", got)
 	}
 }
 
@@ -186,6 +186,15 @@ func TestBuildProjectWithoutClaudeCodeLeavesTheModsOut(t *testing.T) {
 	}
 	if ops := modOps(p, in.Project); len(ops) != 0 {
 		t.Errorf("mod ops = %v, want none", ops)
+	}
+	var slots []string
+	for _, w := range p.Warnings {
+		if w.Code == plan.CodeNoLocalSlot && w.Item == "mods" {
+			slots = append(slots, w.Harness)
+		}
+	}
+	if !reflect.DeepEqual(slots, []string{"antigravity-cli", "opencode"}) {
+		t.Errorf("no-local-slot for mods = %v, want each planned harness, since none takes them", slots)
 	}
 }
 

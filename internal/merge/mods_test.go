@@ -75,8 +75,8 @@ func TestStagePlacesTheModsOfTheProfiles(t *testing.T) {
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("project =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(tt.want, "\n"))
 			}
-			if m, ok := data["mods/panel/.claude-plugin/plugin.json"]; ok && m != "{\n  \"name\": \"panel\",\n  \"version\": \"1.2.3\"\n}\n" {
-				t.Errorf("panel's plugin.json = %q, want its name and the pack's version", m)
+			if m, ok := data["mods/panel/.claude-plugin/plugin.json"]; ok && m != "{\n  \"name\": \"panel\",\n  \"version\": \"1.2.3\",\n  \"description\": \"The mod panel of the pack test-pack.\"\n}\n" {
+				t.Errorf("panel's plugin.json = %q, want its name, the pack's version and a description", m)
 			}
 			if m, ok := data["mods/notes/.claude-plugin/plugin.json"]; ok && m != `{"name":"notes","version":"9.0.0"}` {
 				t.Errorf("notes' plugin.json = %q, want the one it ships", m)
@@ -85,6 +85,21 @@ func TestStagePlacesTheModsOfTheProfiles(t *testing.T) {
 	}
 	if s, _ := merge.Stage(p, merge.Selection{}); len(s.User) == 0 || strings.Contains(strings.Join(files(s.User), "\n"), "mods/") {
 		t.Errorf("the user scope = %v, want no mods", files(s.User))
+	}
+}
+
+func TestStageWritesThePacksDescriptionAndAuthorIntoAModsPluginManifest(t *testing.T) {
+	p := modsPack()
+	p.Manifest.Description, p.Manifest.Author = "Web tooling.", "Ann Example"
+	s, diags := merge.Stage(p, merge.Selection{Profiles: []string{"web"}})
+	if len(diags) != 0 {
+		t.Fatalf("Stage() diagnostics = %v", format(diags))
+	}
+	want := "{\n  \"name\": \"panel\",\n  \"version\": \"1.2.3\",\n  \"description\": \"Web tooling.\",\n  \"author\": {\n    \"name\": \"Ann Example\"\n  }\n}\n"
+	for _, f := range s.Project {
+		if f.Path == "mods/panel/.claude-plugin/plugin.json" && string(f.Data) != want {
+			t.Errorf("plugin.json =\n%s\nwant\n%s", f.Data, want)
+		}
 	}
 }
 

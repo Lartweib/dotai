@@ -72,7 +72,45 @@ func TestLoadModDiagnostics(t *testing.T) {
 		{
 			name:   "a mod named twice by one profile",
 			mutate: editManifest("mods: [panel]", "mods: [panel, panel]"),
-			want:   []string{`dotai.yaml:12:19: mod-unknown: profile web: mod "panel" is named twice`},
+			want:   []string{`dotai.yaml:12:19: mod-duplicate: profile web: mod "panel" is named twice`},
+		},
+		{
+			name:   "a Windows device name",
+			mutate: editManifest("mods: [panel]", "mods: [panel, con, lpt1]"),
+			want: []string{
+				`dotai.yaml:12:19: mod-name-invalid: profile web: mod name "con" is a device name Windows refuses as a folder`,
+				`dotai.yaml:12:24: mod-name-invalid: profile web: mod name "lpt1" is a device name Windows refuses as a folder`,
+			},
+		},
+		{
+			name: "a mod directory with a Windows device name",
+			mutate: func(f fstest.MapFS) {
+				f["mods/aux/hooks/hooks.json"] = file(`{"modules": ["./r.js"]}`)
+				f["mods/aux/hooks/r.js"] = file("")
+			},
+			want: []string{`mods/aux:0:0: mod-name-invalid: mod name "aux" is a device name Windows refuses as a folder`},
+		},
+		{
+			name: "file names Windows cannot store",
+			mutate: func(f fstest.MapFS) {
+				f["mods/panel/hooks/a:b.js"] = file("")
+				f["mods/panel/skills/nul.md"] = file("")
+				f["mods/panel/agents/x\\y.md"] = file("")
+			},
+			want: []string{
+				`mods/panel/agents/x\y.md:0:0: mod-path-invalid: "agents/x\\y.md" is not a file name every OS can store: "x\\y.md"`,
+				`mods/panel/hooks/a:b.js:0:0: mod-path-invalid: "hooks/a:b.js" is not a file name every OS can store: "a:b.js"`,
+				`mods/panel/skills/nul.md:0:0: mod-path-invalid: "skills/nul.md" is not a file name every OS can store: "nul.md"`,
+			},
+		},
+		{
+			name: "paths that differ only by case",
+			mutate: func(f fstest.MapFS) {
+				f["mods/panel/hooks/Register.js"] = file("")
+			},
+			want: []string{
+				`mods/panel/hooks/register.js:0:0: mod-path-case-conflict: "hooks/register.js" differs only by case from "hooks/Register.js"`,
+			},
 		},
 		{
 			name:   "a variant names a mod",
@@ -211,5 +249,22 @@ func TestModWarnings(t *testing.T) {
 				t.Errorf("warnings = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestLoadDescriptionAndAuthor(t *testing.T) {
+	f := modPack()
+	editManifest("version: 0.1.0", "version: 0.1.0\ndescription: A test pack.\nauthor: Ann")(f)
+	p, diags, err := pack.Load(f)
+	if err != nil || len(diags) != 0 {
+		t.Fatalf("Load() = %v, %v", format(diags), err)
+	}
+	if p.Manifest.Description != "A test pack." || p.Manifest.Author != "Ann" {
+		t.Errorf("description, author = %q, %q", p.Manifest.Description, p.Manifest.Author)
+	}
+	f = modPack()
+	editManifest("version: 0.1.0", "version: 0.1.0\nauthor: [x]")(f)
+	if _, diags, _ := pack.Load(f); !reflect.DeepEqual(format(diags), []string{`dotai.yaml:4:9: field-type: dotai.yaml: "author" must be a string`}) {
+		t.Errorf("diagnostics = %q, want author to be a string", format(diags))
 	}
 }

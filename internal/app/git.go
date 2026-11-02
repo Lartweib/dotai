@@ -194,8 +194,8 @@ func (g osGit) Tracked(ctx context.Context, dir string, paths []string) (map[str
 			}
 			// A directory asked with a trailing slash is tracked when git
 			// tracks any file in it.
-			for dir := path.Dir(name); name != "" && dir != "." && dir != "/"; dir = path.Dir(dir) {
-				if p, ok := asked[foldKey(dir+"/")]; ok {
+			for parent := path.Dir(name); name != "" && parent != "." && parent != "/"; parent = path.Dir(parent) {
+				if p, ok := asked[foldKey(parent+"/")]; ok {
 					out[p] = true
 				}
 			}

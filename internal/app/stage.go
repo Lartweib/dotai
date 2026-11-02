@@ -159,9 +159,11 @@ func stage(ctx context.Context, w stageFS, fetch fetchFunc, run runFunc, cacheDi
 					return StageResult{}, fmt.Errorf("%s/%s: %w", t.scope, f.Path, err)
 				}
 			}
-			data, err := expandPaths(data, tools)
-			if err != nil {
-				return StageResult{}, fmt.Errorf("%s/%s: %w", t.scope, f.Path, err)
+			// A mod is the pack author's own plugin tree, copied byte for byte.
+			if t.scope != ScopeProject || !strings.HasPrefix(f.Path, merge.ModsDir+"/") {
+				if data, err = expandPaths(data, tools); err != nil {
+					return StageResult{}, fmt.Errorf("%s/%s: %w", t.scope, f.Path, err)
+				}
 			}
 			c := content{data: data, perm: 0o644}
 			if f.Exec {

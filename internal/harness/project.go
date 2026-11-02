@@ -4,6 +4,8 @@ import (
 	"path"
 	"slices"
 	"strings"
+
+	"github.com/lartweib/dotai/internal/pack"
 )
 
 // ProjectKind is a kind of item a profile installs in a project.
@@ -44,9 +46,8 @@ type Members struct {
 // installs to To, relative to the project directory. A From that ends in /
 // is a directory, and To is then one too; DirItems marks one whose items
 // are directories, such as skills, rather than files, and WholeDir one
-// whose item directories dotai owns whole: git tracking any file in one
-// skips the item, and one that exists without dotai's files is a
-// conflict. ByKey marks a
+// whose item directories dotai owns whole: git tracking any file in one,
+// the item's or another, skips the item. ByKey marks a
 // settings or configuration file, merged by key into its target
 // (decisions 0013 and 0035), whose Each are the objects whose members are
 // keys of their own.
@@ -164,6 +165,11 @@ func (l ProjectLayout) Locate(source string) (ProjectTarget, bool) {
 	return ProjectTarget{}, false
 }
 
+// Takes reports whether the layout has a place for items of kind.
+func (l ProjectLayout) Takes(kind ProjectKind) bool {
+	return slices.ContainsFunc(l.Paths, func(p ProjectPath) bool { return p.Kind == kind })
+}
+
 // ImportFile is the pack's rules file that imports AGENTS.md, relative to
 // the project directory, "" for a harness that reads AGENTS.md itself.
 func (l ProjectLayout) ImportFile(pack string) string {
@@ -214,7 +220,7 @@ func (l ProjectLayout) clone() ProjectLayout {
 // ModsSource is where the project tree holds the mods, one directory each,
 // and ModsMinClaude the first Claude Code that loads a mod (HARNESS-NOTES).
 const (
-	ModsSource    = "mods/"
+	ModsSource    = pack.ModsDir + "/"
 	ModsMinClaude = "2.1.287"
 )
 

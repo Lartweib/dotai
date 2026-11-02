@@ -270,8 +270,7 @@ func ProjectTargets(in ProjectInput) ([]Target, error) {
 // is left as it is, and it is named in Skipped; a file merged by key that
 // git tracks names each of its keys, hooks or MCP servers. An item dotai
 // owns whole, such as a mod, is skipped when git tracks any file in its
-// directory, and each of its files is a conflict when the directory exists
-// without a file dotai owns. A file merged by
+// directory, its own or another. A file merged by
 // key that exists is merged into, key by key; a file written whole that
 // exists with the same content is unchanged and otherwise a conflict, left
 // as it is. A target that exists, or that the plan does not write, is not
@@ -322,9 +321,6 @@ func BuildProject(in ProjectInput) (Placement, error) {
 		if err != nil {
 			return Placement{}, err
 		}
-		if t.whole && in.Exists[t.dir] && !in.ownsIn(t.dir) {
-			op = foreign(op, t, in.Disk)
-		}
 		p.Ops, p.Refusals = append(p.Ops, op), append(p.Refusals, refusals...)
 		if t.item != "" {
 			key := t.harness + "\x00" + t.item
@@ -344,7 +340,7 @@ func BuildProject(in ProjectInput) (Placement, error) {
 	}
 	for _, op := range p.Ops {
 		rel, ok := in.rel(op.Target)
-		if !ok || !creates(op) || strings.HasPrefix(rel, dotaiDir) {
+		if !ok || op.Action != Create || strings.HasPrefix(rel, dotaiDir) {
 			continue
 		}
 		if slices.ContainsFunc(p.Exclude[1:], func(e string) bool {
@@ -361,7 +357,7 @@ func BuildProject(in ProjectInput) (Placement, error) {
 		if op.Owns == nil || !ok || strings.HasPrefix(rel, dotaiDir) {
 			continue
 		}
-		if creates(op) {
+		if op.Action == Create {
 			e := in.pattern(rel)
 			if j := slices.IndexFunc(p.Exclude[1:], func(x string) bool { return strings.HasSuffix(x, "/") && strings.HasPrefix(e, x) }); j >= 0 {
 				e = p.Exclude[1+j]
@@ -410,34 +406,17 @@ func BuildProject(in ProjectInput) (Placement, error) {
 	return p, nil
 }
 
-// creates reports whether op creates its target: a create, or a conflict
-// over a missing file, in a directory that is not dotai's.
-func creates(op ProjectOp) bool {
-	return op.Action == Create || op.Action == Conflict && op.Before == "" && op.Source != ""
-}
-
-// ownsIn reports whether the record says dotai owns a file in dir.
-func (in ProjectInput) ownsIn(dir string) bool {
-	for target := range in.Owned {
-		if strings.HasPrefix(target, dir+string(filepath.Separator)) {
-			return true
+// sourceKind is the kind whose staged sources hold path, and whether there
+// is one.
+func sourceKind(path string) (harness.ProjectKind, bool) {
+	for _, kind := range slices.Sorted(maps.Keys(kindSources)) {
+		if slices.ContainsFunc(kindSources[kind], func(src string) bool {
+			return path == src || strings.HasSuffix(src, "/") && strings.HasPrefix(path, src)
+		}) {
+			return kind, true
 		}
 	}
-	return false
-}
-
-// foreign is op, a file of t, an item dotai owns whole, whose directory
-// exists without a file of dotai's: a folder of the item's name that is
-// not dotai's, so every file of the item is a conflict, overwritten only
-// with consent, and dotai's once it is.
-func foreign(op ProjectOp, t located, disk map[string]Current) ProjectOp {
-	op.Action = Conflict
-	if op.Owns == nil {
-		_, exists := disk[t.target]
-		op.Owns = &ProjectOwned{Harness: t.harness, Kind: t.kind, Hash: t.file.Hash, Exec: t.file.Exec, Created: !exists}
-		op.After, op.Data = t.file.Hash, t.file.Data
-	}
-	return op
+	return "", false
 }
 
 // ProjectDirs are the directories of the items dotai owns whole, such as
@@ -531,9 +510,10 @@ func (in ProjectInput) locate() ([]located, error) {
 				break
 			}
 		}
-		// A mod is for Claude Code alone; another harness warns that it has
-		// no local slot for it.
-		if !found && !strings.HasPrefix(f.Path, harness.ModsSource) {
+		// A source of a kind that no planned harness has a place for, such
+		// as a mod without Claude Code, is not installed: the plan warns
+		// no-local-slot.
+		if _, isKind := sourceKind(f.Path); !found && !isKind {
 			unmapped = append(unmapped, f.Path)
 		}
 	}
@@ -901,11 +881,7 @@ func (in ProjectInput) warnings(installed map[string][]located) []Warning {
 	}
 	for _, a := range in.Adapters {
 		for _, kind := range a.Project.NoSlot {
-			if !slices.ContainsFunc(in.Files, func(f File) bool {
-				return slices.ContainsFunc(kindSources[kind], func(src string) bool {
-					return f.Path == src || strings.HasSuffix(src, "/") && strings.HasPrefix(f.Path, src)
-				})
-			}) {
+			if !slices.ContainsFunc(in.Files, func(f File) bool { k, ok := sourceKind(f.Path); return ok && k == kind }) {
 				continue
 			}
 			word := cmp.Or(kindWords[kind], string(kind))

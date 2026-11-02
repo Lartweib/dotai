@@ -2,6 +2,7 @@ package merge
 
 import (
 	"encoding/json"
+	"fmt"
 	"path"
 	"slices"
 	"strings"
@@ -49,22 +50,42 @@ func modConflicts(s *scope, mods []pack.Mod) []pack.Diagnostic {
 	return out
 }
 
+// pluginManifest is the .claude-plugin/plugin.json dotai writes for a mod
+// that ships none: with a description and an author, which claude plugin
+// validate warns about when they are missing.
+type pluginManifest struct {
+	Name        string        `json:"name"`
+	Version     string        `json:"version"`
+	Description string        `json:"description"`
+	Author      *pluginAuthor `json:"author,omitempty"`
+}
+
+type pluginAuthor struct {
+	Name string `json:"name"`
+}
+
 // modFiles are the files of mods in the project tree, under mods/<mod>/,
-// as the pack ships them, with .claude-plugin/plugin.json, the mod's name
-// and the pack's version, for a mod that ships none.
-func modFiles(mods []pack.Mod, version string) []File {
+// byte for byte as the pack ships them, with .claude-plugin/plugin.json for
+// a mod that ships none: the mod's name, and the pack's version,
+// description (or one that names the mod and the pack) and author, when
+// the manifest has one.
+func modFiles(mods []pack.Mod, m pack.Manifest) []File {
 	var out []File
-	for _, m := range mods {
-		for _, f := range m.Files {
-			out = append(out, File{Path: path.Join(ModsDir, m.Name, f.Rel), Layer: m.Path, Data: f.Data, Exec: f.Exec})
+	for _, mod := range mods {
+		for _, f := range mod.Files {
+			out = append(out, File{Path: path.Join(ModsDir, mod.Name, f.Rel), Layer: mod.Path, Data: f.Data, Exec: f.Exec})
 		}
-		if _, ok := m.File(pack.ModManifest); !ok {
-			// The names are plain strings, so this cannot fail.
-			data, _ := json.MarshalIndent(struct {
-				Name    string `json:"name"`
-				Version string `json:"version"`
-			}{m.Name, version}, "", "  ")
-			out = append(out, File{Path: path.Join(ModsDir, m.Name, pack.ModManifest), Data: append(data, '\n'), Generator: GeneratorDotai})
+		if _, ok := mod.File(pack.ModManifest); !ok {
+			pm := pluginManifest{Name: mod.Name, Version: m.Version, Description: m.Description}
+			if pm.Description == "" {
+				pm.Description = fmt.Sprintf("The mod %s of the pack %s.", mod.Name, m.Name)
+			}
+			if m.Author != "" {
+				pm.Author = &pluginAuthor{Name: m.Author}
+			}
+			// The fields are plain strings, so this cannot fail.
+			data, _ := json.MarshalIndent(pm, "", "  ")
+			out = append(out, File{Path: path.Join(ModsDir, mod.Name, pack.ModManifest), Data: append(data, '\n'), Generator: GeneratorDotai})
 		}
 	}
 	slices.SortFunc(out, func(a, b File) int { return strings.Compare(a.Path, b.Path) })
