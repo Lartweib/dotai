@@ -36,6 +36,9 @@ type Env struct {
 	PlanInstall    func(ctx context.Context, cacheDir, dir, home string, opts app.InstallOptions, progress app.Progress) (app.InstallPlan, error)
 	Install        func(ctx context.Context, cacheDir, dir, home string, opts app.InstallOptions, progress app.Progress, warn app.Warn, consent app.Consent) (app.InstallResult, error)
 	Restore        func(ctx context.Context, home, id string, opts app.RestoreOptions, warn app.Warn, overwrite func(app.RestoreResult) (bool, error)) (app.RestoreResult, error)
+	// PlanProject is dotai apply --dry-run: the plan of applying profiles
+	// to the project directory.
+	PlanProject func(ctx context.Context, cacheDir, dir, project, home string, opts app.ApplyOptions, progress app.Progress) (app.ProjectPlan, error)
 	// PlanRun and Launch are dotai run: Launch gives the harness's exit
 	// code, and on Unix replaces dotai with the harness.
 	PlanRun func(home, id string, args []string) (app.RunPlan, error)
@@ -75,7 +78,7 @@ func Run(args []string, env Env) int {
 	root.SetArgs(args)
 	root.SetOut(env.Stdout)
 	root.SetErr(env.Stderr)
-	root.AddCommand(newVersionCmd(env, &jsonOut), newValidateCmd(env, &jsonOut), newStageCmd(env, &jsonOut), newRulesyncCmd(env, &jsonOut), newInstallCmd(env, &jsonOut), newRestoreCmd(env, &jsonOut), newRunCmd(env, &jsonOut, &parsed))
+	root.AddCommand(newVersionCmd(env, &jsonOut), newValidateCmd(env, &jsonOut), newStageCmd(env, &jsonOut), newRulesyncCmd(env, &jsonOut), newInstallCmd(env, &jsonOut), newApplyCmd(env, &jsonOut), newRestoreCmd(env, &jsonOut), newRunCmd(env, &jsonOut, &parsed))
 
 	// In JSON mode help is a result like any other: one envelope whose data
 	// holds the help text.
@@ -106,6 +109,7 @@ func Run(args []string, env Env) int {
 	var usage *app.UsageError
 	var data any // what explains a refusal, in the envelope
 	consent, refused, running := (*app.ConsentError)(nil), (*app.RefusedError)(nil), (*app.RunningError)(nil)
+	project := (*app.ProjectRefusedError)(nil)
 	switch {
 	case !started, errors.As(err, &usage):
 		code, exit = output.CodeUsage, ExitUsage
@@ -117,6 +121,8 @@ func Run(args []string, env Env) int {
 		code, data = output.CodeRefused, refused.Plan
 	case errors.As(err, &running):
 		code, data = output.CodeRunning, map[string]any{"harnesses": running.Harnesses, "running": runningList(running.Running)}
+	case errors.As(err, &project):
+		code = output.CodeProjectRefused
 	}
 	if parsed && jsonOut || !parsed && jsonRequested(root, args) {
 		e := output.Failure(commandName(cmd), code, err.Error())

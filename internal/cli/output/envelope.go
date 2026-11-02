@@ -24,6 +24,9 @@ const (
 	CodeConsent = "consent-required"
 	CodeRefused = "replace-refused"
 	CodeRunning = "harness-running"
+	// A project apply refused in the home directory or at a root, where
+	// the project scope would overlap the user scope (decision 0041).
+	CodeProjectRefused = "project-refused"
 )
 
 // Envelope is the single JSON document a command prints with --json.
