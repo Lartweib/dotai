@@ -349,3 +349,76 @@ func dirExists(name string) bool {
 	_, err := os.Stat(name)
 	return err == nil
 }
+
+// projectRestore is a restore of a project with fixed paths.
+var projectRestore = app.ProjectRestoreResult{
+	Project: "/work/site", Record: "/work/site/.dotai/state.json",
+	Ops: []app.ProjectRestoreOp{
+		{Action: plan.Remove, Harness: "claudecode", Kind: "rules", Target: "/work/site/.claude/rules/web.md", Keys: []plan.ProjectKey{}},
+		{Action: plan.Replace, Harness: "antigravity-cli", Kind: "rules", Target: "/work/site/.agents/rules/web.md", From: "20261102T101500.000Z_apply", Keys: []plan.ProjectKey{}},
+		{Action: plan.Merge, Harness: "claudecode", Kind: "settings", Target: "/work/site/.claude/settings.local.json", Conflict: true,
+			Keys: []plan.ProjectKey{{Path: []string{"model"}, Action: plan.Conflict}, {Path: []string{"env", "A"}, Action: plan.Remove}}},
+		{Action: plan.Merge, Harness: "claudecode", Kind: "mcp", Target: "/home/u/.claude.json",
+			Keys: []plan.ProjectKey{{Path: []string{"projects", "/work/site", "mcpServers", "browser"}, Action: plan.Remove}}},
+	},
+	Exclude:   app.ExcludeRestore{File: "/work/site/.git/info/exclude", Removed: true},
+	Conflicts: []app.RestoreConflict{{Target: "/work/site/.claude/settings.local.json", Harness: "claudecode", Key: "model"}},
+	Backup:    &app.BackupRef{ID: "20261102T111500.000Z_restore", Path: "/home/u/.dotai/projects/0123456789abcdef/backups/20261102T111500.000Z_restore"},
+	Warnings:  []string{},
+}
+
+func TestRunRestoreProject(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		name, golden string
+		args         []string
+	}{
+		{"text", "restore-project.txt.golden", []string{"restore", "--project", "--yes"}},
+		{"json", "restore-project.json.golden", []string{"restore", "--project", "--yes", "--json"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			env := testEnv(&stdout, &stderr)
+			env.RestoreProject = func(_ context.Context, gotCwd, gotHome string, overwrite func(app.ProjectRestoreResult) (bool, error)) (app.ProjectRestoreResult, error) {
+				if gotCwd != cwd || gotHome != home {
+					t.Errorf("RestoreProject(%q, %q), want the current directory and the home", gotCwd, gotHome)
+				}
+				if ok, _ := overwrite(projectRestore); !ok {
+					t.Error("overwrite with --yes = false")
+				}
+				return projectRestore, nil
+			}
+			if code := cli.Run(tt.args, env); code != cli.ExitOK || stderr.Len() != 0 {
+				t.Errorf("exit code = %d, stderr = %q", code, stderr.String())
+			}
+			assertGolden(t, filepath.Join("testdata", tt.golden), stdout.Bytes())
+		})
+	}
+}
+
+func TestRunRestoreProjectUsageAndConflicts(t *testing.T) {
+	for _, args := range [][]string{{"restore", "--project", "20261029T101500.000Z_install", "--json"}, {"restore", "--project", "--ignore-running", "--json"}} {
+		var stdout bytes.Buffer
+		env := testEnv(&stdout, &bytes.Buffer{})
+		if code := cli.Run(args, env); code != cli.ExitUsage {
+			t.Errorf("%q: exit code = %d, want %d", args, code, cli.ExitUsage)
+		}
+	}
+	var stdout bytes.Buffer
+	env := testEnv(&stdout, &bytes.Buffer{})
+	env.RestoreProject = func(_ context.Context, _, _ string, overwrite func(app.ProjectRestoreResult) (bool, error)) (app.ProjectRestoreResult, error) {
+		if ok, _ := overwrite(projectRestore); !ok {
+			return app.ProjectRestoreResult{}, &app.ConflictError{Conflicts: projectRestore.Conflicts}
+		}
+		return projectRestore, nil
+	}
+	if code := cli.Run([]string{"restore", "--project", "--json"}, env); code != cli.ExitInternal || !strings.Contains(stdout.String(), `"conflicts"`) {
+		t.Errorf("exit code = %d, stdout = %q, want the conflicts refused", code, stdout.String())
+	}
+}

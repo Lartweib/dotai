@@ -215,3 +215,9 @@ var FoldCase = foldCase
 func ApplyWith(ctx context.Context, d executeFS, g gitPort, fetch fetchFunc, run runFunc, dir, project, home string, opts ApplyOptions, consent ApplyConsent) (ApplyResult, error) {
 	return applyProject(ctx, d, everyHarness, g, fetch, run, "cache", dir, project, home, opts, nil, consent)
 }
+
+// RestoreProjectWith is RestoreProject writing through d and asking git
+// through g.
+func RestoreProjectWith(ctx context.Context, d executeFS, g gitPort, project, home string, overwrite func(ProjectRestoreResult) (bool, error)) (ProjectRestoreResult, error) {
+	return restoreProject(ctx, d, g, project, home, overwrite)
+}

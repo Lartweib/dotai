@@ -39,6 +39,9 @@ type Env struct {
 	// PlanProject is dotai apply --dry-run: the plan of applying profiles
 	// to the project directory.
 	PlanProject func(ctx context.Context, cacheDir, dir, project, home string, opts app.ApplyOptions, progress app.Progress) (app.ProjectPlan, error)
+	// RestoreProject is dotai restore --project: it undoes the applies of
+	// the project in the current directory.
+	RestoreProject func(ctx context.Context, cwd, home string, overwrite func(app.ProjectRestoreResult) (bool, error)) (app.ProjectRestoreResult, error)
 	// Apply is dotai apply: it carries the plan of PlanProject out.
 	Apply func(ctx context.Context, cacheDir, dir, project, home string, opts app.ApplyOptions, progress app.Progress, consent app.ApplyConsent) (app.ApplyResult, error)
 	// PlanRun and Launch are dotai run: Launch gives the harness's exit
