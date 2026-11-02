@@ -164,13 +164,13 @@
         "line": 1,
         "column": 0,
         "code": "mcp-server-conflict",
-        "message": "MCP server \"git\" already exists in base",
+        "message": "MCP server \"git\" already exists in base with a different definition",
         "related": {
           "file": "base/.rulesync/mcp.jsonc",
           "line": 4,
           "column": 0
         },
-        "hint": "rename it; MCP servers cannot be overridden"
+        "hint": "rename it, or define it the same way; MCP servers cannot be overridden"
       },
       {
         "file": "profiles/docs/.rulesync/skills/lint/SKILL.md",
@@ -218,7 +218,8 @@
         },
         "hint": "rename it; overrides do not apply across scopes"
       }
-    ]
+    ],
+    "warnings": []
   },
   "error": {
     "code": "invalid",

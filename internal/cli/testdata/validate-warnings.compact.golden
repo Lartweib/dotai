@@ -1,0 +1,2 @@
+✓ shadowed-hooks-pack 0.1.0 is valid · 2 layers
+warning: variants/tmux/.rulesync/hooks.jsonc:5: hooks-shadowed: antigravity-cli.hooks.sessionStart replaces the shared hooks.sessionStart for antigravity-cli (first: base/.rulesync/hooks.jsonc:4) (fix: rulesync renders only one of them for antigravity-cli: add the shared sessionStart hooks to antigravity-cli.hooks.sessionStart too, or move the event out of one of the two)

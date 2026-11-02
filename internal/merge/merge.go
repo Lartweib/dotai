@@ -55,6 +55,11 @@ const (
 	CodePermissionsConflict   = "permissions-conflict"
 )
 
+// Warning codes: what Warnings reports is no error.
+const (
+	CodeHooksShadowed = "hooks-shadowed"
+)
+
 const (
 	mcpFile   = ".rulesync/mcp.jsonc"
 	mcpServer = "mcp-server" // the kind of an MCP server in a scope's names
@@ -97,13 +102,38 @@ type Staging struct {
 // on top of it, since variants are alternatives. The selected profiles are
 // peers that may be combined, so they are merged together.
 func Check(p *pack.Pack, sel Selection) []pack.Diagnostic {
+	users, project, diags := checked(p, sel)
+	if users == nil {
+		return diags
+	}
+	cross := crossScope(users, project)
+	return slices.Concat(diags, withoutShadowed(project.diags, cross), cross, once(append(users, project), (*scope).checkTools))
+}
+
+// Warnings returns what is no error in the layers sel names, as Check
+// merges them, but may not do what the pack means: a hook event that both
+// the shared hooks and a tool-scoped block declare. It returns nothing for
+// layers that cannot be selected.
+func Warnings(p *pack.Pack, sel Selection) []pack.Diagnostic {
+	users, project, _ := checked(p, sel)
+	if users == nil {
+		return nil
+	}
+	return once(append(users, project), (*scope).shadowedHooks)
+}
+
+// checked merges the layers sel names as Check does: the user scope once
+// per selected variant, on one merge of the base, and the project scope.
+// It returns the diagnostics of the user scopes, and no scope when sel
+// names layers that do not exist.
+func checked(p *pack.Pack, sel Selection) (users []*scope, project *scope, diags []pack.Diagnostic) {
 	variants, profiles, diags := resolve(p, sel, true)
 	if len(diags) > 0 {
-		return diags
+		return nil, nil, diags
 	}
 	base := newScope(layersOf(p, pack.LayerBase)...)
 	diags = base.diags
-	users := []*scope{base}
+	users = []*scope{base}
 	if len(variants) > 0 {
 		users = nil
 	}
@@ -112,17 +142,15 @@ func Check(p *pack.Pack, sel Selection) []pack.Diagnostic {
 		diags = append(diags, u.diags...)
 		users = append(users, u)
 	}
-	project := newScope(profiles...)
-	cross := crossScope(users, project)
-	return slices.Concat(diags, withoutShadowed(project.diags, cross), cross, toolDiags(append(users, project)...))
+	return users, newScope(profiles...), diags
 }
 
-// toolDiags is checkTools over scopes, each problem once: a setting of the
-// base is in the user scope of every variant.
-func toolDiags(scopes ...*scope) []pack.Diagnostic {
+// once is check over scopes, each problem once: what the base has is in
+// the user scope of every variant.
+func once(scopes []*scope, check func(*scope) []pack.Diagnostic) []pack.Diagnostic {
 	var out []pack.Diagnostic
 	for _, s := range scopes {
-		for _, d := range s.checkTools() {
+		for _, d := range check(s) {
 			if !slices.Contains(out, d) {
 				out = append(out, d)
 			}
@@ -142,10 +170,25 @@ func Stage(p *pack.Pack, sel Selection) (Staging, []pack.Diagnostic) {
 	user := newScope(append(layersOf(p, pack.LayerBase), variants...)...)
 	project := newScope(profiles...)
 	cross := crossScope([]*scope{user}, project)
-	if diags = slices.Concat(user.diags, withoutShadowed(project.diags, cross), cross, toolDiags(user, project)); len(diags) > 0 {
+	if diags = slices.Concat(user.diags, withoutShadowed(project.diags, cross), cross, once([]*scope{user, project}, (*scope).checkTools)); len(diags) > 0 {
 		return Staging{}, diags
 	}
+	project.dropUserServers(user)
 	return Staging{User: user.tree(), Project: project.tree(), UserSettings: user.mergedSettings(), ProjectSettings: project.mergedSettings()}, nil
+}
+
+// dropUserServers removes from the project scope s each MCP server that
+// the user scope defines the same way: it is staged once, at user level,
+// so that a harness that lets a project server shadow a user one, as
+// Claude Code does, never runs a copy that goes stale when the user scope
+// changes.
+func (s *scope) dropUserServers(user *scope) {
+	for name := range s.servers {
+		o := s.names[key(mcpServer, name)]
+		if prev, ok := user.names[o.key]; ok && prev.name == o.name && o.same(prev) {
+			delete(s.servers, name)
+		}
+	}
 }
 
 // resolve returns the variant and profile layers sel names. With all, an
@@ -220,6 +263,7 @@ type owner struct {
 	file       string
 	line       int
 	item       pack.Item // zero for an MCP server
+	def        string    // canonical JSON of an MCP server's definition
 }
 
 // clash reports a problem of o with prev, the earlier owner of its name.
@@ -318,6 +362,8 @@ func (s *scope) claim(o owner) bool {
 		return reject(o.clash(prev, CodeNameCaseConflict, "%s differs only by case from %s", o.what, prev.what))
 	case prev.layer.Path == o.layer.Path:
 		return reject(o.clash(prev, CodeNameDuplicate, "%s is defined twice in layer %s", o.what, o.layer.Path))
+	case o.same(prev):
+		return false // an MCP server defined the same way again: kept once, from the first layer
 	case prev.item.Root:
 		return reject(o.clash(prev, CodeRootRuleOverride, "%s replaces the root rule", o.what).
 			WithHint("rename it; the root rule cannot be overridden"))
@@ -325,8 +371,8 @@ func (s *scope) claim(o owner) bool {
 		return reject(o.clash(prev, CodeProfileConflict, "%s is also defined by profile %s", o.what, prev.layer.Name).
 			WithHint("rename one of them; profiles cannot override each other"))
 	case o.item.Kind == "":
-		return reject(o.clash(prev, CodeServerConflict, "%s already exists in %s", o.what, prev.layer.Path).
-			WithHint("rename it; MCP servers cannot be overridden"))
+		return reject(o.clash(prev, CodeServerConflict, "%s already exists in %s with a different definition", o.what, prev.layer.Path).
+			WithHint("rename it, or define it the same way; MCP servers cannot be overridden"))
 	case !o.item.Dotai.Overrides:
 		return reject(o.clash(prev, CodeOverrideUndeclared, "%s already exists in %s", o.what, prev.layer.Path).
 			WithHint("add dotai: {overrides: true} to replace it"))
@@ -336,6 +382,10 @@ func (s *scope) claim(o owner) bool {
 	s.names[o.key] = o
 	return true
 }
+
+// same reports whether o and prev are MCP servers with the same definition
+// by canonical JSON, which is no clash: there is nothing to override.
+func (o owner) same(prev owner) bool { return o.def != "" && o.def == prev.def }
 
 // drop removes the files of the item that prev owned.
 func (s *scope) drop(prev owner) {
@@ -394,7 +444,9 @@ func (s *scope) put(f staged) {
 }
 
 // mergeMCP merges the servers of a layer's mcp.jsonc by name under the Name
-// row. Servers have no override syntax, so a repeated name is an error.
+// row. Servers have no override syntax, so a repeated name is an error,
+// unless both define the server the same way, by canonical JSON: it is
+// then kept once, as the first layer defines it.
 func (s *scope) mergeMCP(l pack.Layer, f pack.File) {
 	servers, err := readMCP(f.Data)
 	if err != nil {
@@ -402,7 +454,7 @@ func (s *scope) mergeMCP(l pack.Layer, f pack.File) {
 		return
 	}
 	for _, sv := range servers {
-		o := owner{key: key(mcpServer, sv.name), name: sv.name, what: fmt.Sprintf("MCP server %q", sv.name), layer: l, file: f.Path, line: sv.line}
+		o := owner{key: key(mcpServer, sv.name), name: sv.name, what: fmt.Sprintf("MCP server %q", sv.name), layer: l, file: f.Path, line: sv.line, def: sv.canon}
 		if s.claim(o) {
 			s.servers[sv.name] = sv.raw
 		}
@@ -410,9 +462,10 @@ func (s *scope) mergeMCP(l pack.Layer, f pack.File) {
 }
 
 type server struct {
-	name string
-	line int
-	raw  json.RawMessage
+	name  string
+	line  int
+	raw   json.RawMessage
+	canon string // canonical JSON of raw, which identifies the definition
 }
 
 // readMCP reads the servers of an mcp.jsonc file, in file order.
@@ -434,7 +487,12 @@ func readMCP(data []byte) ([]server, error) {
 	var out []server
 	for _, m := range list.Members {
 		line := 1 + bytes.Count(data[:m.Name.StartOffset], []byte("\n"))
-		out = append(out, server{m.Name.Value.(hujson.Literal).String(), line, m.Value.Pack()})
+		raw := m.Value.Pack()
+		canon, err := canonical(raw)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, server{m.Name.Value.(hujson.Literal).String(), line, raw, canon})
 	}
 	return out, nil
 }
@@ -466,8 +524,10 @@ func (s *scope) tree() []File {
 
 // crossScope applies the cross-scope paragraph: a project name may not
 // repeat a user name, even with overrides, because harnesses resolve that
-// clash differently. users holds the user scope once per variant; each
-// clash is reported once, against the first variant that has the name.
+// clash differently. An MCP server defined the same way in both scopes is
+// no clash, and Stage keeps it at user level only (dropUserServers). users
+// holds the user scope once per variant; each clash is reported once,
+// against the first variant that has the name.
 func crossScope(users []*scope, project *scope) []pack.Diagnostic {
 	owners := slices.SortedFunc(maps.Values(project.names), func(a, b owner) int {
 		return cmp.Or(strings.Compare(a.file, b.file), cmp.Compare(a.line, b.line))
@@ -476,7 +536,7 @@ func crossScope(users []*scope, project *scope) []pack.Diagnostic {
 	for _, o := range owners {
 		for _, u := range users {
 			prev, ok := u.names[o.key]
-			if !ok {
+			if !ok || prev.name == o.name && o.same(prev) {
 				continue
 			}
 			if prev.name != o.name {

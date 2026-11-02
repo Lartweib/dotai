@@ -3,6 +3,7 @@ package merge_test
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -300,8 +301,35 @@ func TestCheck(t *testing.T) {
 			name: "MCP server defined twice",
 			pack: newPack(base(mcp(baseMCP)), variant("v", mcp(gitMCP)), profile("a", mcp(gitMCP))),
 			want: []string{
-				`variants/v/.rulesync/mcp.jsonc:1: mcp-server-conflict: MCP server "git" already exists in base (first: base/.rulesync/mcp.jsonc:4) (fix: rename it; MCP servers cannot be overridden)`,
+				`variants/v/.rulesync/mcp.jsonc:1: mcp-server-conflict: MCP server "git" already exists in base with a different definition (first: base/.rulesync/mcp.jsonc:4) (fix: rename it, or define it the same way; MCP servers cannot be overridden)`,
 				`profiles/a/.rulesync/mcp.jsonc:1: scope-conflict: MCP server "git" is also defined at user level (first: base/.rulesync/mcp.jsonc:4) (fix: rename it; overrides do not apply across scopes)`,
+			},
+		},
+		{
+			name: "identical MCP servers in two profiles, base and variant, and both scopes",
+			pack: newPack(
+				base(mcp(baseMCP)),
+				variant("v", mcp("{\"mcpServers\": {\n  // the same server, spelled differently\n  \"git\": { \"command\" : \"git-mcp\", },\n}}")),
+				profile("a", mcp(`{"mcpServers": {"git": {"command": "git-mcp"}}}`)), profile("b", mcp(`{"mcpServers": {"git": {"command":"git-mcp"}}}`)),
+			),
+		},
+		{
+			name: "identical MCP servers by canonical JSON: key order and number spelling",
+			pack: newPack(
+				base(mcp(`{"mcpServers": {"git": {"command": "git-mcp", "args": ["a"], "timeout": 10}}}`)),
+				variant("v", mcp(`{"mcpServers": {"git": {"timeout": 1e1, "args": ["a"], "command": "git-mcp"}}}`)),
+			),
+		},
+		{
+			name: "MCP servers that differ only in an argument's order conflict",
+			pack: newPack(
+				base(mcp(`{"mcpServers": {"git": {"command": "git-mcp", "args": ["a", "b"]}}}`)),
+				variant("v", mcp(`{"mcpServers": {"git": {"command": "git-mcp", "args": ["b", "a"]}}}`)),
+				profile("a", mcp(`{"mcpServers": {"web": {"command": "web-mcp"}}}`)), profile("b", mcp(`{"mcpServers": {"web": {"command": "web-mcp", "env": {}}}}`)),
+			),
+			want: []string{
+				`variants/v/.rulesync/mcp.jsonc:1: mcp-server-conflict: MCP server "git" already exists in base with a different definition (first: base/.rulesync/mcp.jsonc:1) (fix: rename it, or define it the same way; MCP servers cannot be overridden)`,
+				`profiles/b/.rulesync/mcp.jsonc:1: profile-conflict: MCP server "web" is also defined by profile a (first: profiles/a/.rulesync/mcp.jsonc:1) (fix: rename one of them; profiles cannot override each other)`,
 			},
 		},
 		{
@@ -430,6 +458,40 @@ func TestStageMergesMCPServers(t *testing.T) {
 	}
 	if origins := map[string]string{"git": "base", "web": "variants/v"}; !reflect.DeepEqual(f.Origins, origins) {
 		t.Errorf("origins = %v, want %v", f.Origins, origins)
+	}
+}
+
+// TestStageKeepsIdenticalMCPServersOnce checks that an MCP server that two
+// layers of a scope define the same way, by canonical JSON, is staged once,
+// with the definition and the origin of the first layer, and that one a
+// profile defines as the user scope does is staged in the user scope only.
+func TestStageKeepsIdenticalMCPServersOnce(t *testing.T) {
+	p := newPack(base(mcp(baseMCP)), variant("v", mcp(`{"mcpServers": {"git": {"command": "git-mcp"}, "web": {"command": "web-mcp"}}}`)),
+		profile("a", mcp(`{"mcpServers": {"web": {"command": "web-mcp"}, "docs": {"command": "docs-mcp"}}}`)), profile("b", mcp(`{"mcpServers": {"web": { "command": "web-mcp" }}}`)))
+	s, diags := merge.Stage(p, merge.Selection{Profiles: []string{"b", "a"}})
+	if len(diags) != 0 {
+		t.Fatalf("Stage() diagnostics = %v, want none", format(diags))
+	}
+	user, project := staged(t, s.User, ".rulesync/mcp.jsonc"), staged(t, s.Project, ".rulesync/mcp.jsonc")
+	want := "{\n  \"mcpServers\": {\n    \"git\": {\n      \"command\": \"git-mcp\"\n    },\n" +
+		"    \"web\": {\n      \"command\": \"web-mcp\"\n    }\n  }\n}\n"
+	if string(user.Data) != want {
+		t.Errorf("user mcp.jsonc =\n%s\nwant\n%s", user.Data, want)
+	}
+	if origins := map[string]string{"git": "base", "web": "variants/v"}; !reflect.DeepEqual(user.Origins, origins) {
+		t.Errorf("user origins = %v, want %v", user.Origins, origins)
+	}
+	if want := "{\n  \"mcpServers\": {\n    \"docs\": {\n      \"command\": \"docs-mcp\"\n    }\n  }\n}\n"; string(project.Data) != want {
+		t.Errorf("project mcp.jsonc =\n%s\nwant\n%s", project.Data, want)
+	}
+	if origins := map[string]string{"docs": "profiles/a"}; !reflect.DeepEqual(project.Origins, origins) {
+		t.Errorf("project origins = %v, want %v", project.Origins, origins)
+	}
+
+	// With nothing else, the project scope has no mcp.jsonc.
+	s, diags = merge.Stage(newPack(base(mcp(webMCP)), profile("a", mcp(webMCP))), merge.Selection{Profiles: []string{"a"}})
+	if len(diags) != 0 || slices.ContainsFunc(s.Project, func(f merge.File) bool { return f.Path == ".rulesync/mcp.jsonc" }) {
+		t.Errorf("Stage() = %+v, %v, want no project mcp.jsonc", s.Project, format(diags))
 	}
 }
 

@@ -67,6 +67,9 @@ func TestRun(t *testing.T) {
 		{name: "validate unknown format json", args: []string{"validate", examplePack, "--json", "--format=fancy"}, wantCode: 2, goldenOut: "validate-unknown-format.json.golden"},
 		{name: "validate merge rules json", args: []string{"validate", mergeBrokenPack, "--json"}, wantCode: 3, goldenOut: "validate-merge-broken.json.golden"},
 		{name: "validate unknown profile", args: []string{"validate", examplePack, "--profile", "web,nope"}, wantCode: 3, goldenOut: "validate-unknown-profile.txt.golden"},
+		{name: "validate warnings text", args: []string{"validate", shadowedHooksPack}, wantCode: 0, goldenOut: "validate-warnings.txt.golden"},
+		{name: "validate warnings compact", args: []string{"validate", shadowedHooksPack, "--format=compact"}, wantCode: 0, goldenOut: "validate-warnings.compact.golden"},
+		{name: "validate warnings json", args: []string{"validate", shadowedHooksPack, "--json"}, wantCode: 0, goldenOut: "validate-warnings.json.golden"},
 		{name: "stage without out", args: []string{"stage", examplePack, "--json"}, wantCode: 2, goldenOut: "stage-no-out.json.golden"},
 	}
 	for _, tt := range tests {
@@ -93,6 +96,8 @@ var (
 	examplePack     = filepath.Join("..", "..", "examples", "minimal-pack")
 	brokenPack      = filepath.Join("testdata", "broken-pack")
 	mergeBrokenPack = filepath.Join("testdata", "merge-broken-pack")
+	// shadowedHooksPack is valid, with a warning.
+	shadowedHooksPack = filepath.Join("testdata", "shadowed-hooks-pack")
 )
 
 func TestRunValidateDefaultsToCurrentDirectory(t *testing.T) {

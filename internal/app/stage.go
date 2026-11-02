@@ -148,7 +148,17 @@ func stage(ctx context.Context, w stageFS, fetch fetchFunc, run runFunc, cacheDi
 		files []merge.File
 	}{{ScopeUser, s.User}, {ScopeProject, s.Project}} {
 		for _, f := range t.files {
-			data, err := expandPaths(f.Data, tools)
+			data := f.Data
+			if f.Path == merge.HooksFile {
+				if data, err = expandHooks(data, f.Origins, tools, t.scope, harnesses); err != nil {
+					if d, ok := hookPathDiagnostic(err); ok {
+						res.Files, res.Diagnostics = []StagedFile{}, []Diagnostic{d}
+						return res, nil
+					}
+					return StageResult{}, fmt.Errorf("%s/%s: %w", t.scope, f.Path, err)
+				}
+			}
+			data, err := expandPaths(data, tools)
 			if err != nil {
 				return StageResult{}, fmt.Errorf("%s/%s: %w", t.scope, f.Path, err)
 			}

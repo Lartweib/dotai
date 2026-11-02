@@ -182,7 +182,13 @@ func newValidateCmd(env Env, jsonOut *bool) *cobra.Command {
 			return err
 		}
 		if !res.Valid {
-			return rejectPack(env, *jsonOut, *format, res.Pack, res.Diagnostics, res)
+			err := rejectPack(env, *jsonOut, *format, res.Pack, res.Diagnostics, res)
+			if !*jsonOut {
+				if werr := writeWarnings(env.Stdout, res.Warnings, useColor(env.Stdout)); werr != nil {
+					return werr
+				}
+			}
+			return err
 		}
 		if *jsonOut {
 			return output.Write(env.Stdout, output.Success(commandName(cmd), res))
@@ -190,7 +196,10 @@ func newValidateCmd(env Env, jsonOut *bool) *cobra.Command {
 		if res.Pack == nil {
 			return errors.New("validation returned no pack")
 		}
-		return writeValid(env.Stdout, res.Pack, useColor(env.Stdout))
+		if err := writeValid(env.Stdout, res.Pack, useColor(env.Stdout)); err != nil {
+			return err
+		}
+		return writeWarnings(env.Stdout, res.Warnings, useColor(env.Stdout))
 	}
 	return cmd
 }

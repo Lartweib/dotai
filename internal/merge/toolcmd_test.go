@@ -2,6 +2,7 @@ package merge_test
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -100,5 +101,96 @@ func TestExpandTools(t *testing.T) {
 	boom := errors.New("boom")
 	if _, err := merge.ExpandTools("${DOTAI_TOOL:x}", func(string) (string, error) { return "", boom }); !errors.Is(err, boom) {
 		t.Errorf("ExpandTools() error = %v, want the command's", err)
+	}
+}
+
+// TestHookToolCommandsNeedBothScripts checks the tool command variable in
+// the command of a hook, shared or in a tool-scoped block: like a setting,
+// a hook that runs a tool needs both its scripts in the tools of its
+// scope, and a name that is not a tool name is refused.
+func TestHookToolCommandsNeedBothScripts(t *testing.T) {
+	both := []src{plain("dotai/tools/hello.sh"), plain("dotai/tools/hello.ps1")}
+	shared := hooks("{\n  \"hooks\": {\n    \"sessionStart\": [{\"command\": \"${DOTAI_TOOL:hello} start\"}]\n  }\n}\n")
+	tests := []struct {
+		name string
+		pack *pack.Pack
+		want []string
+	}{
+		{"both scripts", newPack(base(append(both, shared)...)), nil},
+		{"a hook without the variable", newPack(base(hooks(`{"hooks": {"stop": [{"command": "${DOTAI_TOOLS}/x.sh"}]}}`))), nil},
+		{"a key that is not exactly command", newPack(base(hooks(`{"hooks": {"stop": [{"Command": "${DOTAI_TOOL:hello}"}]}}`))), nil},
+		{
+			"the PowerShell script missing",
+			newPack(base(shared, plain("dotai/tools/hello.sh"))),
+			[]string{"base/.rulesync/hooks.jsonc:3: tool-missing: hook hooks.sessionStart runs tool hello, but no layer of its scope provides dotai/tools/hello.ps1"},
+		},
+		{
+			"in a tool-scoped block of a profile",
+			newPack(base(both...), profile("p", hooks(`{"antigravity-cli": {"hooks": {"stop": [{"matcher": "", "command": "${DOTAI_TOOL:hello}"}]}}}`))),
+			[]string{
+				"profiles/p/.rulesync/hooks.jsonc:1: tool-missing: hook antigravity-cli.hooks.stop runs tool hello, but no layer of its scope provides dotai/tools/hello.sh",
+				"profiles/p/.rulesync/hooks.jsonc:1: tool-missing: hook antigravity-cli.hooks.stop runs tool hello, but no layer of its scope provides dotai/tools/hello.ps1",
+			},
+		},
+		{
+			"not a tool name",
+			newPack(base(hooks(`{"hooks": {"stop": [{"command": "${DOTAI_TOOL:a b}"}]}}`))),
+			[]string{"base/.rulesync/hooks.jsonc:1: tool-invalid: hook hooks.stop uses ${DOTAI_TOOL:a b}, which does not name a tool"},
+		},
+		{
+			"no closing brace",
+			newPack(base(hooks(`{"hooks": {"stop": [{"command": "${DOTAI_TOOL:hello"}]}}`))),
+			[]string{"base/.rulesync/hooks.jsonc:1: tool-invalid: hook hooks.stop uses ${DOTAI_TOOL:hello, which has no closing brace"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := withoutHints(merge.Check(tt.pack, merge.Selection{})); !reflect.DeepEqual(got, append([]string{}, tt.want...)) {
+				t.Errorf("Check() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestExpandHookTools checks that the tool command variables of every hook
+// command of a merged hooks file are expanded for the hook's block, shared
+// or tool-scoped, that a shared hook names the blocks that declare its
+// event too, that a hook the callback skips and a key other than an exact
+// "command" are left as written, that nothing else changes, and that an
+// error stops the expansion.
+func TestExpandHookTools(t *testing.T) {
+	s, diags := merge.Stage(newPack(base(hooks(`{"version": 1, "hooks": {"stop": [{"command": "${DOTAI_TOOL:a} && x", "matcher": "${DOTAI_TOOL:a}"}, {"command": "plain"}, {"Command": "${DOTAI_TOOL:a}"}],`+
+		` "sessionStart": [{"command": "${DOTAI_TOOL:a} s"}]},`+
+		` "claudecode": {"hooks": {"pre/tool": [{"command": "${DOTAI_TOOL:a} skipped"}], "sessionStart": [{"command": "c"}]}},`+
+		` "antigravity-cli": {"hooks": {"sessionStart": []}}, "other": {"command": "${DOTAI_TOOL:a}"}}`),
+		plain("dotai/tools/a.sh"), plain("dotai/tools/a.ps1"))), merge.Selection{})
+	if len(diags) > 0 {
+		t.Fatal(format(diags))
+	}
+	file := staged(t, s.User, merge.HooksFile)
+	var calls []string
+	got, err := merge.ExpandHookTools(file.Data, func(h merge.Hook, name string) (string, bool, error) {
+		calls = append(calls, fmt.Sprintf("%s|%s|%s|%s|%v", h.Block, h.Event, h.Pointer(), h, h.Shadowed))
+		return "<" + h.Block + ":" + name + ">", h.Block != "claudecode", nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.Replace(string(file.Data), `"command": "${DOTAI_TOOL:a} && x"`, `"command": "<:a> && x"`, 1)
+	want = strings.Replace(want, `"command": "${DOTAI_TOOL:a} s"`, `"command": "<:a> s"`, 1)
+	if string(got) != want {
+		t.Errorf("ExpandHookTools() =\n%s\nwant\n%s", got, want)
+	}
+	wantCalls := []string{
+		"|stop|/hooks/stop/0|hook hooks.stop|[]",
+		"|sessionStart|/hooks/sessionStart/0|hook hooks.sessionStart|[claudecode antigravity-cli]",
+		"claudecode|pre/tool|/claudecode/hooks/pre~1tool/0|hook claudecode.hooks.pre/tool|[]",
+	}
+	if !reflect.DeepEqual(calls, wantCalls) {
+		t.Errorf("calls = %q, want %q", calls, wantCalls)
+	}
+	boom := errors.New("boom")
+	if _, err := merge.ExpandHookTools(file.Data, func(merge.Hook, string) (string, bool, error) { return "", true, boom }); !errors.Is(err, boom) {
+		t.Errorf("ExpandHookTools() error = %v, want the command's", err)
 	}
 }

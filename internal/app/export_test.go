@@ -38,6 +38,12 @@ func ExpandSettingIn(s string, tools ToolPaths, scope, h string) (string, error)
 	return expandSetting(s, tools.inScope(scope).forHarness(h))
 }
 
+// ExpandHooksIn is the expansion of the tool commands in the merged hooks
+// file data of scope, for harnesses.
+func ExpandHooksIn(data []byte, tools ToolPaths, scope string, harnesses []string) ([]byte, error) {
+	return expandHooks(data, nil, tools, scope, harnesses)
+}
+
 // OSInstallFS is the real file system port of PlanInstall.
 type OSInstallFS = osInstallFS
 

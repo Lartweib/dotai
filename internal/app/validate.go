@@ -26,6 +26,10 @@ type ValidateResult struct {
 	Valid       bool              `json:"valid"`
 	Pack        *PackSummary      `json:"pack"` // nil when the manifest cannot be read
 	Diagnostics []pack.Diagnostic `json:"diagnostics"`
+	// Warnings are what may not do what the pack means but is no error,
+	// such as a hook event that a tool-scoped block of hooks.jsonc takes
+	// from the shared hooks. They leave the pack valid.
+	Warnings []pack.Diagnostic `json:"warnings"`
 }
 
 // PackSummary describes a loaded pack. Lists are never nil.
@@ -92,7 +96,7 @@ func packFS(dir string) (fs.FS, error) {
 // cross-layer merge rules of 0023 (duplicate names, overrides) run only on a
 // pack with no structural diagnostics other than an unsupported rulesync
 // pin, over the layers sel names, and append
-// their diagnostics after the structural ones.
+// their diagnostics after the structural ones, and their warnings.
 func ValidateFS(fsys fs.FS, sel Selection) (ValidateResult, error) {
 	res, _, err := validate(fsys, sel)
 	return res, err
@@ -105,7 +109,7 @@ func validate(fsys fs.FS, sel Selection) (ValidateResult, *pack.Pack, error) {
 	if err != nil {
 		return ValidateResult{}, nil, err
 	}
-	res := ValidateResult{Valid: len(diags) == 0, Diagnostics: append([]pack.Diagnostic{}, diags...)}
+	res := ValidateResult{Valid: len(diags) == 0, Diagnostics: append([]pack.Diagnostic{}, diags...), Warnings: []pack.Diagnostic{}}
 	if p == nil {
 		return res, p, nil
 	}
@@ -135,6 +139,7 @@ func validate(fsys fs.FS, sel Selection) (ValidateResult, *pack.Pack, error) {
 	// rules still run.
 	if !slices.ContainsFunc(diags, func(d pack.Diagnostic) bool { return d.Code != pack.CodeRulesyncUnsupported }) {
 		res.Diagnostics = append(res.Diagnostics, merge.Check(p, sel)...)
+		res.Warnings = append(res.Warnings, merge.Warnings(p, sel)...)
 		res.Valid = len(res.Diagnostics) == 0
 	}
 	return res, p, nil

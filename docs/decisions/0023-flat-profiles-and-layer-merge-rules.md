@@ -45,3 +45,5 @@ Nothing is overwritten silently: every merge is a safe union, a declared overrid
 ## Update (2026-10-25)
 
 The precedence was verified and is not consistent: for skills, Claude Code keeps the user item while agy and OpenCode keep the project item; for subagents, all three keep the project item. A cross-scope override would behave differently per harness, so `overrides: true` only applies within a scope. A same-name item in the user scope (base, variant) and the project scope (profiles) is always a validation error.
+
+Update 2026-11-02: an MCP server that two layers define the same way, by canonical JSON, is no conflict: within a scope, profiles included, it is kept once, as the first layer defines it; when a profile defines it as the user scope does, it is kept at user level only and dropped from the project scope, so there is one source, and Claude Code, whose project and local servers take precedence over user ones, never runs a project copy that goes stale ([PACK-FORMAT](../PACK-FORMAT.md#merge-rules)). Different definitions remain an error.
