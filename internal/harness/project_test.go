@@ -144,3 +144,59 @@ func TestAllClonesTheProjectLayout(t *testing.T) {
 		t.Error("All() shares the project layout between calls")
 	}
 }
+
+// TestProjectItemDirs checks that the adapter, not the plan, says which
+// items are directories: a skill's directory, and none for a file item.
+func TestProjectItemDirs(t *testing.T) {
+	for _, tt := range []struct{ harness, source, dir string }{
+		{"claudecode", ".claude/skills/lint/ref/a.md", ".claude/skills/lint/"},
+		{"antigravity-cli", ".agents/skills/deploy/SKILL.md", ".agents/skills/deploy/"},
+		{"opencode", ".opencode/skills/lint/SKILL.md", ".opencode/skills/lint/"},
+		{"claudecode", ".claude/rules/web.md", ""},
+		{"claudecode", ".claude/settings.json", ""},
+	} {
+		got, _ := adapter(t, tt.harness).Project.Locate(tt.source)
+		if got.Dir != tt.dir {
+			t.Errorf("%s %s: Dir = %q, want %q", tt.harness, tt.source, got.Dir, tt.dir)
+		}
+	}
+}
+
+// TestProjectImportedBy checks which files of the project already import
+// AGENTS.md for Claude Code, each from where it resolves the import.
+func TestProjectImportedBy(t *testing.T) {
+	cc := adapter(t, "claudecode").Project
+	if cc.Imports != "AGENTS.md" {
+		t.Errorf("Imports = %q", cc.Imports)
+	}
+	for _, tt := range []struct {
+		file, data string
+		want       bool
+	}{
+		{"CLAUDE.md", "intro\n@AGENTS.md\n", true},
+		{"CLAUDE.md", "see @./AGENTS.md for more", true},
+		{"CLAUDE.md", "@../AGENTS.md", false},
+		{"CLAUDE.md", "AGENTS.md is the team's", false},
+		{"CLAUDE.md", "mail@AGENTS.md", false},
+		{".claude/CLAUDE.md", "@../AGENTS.md\r\n", true},
+		{".claude/CLAUDE.md", "@AGENTS.md", false},
+		{"CLAUDE.local.md", "@AGENTS.md", true},
+		{"README.md", "@AGENTS.md", false},
+	} {
+		if got := cc.ImportedBy(tt.file, []byte(tt.data)); got != tt.want {
+			t.Errorf("ImportedBy(%s, %q) = %v, want %v", tt.file, tt.data, got, tt.want)
+		}
+	}
+	var files []string
+	for _, f := range cc.ImportFiles {
+		files = append(files, f.Path)
+	}
+	if !reflect.DeepEqual(files, []string{"CLAUDE.md", ".claude/CLAUDE.md", "CLAUDE.local.md"}) {
+		t.Errorf("ImportFiles = %v", files)
+	}
+	for _, id := range []string{"antigravity-cli", "opencode"} {
+		if l := adapter(t, id).Project; l.Imports != "" || len(l.ImportFiles) != 0 {
+			t.Errorf("%s imports AGENTS.md, which it reads itself", id)
+		}
+	}
+}

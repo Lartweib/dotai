@@ -39,15 +39,26 @@ type Members struct {
 // ProjectPath is where rulesync's project output of a harness installs
 // instead (decision 0041): From, a slash path in the project staging tree,
 // installs to To, relative to the project directory. A From that ends in /
-// is a directory, and To is then one too. ByKey marks a settings or
-// configuration file, merged by key into its target (decisions 0013 and
-// 0035), whose Each are the objects whose members are keys of their own.
+// is a directory, and To is then one too; DirItems marks one whose items
+// are directories, such as skills, rather than files. ByKey marks a
+// settings or configuration file, merged by key into its target
+// (decisions 0013 and 0035), whose Each are the objects whose members are
+// keys of their own.
 type ProjectPath struct {
-	From  string
-	To    string
-	Kind  ProjectKind
-	ByKey bool
-	Each  []Members
+	From     string
+	To       string
+	Kind     ProjectKind
+	DirItems bool
+	ByKey    bool
+	Each     []Members
+}
+
+// ImportFile is a file of the project that may already import the rules
+// file the harness does not read itself: Path, relative to the project,
+// imports it when a word of it is one of Lines, each resolved from Path.
+type ImportFile struct {
+	Path  string
+	Lines []string
 }
 
 // HomeKeys is a staged project file whose Servers the harness reads from a
@@ -72,30 +83,36 @@ type UserItems struct {
 }
 
 // ProjectLayout is a harness's project scope (decision 0041): where each
-// file rulesync renders in a project installs, the pack's own rules file
-// that imports AGENTS.md (Import, with <pack> for the pack's name, and
-// ImportLine), the MCP servers it keeps outside the project, the kinds it
-// has no local slot for, where same-name user items live, and the project
-// skills directories of other harnesses it reads too. Paths are slash
-// paths.
+// file rulesync renders in a project installs; Imports, a rules file of the
+// project the harness does not load alone, which the pack's own rules file
+// imports (Import, with <pack> for the pack's name, holding ImportLine)
+// unless one of ImportFiles already does; the MCP servers it keeps outside
+// the project; the kinds it has no local slot for; where same-name user
+// items live; and the project skills directories of other harnesses it
+// reads too. Paths are slash paths.
 type ProjectLayout struct {
-	Paths      []ProjectPath
-	Import     string
-	ImportLine string
-	MCP        *HomeKeys
-	NoSlot     []ProjectKind
-	UserItems  []UserItems
-	AlsoReads  []string
+	Paths       []ProjectPath
+	Imports     string
+	ImportFiles []ImportFile
+	Import      string
+	ImportLine  string
+	MCP         *HomeKeys
+	NoSlot      []ProjectKind
+	UserItems   []UserItems
+	AlsoReads   []string
 }
 
 // ProjectTarget is where a staged project file installs: Target, relative
 // to the project directory, its Kind, Item, the item it belongs to, such as
-// "skill lint", "" for a file merged by key, whose items are its keys, and
-// ByKey and Each as in its ProjectPath.
+// "skill lint", "" for a file merged by key, whose items are its keys,
+// Name, the item's name, Dir, the item's directory with a trailing slash
+// for an item that is one, and ByKey and Each as in its ProjectPath.
 type ProjectTarget struct {
 	Target string
 	Kind   ProjectKind
 	Item   string
+	Name   string
+	Dir    string
 	ByKey  bool
 	Each   []Members
 }
@@ -121,15 +138,19 @@ func (l ProjectLayout) Locate(source string) (ProjectTarget, bool) {
 		if !ok {
 			continue
 		}
-		name, _, dir := strings.Cut(rest, "/")
-		if !dir {
-			name = strings.TrimSuffix(name, path.Ext(name))
+		t := ProjectTarget{Target: p.To + rest, Kind: p.Kind}
+		if p.DirItems {
+			name, _, _ := strings.Cut(rest, "/")
+			t.Name, t.Dir = name, p.To+name+"/"
+		} else {
+			t.Name = strings.TrimSuffix(rest, path.Ext(rest))
 		}
-		item := ""
 		if word, ok := itemNames[p.Kind]; ok {
-			item = word + " " + name
+			t.Item = word + " " + t.Name
+		} else {
+			t.Name = ""
 		}
-		return ProjectTarget{Target: p.To + rest, Kind: p.Kind, Item: item}, true
+		return t, true
 	}
 	return ProjectTarget{}, false
 }
@@ -138,6 +159,22 @@ func (l ProjectLayout) Locate(source string) (ProjectTarget, bool) {
 // the project directory, "" for a harness that reads AGENTS.md itself.
 func (l ProjectLayout) ImportFile(pack string) string {
 	return strings.ReplaceAll(l.Import, "<pack>", pack)
+}
+
+// ImportedBy reports whether data, the content of the project file name,
+// already imports Imports: one of its words is one of the import lines of
+// that file.
+func (l ProjectLayout) ImportedBy(name string, data []byte) bool {
+	i := slices.IndexFunc(l.ImportFiles, func(f ImportFile) bool { return f.Path == name })
+	if i < 0 {
+		return false
+	}
+	for _, word := range strings.Fields(string(data)) {
+		if slices.Contains(l.ImportFiles[i].Lines, word) {
+			return true
+		}
+	}
+	return false
 }
 
 // clone is l in a copy the caller may change.
@@ -154,6 +191,10 @@ func (l ProjectLayout) clone() ProjectLayout {
 		l.MCP = &m
 	}
 	l.NoSlot, l.AlsoReads = slices.Clone(l.NoSlot), slices.Clone(l.AlsoReads)
+	l.ImportFiles = slices.Clone(l.ImportFiles)
+	for i := range l.ImportFiles {
+		l.ImportFiles[i].Lines = slices.Clone(l.ImportFiles[i].Lines)
+	}
 	l.UserItems = slices.Clone(l.UserItems)
 	for i := range l.UserItems {
 		l.UserItems[i].Dirs = slices.Clone(l.UserItems[i].Dirs)
@@ -168,7 +209,7 @@ var (
 		Paths: []ProjectPath{
 			{From: ".claude/rules/", To: ".claude/rules/", Kind: ProjectRules},
 			{From: ".claude/agents/", To: ".claude/agents/", Kind: ProjectAgents},
-			{From: ".claude/skills/", To: ".claude/skills/", Kind: ProjectSkills},
+			{From: ".claude/skills/", To: ".claude/skills/", Kind: ProjectSkills, DirItems: true},
 			{From: ".claude/commands/", To: ".claude/commands/", Kind: ProjectCommands},
 			// .claude/settings.json is the team's; the local file wins over it
 			// and its allow rules apply without workspace trust.
@@ -177,6 +218,12 @@ var (
 		},
 		// A project AGENTS.md alone did not load on 2.1.316; an import in a
 		// rules file resolves from that file.
+		Imports: "AGENTS.md",
+		ImportFiles: []ImportFile{
+			{Path: "CLAUDE.md", Lines: []string{"@AGENTS.md", "@./AGENTS.md"}},
+			{Path: ".claude/CLAUDE.md", Lines: []string{"@../AGENTS.md"}},
+			{Path: "CLAUDE.local.md", Lines: []string{"@AGENTS.md", "@./AGENTS.md"}},
+		},
 		Import:     ".claude/rules/<pack>.md",
 		ImportLine: "@../../AGENTS.md",
 		// Claude Code's local scope; CLAUDE_CONFIG_DIR moves the file into
@@ -192,7 +239,7 @@ var (
 			{From: ".agents/rules/", To: ".agents/rules/", Kind: ProjectRules},
 			{From: ".agents/agents/", To: ".agents/agents/", Kind: ProjectAgents},
 			// rulesync renders commands as skills for agy, which has no commands.
-			{From: ".agents/skills/", To: ".agents/skills/", Kind: ProjectSkills},
+			{From: ".agents/skills/", To: ".agents/skills/", Kind: ProjectSkills, DirItems: true},
 			{From: ".agents/hooks.json", To: ".agents/hooks.json", Kind: ProjectHooks, ByKey: true,
 				Each: []Members{{Path: []string{"rulesync"}, Item: ItemHook}}},
 			{From: ".agents/mcp_config.json", To: ".agents/mcp_config.json", Kind: ProjectMCP, ByKey: true,
@@ -212,7 +259,7 @@ var (
 			// writes into opencode.jsonc.
 			{From: ".opencode/memories/", To: ".opencode/memories/", Kind: ProjectRules},
 			{From: ".opencode/agents/", To: ".opencode/agents/", Kind: ProjectAgents},
-			{From: ".opencode/skills/", To: ".opencode/skills/", Kind: ProjectSkills},
+			{From: ".opencode/skills/", To: ".opencode/skills/", Kind: ProjectSkills, DirItems: true},
 			{From: ".opencode/commands/", To: ".opencode/commands/", Kind: ProjectCommands},
 			{From: ".opencode/plugins/", To: ".opencode/plugins/", Kind: ProjectHooks},
 			// The root opencode.json(c) is the team's; .opencode/opencode.json
