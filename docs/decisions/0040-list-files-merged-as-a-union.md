@@ -32,8 +32,6 @@ The layers of a scope merge each of the two files into one, in layer order: base
 
 0023's "if an entry is both allowed and denied, deny wins" keeps its meaning through rulesync and the harnesses: a `deny` and an `allow` on different patterns are both kept, and rulesync and each harness apply `deny` over `ask` over `allow`. The same pattern with a different action in two layers is a conflict, not a silent deny.
 
-**Update, 2026-11-02.** rulesync 41 renders a tool-scoped block's hooks of an event, such as `claudecode.hooks.sessionStart`, instead of the shared hooks of that event for that harness ([HARNESS-NOTES](../HARNESS-NOTES.md#rulesync-4100)). The merge keeps both, as above; `validate` warns about each such event with `hooks-shadowed`, which leaves the pack valid ([CLI-JSON](../CLI-JSON.md#diagnostics)).
-
 ## Considered options
 
 - **A (chosen):** union in layer order with duplicates kept once, a different scalar an error, no removal.
@@ -54,3 +52,5 @@ The layers of a scope merge each of the two files into one, in layer order: base
 - rulesync 41.0.0, `docs/reference/file-formats.md` (sections `.rulesync/hooks.jsonc` and `.rulesync/permissions.jsonc`) and `src/types/permissions.ts`: a permission category maps a pattern to one action.
 - A stage with the pinned binary of a base and a variant that both have the two files: rulesync accepts the merged files and renders the entries of both layers into `.claude/settings.json` (`hooks`, `permissions`), agy's `settings.json` (`permissions`) and `.gemini/config/hooks.json`, and OpenCode's `opencode.jsonc` (`permissions`) and `plugins/rulesync-hooks.js` (`TestStageMergesListFilesWithRealRulesync`).
 - [0023](0023-flat-profiles-and-layer-merge-rules.md), [PACK-FORMAT](../PACK-FORMAT.md#merge-rules).
+
+Update 2026-11-02: rulesync 41 renders a tool-scoped block's hooks of an event, such as `claudecode.hooks.sessionStart`, instead of the shared hooks of that event for that harness ([HARNESS-NOTES](../HARNESS-NOTES.md#rulesync-4100)). The merge keeps both, as above; `validate` warns about each such event whose shared hooks are not empty with `hooks-shadowed`, which leaves the pack valid ([CLI-JSON](../CLI-JSON.md#diagnostics)).
