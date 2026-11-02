@@ -200,7 +200,11 @@ func (a runner) planProjectRestore(r state.Project) (ProjectRestoreResult, []wri
 			writes = append(writes, *w)
 		}
 	}
-	more, err := a.dotaiRemovals(project)
+	planned := map[string]bool{}
+	for _, w := range writes {
+		planned[w.op.Target] = true
+	}
+	more, err := a.dotaiRemovals(project, planned)
 	if err != nil {
 		return ProjectRestoreResult{}, nil, err
 	}
@@ -344,10 +348,11 @@ func (a runner) excludeRestore(r state.Project) (*write, error) {
 }
 
 // dotaiRemovals are the removals of every file in the project's .dotai/
-// but the record, which goes last: the tools and the pack's own files,
-// copied into the backup like any removal. Anything there that is not a
-// regular file is an error, since a restore never follows a link.
-func (a runner) dotaiRemovals(project string) ([]write, error) {
+// but the record, which goes last, and those already planned: the tools
+// and the pack's own files, copied into the backup like any removal.
+// Anything there that is not a regular file is an error, since a restore
+// never follows a link.
+func (a runner) dotaiRemovals(project string, planned map[string]bool) ([]write, error) {
 	dir := filepath.Join(project, ".dotai")
 	if err := checkDir(a.d, dir); errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -366,6 +371,9 @@ func (a runner) dotaiRemovals(project string) ([]write, error) {
 			continue
 		}
 		target := filepath.Join(project, filepath.FromSlash(rel))
+		if planned[target] {
+			continue
+		}
 		cur, err := a.d.Hash(a.ctx, target)
 		if err != nil {
 			return nil, err

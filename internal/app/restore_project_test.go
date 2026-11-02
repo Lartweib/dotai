@@ -80,6 +80,24 @@ func mapValues(m map[string]string) []string {
 	return out
 }
 
+func TestRestoreProjectRemovesTheProjectTools(t *testing.T) {
+	project, home, g := applyRepo(t)
+	before := files(t, project)
+	withTool := map[string]string{".claude/rules/web.md": "# web\n", ".dotai/tools/check.sh": "echo ok\n"}
+	if _, err := applyWith(t, newClockFS(t), g, withTool, project, home, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(at(project, ".dotai/tools/check.sh")); err != nil {
+		t.Fatalf("the tool was not installed: %v", err)
+	}
+	if _, err := restoreProject(t, g, project, home, nil); err != nil {
+		t.Fatalf("RestoreProject() error = %v", err)
+	}
+	if got := files(t, project); !reflect.DeepEqual(got, before) {
+		t.Errorf("project = %v\nwant %v", got, before)
+	}
+}
+
 func TestRestoreProjectPutsBackAFileTheApplyOverwrote(t *testing.T) {
 	project, home, g := applyRepo(t)
 	writeFile(t, at(project, ".claude/rules/web.md"), "# the user's\n")
