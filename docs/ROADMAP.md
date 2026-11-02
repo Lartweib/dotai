@@ -35,7 +35,7 @@ Follow-ups from [0041](decisions/0041-project-scope-local-and-untracked.md), not
 - Done: `${DOTAI_TOOL:<name>}` in hook commands, with the quoting per harness of [0037](decisions/0037-tool-commands-resolved-per-os.md): agy runs hooks through `cmd /c` and escapes quotes, so a path without spaces only, else `hook-path-unquotable` ([HARNESS-NOTES](HARNESS-NOTES.md#hook-commands)).
 - Done: identical MCP definitions in several profiles, or in two layers of a scope, accepted and kept once ([PACK-FORMAT](PACK-FORMAT.md#merge-rules)).
 - Done: a `validate` warning, `hooks-shadowed`, when the same hook event is in the shared block and a per-harness block of `hooks.jsonc`, since rulesync 41 drops the shared one for that harness.
-- agy `SessionStart` hooks must print JSON (`injectSteps`); document it for pack authors in [PACK-FORMAT](PACK-FORMAT.md).
+- Done: agy `SessionStart` hooks must print JSON (`injectSteps`), documented for pack authors in [PACK-FORMAT](PACK-FORMAT.md#tools-and-project-config).
 
 Checkpoints: PR 4 is the first real harness output, PR 8 the first real use with a safe way back, PR 9b-4 the first install over the real configuration, and PR 10-4 closes the v1 scope.
 
