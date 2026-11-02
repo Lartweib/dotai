@@ -17,32 +17,33 @@ import (
 )
 
 func newApplyCmd(env Env, jsonOut *bool) *cobra.Command {
-	var dryRun bool
+	var dryRun, yes bool
 	var variant string
 	var profiles []string
 	cmd := &cobra.Command{
-		Use:   "apply [path] --profile <p> --dry-run",
-		Short: "Print the plan of applying profiles to the project in the current directory",
-		Long: "Plan applying the profiles of the pack in path (default: the pack the install state records) to the project in\n" +
-			"the current directory, and write nothing. Each harness's files go to its local targets, such as\n" +
+		Use:   "apply [path] --profile <p> [--dry-run] [--yes]",
+		Short: "Apply profiles to the project in the current directory",
+		Long: "Apply the profiles of the pack in path (default: the pack the install state records) to the project in the\n" +
+			"current directory, the top of its git worktree; with --dry-run, print the plan and write nothing. Each\n" +
+			"harness's files go to its local targets, such as\n" +
 			".claude/settings.local.json, never to the files a team commits; an item whose target git tracks is skipped and\n" +
 			"named, every file created is listed for .git/info/exclude (pending outside a git repository), and Claude Code's\n" +
 			"MCP servers are keys of its .claude.json for this project. The plan also warns about a harness with no local\n" +
 			"place for something, and about items with the name of a user-level item. It refuses the home directory and a\n" +
 			"root. Without --variant, the variant the install state records, or the pack's default, is checked against the\n" +
-			"profiles. Only --dry-run is available so far.",
+			"profiles. Files and keys dotai does not own, or that changed since it wrote them, are overwritten only with your\n" +
+			"consent: on a terminal you are asked once, after the plan; otherwise, and with --json, the apply is refused\n" +
+			"unless --yes is given. A backup keeps what the apply overwrites; dotai restore --project undoes the apply.",
 		// Checked with the arguments, so these are usage errors.
 		Args: func(cmd *cobra.Command, args []string) error {
 			if !cmd.Flags().Changed("profile") || len(profiles) == 0 {
 				return errors.New("apply needs --profile: name the profiles to apply, comma-separated")
 			}
-			if !dryRun {
-				return errors.New("apply without --dry-run is not available yet: run it with --dry-run to print its plan")
-			}
 			return cobra.MaximumNArgs(1)(cmd, args)
 		},
 	}
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print the plan and write nothing")
+	cmd.Flags().BoolVar(&yes, "yes", false, "overwrite the conflicts of the plan, after backing them up, without asking")
 	cmd.Flags().StringVar(&variant, "variant", "", "variant of the user scope the profiles are checked against")
 	cmd.Flags().StringSliceVar(&profiles, "profile", nil, "profiles to apply, comma-separated")
 	format := formatFlag(cmd)
@@ -66,8 +67,51 @@ func newApplyCmd(env Env, jsonOut *bool) *cobra.Command {
 		ctx, stop := interruptible(cmd)
 		defer stop()
 		opts := app.ApplyOptions{Profiles: append([]string{}, profiles...), Variant: variant}
-		res, err := env.PlanProject(ctx, cache, dir, project, home, opts, downloadProgress(env, *jsonOut))
+		if dryRun {
+			res, err := env.PlanProject(ctx, cache, dir, project, home, opts, downloadProgress(env, *jsonOut))
+			if err != nil {
+				return err
+			}
+			if len(res.Diagnostics) > 0 {
+				return rejectPack(env, *jsonOut, *format, res.Pack, res.Diagnostics, res)
+			}
+			if *jsonOut {
+				return output.Write(env.Stdout, output.Success(commandName(cmd), res))
+			}
+			return writeProjectPlan(env.Stdout, res, useColor(env.Stdout), "dry run, nothing was written\n")
+		}
+		color := useColor(env.Stdout)
+		asked := false
+		consent := func(p app.ProjectPlan) (bool, error) {
+			if yes {
+				return true, nil
+			}
+			if *jsonOut || env.Prompt == nil {
+				return false, nil
+			}
+			asked = true
+			if err := writeProjectPlan(env.Stdout, p, color, "nothing was written yet\n"); err != nil {
+				return false, err
+			}
+			return env.Prompt(ctx, "The apply overwrites the conflicts listed above, files and keys dotai does not own or that changed since it wrote "+
+				"them, after copying them into its backup. Go on? [y/N] ")
+		}
+		res, err := env.Apply(ctx, cache, dir, project, home, opts, downloadProgress(env, *jsonOut), consent)
+		if _, ok := errors.AsType[*app.ApplyConsentError](err); ok && asked {
+			return errors.New("the apply was cancelled, and it wrote nothing")
+		}
 		if err != nil {
+			var p *app.ProjectPlan
+			if ce, ok := errors.AsType[*app.ApplyConsentError](err); ok {
+				p = &ce.Plan
+			} else if re, ok := errors.AsType[*app.ApplyRefusedError](err); ok {
+				p = &re.Plan
+			}
+			if p != nil && !*jsonOut {
+				if wErr := writeProjectPlan(env.Stdout, *p, color, "refused, the apply wrote nothing\n"); wErr != nil {
+					return errors.Join(err, wErr)
+				}
+			}
 			return err
 		}
 		if len(res.Diagnostics) > 0 {
@@ -76,7 +120,16 @@ func newApplyCmd(env Env, jsonOut *bool) *cobra.Command {
 		if *jsonOut {
 			return output.Write(env.Stdout, output.Success(commandName(cmd), res))
 		}
-		return writeProjectPlan(env.Stdout, res, useColor(env.Stdout), "dry run, nothing was written\n")
+		footer := "applied, not the first apply in this project\n"
+		if res.FirstApply {
+			footer = "applied, the first apply in this project\n"
+		}
+		if res.Backup != nil {
+			footer += "backup: " + res.Backup.Path + "\n"
+		} else {
+			footer += "backup: none, no file was written\n"
+		}
+		return writeProjectPlan(env.Stdout, res.ProjectPlan, color, footer)
 	}
 	return cmd
 }
@@ -158,8 +211,14 @@ func writeProjectPlan(w io.Writer, p app.ProjectPlan, color bool, footer string)
 	for _, w := range p.Warnings {
 		fmt.Fprintf(&b, "%s %s\n", paint(color, styleYellow, "warning:"), w.Message)
 	}
-	fmt.Fprintf(&b, "\n%d create, %d merge, %d unchanged, %d conflict, %d skipped · ",
-		count[plan.Create]+count[plan.Replace], count[plan.Merge], count[plan.Unchanged], count[plan.Conflict], len(p.Skipped))
+	if len(p.Refusals) > 0 {
+		fmt.Fprintf(&b, "\n%s\n", paint(color, styleBold, "refused"))
+	}
+	for _, r := range p.Refusals {
+		fmt.Fprintf(&b, "  %s\n", r.Message)
+	}
+	fmt.Fprintf(&b, "\n%d create, %d merge, %d remove, %d unchanged, %d conflict, %d skipped · ",
+		count[plan.Create]+count[plan.Replace], count[plan.Merge], count[plan.Remove], count[plan.Unchanged], count[plan.Conflict], len(p.Skipped))
 	b.WriteString(footer)
 	_, err := io.WriteString(w, b.String())
 	return err
@@ -167,7 +226,7 @@ func writeProjectPlan(w io.Writer, p app.ProjectPlan, color bool, footer string)
 
 // projectStyle is the style of each action of a project plan: a create
 // green, a merge bold, a conflict red, an unchanged file dim.
-var projectStyle = map[plan.Action]string{plan.Create: styleGreen, plan.Replace: styleBold, plan.Merge: styleBold, plan.Conflict: styleRed, plan.Unchanged: styleDim}
+var projectStyle = map[plan.Action]string{plan.Create: styleGreen, plan.Replace: styleBold, plan.Merge: styleBold, plan.Remove: styleYellow, plan.Conflict: styleRed, plan.Unchanged: styleDim}
 
 // paintProjectAction pads action to the widest action and colors it.
 func paintProjectAction(color bool, a plan.Action) string {

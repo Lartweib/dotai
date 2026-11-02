@@ -176,6 +176,8 @@
         "message": "antigravity-cli has no project settings file, so the permissions of the profiles are not installed for it"
       }
     ],
+    "refusals": [],
+    "firstApply": true,
     "notices": [],
     "diagnostics": []
   }

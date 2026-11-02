@@ -27,6 +27,9 @@ const (
 	// A project apply refused in the home directory or at a root, where
 	// the project scope would overlap the user scope (decision 0041).
 	CodeProjectRefused = "project-refused"
+	// A project apply whose plan has refusals, such as an MCP server of
+	// the name of one dotai does not own, which no flag overrides.
+	CodeApplyRefused = "apply-refused"
 )
 
 // Envelope is the single JSON document a command prints with --json.

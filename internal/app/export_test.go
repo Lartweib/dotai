@@ -208,3 +208,10 @@ func PlanProjectWithRulesync(ctx context.Context, g gitPort, cacheDir, dir, proj
 
 // FoldCase is whether paths are compared without case on this OS.
 var FoldCase = foldCase
+
+// ApplyWith is Apply writing through d, asking git through g, fetching
+// through fetch and running rulesync through run, on a host that finds
+// every harness.
+func ApplyWith(ctx context.Context, d executeFS, g gitPort, fetch fetchFunc, run runFunc, dir, project, home string, opts ApplyOptions, consent ApplyConsent) (ApplyResult, error) {
+	return applyProject(ctx, d, everyHarness, g, fetch, run, "cache", dir, project, home, opts, nil, consent)
+}

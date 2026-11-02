@@ -1,0 +1,188 @@
+{
+  "schema": "dotai.cli/v1",
+  "command": "apply",
+  "ok": true,
+  "data": {
+    "pack": {
+      "name": "minimal-pack",
+      "version": "0.1.0",
+      "engine": "",
+      "rulesync": "",
+      "harnesses": [
+        "claudecode",
+        "antigravity-cli",
+        "opencode"
+      ],
+      "optionalHarnesses": [],
+      "profiles": [],
+      "variants": [],
+      "defaultVariant": "",
+      "sharedSkills": [],
+      "layers": []
+    },
+    "variant": "standalone",
+    "profiles": [
+      "web"
+    ],
+    "project": "/work/site",
+    "record": "/work/site/.dotai/state.json",
+    "harnesses": [
+      "claudecode",
+      "antigravity-cli",
+      "opencode"
+    ],
+    "ops": [
+      {
+        "action": "create",
+        "harness": "claudecode",
+        "kind": "mcp",
+        "source": ".mcp.json",
+        "target": "/home/u/.claude.json",
+        "before": "",
+        "after": "",
+        "keys": [
+          {
+            "key": [
+              "projects",
+              "/work/site",
+              "mcpServers",
+              "browser"
+            ],
+            "action": "create"
+          }
+        ]
+      },
+      {
+        "action": "create",
+        "harness": "antigravity-cli",
+        "kind": "hooks",
+        "source": ".agents/hooks.json",
+        "target": "/work/site/.agents/hooks.json",
+        "before": "",
+        "after": "",
+        "keys": [
+          {
+            "key": [
+              "rulesync",
+              "SessionStart"
+            ],
+            "action": "create"
+          }
+        ]
+      },
+      {
+        "action": "conflict",
+        "harness": "antigravity-cli",
+        "kind": "rules",
+        "source": ".agents/rules/web.md",
+        "target": "/work/site/.agents/rules/web.md",
+        "before": "aa",
+        "after": "bb",
+        "keys": []
+      },
+      {
+        "action": "create",
+        "harness": "claudecode",
+        "kind": "rules",
+        "source": ".claude/rules/web.md",
+        "target": "/work/site/.claude/rules/web.md",
+        "before": "",
+        "after": "bb",
+        "keys": []
+      },
+      {
+        "action": "merge",
+        "harness": "claudecode",
+        "kind": "settings",
+        "source": ".claude/settings.json",
+        "target": "/work/site/.claude/settings.local.json",
+        "before": "cc",
+        "after": "",
+        "keys": [
+          {
+            "key": [
+              "permissions",
+              "allow"
+            ],
+            "action": "merge"
+          },
+          {
+            "key": [
+              "model"
+            ],
+            "action": "unchanged"
+          }
+        ]
+      },
+      {
+        "action": "create",
+        "harness": "",
+        "kind": "record",
+        "source": "",
+        "target": "/work/site/.dotai/state.json",
+        "before": "",
+        "after": "",
+        "keys": []
+      },
+      {
+        "action": "unchanged",
+        "harness": "opencode",
+        "kind": "rules",
+        "source": ".opencode/memories/web.md",
+        "target": "/work/site/.opencode/memories/web.md",
+        "before": "bb",
+        "after": "bb",
+        "keys": []
+      }
+    ],
+    "skipped": [
+      {
+        "harness": "claudecode",
+        "kind": "skills",
+        "item": "skill lint",
+        "target": "/work/site/.claude/skills/lint/SKILL.md",
+        "reason": "tracked"
+      },
+      {
+        "harness": "opencode",
+        "kind": "hooks",
+        "item": "hook sessionStart: echo hi",
+        "target": "/work/site/.opencode/plugins/rulesync-hooks.js",
+        "reason": "tracked"
+      }
+    ],
+    "exclude": {
+      "file": "/work/site/.git/info/exclude",
+      "pending": false,
+      "entries": [
+        "/.dotai/",
+        "/.agents/hooks.json",
+        "/.claude/rules/web.md"
+      ]
+    },
+    "warnings": [
+      {
+        "code": "scope-clash",
+        "harness": "claudecode",
+        "item": "skill lint",
+        "path": "/home/u/.claude/skills/lint",
+        "message": "claudecode loads the user-level skill lint from /home/u/.claude/skills/lint instead of the project's"
+      },
+      {
+        "code": "no-local-slot",
+        "harness": "antigravity-cli",
+        "item": "",
+        "path": "",
+        "message": "antigravity-cli has no project settings file, so the permissions of the profiles are not installed for it"
+      }
+    ],
+    "refusals": [],
+    "firstApply": true,
+    "notices": [],
+    "diagnostics": [],
+    "backup": {
+      "id": "20261102T101500.000Z_apply",
+      "path": "/home/u/.dotai/projects/0123456789abcdef/backups/20261102T101500.000Z_apply"
+    }
+  }
+}
