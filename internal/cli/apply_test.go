@@ -21,24 +21,24 @@ var projectPlan = app.ProjectPlan{
 	Pack:    &app.PackSummary{Name: "minimal-pack", Version: "0.1.0", Harnesses: []string{"claudecode", "antigravity-cli", "opencode"}, OptionalHarnesses: []string{}, Profiles: []app.ProfileSummary{}, Variants: []string{}, SharedSkills: []string{}, Layers: []app.LayerSummary{}},
 	Variant: "standalone", Profiles: []string{"web"}, Project: "/work/site", Record: "/work/site/.dotai/state.json",
 	Harnesses: []string{"claudecode", "antigravity-cli", "opencode"},
-	Ops: []app.ProjectOp{
+	Ops: []plan.ProjectOp{
 		{Action: plan.Create, Harness: "claudecode", Kind: "mcp", Source: ".mcp.json", Target: "/home/u/.claude.json",
-			Keys: []app.ProjectKey{{Key: []string{"projects", "/work/site", "mcpServers", "browser"}, Action: plan.Create}}},
+			Keys: []plan.ProjectKey{{Path: []string{"projects", "/work/site", "mcpServers", "browser"}, Action: plan.Create}}},
 		{Action: plan.Create, Harness: "antigravity-cli", Kind: "hooks", Source: ".agents/hooks.json", Target: "/work/site/.agents/hooks.json",
-			Keys: []app.ProjectKey{{Key: []string{"rulesync", "SessionStart"}, Action: plan.Create}}},
-		{Action: plan.Conflict, Harness: "antigravity-cli", Kind: "rules", Source: ".agents/rules/web.md", Target: "/work/site/.agents/rules/web.md", Before: "aa", After: "bb", Keys: []app.ProjectKey{}},
-		{Action: plan.Create, Harness: "claudecode", Kind: "rules", Source: ".claude/rules/web.md", Target: "/work/site/.claude/rules/web.md", After: "bb", Keys: []app.ProjectKey{}},
+			Keys: []plan.ProjectKey{{Path: []string{"rulesync", "SessionStart"}, Action: plan.Create}}},
+		{Action: plan.Conflict, Harness: "antigravity-cli", Kind: "rules", Source: ".agents/rules/web.md", Target: "/work/site/.agents/rules/web.md", Before: "aa", After: "bb", Keys: []plan.ProjectKey{}},
+		{Action: plan.Create, Harness: "claudecode", Kind: "rules", Source: ".claude/rules/web.md", Target: "/work/site/.claude/rules/web.md", After: "bb", Keys: []plan.ProjectKey{}},
 		{Action: plan.Merge, Harness: "claudecode", Kind: "settings", Source: ".claude/settings.json", Target: "/work/site/.claude/settings.local.json", Before: "cc",
-			Keys: []app.ProjectKey{{Key: []string{"permissions", "allow"}, Action: plan.Merge}, {Key: []string{"model"}, Action: plan.Unchanged}}},
-		{Action: plan.Create, Kind: "record", Target: "/work/site/.dotai/state.json", Keys: []app.ProjectKey{}},
-		{Action: plan.Unchanged, Harness: "opencode", Kind: "rules", Source: ".opencode/memories/web.md", Target: "/work/site/.opencode/memories/web.md", Before: "bb", After: "bb", Keys: []app.ProjectKey{}},
+			Keys: []plan.ProjectKey{{Path: []string{"permissions", "allow"}, Action: plan.Merge}, {Path: []string{"model"}, Action: plan.Unchanged}}},
+		{Action: plan.Create, Kind: "record", Target: "/work/site/.dotai/state.json", Keys: []plan.ProjectKey{}},
+		{Action: plan.Unchanged, Harness: "opencode", Kind: "rules", Source: ".opencode/memories/web.md", Target: "/work/site/.opencode/memories/web.md", Before: "bb", After: "bb", Keys: []plan.ProjectKey{}},
 	},
-	Skipped: []app.SkippedItem{
-		{Harness: "claudecode", Kind: "skills", Item: "skill lint", Target: "/work/site/.claude/skills/lint/SKILL.md", Reason: app.SkipTracked},
-		{Harness: "opencode", Kind: "hooks", Item: "hook sessionStart: echo hi", Target: "/work/site/.opencode/plugins/rulesync-hooks.js", Reason: app.SkipTracked},
+	Skipped: []plan.Skipped{
+		{Harness: "claudecode", Kind: "skills", Item: "skill lint", Target: "/work/site/.claude/skills/lint/SKILL.md", Reason: plan.SkipTracked},
+		{Harness: "opencode", Kind: "hooks", Item: "hook sessionStart: echo hi", Target: "/work/site/.opencode/plugins/rulesync-hooks.js", Reason: plan.SkipTracked},
 	},
 	Exclude: app.ExcludePlan{File: "/work/site/.git/info/exclude", Entries: []string{"/.dotai/", "/.agents/hooks.json", "/.claude/rules/web.md"}},
-	Warnings: []app.ProjectWarning{
+	Warnings: []plan.Warning{
 		{Code: plan.CodeScopeClash, Harness: "claudecode", Item: "skill lint", Path: "/home/u/.claude/skills/lint", Message: "claudecode loads the user-level skill lint from /home/u/.claude/skills/lint instead of the project's"},
 		{Code: plan.CodeNoLocalSlot, Harness: "antigravity-cli", Message: "antigravity-cli has no project settings file, so the permissions of the profiles are not installed for it"},
 	},
@@ -131,7 +131,7 @@ func TestRunApplyRefusesTheHomeDirectory(t *testing.T) {
 
 func TestRunApplyInvalidPack(t *testing.T) {
 	invalid := projectPlan
-	invalid.Ops, invalid.Skipped, invalid.Warnings = []app.ProjectOp{}, []app.SkippedItem{}, []app.ProjectWarning{}
+	invalid.Ops, invalid.Skipped, invalid.Warnings = []plan.ProjectOp{}, []plan.Skipped{}, []plan.Warning{}
 	invalid.Diagnostics = []app.Diagnostic{{File: "dotai.yaml", Code: "layer-selection", Message: `profile "nope" is not defined`}}
 	var stdout, stderr bytes.Buffer
 	env := testEnv(&stdout, &stderr)

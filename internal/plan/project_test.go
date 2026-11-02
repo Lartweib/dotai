@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lartweib/dotai/internal/harness"
 	"github.com/lartweib/dotai/internal/plan"
 )
 
@@ -63,7 +64,7 @@ func projectInput(t *testing.T) plan.ProjectInput {
 
 // opsByTarget is the ops of p by their target relative to base, with
 // forward slashes, or by their absolute target outside it.
-func opsByTarget(p plan.ProjectPlan, base string) map[string]plan.ProjectOp {
+func opsByTarget(p plan.Placement, base string) map[string]plan.ProjectOp {
 	out := map[string]plan.ProjectOp{}
 	for _, op := range p.Ops {
 		key := op.Target
@@ -172,16 +173,83 @@ func TestBuildProjectExcludesEveryCreatedFile(t *testing.T) {
 	}
 }
 
-func TestBuildProjectExcludeIsRelativeToTheRepository(t *testing.T) {
+func TestBuildProjectEscapesExcludeEntries(t *testing.T) {
 	in := projectInput(t)
-	in.Prefix = "site/"
 	in.Files = []plan.File{{Path: ".claude/rules/a [x] b.md", Hash: "h"}}
 	p, err := plan.BuildProject(in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"/site/.dotai/", `/site/.claude/rules/a \[x] b.md`}; !reflect.DeepEqual(p.Exclude, want) {
+	if want := []string{"/.dotai/", `/.claude/rules/a \[x] b.md`}; !reflect.DeepEqual(p.Exclude, want) {
 		t.Errorf("exclude = %q, want %q", p.Exclude, want)
+	}
+}
+
+// TestBuildProjectKeysClaudeCodeMCPByMCPKey checks that the servers go under
+// the entry the caller names, the main worktree in a repository, and under
+// the project otherwise.
+func TestBuildProjectKeysClaudeCodeMCPByMCPKey(t *testing.T) {
+	in := projectInput(t)
+	in.MCPKey = "C:/work/main"
+	p, err := plan.BuildProject(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	op := opsByTarget(p, in.Project)[filepath.Join(in.Home, ".claude.json")]
+	if len(op.Keys) != 1 || !reflect.DeepEqual(op.Keys[0].Path, []string{"projects", "C:/work/main", "mcpServers", "browser"}) {
+		t.Errorf("keys = %+v, want the server under projects[\"C:/work/main\"]", op.Keys)
+	}
+}
+
+// TestBuildProjectWarnsForEachKindWithoutALocalSlot checks that the warning
+// follows the adapter's NoSlot, whatever kind it names.
+func TestBuildProjectWarnsForEachKindWithoutALocalSlot(t *testing.T) {
+	in := projectInput(t)
+	in.Adapters[1].Project.NoSlot = append(in.Adapters[1].Project.NoSlot, harness.ProjectHooks)
+	in.Files = slices.DeleteFunc(in.Files, func(f plan.File) bool { return f.Path == ".agents/hooks.json" })
+	p, err := plan.BuildProject(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, w := range p.Warnings {
+		if w.Code == plan.CodeNoLocalSlot {
+			got = append(got, w.Harness+" "+w.Item+": "+w.Message)
+		}
+	}
+	want := []string{
+		"antigravity-cli settings: antigravity-cli has no local place for project settings and permissions, so those of the profiles are not installed for it",
+		"antigravity-cli hooks: antigravity-cli has no local place for project hooks, so those of the profiles are not installed for it",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("warnings = %q, want %q", got, want)
+	}
+}
+
+func TestProjectTargetsAreThoseOfThePlan(t *testing.T) {
+	in := projectInput(t)
+	targets, err := plan.ProjectTargets(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := plan.BuildProject(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got, want []string
+	read := map[string]bool{}
+	for _, t := range targets {
+		got, read[t.Path] = append(got, t.Path), t.Read
+	}
+	for _, op := range p.Ops {
+		want = append(want, op.Target)
+	}
+	slices.Sort(got)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("targets = %q, want the targets of the plan %q", got, want)
+	}
+	if !read[filepath.Join(in.Project, ".claude", "settings.local.json")] || !read[filepath.Join(in.Home, ".claude.json")] || read[filepath.Join(in.Project, ".claude", "rules", "web.md")] {
+		t.Errorf("read = %v, want the files merged by key only", read)
 	}
 }
 
@@ -311,7 +379,7 @@ func TestBuildProjectRefusesASettingsFileItCannotEdit(t *testing.T) {
 
 func TestBuildProjectImportsAgentsMD(t *testing.T) {
 	in := projectInput(t)
-	in.ImportAgents = true
+	in.Import = map[string]bool{"claudecode": true}
 	in.Adapters = adapters(t, "claudecode", "opencode")
 	in.Files = slices.DeleteFunc(in.Files, func(f plan.File) bool { return strings.HasPrefix(f.Path, ".agents/") })
 	p, err := plan.BuildProject(in)
@@ -325,7 +393,7 @@ func TestBuildProjectImportsAgentsMD(t *testing.T) {
 	if !slices.Contains(p.Exclude, "/.claude/rules/minimal-pack.md") {
 		t.Errorf("exclude = %v, want the import file", p.Exclude)
 	}
-	in.ImportAgents = false
+	in.Import = nil
 	p, _ = plan.BuildProject(in)
 	if _, ok := opsByTarget(p, in.Project)[".claude/rules/minimal-pack.md"]; ok {
 		t.Error("the import is planned while a CLAUDE.md imports AGENTS.md")
@@ -377,7 +445,7 @@ func TestBuildProjectNamesSameNameClashes(t *testing.T) {
 		// and agy.
 		"read-twice opencode skill lint " + filepath.Join(in.Project, ".claude", "skills", "lint"),
 		"read-twice opencode skill lint " + filepath.Join(in.Project, ".agents", "skills", "lint"),
-		"no-local-slot antigravity-cli  ",
+		"no-local-slot antigravity-cli settings ",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("warnings =\n%q\nwant\n%q", got, want)

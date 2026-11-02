@@ -61,10 +61,29 @@ const (
 const (
 	dotaiDir            = ".dotai/"
 	hooksSource         = ".rulesync/hooks.jsonc"
-	permissionsSource   = ".rulesync/permissions.jsonc"
 	importItem          = "import of AGENTS.md"
 	recordItem          = "project record"
 	projectSourcesMatch = ".rulesync/"
+)
+
+// SkipTracked is the reason of an item skipped because git tracks its
+// target.
+const SkipTracked = "tracked"
+
+// kindSources are the staged rulesync sources that hold items of each
+// kind, a directory when it ends in /, which a harness without a local slot
+// for the kind does not get; kindWords how a kind reads in a warning.
+var (
+	kindSources = map[harness.ProjectKind][]string{
+		harness.ProjectSettings: {".rulesync/permissions.jsonc"},
+		harness.ProjectHooks:    {hooksSource},
+		harness.ProjectMCP:      {".rulesync/mcp.jsonc"},
+		harness.ProjectRules:    {".rulesync/rules/"},
+		harness.ProjectAgents:   {".rulesync/subagents/"},
+		harness.ProjectSkills:   {".rulesync/skills/"},
+		harness.ProjectCommands: {".rulesync/commands/"},
+	}
+	kindWords = map[harness.ProjectKind]string{harness.ProjectSettings: "settings and permissions", harness.ProjectMCP: "MCP servers"}
 )
 
 // ProjectInput is what BuildProject plans from. Files is the project
@@ -72,33 +91,34 @@ const (
 // each target that exists, in the project or, for Claude Code's MCP
 // servers, under the home directory, and Content the content of each such
 // target that is merged by key. Tracked holds the targets git tracks. Repo
-// is set when the project is in a git repository, and Prefix is then the
-// project's directory relative to the top of the repository, a slash path
-// that ends in /, "" at the top. ImportAgents is set when the project has an AGENTS.md that
-// no CLAUDE.md imports. Isolated holds the harnesses the user installed
-// isolated, whose home file is in their isolated directory. Exists holds
-// each path of ProjectProbes that exists.
+// is set when the project, the top of a worktree, is in a git repository.
+// MCPKey is the entry of the projects object of a harness's home file that
+// holds its MCP servers, the project with forward slashes when empty.
+// Import holds the harnesses whose layout's Imports the project has and no
+// file of its ImportFiles imports. Isolated holds the harnesses the user
+// installed isolated, whose home file is in their isolated directory.
+// Exists holds each path of ProjectProbes that exists.
 type ProjectInput struct {
-	Project      string // the absolute project directory
-	Home         string // the absolute home directory
-	Pack         string // the pack's name
-	Adapters     []harness.Adapter
-	Files        []File
-	Disk         map[string]Current
-	Content      map[string][]byte
-	Tracked      map[string]bool
-	Repo         bool
-	Prefix       string
-	ImportAgents bool
-	Isolated     map[string]bool
-	Exists       map[string]bool
+	Project  string // the absolute project directory
+	Home     string // the absolute home directory
+	Pack     string // the pack's name
+	Adapters []harness.Adapter
+	Files    []File
+	Disk     map[string]Current
+	Content  map[string][]byte
+	Tracked  map[string]bool
+	Repo     bool
+	MCPKey   string
+	Import   map[string]bool
+	Isolated map[string]bool
+	Exists   map[string]bool
 }
 
-// ProjectPlan is the plan of a project apply. Ops are in target order;
-// Skipped are the items left uninstalled because git tracks their target,
-// by harness and target; Exclude are the entries of .git/info/exclude, as
-// patterns relative to the repository, or to the project outside one.
-type ProjectPlan struct {
+// Placement is where a project apply puts each file. Ops are in target
+// order; Skipped are the items left uninstalled because git tracks their
+// target, by harness and target; Exclude are the entries of the exclude
+// file, as patterns relative to the project, the top of its worktree.
+type Placement struct {
 	Ops      []ProjectOp
 	Skipped  []Skipped
 	Exclude  []string
@@ -112,43 +132,45 @@ type ProjectPlan struct {
 // a file merged by key, whose Keys are the keys the profiles write there,
 // each with what it does to the key the target holds.
 type ProjectOp struct {
-	Action  Action
-	Harness string
-	Kind    string
-	Source  string
-	Target  string
-	Before  string
-	After   string
-	Keys    []ProjectKey
+	Action  Action       `json:"action"`
+	Harness string       `json:"harness"`
+	Kind    string       `json:"kind"`
+	Source  string       `json:"source"`
+	Target  string       `json:"target"`
+	Before  string       `json:"before"`
+	After   string       `json:"after"`
+	Keys    []ProjectKey `json:"keys"`
 }
 
 // ProjectKey is a key of a file merged by key, by its path from the top of
 // the file: Create when the target lacks it, Unchanged when it holds the
 // same value, Merge when it holds another.
 type ProjectKey struct {
-	Path   []string
-	Action Action
+	Path   []string `json:"key"`
+	Action Action   `json:"action"`
 }
 
 // Skipped is an item left uninstalled because git tracks Target, the file
 // it goes to: a skill, a rule or another item named by kind and name, or a
-// key, a hook or an MCP server of a file merged by key.
+// key, a hook or an MCP server of a file merged by key. Reason is why,
+// SkipTracked so far.
 type Skipped struct {
-	Harness string
-	Kind    string
-	Item    string
-	Target  string
+	Harness string `json:"harness"`
+	Kind    string `json:"kind"`
+	Item    string `json:"item"`
+	Target  string `json:"target"`
+	Reason  string `json:"reason"`
 }
 
 // Warning is what the plan warns about, by Code: the Harness, Item and
 // Path it concerns, each "" when it concerns none, and Message, text for
 // people.
 type Warning struct {
-	Code    string
-	Harness string
-	Item    string
-	Path    string
-	Message string
+	Code    string `json:"code"`
+	Harness string `json:"harness"`
+	Item    string `json:"item"`
+	Path    string `json:"path"`
+	Message string `json:"message"`
 }
 
 // ImportHash is the SHA-256 in hex of the rules file that holds line.
@@ -159,18 +181,42 @@ func ImportHash(line string) string {
 
 // located is a target of the plan: the staged file, or what dotai makes,
 // the harness, "" for the tools and the record, and where it goes. name is
-// the item's name, such as lint for a skill; home marks the home file of
-// the harness's MCP servers.
+// the item's name, such as lint for a skill, and dir its directory for an
+// item that is one; home marks the home file of the harness's MCP servers.
 type located struct {
 	file    File
 	harness string
 	kind    string
 	item    string
 	name    string
+	dir     string
 	target  string
 	byKey   bool
 	each    []harness.Members
 	home    *harness.HomeKeys
+}
+
+// Target is a target of a project plan: its absolute path and whether the
+// plan reads its content, as it does for a file merged by key, not only
+// its hash.
+type Target struct {
+	Path string
+	Read bool
+}
+
+// ProjectTargets are the targets BuildProject plans for in, from in.Files
+// and in.Import alone, in its order; the caller reads them and asks git
+// about them before it builds the plan.
+func ProjectTargets(in ProjectInput) ([]Target, error) {
+	targets, err := in.locate()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Target, len(targets))
+	for i, t := range targets {
+		out[i] = Target{Path: t.target, Read: t.byKey || t.home != nil}
+	}
+	return out, nil
 }
 
 // BuildProject plans the project tree of in into in.Project, as decision
@@ -185,15 +231,15 @@ type located struct {
 // exists with the same content is unchanged and otherwise a conflict, left
 // as it is. A target that exists, or that the plan does not write, is not
 // excluded.
-func BuildProject(in ProjectInput) (ProjectPlan, error) {
+func BuildProject(in ProjectInput) (Placement, error) {
 	if !filepath.IsAbs(in.Project) || !filepath.IsAbs(in.Home) {
-		return ProjectPlan{}, fmt.Errorf("project %q and home %q must be absolute", in.Project, in.Home)
+		return Placement{}, fmt.Errorf("project %q and home %q must be absolute", in.Project, in.Home)
 	}
 	targets, err := in.locate()
 	if err != nil {
-		return ProjectPlan{}, err
+		return Placement{}, err
 	}
-	p := ProjectPlan{Exclude: []string{in.pattern(dotaiDir)}}
+	p := Placement{Exclude: []string{in.pattern(dotaiDir)}}
 	tracked := map[string]string{} // the first tracked target of each skipped item, by harness and item
 	for _, t := range targets {
 		if t.item != "" && in.Tracked[t.target] {
@@ -207,23 +253,23 @@ func BuildProject(in ProjectInput) (ProjectPlan, error) {
 	for _, t := range targets {
 		if first, ok := tracked[t.harness+"\x00"+t.item]; ok && t.item != "" {
 			if first == t.target {
-				p.Skipped = append(p.Skipped, Skipped{Harness: t.harness, Kind: t.kind, Item: t.item, Target: t.target})
+				p.Skipped = append(p.Skipped, Skipped{Harness: t.harness, Kind: t.kind, Item: t.item, Target: t.target, Reason: SkipTracked})
 			}
 			continue
 		}
 		if in.Tracked[t.target] {
 			items, err := in.itemsOf(t)
 			if err != nil {
-				return ProjectPlan{}, err
+				return Placement{}, err
 			}
 			for _, item := range items {
-				p.Skipped = append(p.Skipped, Skipped{Harness: t.harness, Kind: t.kind, Item: item, Target: t.target})
+				p.Skipped = append(p.Skipped, Skipped{Harness: t.harness, Kind: t.kind, Item: item, Target: t.target, Reason: SkipTracked})
 			}
 			continue
 		}
 		op, err := in.opOf(t)
 		if err != nil {
-			return ProjectPlan{}, err
+			return Placement{}, err
 		}
 		p.Ops = append(p.Ops, op)
 		if t.item != "" {
@@ -236,9 +282,8 @@ func BuildProject(in ProjectInput) (ProjectPlan, error) {
 		}
 	}
 	for _, t := range targets {
-		key := t.harness + "\x00" + t.item
-		if t.kind == string(harness.ProjectSkills) && created[key] && !in.Exists[t.skillDir(in.Project)] {
-			if e := in.pattern(t.skillRel(in.Project)); !slices.Contains(p.Exclude, e) {
+		if rel, ok := in.rel(t.dir); ok && created[t.harness+"\x00"+t.item] && !in.Exists[t.dir] {
+			if e := in.pattern(rel + "/"); !slices.Contains(p.Exclude, e) {
 				p.Exclude = append(p.Exclude, e)
 			}
 		}
@@ -248,7 +293,7 @@ func BuildProject(in ProjectInput) (ProjectPlan, error) {
 		if !ok || op.Action != Create || strings.HasPrefix(rel, dotaiDir) {
 			continue
 		}
-		if op.Kind == string(harness.ProjectSkills) && slices.ContainsFunc(p.Exclude, func(e string) bool {
+		if slices.ContainsFunc(p.Exclude[1:], func(e string) bool {
 			return strings.HasSuffix(e, "/") && strings.HasPrefix(in.pattern(rel), e)
 		}) {
 			continue
@@ -264,8 +309,8 @@ func BuildProject(in ProjectInput) (ProjectPlan, error) {
 // ProjectProbes are the paths whose existence BuildProject reads from
 // in.Exists: where a user-level item of the name of each item the plan may
 // install lives, the skills directories of other harnesses a harness reads
-// too, and the directory of each skill, which is excluded whole when the
-// plan creates it. They are sorted.
+// too, and the directory of each item that is one, which is excluded whole
+// when the plan creates it. They are sorted.
 func ProjectProbes(in ProjectInput) ([]string, error) {
 	targets, err := in.locate()
 	if err != nil {
@@ -273,8 +318,8 @@ func ProjectProbes(in ProjectInput) ([]string, error) {
 	}
 	var out []string
 	for _, t := range targets {
-		if t.kind == string(harness.ProjectSkills) {
-			out = append(out, t.skillDir(in.Project))
+		if t.dir != "" {
+			out = append(out, t.dir)
 		}
 		a, ok := in.adapter(t.harness)
 		if !ok || t.name == "" {
@@ -283,11 +328,11 @@ func ProjectProbes(in ProjectInput) ([]string, error) {
 		for _, u := range a.Project.UserItems {
 			if string(u.Kind) == t.kind {
 				for _, dir := range u.Dirs {
-					out = append(out, userItem(in.Home, dir, u.Kind, t.name))
+					out = append(out, t.userItem(in.Home, dir))
 				}
 			}
 		}
-		if t.kind == string(harness.ProjectSkills) {
+		if t.dir != "" {
 			for _, dir := range a.Project.AlsoReads {
 				out = append(out, filepath.Join(in.Project, filepath.FromSlash(dir+t.name)))
 			}
@@ -325,8 +370,11 @@ func (in ProjectInput) locate() ([]located, error) {
 				break
 			}
 			if t, ok := a.Project.Locate(f.Path); ok {
-				_, name, _ := strings.Cut(t.Item, " ")
-				out = append(out, located{file: f, harness: a.ID, kind: string(t.Kind), item: t.Item, name: name, target: in.at(t.Target), byKey: t.ByKey, each: t.Each})
+				l := located{file: f, harness: a.ID, kind: string(t.Kind), item: t.Item, name: t.Name, target: in.at(t.Target), byKey: t.ByKey, each: t.Each}
+				if t.Dir != "" {
+					l.dir = in.at(strings.TrimSuffix(t.Dir, "/"))
+				}
+				out = append(out, l)
 				found = true
 				break
 			}
@@ -340,7 +388,7 @@ func (in ProjectInput) locate() ([]located, error) {
 		return nil, &UnmappedError{Paths: unmapped}
 	}
 	for _, a := range in.Adapters {
-		if rel := a.Project.ImportFile(in.Pack); rel != "" && in.ImportAgents {
+		if rel := a.Project.ImportFile(in.Pack); rel != "" && in.Import[a.ID] {
 			line := a.Project.ImportLine
 			out = append(out, located{file: File{Hash: ImportHash(line), Data: []byte(line + "\n")}, harness: a.ID, kind: string(harness.ProjectRules), item: importItem, target: in.at(rel)})
 		}
@@ -379,7 +427,7 @@ func (in ProjectInput) opOf(t located) (ProjectOp, error) {
 		}
 		return op, nil
 	case t.home != nil || t.byKey:
-		paths, values, err := t.stagedKeys(in.Project)
+		paths, values, err := t.stagedKeys(in.mcpKey())
 		if err != nil {
 			return ProjectOp{}, fmt.Errorf("staged %s: %w", t.file.Path, err)
 		}
@@ -422,7 +470,7 @@ func (in ProjectInput) opOf(t located) (ProjectOp, error) {
 // object of t.each one by one and every other key whole, in the order of
 // the staged file, or for the home file of a harness's MCP servers, each
 // server under the project's entry.
-func (t located) stagedKeys(project string) ([][]string, [][]byte, error) {
+func (t located) stagedKeys(mcpKey string) ([][]string, [][]byte, error) {
 	doc, err := jsonc.Parse(t.file.Data)
 	if err != nil {
 		return nil, nil, err
@@ -433,7 +481,7 @@ func (t located) stagedKeys(project string) ([][]string, [][]byte, error) {
 		var values [][]byte
 		for _, name := range names {
 			v, _ := doc.Get([]string{t.home.Servers, name})
-			paths = append(paths, []string{t.home.Projects, filepath.ToSlash(project), t.home.Servers, name})
+			paths = append(paths, []string{t.home.Projects, mcpKey, t.home.Servers, name})
 			values = append(values, v)
 		}
 		return paths, values, nil
@@ -479,7 +527,7 @@ func keysOf(doc *jsonc.Document, prefix []string, each []harness.Members) [][]st
 func (in ProjectInput) itemsOf(t located) ([]string, error) {
 	switch {
 	case t.byKey:
-		paths, values, err := t.stagedKeys(in.Project)
+		paths, values, err := t.stagedKeys(in.mcpKey())
 		if err != nil {
 			return nil, fmt.Errorf("staged %s: %w", t.file.Path, err)
 		}
@@ -588,7 +636,7 @@ func (in ProjectInput) warnings(installed map[string][]located) []Warning {
 					continue
 				}
 				for _, dir := range u.Dirs {
-					p := userItem(in.Home, dir, u.Kind, t.name)
+					p := t.userItem(in.Home, dir)
 					if !in.Exists[p] {
 						continue
 					}
@@ -603,13 +651,13 @@ func (in ProjectInput) warnings(installed map[string][]located) []Warning {
 	}
 	for _, a := range in.Adapters {
 		for _, t := range installed[a.ID] {
-			if t.kind != string(harness.ProjectSkills) {
+			if t.dir == "" {
 				continue
 			}
 			for _, dir := range a.Project.AlsoReads {
 				p := filepath.Join(in.Project, filepath.FromSlash(dir+t.name))
 				other := slices.ContainsFunc(in.Adapters, func(b harness.Adapter) bool {
-					return slices.ContainsFunc(installed[b.ID], func(o located) bool { return o.kind == t.kind && o.skillDir(in.Project) == p })
+					return slices.ContainsFunc(installed[b.ID], func(o located) bool { return o.kind == t.kind && o.dir == p })
 				})
 				if in.Exists[p] || other {
 					out = append(out, Warning{Code: CodeReadTwice, Harness: a.ID, Item: t.item, Path: p,
@@ -618,11 +666,18 @@ func (in ProjectInput) warnings(installed map[string][]located) []Warning {
 			}
 		}
 	}
-	permissions := slices.ContainsFunc(in.Files, func(f File) bool { return f.Path == permissionsSource })
 	for _, a := range in.Adapters {
-		if permissions && slices.Contains(a.Project.NoSlot, harness.ProjectSettings) {
-			out = append(out, Warning{Code: CodeNoLocalSlot, Harness: a.ID,
-				Message: fmt.Sprintf("%s has no project settings file, so the permissions of the profiles are not installed for it", a.ID)})
+		for _, kind := range a.Project.NoSlot {
+			if !slices.ContainsFunc(in.Files, func(f File) bool {
+				return slices.ContainsFunc(kindSources[kind], func(src string) bool {
+					return f.Path == src || strings.HasSuffix(src, "/") && strings.HasPrefix(f.Path, src)
+				})
+			}) {
+				continue
+			}
+			word := cmp.Or(kindWords[kind], string(kind))
+			out = append(out, Warning{Code: CodeNoLocalSlot, Harness: a.ID, Item: string(kind),
+				Message: fmt.Sprintf("%s has no local place for project %s, so those of the profiles are not installed for it", a.ID, word)})
 		}
 	}
 	if !in.Repo {
@@ -656,11 +711,13 @@ func (in ProjectInput) rel(target string) (string, bool) {
 	return filepath.ToSlash(rel), true
 }
 
+// mcpKey is the entry of a home file's projects object for the project.
+func (in ProjectInput) mcpKey() string { return cmp.Or(in.MCPKey, filepath.ToSlash(in.Project)) }
+
 // pattern is the exclude entry of rel, a slash path in the project, a
-// directory when it ends in /: anchored at the top of the repository, or of
-// the project outside one, with the characters a pattern reads escaped.
+// directory when it ends in /: anchored at the project, the top of its
+// worktree, with the characters a pattern reads escaped.
 func (in ProjectInput) pattern(rel string) string {
-	rel = in.Prefix + rel
 	var b strings.Builder
 	b.WriteByte('/')
 	trimmed := strings.TrimRight(rel, " ")
@@ -676,27 +733,12 @@ func (in ProjectInput) pattern(rel string) string {
 	return b.String()
 }
 
-// skillRel is the directory of the skill t belongs to, relative to the
-// project, with a trailing slash, and skillDir that directory.
-func (t located) skillRel(project string) string {
-	rel, _ := filepath.Rel(project, t.target)
-	parts := strings.Split(filepath.ToSlash(rel), "/")
-	for i, part := range parts {
-		if part == "skills" && i+1 < len(parts) {
-			return strings.Join(parts[:i+2], "/") + "/"
-		}
-	}
-	return filepath.ToSlash(rel)
-}
-
-func (t located) skillDir(project string) string {
-	return filepath.Join(project, filepath.FromSlash(strings.TrimSuffix(t.skillRel(project), "/")))
-}
-
-// userItem is where a user-level item of kind named name lives in dir, a
-// slash path relative to home: a skill's directory, or an agent's file.
-func userItem(home, dir string, kind harness.ProjectKind, name string) string {
-	if kind != harness.ProjectSkills {
+// userItem is where a user-level item of the name of t lives in dir, a
+// slash path relative to home: the directory of an item that is one, or an
+// agent's file.
+func (t located) userItem(home, dir string) string {
+	name := t.name
+	if t.dir == "" {
 		name += ".md"
 	}
 	return filepath.Join(home, filepath.FromSlash(dir), name)

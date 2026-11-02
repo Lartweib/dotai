@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -23,9 +22,7 @@ func TestPlanProjectWithRealRulesync(t *testing.T) {
 	if os.Getenv("DOTAI_E2E") != "1" {
 		t.Skip("set DOTAI_E2E=1 to run rulesync")
 	}
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git is not on PATH")
-	}
+	needGit(t)
 	cache, err := filepath.Abs(cmp.Or(os.Getenv("DOTAI_CACHE_DIR"), t.TempDir()))
 	if err != nil {
 		t.Fatal(err)
@@ -44,8 +41,6 @@ func TestPlanProjectWithRealRulesync(t *testing.T) {
 	} {
 		writeFile(t, filepath.Join(web, filepath.FromSlash(name)), data)
 	}
-	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "none"))
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	project, home, _ := projectDirs(t)
 	git(t, project, "init", "-q")
 	writeFile(t, at(project, ".agents/hooks.json"), "{}\n")
@@ -77,7 +72,7 @@ func TestPlanProjectWithRealRulesync(t *testing.T) {
 			t.Errorf("%s is planned", never)
 		}
 	}
-	want := []app.SkippedItem{{Harness: "antigravity-cli", Kind: "hooks", Item: "hook SessionStart: echo hi", Target: at(project, ".agents/hooks.json"), Reason: app.SkipTracked}}
+	want := []plan.Skipped{{Harness: "antigravity-cli", Kind: "hooks", Item: "hook SessionStart: echo hi", Target: at(project, ".agents/hooks.json"), Reason: plan.SkipTracked}}
 	if !reflect.DeepEqual(p.Skipped, want) {
 		t.Errorf("skipped = %+v, want %+v", p.Skipped, want)
 	}

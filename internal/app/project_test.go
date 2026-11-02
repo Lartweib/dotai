@@ -63,7 +63,7 @@ func (g *fakeGit) Repo(_ context.Context, dir string) (*app.Repo, error) {
 	if g.outside {
 		return nil, nil
 	}
-	return &app.Repo{Exclude: filepath.Join(dir, ".git", "info", "exclude")}, nil
+	return &app.Repo{Top: dir, Main: dir, Exclude: filepath.Join(dir, ".git", "info", "exclude")}, nil
 }
 
 func (g *fakeGit) Tracked(_ context.Context, _ string, paths []string) (map[string]bool, error) {
@@ -121,7 +121,7 @@ func TestPlanProjectListsEachTargetAndWritesNothing(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("ops =\n%q\nwant\n%q", got, want)
 	}
-	if want := []app.SkippedItem{{Harness: "claudecode", Kind: "skills", Item: "skill lint", Target: at(project, ".claude/skills/lint/SKILL.md"), Reason: app.SkipTracked}}; !reflect.DeepEqual(p.Skipped, want) {
+	if want := []plan.Skipped{{Harness: "claudecode", Kind: "skills", Item: "skill lint", Target: at(project, ".claude/skills/lint/SKILL.md"), Reason: plan.SkipTracked}}; !reflect.DeepEqual(p.Skipped, want) {
 		t.Errorf("skipped = %+v, want %+v", p.Skipped, want)
 	}
 	if !slices.Contains(g.asked, ".claude/skills/lint/SKILL.md") || slices.ContainsFunc(g.asked, func(p string) bool { return strings.Contains(p, ".claude.json") }) {
@@ -154,7 +154,7 @@ func TestPlanProjectOutsideARepository(t *testing.T) {
 	if !p.Exclude.Pending || p.Exclude.File != "" || len(p.Exclude.Entries) == 0 {
 		t.Errorf("exclude = %+v, want the entries pending", p.Exclude)
 	}
-	if !slices.ContainsFunc(p.Warnings, func(w app.ProjectWarning) bool { return w.Code == plan.CodeExcludePending }) {
+	if !slices.ContainsFunc(p.Warnings, func(w plan.Warning) bool { return w.Code == plan.CodeExcludePending }) {
 		t.Errorf("warnings = %+v, want exclude-pending", p.Warnings)
 	}
 }
@@ -197,7 +197,7 @@ func TestPlanProjectUsesThePackOfTheInstallState(t *testing.T) {
 	}
 	// Claude Code runs isolated, so its project MCP servers go to the
 	// .claude.json of its isolated directory.
-	if !slices.ContainsFunc(p.Ops, func(op app.ProjectOp) bool { return op.Target == at(home, ".dotai/isolated/claude/.claude.json") }) {
+	if !slices.ContainsFunc(p.Ops, func(op plan.ProjectOp) bool { return op.Target == at(home, ".dotai/isolated/claude/.claude.json") }) {
 		t.Errorf("ops = %+v, want the isolated .claude.json", p.Ops)
 	}
 }
@@ -206,7 +206,7 @@ func TestPlanProjectImportsAgentsMDOnlyWhenNoClaudeMDDoes(t *testing.T) {
 	project, home, _ := projectDirs(t)
 	writeFile(t, at(project, "AGENTS.md"), "# team\n")
 	importOp := func(p app.ProjectPlan) bool {
-		return slices.ContainsFunc(p.Ops, func(op app.ProjectOp) bool { return op.Target == at(project, ".claude/rules/minimal-pack.md") })
+		return slices.ContainsFunc(p.Ops, func(op plan.ProjectOp) bool { return op.Target == at(project, ".claude/rules/minimal-pack.md") })
 	}
 	p, err := planProject(t, &fakeGit{}, examplePack, project, home)
 	if err != nil || !importOp(p) {
@@ -215,6 +215,13 @@ func TestPlanProjectImportsAgentsMDOnlyWhenNoClaudeMDDoes(t *testing.T) {
 	writeFile(t, at(project, "CLAUDE.md"), "intro\n@AGENTS.md\n")
 	if p, err = planProject(t, &fakeGit{}, examplePack, project, home); err != nil || importOp(p) {
 		t.Errorf("PlanProject() = %+v, %v, want no import beside a CLAUDE.md that imports AGENTS.md", p.Ops, err)
+	}
+	if err := os.Remove(at(project, "CLAUDE.md")); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, at(project, ".claude/CLAUDE.md"), "@../AGENTS.md\n")
+	if p, err = planProject(t, &fakeGit{}, examplePack, project, home); err != nil || importOp(p) {
+		t.Errorf("PlanProject() = %+v, %v, want no import beside a .claude/CLAUDE.md that imports AGENTS.md", p.Ops, err)
 	}
 }
 
@@ -257,46 +264,192 @@ func git(t *testing.T, dir string, args ...string) {
 	}
 }
 
-func TestOSGitInARepository(t *testing.T) {
+// needGit skips a test without git, and keeps the user's git
+// configuration out of it.
+func needGit(t *testing.T) {
+	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is not on PATH")
 	}
 	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "none"))
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+}
+
+// samePlace fails unless a and b are the same existing file or directory,
+// however each is spelled, as git may resolve a link or a short name.
+func samePlace(t *testing.T, what, a, b string) {
+	t.Helper()
+	fa, err := os.Stat(a)
+	fb, err2 := os.Stat(b)
+	if err != nil || err2 != nil || !os.SameFile(fa, fb) {
+		t.Errorf("%s = %s, want %s (%v, %v)", what, a, b, err, err2)
+	}
+}
+
+func TestOSGitFromASubdirectory(t *testing.T) {
+	needGit(t)
 	repo := t.TempDir()
 	git(t, repo, "init", "-q")
-	writeFile(t, at(repo, "site/.claude/rules/web.md"), "team\n")
-	writeFile(t, at(repo, "site/a [x].md"), "team\n")
-	writeFile(t, at(repo, "site/.claude/rules/other.md"), "untracked\n")
-	git(t, repo, "add", "site/.claude/rules/web.md", "site/a [x].md")
-	git(t, repo, "commit", "-q", "-m", "init")
-	project := at(repo, "site")
-	g := app.OSGit{}
-	r, err := g.Repo(context.Background(), project)
+	writeFile(t, at(repo, "site/x.md"), "x\n")
+	r, err := app.OSGit{}.Repo(context.Background(), at(repo, "site"))
 	if err != nil || r == nil {
 		t.Fatalf("Repo() = %v, %v", r, err)
 	}
-	got, err := os.Stat(r.Exclude)
-	want, err2 := os.Stat(at(repo, ".git/info/exclude"))
-	if r.Prefix != "site/" || !filepath.IsAbs(r.Exclude) || err != nil || err2 != nil || !os.SameFile(got, want) {
-		t.Errorf("Repo() = %+v (%v, %v), want the prefix site/ and the exclude file of the repository", r, err, err2)
+	// A repository without a commit is one too.
+	samePlace(t, "top", r.Top, repo)
+	samePlace(t, "main", r.Main, repo)
+	samePlace(t, "exclude", r.Exclude, at(repo, ".git/info/exclude"))
+	for _, p := range []string{r.Top, r.Main, r.Exclude} {
+		if !filepath.IsAbs(p) || strings.Contains(p, "/") && filepath.Separator != '/' {
+			t.Errorf("%s is not an absolute path with the OS separator", p)
+		}
 	}
-	tracked, err := g.Tracked(context.Background(), project, []string{".claude/rules/web.md", ".claude/rules/other.md", "a [x].md", "a ?x].md", "missing.md"})
+}
+
+func TestOSGitInALinkedWorktree(t *testing.T) {
+	needGit(t)
+	main := t.TempDir()
+	git(t, main, "init", "-q")
+	writeFile(t, at(main, "a.md"), "a\n")
+	git(t, main, "add", "a.md")
+	git(t, main, "commit", "-q", "-m", "init")
+	wt := filepath.Join(t.TempDir(), "wt")
+	git(t, main, "worktree", "add", "-q", wt)
+	writeFile(t, at(wt, "sub/b.md"), "b\n")
+	r, err := app.OSGit{}.Repo(context.Background(), at(wt, "sub"))
+	if err != nil || r == nil {
+		t.Fatalf("Repo() = %v, %v", r, err)
+	}
+	// The worktree is the project; Claude Code keys its MCP servers by the
+	// main worktree, and the exclude file is the common one.
+	samePlace(t, "top", r.Top, wt)
+	samePlace(t, "main", r.Main, main)
+	samePlace(t, "exclude", r.Exclude, at(main, ".git/info/exclude"))
+}
+
+func TestOSGitTracked(t *testing.T) {
+	needGit(t)
+	repo := t.TempDir()
+	git(t, repo, "init", "-q")
+	writeFile(t, at(repo, ".claude/rules/web.md"), "team\n")
+	writeFile(t, at(repo, "a [x].md"), "team\n")
+	writeFile(t, at(repo, ".claude/rules/other.md"), "untracked\n")
+	writeFile(t, at(repo, ".agents/rules/Team.md"), "team\n")
+	git(t, repo, "add", ".claude/rules/web.md", "a [x].md", ".agents/rules/Team.md")
+	git(t, repo, "commit", "-q", "-m", "init")
+	asked := []string{".claude/rules/web.md", ".claude/rules/other.md", "a [x].md", "a ?x].md", "missing.md", ".agents/rules/team.md"}
+	tracked, err := app.OSGit{}.Tracked(context.Background(), repo, asked)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := map[string]bool{".claude/rules/web.md": true, "a [x].md": true}; !reflect.DeepEqual(tracked, want) {
-		t.Errorf("Tracked() = %v, want %v, pathspecs read literally", tracked, want)
+	want := map[string]bool{".claude/rules/web.md": true, "a [x].md": true}
+	// Where the file system ignores case, team.md is Team.md, which git
+	// tracks, so it is never written.
+	if app.FoldCase {
+		want[".agents/rules/team.md"] = true
 	}
-	if entries, err := os.ReadDir(at(repo, ".git")); err != nil || slices.ContainsFunc(entries, func(e os.DirEntry) bool { return e.Name() == "index.lock" }) {
-		t.Errorf("the repository holds %v, %v", entries, err)
+	if !reflect.DeepEqual(tracked, want) {
+		t.Errorf("Tracked() = %v, want %v, by the paths asked, pathspecs read literally", tracked, want)
+	}
+	if _, err := os.Stat(at(repo, ".git/index.lock")); err == nil {
+		t.Error("git left an index lock")
+	}
+}
+
+func TestOSGitIgnoresTheVariablesThatPointGitElsewhere(t *testing.T) {
+	needGit(t)
+	repo := t.TempDir()
+	git(t, repo, "init", "-q")
+	writeFile(t, at(repo, "a.md"), "a\n")
+	git(t, repo, "add", "a.md")
+	git(t, repo, "commit", "-q", "-m", "init")
+	other := t.TempDir()
+	git(t, other, "init", "-q")
+	t.Setenv("GIT_DIR", at(other, ".git"))
+	t.Setenv("GIT_WORK_TREE", other)
+	t.Setenv("GIT_INDEX_FILE", at(other, "index"))
+	t.Setenv("GIT_CONFIG_COUNT", "1")
+	t.Setenv("GIT_CONFIG_KEY_0", "core.bogus")
+	t.Setenv("GIT_CONFIG_VALUE_0", "1")
+	t.Setenv("LANG", "de_DE.UTF-8")
+	t.Setenv("LC_ALL", "de_DE.UTF-8")
+	r, err := app.OSGit{}.Repo(context.Background(), repo)
+	if err != nil || r == nil {
+		t.Fatalf("Repo() = %v, %v", r, err)
+	}
+	samePlace(t, "top", r.Top, repo)
+	tracked, err := app.OSGit{}.Tracked(context.Background(), repo, []string{"a.md"})
+	if err != nil || !tracked["a.md"] {
+		t.Errorf("Tracked() = %v, %v, want a.md of this repository", tracked, err)
+	}
+	if r, err := (app.OSGit{}).Repo(context.Background(), t.TempDir()); err != nil || r != nil {
+		t.Errorf("Repo() outside = %+v, %v, want no repository in any locale", r, err)
+	}
+}
+
+func TestPlanProjectRunsFromTheTopOfTheWorktree(t *testing.T) {
+	needGit(t)
+	_, home, _ := projectDirs(t)
+	main := t.TempDir()
+	git(t, main, "init", "-q")
+	writeFile(t, at(main, "README.md"), "r\n")
+	git(t, main, "add", "README.md")
+	git(t, main, "commit", "-q", "-m", "init")
+	wt := filepath.Join(t.TempDir(), "wt")
+	git(t, main, "worktree", "add", "-q", wt)
+	for _, tt := range []struct{ name, cwd, top string }{
+		{"subdirectory", at(main, "docs/deep"), main},
+		{"linked worktree", at(wt, "src"), wt},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := os.MkdirAll(tt.cwd, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			p, err := planProject(t, app.OSGit{}, examplePack, tt.cwd, home)
+			if err != nil {
+				t.Fatal(err)
+			}
+			samePlace(t, "project", p.Project, tt.top)
+			samePlace(t, "exclude", p.Exclude.File, at(main, ".git/info/exclude"))
+			var key []string
+			for _, op := range p.Ops {
+				if op.Kind == "mcp" && op.Harness == "claudecode" {
+					key = op.Keys[0].Path
+				} else if rel, err := filepath.Rel(p.Project, op.Target); err != nil || !filepath.IsLocal(rel) {
+					t.Errorf("%s is outside the project %s", op.Target, p.Project)
+				}
+			}
+			if len(key) != 4 {
+				t.Fatalf("ops = %+v, want Claude Code's MCP key", p.Ops)
+			}
+			samePlace(t, "MCP key", filepath.FromSlash(key[1]), main)
+			if strings.Contains(key[1], `\`) {
+				t.Errorf("MCP key %q, want forward slashes", key[1])
+			}
+		})
+	}
+}
+
+func TestPlanProjectRefusesALinkToTheHomeDirectoryOrARoot(t *testing.T) {
+	_, home, _ := projectDirs(t)
+	toHome := filepath.Join(t.TempDir(), "home")
+	makeLink(t, home, toHome)
+	root := string(filepath.Separator)
+	if v := filepath.VolumeName(home); v != "" {
+		root = v + root
+	}
+	toRoot := filepath.Join(t.TempDir(), "root")
+	makeLink(t, root, toRoot)
+	for _, tt := range []struct{ dir, why string }{{toHome, "the home directory"}, {toRoot, "the root of"}} {
+		_, err := planProject(t, &fakeGit{outside: true}, examplePack, tt.dir, home)
+		if r, ok := errors.AsType[*app.ProjectRefusedError](err); !ok || !strings.HasPrefix(r.Why, tt.why) {
+			t.Errorf("PlanProject(%s) error = %v, want a refusal for %s", tt.dir, err, tt.why)
+		}
 	}
 }
 
 func TestOSGitOutsideARepository(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git is not on PATH")
-	}
+	needGit(t)
 	t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(t.TempDir()))
 	r, err := app.OSGit{}.Repo(context.Background(), t.TempDir())
 	if err != nil || r != nil {

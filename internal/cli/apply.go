@@ -109,13 +109,13 @@ func writeProjectPlan(w io.Writer, p app.ProjectPlan, color bool, footer string)
 	count := map[plan.Action]int{}
 	indent := strings.Repeat(" ", keyIndent)
 	for _, g := range groups {
-		var ops []app.ProjectOp
+		var ops []plan.ProjectOp
 		for _, op := range p.Ops {
 			if op.Harness == g {
 				ops = append(ops, op)
 			}
 		}
-		var skipped []app.SkippedItem
+		var skipped []plan.Skipped
 		for _, s := range p.Skipped {
 			if s.Harness == g {
 				skipped = append(skipped, s)
@@ -135,7 +135,7 @@ func writeProjectPlan(w io.Writer, p app.ProjectPlan, color bool, footer string)
 			if len(op.Keys) > 0 {
 				items := make([]string, len(op.Keys))
 				for i, k := range op.Keys {
-					items[i] = paint(color, projectStyle[k.Action], string(k.Action)) + " " + projectKey(k.Key)
+					items[i] = paint(color, projectStyle[k.Action], string(k.Action)) + " " + projectKey(k.Path)
 				}
 				fmt.Fprintf(&b, "%skeys: %s\n", indent, strings.Join(items, ", "))
 			}

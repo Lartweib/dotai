@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
-	"regexp"
 	"slices"
 
 	"github.com/lartweib/dotai/internal/harness"
@@ -17,61 +16,29 @@ import (
 )
 
 // ProjectPlan is the plan of applying profiles to a project (decision
-// 0041): each target per harness, the items left uninstalled because git
-// tracks their target, the entries of .git/info/exclude and what the plan
-// warns about. Lists are never nil; they are empty when there are
-// diagnostics.
+// 0041), as dotai apply --dry-run prints it: the plan.Placement of each
+// target per harness, with the items left uninstalled because git tracks
+// their target and the warnings, and the exclude entries. Lists are never
+// nil; they are empty when there are diagnostics.
 type ProjectPlan struct {
 	Pack     *PackSummary `json:"pack"`    // nil when the manifest cannot be read
 	Variant  string       `json:"variant"` // the user scope's, which the cross-scope rules check the profiles against
 	Profiles []string     `json:"profiles"`
-	Project  string       `json:"project"` // the absolute project directory
-	Record   string       `json:"record"`  // the project record, <project>/.dotai/state.json
+	// Project is the absolute project directory: the top of the worktree
+	// the current directory is in, or the current directory outside git.
+	Project string `json:"project"`
+	Record  string `json:"record"` // the project record, <project>/.dotai/state.json
 	// Harnesses are the harnesses the plan is for, in manifest order.
 	Harnesses []string         `json:"harnesses"`
-	Ops       []ProjectOp      `json:"ops"`
-	Skipped   []SkippedItem    `json:"skipped"`
+	Ops       []plan.ProjectOp `json:"ops"`
+	Skipped   []plan.Skipped   `json:"skipped"`
 	Exclude   ExcludePlan      `json:"exclude"`
-	Warnings  []ProjectWarning `json:"warnings"`
+	Warnings  []plan.Warning   `json:"warnings"`
 	// Notices say why an optional harness is not in the plan, text for
 	// people.
 	Notices     []string     `json:"notices"`
 	Diagnostics []Diagnostic `json:"diagnostics"`
 }
-
-// ProjectOp is one target of a project plan; see plan.ProjectOp. Keys are
-// never nil.
-type ProjectOp struct {
-	Action  plan.Action  `json:"action"`
-	Harness string       `json:"harness"`
-	Kind    string       `json:"kind"`
-	Source  string       `json:"source"`
-	Target  string       `json:"target"`
-	Before  string       `json:"before"`
-	After   string       `json:"after"`
-	Keys    []ProjectKey `json:"keys"`
-}
-
-// ProjectKey is a key a project op writes into a file merged by key, by
-// its path from the top of the file, and what it does to it: create,
-// merge or unchanged.
-type ProjectKey struct {
-	Key    []string    `json:"key"`
-	Action plan.Action `json:"action"`
-}
-
-// SkippedItem is an item a project plan leaves uninstalled, and why: so
-// far only tracked, git tracks Target, the file it goes to.
-type SkippedItem struct {
-	Harness string `json:"harness"`
-	Kind    string `json:"kind"`
-	Item    string `json:"item"`
-	Target  string `json:"target"`
-	Reason  string `json:"reason"`
-}
-
-// SkipTracked is the reason of an item whose target git tracks.
-const SkipTracked = "tracked"
 
 // ExcludePlan is the entries of .git/info/exclude a project apply adds:
 // File, the exclude file, "" outside a git repository, where the entries
@@ -80,15 +47,6 @@ type ExcludePlan struct {
 	File    string   `json:"file"`
 	Pending bool     `json:"pending"`
 	Entries []string `json:"entries"`
-}
-
-// ProjectWarning is a warning of a project plan; see plan.Warning.
-type ProjectWarning struct {
-	Code    string `json:"code"`
-	Harness string `json:"harness"`
-	Item    string `json:"item"`
-	Path    string `json:"path"`
-	Message string `json:"message"`
 }
 
 // ApplyOptions are the choices of a project apply: the profiles, and the
@@ -101,7 +59,8 @@ type ApplyOptions struct {
 
 // ProjectRefusedError is a project directory where the project scope would
 // overlap the user scope: the home directory or the root of a drive or of
-// the file system (decision 0041).
+// the file system, however a link or a short name spells it (decision
+// 0041).
 type ProjectRefusedError struct {
 	Dir, Why string
 }
@@ -111,25 +70,37 @@ func (e *ProjectRefusedError) Error() string {
 }
 
 // PlanProject plans applying the profiles of opts, from the pack in dir,
-// to the project directory project, for the user whose home directory is
-// home, and writes nothing but the rulesync cache. dir "" is the pack the
-// install state records. It stages the pack as Stage does, into a
-// temporary directory it removes, with ${DOTAI_PROJECT_TOOLS} at the
-// project's tools directory, then places each file of the project tree as
-// plan.BuildProject does, after asking git which targets it tracks. The
-// harnesses are those an install would manage. rulesync is fetched into
-// cacheDir as FetchRulesync does; progress may be nil.
-func PlanProject(ctx context.Context, cacheDir, dir, project, home string, opts ApplyOptions, progress Progress) (ProjectPlan, error) {
-	return planProject(ctx, osInstallFS{}, osHost(), osGit{}, download, generate, cacheDir, dir, project, home, opts, progress)
+// to the project of the current directory cwd, for the user whose home
+// directory is home, and writes nothing but the rulesync cache. The
+// project is the top of the worktree cwd is in, or cwd outside git. dir ""
+// is the pack the install state records. It stages the pack as Stage
+// does, into a temporary directory it removes, with ${DOTAI_PROJECT_TOOLS}
+// at the project's tools directory, then places each file of the project
+// tree as plan.BuildProject does, after asking git which targets it
+// tracks. The harnesses are those an install would manage. rulesync is
+// fetched into cacheDir as FetchRulesync does; progress may be nil.
+func PlanProject(ctx context.Context, cacheDir, dir, cwd, home string, opts ApplyOptions, progress Progress) (ProjectPlan, error) {
+	return planProject(ctx, osInstallFS{}, osHost(), osGit{}, download, generate, cacheDir, dir, cwd, home, opts, progress)
 }
 
-func planProject(ctx context.Context, d installFS, h host, g gitPort, fetch fetchFunc, run runFunc, cacheDir, dir, project, home string, opts ApplyOptions, progress Progress) (res ProjectPlan, err error) {
-	if !filepath.IsAbs(home) || !filepath.IsAbs(project) {
-		return ProjectPlan{}, fmt.Errorf("home directory %q and project %q must be absolute", home, project)
+func planProject(ctx context.Context, d installFS, h host, g gitPort, fetch fetchFunc, run runFunc, cacheDir, dir, cwd, home string, opts ApplyOptions, progress Progress) (res ProjectPlan, err error) {
+	if !filepath.IsAbs(home) || !filepath.IsAbs(cwd) {
+		return ProjectPlan{}, fmt.Errorf("home directory %q and current directory %q must be absolute", home, cwd)
 	}
-	home, project = filepath.Clean(home), filepath.Clean(project)
-	if err := checkProject(project, home); err != nil {
+	home, cwd = filepath.Clean(home), filepath.Clean(cwd)
+	if err := checkProject(cwd, home); err != nil {
 		return ProjectPlan{}, err
+	}
+	repo, err := g.Repo(ctx, cwd)
+	if err != nil {
+		return ProjectPlan{}, err
+	}
+	project, mcpKey := cwd, filepath.ToSlash(cwd)
+	if repo != nil {
+		project, mcpKey = repo.Top, filepath.ToSlash(repo.Main)
+		if err := checkProject(project, home); err != nil {
+			return ProjectPlan{}, err
+		}
 	}
 	prev, err := readState(d, home)
 	if err != nil {
@@ -144,10 +115,6 @@ func planProject(ctx context.Context, d installFS, h host, g gitPort, fetch fetc
 	variant := opts.Variant
 	if abs, err := filepath.Abs(dir); err == nil && variant == "" && prev != nil && samePath(filepath.Clean(prev.Pack.Path), abs) {
 		variant = prev.Variant
-	}
-	repo, err := g.Repo(ctx, project)
-	if err != nil {
-		return ProjectPlan{}, err
 	}
 	tmp, err := d.StagingDir()
 	if err != nil {
@@ -168,15 +135,14 @@ func planProject(ctx context.Context, d installFS, h host, g gitPort, fetch fetc
 		notices = n
 		return selected, err
 	}
-	tools := ToolsIn(home, project)
-	s, err := stage(ctx, d, fetch, run, cacheDir, dir, filepath.Join(tmp, "staging"), Selection{Variant: variant, Profiles: opts.Profiles}, pick, tools, false, progress)
+	s, err := stage(ctx, d, fetch, run, cacheDir, dir, filepath.Join(tmp, "staging"), Selection{Variant: variant, Profiles: opts.Profiles}, pick, ToolsIn(home, project), false, progress)
 	if err != nil {
 		return ProjectPlan{}, err
 	}
 	res = ProjectPlan{
 		Pack: s.Pack, Variant: variant, Profiles: append([]string{}, opts.Profiles...), Project: project,
-		Record: filepath.Join(project, filepath.FromSlash(plan.RecordFile)), Harnesses: []string{}, Ops: []ProjectOp{}, Skipped: []SkippedItem{},
-		Exclude: ExcludePlan{Pending: repo == nil, Entries: []string{}}, Warnings: []ProjectWarning{}, Notices: []string{}, Diagnostics: s.Diagnostics,
+		Record: filepath.Join(project, filepath.FromSlash(plan.RecordFile)), Harnesses: []string{}, Ops: []plan.ProjectOp{}, Skipped: []plan.Skipped{},
+		Exclude: ExcludePlan{Pending: repo == nil, Entries: []string{}}, Warnings: []plan.Warning{}, Notices: []string{}, Diagnostics: s.Diagnostics,
 	}
 	if s.Pack != nil {
 		res.Variant = cmp.Or(variant, s.Pack.DefaultVariant)
@@ -192,7 +158,8 @@ func planProject(ctx context.Context, d installFS, h host, g gitPort, fetch fetc
 		return ProjectPlan{}, err
 	}
 	res.Harnesses, res.Notices = append(res.Harnesses, s.Harnesses...), append(res.Notices, notices...)
-	in, err := projectInput(ctx, d, g, filepath.Join(tmp, "staging", ScopeProject), project, home, s.Pack.Name, adapters, prev, repo)
+	in := plan.ProjectInput{Project: project, Home: home, Pack: s.Pack.Name, Adapters: adapters, Repo: repo != nil, MCPKey: mcpKey}
+	err = readProject(ctx, d, g, filepath.Join(tmp, "staging", ScopeProject), prev, &in)
 	if u, ok := errors.AsType[*plan.UnmappedError](err); ok {
 		res.Diagnostics = projectUnmapped(u)
 		return res, nil
@@ -204,50 +171,41 @@ func planProject(ctx context.Context, d installFS, h host, g gitPort, fetch fetc
 	if err != nil {
 		return ProjectPlan{}, err
 	}
-	for _, op := range p.Ops {
-		keys := []ProjectKey{}
-		for _, k := range op.Keys {
-			keys = append(keys, ProjectKey{Key: k.Path, Action: k.Action})
-		}
-		res.Ops = append(res.Ops, ProjectOp{Action: op.Action, Harness: op.Harness, Kind: op.Kind, Source: op.Source, Target: op.Target, Before: op.Before, After: op.After, Keys: keys})
-	}
-	for _, sk := range p.Skipped {
-		res.Skipped = append(res.Skipped, SkippedItem{Harness: sk.Harness, Kind: sk.Kind, Item: sk.Item, Target: sk.Target, Reason: SkipTracked})
-	}
-	res.Exclude.Entries = append(res.Exclude.Entries, p.Exclude...)
-	for _, w := range p.Warnings {
-		res.Warnings = append(res.Warnings, ProjectWarning(w))
-	}
+	res.Ops, res.Skipped = append(res.Ops, p.Ops...), append(res.Skipped, p.Skipped...)
+	res.Exclude.Entries, res.Warnings = append(res.Exclude.Entries, p.Exclude...), append(res.Warnings, p.Warnings...)
 	return res, nil
 }
 
 // checkProject refuses a project directory that is the home directory or
 // a root, where the project's .claude, .agents and .dotai would be the
-// user's own.
+// user's own, as either is spelled and as each resolves through links and
+// short names.
 func checkProject(project, home string) error {
-	switch {
-	case samePath(project, home):
-		return &ProjectRefusedError{Dir: project, Why: "the home directory"}
-	case filepath.Dir(project) == project && filepath.VolumeName(project) != "":
-		return &ProjectRefusedError{Dir: project, Why: "the root of a drive"}
-	case filepath.Dir(project) == project:
-		return &ProjectRefusedError{Dir: project, Why: "the root of the file system"}
+	for _, p := range []string{project, realPath(project)} {
+		switch {
+		case samePath(p, home) || samePath(p, realPath(home)):
+			return &ProjectRefusedError{Dir: project, Why: "the home directory"}
+		case filepath.Dir(p) == p && filepath.VolumeName(p) != "":
+			return &ProjectRefusedError{Dir: project, Why: "the root of a drive"}
+		case filepath.Dir(p) == p:
+			return &ProjectRefusedError{Dir: project, Why: "the root of the file system"}
+		}
 	}
 	return nil
 }
 
-// projectInput reads what plan.BuildProject plans the project tree tree
-// from: each staged file whole, the state of each target, which of them
-// git tracks in repo (nil outside one), the paths of plan.ProjectProbes,
-// and whether the project needs Claude Code's import of AGENTS.md.
-func projectInput(ctx context.Context, d installFS, g gitPort, tree, project, home, packName string, adapters []harness.Adapter, prev *state.State, repo *Repo) (plan.ProjectInput, error) {
-	in := plan.ProjectInput{
-		Project: project, Home: home, Pack: packName, Adapters: adapters, Repo: repo != nil,
-		Disk: map[string]plan.Current{}, Content: map[string][]byte{}, Tracked: map[string]bool{}, Exists: map[string]bool{}, Isolated: map[string]bool{},
-	}
-	if repo != nil {
-		in.Prefix = repo.Prefix
-	}
+// realPath is p with its links resolved and, on Windows, its junctions and
+// short names too (resolvePath).
+func realPath(p string) string { return resolvePath(p) }
+
+// readProject fills in with what plan.BuildProject plans the project tree
+// tree from: each staged file whole, the harnesses that need the import of
+// a rules file, the state of each target and which of them git tracks,
+// the harnesses installed isolated by prev, and the paths of
+// plan.ProjectProbes that exist.
+func readProject(ctx context.Context, d installFS, g gitPort, tree string, prev *state.State, in *plan.ProjectInput) error {
+	in.Disk, in.Content, in.Tracked, in.Exists = map[string]plan.Current{}, map[string][]byte{}, map[string]bool{}, map[string]bool{}
+	in.Isolated, in.Import = map[string]bool{}, map[string]bool{}
 	if prev != nil && prev.Mode == ModeIsolated {
 		for _, id := range prev.Harnesses {
 			in.Isolated[id] = true
@@ -255,87 +213,85 @@ func projectInput(ctx context.Context, d installFS, g gitPort, tree, project, ho
 	}
 	names, err := d.Files(tree)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return plan.ProjectInput{}, err
+		return err
 	}
 	slices.Sort(names)
 	for _, name := range names {
 		data, cur, err := d.Read(ctx, filepath.Join(tree, filepath.FromSlash(name)))
 		if err != nil {
-			return plan.ProjectInput{}, err
+			return err
 		}
 		in.Files = append(in.Files, plan.File{Path: name, Hash: cur.Hash, Exec: cur.Exec, Data: data})
 	}
-	dirs := map[string]error{}
-	if in.ImportAgents, err = needsImport(ctx, d, project, dirs); err != nil {
-		return plan.ProjectInput{}, err
+	dirs, homeDirs := map[string]error{}, map[string]error{}
+	for _, a := range in.Adapters {
+		if in.Import[a.ID], err = needsImport(ctx, d, in.Project, a.Project, dirs); err != nil {
+			return err
+		}
 	}
-	// The targets come from a first plan, which reads nothing.
-	first, err := plan.BuildProject(in)
+	targets, err := plan.ProjectTargets(*in)
 	if err != nil {
-		return plan.ProjectInput{}, err
+		return err
 	}
 	var rels []string
-	homeDirs := map[string]error{}
-	for _, op := range first.Ops {
-		base, cache := project, dirs
-		rel, err := filepath.Rel(project, op.Target)
-		if err != nil || !filepath.IsLocal(rel) {
-			base, cache = home, homeDirs
-		} else {
+	for _, t := range targets {
+		base, cache := in.Project, dirs
+		if rel, err := filepath.Rel(in.Project, t.Path); err == nil && filepath.IsLocal(rel) {
 			rels = append(rels, filepath.ToSlash(rel))
+		} else {
+			base, cache = in.Home, homeDirs
 		}
 		how := inspectHash
-		if op.After == "" {
+		if t.Read {
 			how = inspectRead
 		}
-		cur, data, ok, err := inspectTarget(ctx, d, base, op.Target, cache, how)
+		cur, data, ok, err := inspectTarget(ctx, d, base, t.Path, cache, how)
 		if err != nil {
-			return plan.ProjectInput{}, err
+			return err
 		}
 		if ok {
-			in.Disk[op.Target], in.Content[op.Target] = cur, data
+			in.Disk[t.Path], in.Content[t.Path] = cur, data
 		}
 	}
-	if repo != nil && len(rels) > 0 {
-		tracked, err := g.Tracked(ctx, project, rels)
+	if in.Repo && len(rels) > 0 {
+		tracked, err := g.Tracked(ctx, in.Project, rels)
 		if err != nil {
-			return plan.ProjectInput{}, err
+			return err
 		}
 		for rel := range tracked {
-			in.Tracked[filepath.Join(project, filepath.FromSlash(rel))] = true
+			in.Tracked[filepath.Join(in.Project, filepath.FromSlash(rel))] = true
 		}
 	}
-	probes, err := plan.ProjectProbes(in)
+	probes, err := plan.ProjectProbes(*in)
 	if err != nil {
-		return plan.ProjectInput{}, err
+		return err
 	}
 	for _, p := range probes {
 		if _, err := d.Lstat(p); err == nil {
 			in.Exists[p] = true
 		} else if !errors.Is(err, fs.ErrNotExist) {
-			return plan.ProjectInput{}, err
+			return err
 		}
 	}
-	return in, nil
+	return nil
 }
 
-// agentsImport is an import of AGENTS.md at the project root in a
-// CLAUDE.md of the root.
-var agentsImport = regexp.MustCompile(`(?m)(^|\s)@(\./)?AGENTS\.md(\s|$)`)
-
-// needsImport reports whether the project has an AGENTS.md that no
-// CLAUDE.md imports: Claude Code does not load a project AGENTS.md alone
-// (HARNESS-NOTES), so the pack's rules file imports it. A CLAUDE.md that is
-// a link, as a CLAUDE.md that points at AGENTS.md often is, counts as an
-// import.
-func needsImport(ctx context.Context, d installFS, project string, dirs map[string]error) (bool, error) {
-	if _, err := d.Lstat(filepath.Join(project, "AGENTS.md")); errors.Is(err, fs.ErrNotExist) {
+// needsImport reports whether the project has the rules file l.Imports
+// that the harness does not load alone (HARNESS-NOTES) and that none of
+// l.ImportFiles imports, so that the pack's rules file imports it. A file
+// of l.ImportFiles that is a link, as a CLAUDE.md that points at AGENTS.md
+// often is, counts as an import.
+func needsImport(ctx context.Context, d installFS, project string, l harness.ProjectLayout, dirs map[string]error) (bool, error) {
+	if l.Imports == "" {
+		return false, nil
+	}
+	if _, err := d.Lstat(filepath.Join(project, filepath.FromSlash(l.Imports))); errors.Is(err, fs.ErrNotExist) {
 		return false, nil
 	} else if err != nil {
 		return false, err
 	}
-	for _, name := range []string{"CLAUDE.md", ".claude/CLAUDE.md", "CLAUDE.local.md"} {
-		target := filepath.Join(project, filepath.FromSlash(name))
+	for _, f := range l.ImportFiles {
+		target := filepath.Join(project, filepath.FromSlash(f.Path))
 		mode, err := d.Lstat(target)
 		switch {
 		case errors.Is(err, fs.ErrNotExist):
@@ -349,7 +305,7 @@ func needsImport(ctx context.Context, d installFS, project string, dirs map[stri
 		if err != nil {
 			return false, err
 		}
-		if ok && agentsImport.Match(data) {
+		if ok && l.ImportedBy(f.Path, data) {
 			return false, nil
 		}
 	}
