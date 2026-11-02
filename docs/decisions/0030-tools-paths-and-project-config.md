@@ -42,3 +42,5 @@ Update 2026-10-31: [0037](0037-tool-commands-resolved-per-os.md) adds `${DOTAI_T
 Update 2026-11-02: [0041](0041-project-scope-local-and-untracked.md) keeps `.dotai/` local: the engine adds it to `.git/info/exclude` on apply and never commits it, so a fresh clone or `git clean -fdx` loses `config.yaml`. The record name is still pending.
 
 Update 2026-11-02: the engine's record in `.dotai/` is `.dotai/state.json` ([0041](0041-project-scope-local-and-untracked.md)).
+
+Update 2026-11-02 (roadmap PR 10-3): the engine's record of a project moved out of it, to `~/.dotai/projects/<project id>/record.json`, so that a repository cannot ship one; `.dotai/state.json` is only a marker of what was applied, which dotai never trusts ([0041](0041-project-scope-local-and-untracked.md)). `dotai restore --project` removes `.dotai/`, `config.yaml` included, into its backup.
