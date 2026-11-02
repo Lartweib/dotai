@@ -72,18 +72,52 @@ func (t ToolPaths) goos() string { return cmp.Or(t.OS, runtime.GOOS) }
 // expandSetting expands a string value of a harness's settings: each tool
 // command variable of decision 0037, then the path variables.
 func expandSetting(s string, tools ToolPaths) (string, error) {
-	dir, err := tools.dir()
-	s, cerr := merge.ExpandTools(s, func(name string) (string, error) {
-		if err != nil {
-			return "", fmt.Errorf("${DOTAI_TOOL:%s} cannot be expanded: %w", name, err)
-		}
-		return toolCommand(dir, name, tools.goos(), tools.harness, tools.quoting(), false)
-	})
-	if cerr != nil {
-		return "", cerr
+	s, err := merge.ExpandTools(s, func(name string) (string, error) { return settingTool(name, tools) })
+	if err != nil {
+		return "", err
 	}
 	data, err := expandPaths([]byte(s), tools)
 	return string(data), err
+}
+
+// settingTool is the command that runs the tool name in the settings of
+// the harness of tools, written as that harness reads a command, with the
+// script's path in its own separators.
+func settingTool(name string, tools ToolPaths) (string, error) {
+	dir, err := tools.dir()
+	if err != nil {
+		return "", fmt.Errorf("${DOTAI_TOOL:%s} cannot be expanded: %w", name, err)
+	}
+	return toolCommand(dir, name, tools.goos(), tools.harness, tools.quoting(), nativeSeparators)
+}
+
+// pathStyle is how toolCommand writes the separators of a script's path on
+// Windows; elsewhere they are always forward slashes.
+type pathStyle int
+
+const (
+	nativeSeparators pathStyle = iota // backslashes, as a settings value has them
+	forwardSlashes                    // for a bare path that bash may read, which drops its backslashes
+)
+
+// bareUnsafe are the characters, besides whitespace, that a bare path
+// cannot hold: quotes, which a harness that takes the path bare passes on,
+// as agy does, and what cmd.exe, which agy runs hooks through, or a POSIX
+// shell reads as an operator, an expansion or a pattern. The characters
+// of unquoted are refused for every harness.
+const bareUnsafe = `"'&|<>^();*?[]{}!`
+
+// UnquotableError is a tools directory that a harness taking the command's
+// path bare cannot run the tool Tool from: Char is its first character
+// that a bare path cannot hold, whitespace or one of bareUnsafe.
+type UnquotableError struct {
+	Tool, Harness, Dir string
+	Char               rune
+}
+
+func (e *UnquotableError) Error() string {
+	return fmt.Sprintf("${DOTAI_TOOL:%s} cannot be expanded for %s: the tools directory %s holds %q, and %s takes the path bare, since it passes quotes on, so the path cannot hold whitespace, quotes or shell operators: put the home directory at a path without them",
+		e.Tool, e.Harness, e.Dir, e.Char, e.Harness)
 }
 
 // unquoted are the characters that some harness's shell does not take
@@ -105,18 +139,18 @@ func unquoted(goos string) string {
 // directory with spaces works; a directory with a character the quotes do
 // not protect is refused, and so is a network or device path on Windows,
 // whose leading \\ bash reads as one \ inside the quotes. A harness that
-// splits the command itself at whitespace and passes quotes on, as agy
-// does, gets the path bare, and a directory with whitespace or a quote is
-// refused for it; so is one with a character a shell would expand, in
-// case it does use one somewhere. With slashes, the path has forward
-// slashes on Windows too, as a bare path that bash may read must.
-func toolCommand(dir, name, goos, h string, quoting harness.Quoting, slashes bool) (string, error) {
+// passes quotes on, as agy does, gets the path bare, and a directory with
+// whitespace or a character of bareUnsafe is refused for it, as an
+// UnquotableError; so is one with a character a shell would expand, in
+// case it does use one somewhere. style sets the separators on Windows.
+func toolCommand(dir, name, goos, h string, quoting harness.Quoting, style pathStyle) (string, error) {
 	if goos == "windows" && (strings.HasPrefix(dir, `\\`) || strings.HasPrefix(dir, "//")) {
 		return "", fmt.Errorf(`${DOTAI_TOOL:%s} cannot be expanded: the tools directory %s starts with \\ or //, as a network path does, and bash, which a harness may run the command through, reads \\ inside double quotes as a single \: put the home directory on a local drive`, name, dir)
 	}
 	if quoting == harness.Unquoted {
-		if i := strings.IndexFunc(dir, func(r rune) bool { return unicode.IsSpace(r) || r == '"' || r == '\'' }); i >= 0 {
-			return "", fmt.Errorf("${DOTAI_TOOL:%s} cannot be expanded for %s: the tools directory %s holds %q, and %s splits the command at whitespace and passes quotes on, so the path cannot be quoted: put the home directory at a path without spaces or quotes", name, h, dir, dir[i], h)
+		if i := strings.IndexFunc(dir, func(r rune) bool { return unicode.IsSpace(r) || strings.ContainsRune(bareUnsafe, r) }); i >= 0 {
+			r, _ := utf8.DecodeRuneInString(dir[i:])
+			return "", &UnquotableError{Tool: name, Harness: h, Dir: dir, Char: r}
 		}
 	}
 	if i := strings.IndexAny(dir, unquoted(goos)); i >= 0 {
@@ -128,7 +162,7 @@ func toolCommand(dir, name, goos, h string, quoting harness.Quoting, slashes boo
 	}
 	if goos == "windows" {
 		script := strings.ReplaceAll(dir, "/", `\`) + `\` + name + ".ps1"
-		if slashes {
+		if style == forwardSlashes {
 			script = strings.ReplaceAll(script, `\`, "/")
 		}
 		return `powershell.exe -NoProfile -ExecutionPolicy Bypass -File ` + quote + script + quote, nil
@@ -190,7 +224,7 @@ func toolCommands(scope string, harnesses []string, settings map[string][]merge.
 					return
 				}
 				_, err = merge.ExpandTools(v, func(name string) (string, error) {
-					c, err := expandSetting("${DOTAI_TOOL:"+name+"}", tools)
+					c, err := settingTool(name, tools)
 					if err == nil {
 						out = append(out, ToolCommand{Scope: scope, Harness: h, Key: s.Key, Tool: name, Command: c})
 					}

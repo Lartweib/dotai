@@ -2,6 +2,7 @@ package merge_test
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -117,6 +118,7 @@ func TestHookToolCommandsNeedBothScripts(t *testing.T) {
 	}{
 		{"both scripts", newPack(base(append(both, shared)...)), nil},
 		{"a hook without the variable", newPack(base(hooks(`{"hooks": {"stop": [{"command": "${DOTAI_TOOLS}/x.sh"}]}}`))), nil},
+		{"a key that is not exactly command", newPack(base(hooks(`{"hooks": {"stop": [{"Command": "${DOTAI_TOOL:hello}"}]}}`))), nil},
 		{
 			"the PowerShell script missing",
 			newPack(base(shared, plain("dotai/tools/hello.sh"))),
@@ -152,35 +154,43 @@ func TestHookToolCommandsNeedBothScripts(t *testing.T) {
 
 // TestExpandHookTools checks that the tool command variables of every hook
 // command of a merged hooks file are expanded for the hook's block, shared
-// or tool-scoped, that nothing else changes, and that an error stops the
-// expansion.
+// or tool-scoped, that a shared hook names the blocks that declare its
+// event too, that a hook the callback skips and a key other than an exact
+// "command" are left as written, that nothing else changes, and that an
+// error stops the expansion.
 func TestExpandHookTools(t *testing.T) {
-	s, diags := merge.Stage(newPack(base(hooks(`{"version": 1, "hooks": {"stop": [{"command": "${DOTAI_TOOL:a} && x", "matcher": "${DOTAI_TOOL:a}"}, {"command": "plain"}]},`+
-		` "claudecode": {"hooks": {"pre/tool": [{"command": "${DOTAI_TOOL:a}"}]}}, "other": {"command": "${DOTAI_TOOL:a}"}}`),
+	s, diags := merge.Stage(newPack(base(hooks(`{"version": 1, "hooks": {"stop": [{"command": "${DOTAI_TOOL:a} && x", "matcher": "${DOTAI_TOOL:a}"}, {"command": "plain"}, {"Command": "${DOTAI_TOOL:a}"}],`+
+		` "sessionStart": [{"command": "${DOTAI_TOOL:a} s"}]},`+
+		` "claudecode": {"hooks": {"pre/tool": [{"command": "${DOTAI_TOOL:a} skipped"}], "sessionStart": [{"command": "c"}]}},`+
+		` "antigravity-cli": {"hooks": {"sessionStart": []}}, "other": {"command": "${DOTAI_TOOL:a}"}}`),
 		plain("dotai/tools/a.sh"), plain("dotai/tools/a.ps1"))), merge.Selection{})
 	if len(diags) > 0 {
 		t.Fatal(format(diags))
 	}
 	file := staged(t, s.User, merge.HooksFile)
 	var calls []string
-	got, err := merge.ExpandHookTools(file.Data, func(h merge.Hook, name string) (string, error) {
-		calls = append(calls, h.Block+" "+h.Event+" "+h.Pointer()+" "+h.String())
-		return "<" + h.Block + ":" + name + ">", nil
+	got, err := merge.ExpandHookTools(file.Data, func(h merge.Hook, name string) (string, bool, error) {
+		calls = append(calls, fmt.Sprintf("%s|%s|%s|%s|%v", h.Block, h.Event, h.Pointer(), h, h.Shadowed))
+		return "<" + h.Block + ":" + name + ">", h.Block != "claudecode", nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The first plain variable is claudecode's: "other" is no block.
 	want := strings.Replace(string(file.Data), `"command": "${DOTAI_TOOL:a} && x"`, `"command": "<:a> && x"`, 1)
-	want = strings.Replace(want, `"command": "${DOTAI_TOOL:a}"`, `"command": "<claudecode:a>"`, 1)
+	want = strings.Replace(want, `"command": "${DOTAI_TOOL:a} s"`, `"command": "<:a> s"`, 1)
 	if string(got) != want {
 		t.Errorf("ExpandHookTools() =\n%s\nwant\n%s", got, want)
 	}
-	if wantCalls := []string{" stop /hooks/stop/0 hook hooks.stop", "claudecode pre/tool /claudecode/hooks/pre~1tool/0 hook claudecode.hooks.pre/tool"}; !reflect.DeepEqual(calls, wantCalls) {
+	wantCalls := []string{
+		"|stop|/hooks/stop/0|hook hooks.stop|[]",
+		"|sessionStart|/hooks/sessionStart/0|hook hooks.sessionStart|[claudecode antigravity-cli]",
+		"claudecode|pre/tool|/claudecode/hooks/pre~1tool/0|hook claudecode.hooks.pre/tool|[]",
+	}
+	if !reflect.DeepEqual(calls, wantCalls) {
 		t.Errorf("calls = %q, want %q", calls, wantCalls)
 	}
 	boom := errors.New("boom")
-	if _, err := merge.ExpandHookTools(file.Data, func(merge.Hook, string) (string, error) { return "", boom }); !errors.Is(err, boom) {
+	if _, err := merge.ExpandHookTools(file.Data, func(merge.Hook, string) (string, bool, error) { return "", true, boom }); !errors.Is(err, boom) {
 		t.Errorf("ExpandHookTools() error = %v, want the command's", err)
 	}
 }

@@ -134,10 +134,13 @@ func (s *scope) checkToolRefs(file string, line, column int, what, v string) []p
 
 // Hook is an entry of a hooks file: the tool-scoped block that holds it,
 // such as claudecode, "" for the shared hooks, its event and its place
-// among the event's entries.
+// among the event's entries. Shadowed, for a shared hook, is the blocks
+// that declare its event too, in file order: rulesync 41 renders their
+// own hooks of the event for their harnesses, not this one.
 type Hook struct {
 	Block, Event string
 	Index        int
+	Shadowed     []string
 }
 
 // Pointer is the JSON pointer of h in the merged hooks file, the key of its
@@ -159,7 +162,8 @@ func (h Hook) String() string {
 }
 
 // eachHook calls f with each entry of the hooks file n, shared or in a
-// tool-scoped block, whose command is a string, and that command.
+// tool-scoped block, whose "command" key, matched exactly as rulesync
+// reads it, holds a string, and that command.
 func eachHook(n *node, f func(h Hook, it *node, command string)) {
 	if n.kind != '{' {
 		return
@@ -173,24 +177,44 @@ func eachHook(n *node, f func(h Hook, it *node, command string)) {
 			continue
 		}
 		for _, event := range events.keys {
+			var shadowed []string
+			if block == "" {
+				shadowed = shadowing(n, event)
+			}
 			for i, it := range events.vals[event].items {
-				var entry struct {
-					Command *string `json:"command"`
-				}
-				if json.Unmarshal(it.raw, &entry) == nil && entry.Command != nil {
-					f(Hook{Block: block, Event: event, Index: i}, it, *entry.Command)
+				var entry map[string]json.RawMessage // exact keys, unlike decoding into a struct
+				var command string
+				if json.Unmarshal(it.raw, &entry) == nil && json.Unmarshal(entry["command"], &command) == nil {
+					f(Hook{Block: block, Event: event, Index: i, Shadowed: shadowed}, it, command)
 				}
 			}
 		}
 	}
 }
 
+// shadowing is the tool-scoped blocks of the hooks file n that declare
+// event, whose harness rulesync 41 renders them for instead of the shared
+// hooks of event.
+func shadowing(n *node, event string) []string {
+	var out []string
+	for _, block := range n.keys {
+		if h := blockHooks(n, block); h != nil {
+			if _, ok := h.vals[event]; ok {
+				out = append(out, block)
+			}
+		}
+	}
+	return out
+}
+
 // ExpandHookTools replaces each tool command variable in the commands of
 // the hooks of data, a merged hooks file, with what command gives for the
-// hook and the tool's name, and stops at the first error, which it returns
-// as command gave it. The file keeps its layout and every other value.
-// Validation reports a variable that is not a valid tool name.
-func ExpandHookTools(data []byte, command func(h Hook, name string) (string, error)) ([]byte, error) {
+// hook and the tool's name. A hook for which command reports false is left
+// as written, every variable of it. ExpandHookTools stops at the first
+// error, which it returns as command gave it. The file keeps its layout
+// and every other value. Validation reports a variable that is not a valid
+// tool name.
+func ExpandHookTools(data []byte, command func(h Hook, name string) (c string, ok bool, err error)) ([]byte, error) {
 	n, err := readList(pack.Layer{}, pack.File{Path: HooksFile, Data: data})
 	if err != nil {
 		return nil, err
@@ -200,8 +224,13 @@ func ExpandHookTools(data []byte, command func(h Hook, name string) (string, err
 		if failed != nil || !strings.Contains(c, toolPrefix) {
 			return
 		}
-		c, err := ExpandTools(c, func(name string) (string, error) { return command(h, name) })
-		if err == nil {
+		skip := false
+		c, err := ExpandTools(c, func(name string) (string, error) {
+			out, ok, err := command(h, name)
+			skip = skip || !ok
+			return out, err
+		})
+		if err == nil && !skip {
 			it.raw, err = withCommand(it.raw, c)
 		}
 		failed = err
