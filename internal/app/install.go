@@ -329,7 +329,11 @@ func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run run
 	tree := filepath.Join(out, ScopeUser)
 	var rp replacePlan
 	if mode == ModeReplace {
-		if rp, err = planWipes(ctx, d, h, home, adapters, shared, ownedTargets(prev)); err != nil {
+		projects, err := readProjects(d, home)
+		if err != nil {
+			return err
+		}
+		if rp, err = planWipes(ctx, d, h, home, adapters, shared, ownedTargets(prev), projects); err != nil {
 			return err
 		}
 		res.Wipes, res.Keeps = append(res.Wipes, rp.wipes...), append(res.Keeps, rp.keeps...)

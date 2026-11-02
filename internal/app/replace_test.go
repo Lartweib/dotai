@@ -604,3 +604,31 @@ func TestPlanReplaceLooksInsideWipedDirectoriesForCredentialsOnly(t *testing.T) 
 		t.Error("~/.claude/plugins is wiped with a credentials file in it")
 	}
 }
+
+// TestPlanReplaceKeepsTheMCPServersAProjectApplyOwns checks that a replace
+// install never wipes the per-project MCP servers that a project apply
+// recorded in ~/.dotai/projects.json (decision 0041): a server it owns
+// stays, and the foreign servers beside it are wiped one by one.
+func TestPlanReplaceKeepsTheMCPServersAProjectApplyOwns(t *testing.T) {
+	home, h := realHome(t)
+	writeFile(t, at(home, ".claude.json"), `{"projects":{"C:/work":{"mcpServers":{"dotai":{"command":"a"},"mine":{"command":"b"}}},`+
+		`"C:/site":{"mcpServers":{"dotai":{"command":"c"}}}}}`)
+	list := state.Projects{}.With(at(home, "work"), at(home, ".claude.json"), [][]string{{"projects", "C:/work", "mcpServers", "dotai"}}).
+		With(at(home, "site"), at(home, ".claude.json"), [][]string{{"projects", "C:/site", "mcpServers", "dotai"}})
+	data, err := state.EncodeProjects(list)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, at(home, ".dotai/projects.json"), string(data))
+	p, err := planReplace(t, home, h, "")
+	if err != nil || len(p.Diagnostics) != 0 {
+		t.Fatalf("PlanInstall(replace) = %+v, %v", p, err)
+	}
+	var keys []string
+	for _, k := range p.WipeKeys {
+		keys = append(keys, strings.Join(k.Key, " "))
+	}
+	if want := []string{"projects C:/work mcpServers mine"}; !reflect.DeepEqual(keys, want) {
+		t.Errorf("key wipes = %q, want %q", keys, want)
+	}
+}

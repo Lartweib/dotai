@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/lartweib/dotai/internal/app"
+	"github.com/lartweib/dotai/internal/plan"
 	"github.com/lartweib/dotai/internal/state"
 )
 
@@ -487,4 +488,36 @@ func TestRestoreReplaceAfterAFileChangedWhileWiped(t *testing.T) {
 	delete(before, ".claude/agents/mine.md")
 	delete(after, ".claude/agents/mine.md")
 	diff(t, "home after the restore", after, before)
+}
+
+// TestReplaceAndItsRestoreKeepAProjectApplysMCPServer checks that a
+// replace install and its restore leave the MCP server a project apply
+// owns in ~/.claude.json, and put back the foreign one beside it.
+func TestReplaceAndItsRestoreKeepAProjectApplysMCPServer(t *testing.T) {
+	home, h, _ := replaceHome(t)
+	writeFile(t, at(home, ".claude.json"), `{"numStartups":3,"projects":{"C:/work":{"mcpServers":{"dotai":{"command":"a"},"mine":{"command":"b"}}}}}`)
+	data, err := state.EncodeProjects(state.Projects{}.With(at(home, "work"), at(home, ".claude.json"), [][]string{{"projects", "C:/work", "mcpServers", "dotai"}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, at(home, ".dotai/projects.json"), string(data))
+	if _, err := installReplace(t, newClockFS(t), h, home); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(at(home, ".claude.json"))
+	if _, ok, _ := plan.GetKey(got, []string{"projects", "C:/work", "mcpServers", "dotai"}); !ok {
+		t.Errorf("~/.claude.json after the replace = %s, want the project's server kept", got)
+	}
+	if _, ok, _ := plan.GetKey(got, []string{"projects", "C:/work", "mcpServers", "mine"}); ok {
+		t.Errorf("~/.claude.json after the replace = %s, want the foreign server wiped", got)
+	}
+	if _, err := restore(newClockFS(t), home, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = os.ReadFile(at(home, ".claude.json"))
+	for _, name := range []string{"dotai", "mine"} {
+		if _, ok, _ := plan.GetKey(got, []string{"projects", "C:/work", "mcpServers", name}); !ok {
+			t.Errorf("~/.claude.json after the restore = %s, want %s there", got, name)
+		}
+	}
 }
