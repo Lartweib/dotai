@@ -1,8 +1,9 @@
 // Package harness describes each supported harness as data (decision
 // 0028): its rulesync target, how far it can run isolated from the user's
 // own configuration (decision 0018), where its user scope installs in each
-// mode (decisions 0031 and 0038), and its own configuration, which the
-// replace mode resets to a fresh install by keep-list (decision 0038). Its
+// mode (decisions 0031 and 0038), its own configuration, which the
+// replace mode resets to a fresh install by keep-list (decision 0038), and
+// where its project scope installs (decision 0041). Its
 // helpers only read that data: the layout of a mode, whether an entry is
 // kept, whether a name looks like a login or a history, and which
 // relocation variables an environment sets. Detecting a harness and
@@ -223,6 +224,9 @@ type Adapter struct {
 	// Real is the harness's own configuration, which the replace mode
 	// resets and installs into (decision 0038).
 	Real Real
+	// Project is where the harness's project scope installs, local and
+	// untracked (decision 0041).
+	Project ProjectLayout
 }
 
 // Quoting is how a harness reads a command in its settings.
@@ -253,6 +257,7 @@ var adapters = []Adapter{
 		SharedSkills: "skills",
 		Commands:     ShellQuoted,
 		Real:         claudeReal,
+		Project:      claudeProject,
 		Isolation: Isolation{
 			Level: Partial,
 			// Decision 0018 verified the new login on Windows only, where the
@@ -279,6 +284,7 @@ var adapters = []Adapter{
 		// (HARNESS-NOTES).
 		Commands: Unquoted,
 		Real:     agyReal,
+		Project:  agyProject,
 		Isolation: Isolation{
 			Level: Partial,
 			// Verified on Windows only.
@@ -293,6 +299,7 @@ var adapters = []Adapter{
 		// Not checked: OpenCode has no statusline setting.
 		Commands: ShellQuoted,
 		Real:     openCodeReal,
+		Project:  openCodeProject,
 		Isolation: Isolation{
 			Level: Partial,
 			// Verified on Windows only.
@@ -356,6 +363,7 @@ func All() []Adapter {
 	for i := range out {
 		out[i].Moves = slices.Clone(out[i].Moves)
 		out[i].Real = out[i].Real.clone()
+		out[i].Project = out[i].Project.clone()
 		out[i].Isolation.Relogin = maps.Clone(out[i].Isolation.Relogin)
 		out[i].Isolation.Leaks = slices.Clone(out[i].Isolation.Leaks)
 		out[i].Isolation.Pointers = slices.Clone(out[i].Isolation.Pointers)

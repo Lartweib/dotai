@@ -20,7 +20,7 @@ import (
 // testEnv runs the real use cases, except Install: a test that installs
 // fakes it, so that no test writes to a home directory.
 func testEnv(stdout, stderr *bytes.Buffer) cli.Env {
-	return cli.Env{Stdout: stdout, Stderr: stderr, Version: fixedVersion, Validate: app.Validate, Stage: app.Stage, PlanInstall: app.PlanInstall,
+	return cli.Env{Stdout: stdout, Stderr: stderr, Version: fixedVersion, Validate: app.Validate, Stage: app.Stage, PlanInstall: app.PlanInstall, PlanProject: app.PlanProject,
 		Install: func(context.Context, string, string, string, app.InstallOptions, app.Progress, app.Warn, app.Consent) (app.InstallResult, error) {
 			return app.InstallResult{}, errors.New("install is not faked in this test")
 		}}

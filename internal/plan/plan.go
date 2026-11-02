@@ -10,6 +10,10 @@
 // instead (decision 0035): the harness writes into it too, so dotai owns
 // only the keys the pack puts there. A link to a shared skill (decision
 // 0036) is planned like a file whose content is its destination.
+//
+// It also plans the project scope of a profile (decision 0041), in
+// project.go: each file to its harness's local target, untouched where git
+// tracks it, and listed in .git/info/exclude.
 package plan
 
 import (

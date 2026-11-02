@@ -186,3 +186,25 @@ func PinnedBackup(t interface{ Fatal(...any) }, home string) string {
 	}
 	return chain[len(chain)-1]
 }
+
+// GitPort is how a project plan asks git about the project.
+type GitPort = gitPort
+
+// OSGit is the git on PATH.
+type OSGit = osGit
+
+// PlanProjectWith is PlanProject reading the disk through d, asking git
+// through g, fetching through fetch and running rulesync through run, on a
+// host that finds every harness.
+func PlanProjectWith(ctx context.Context, d installFS, g gitPort, fetch fetchFunc, run runFunc, dir, project, home string, opts ApplyOptions) (ProjectPlan, error) {
+	return planProject(ctx, d, everyHarness, g, fetch, run, "cache", dir, project, home, opts, nil)
+}
+
+// PlanProjectWithRulesync is PlanProject asking git through g, with the
+// real rulesync from cacheDir, on a host that finds every harness.
+func PlanProjectWithRulesync(ctx context.Context, g gitPort, cacheDir, dir, project, home string, opts ApplyOptions) (ProjectPlan, error) {
+	return planProject(ctx, osInstallFS{}, everyHarness, g, download, generate, cacheDir, dir, project, home, opts, nil)
+}
+
+// FoldCase is whether paths are compared without case on this OS.
+var FoldCase = foldCase
