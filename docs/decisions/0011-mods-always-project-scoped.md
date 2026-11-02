@@ -33,3 +33,5 @@ Mods are always installed with project or local scope, never user scope. A pack'
 - Internal research (not published) on harness surfaces, §1 (Mods) and §5.1.
 
 Update 2026-11-02: [0041](0041-project-scope-local-and-untracked.md) keeps every project output local: a mod placed under `.claude/skills/<mod>/` is excluded from git through `.git/info/exclude` and never committed, so each person installs it for themselves.
+
+Update 2026-11-02 (roadmap PR 10-4): the inferred check is in place. Mods live at the pack root, `mods/<mod>/`, and only a profile names them in the manifest; a variant that names mods fails `validate` with `mod-scope`, and the base, which the manifest does not list, cannot name any ([PACK-FORMAT](../PACK-FORMAT.md#mods)).
