@@ -83,6 +83,18 @@ func writeValid(w io.Writer, p *app.PackSummary, color bool) error {
 	return err
 }
 
+// writeWarnings prints each warning on a line of its own, in the compact
+// form of a diagnostic after "warning: ", in either format: a warning does
+// not fail the command, so it follows the report or the success line.
+func writeWarnings(w io.Writer, warnings []app.Diagnostic, color bool) error {
+	var b strings.Builder
+	for _, d := range warnings {
+		fmt.Fprintf(&b, "%s %s\n", paint(color, styleYellow, "warning:"), d)
+	}
+	_, err := io.WriteString(w, b.String())
+	return err
+}
+
 // position is line[:col] of d, empty for a problem with the whole file.
 func position(d app.Diagnostic) string {
 	return strings.TrimPrefix(strings.TrimPrefix(d.Location().String(), d.File), ":")

@@ -55,6 +55,11 @@ const (
 	CodePermissionsConflict   = "permissions-conflict"
 )
 
+// Warning codes: what Warnings reports is no error.
+const (
+	CodeHooksShadowed = "hooks-shadowed"
+)
+
 const (
 	mcpFile   = ".rulesync/mcp.jsonc"
 	mcpServer = "mcp-server" // the kind of an MCP server in a scope's names
@@ -97,13 +102,38 @@ type Staging struct {
 // on top of it, since variants are alternatives. The selected profiles are
 // peers that may be combined, so they are merged together.
 func Check(p *pack.Pack, sel Selection) []pack.Diagnostic {
+	users, project, diags := checked(p, sel)
+	if users == nil {
+		return diags
+	}
+	cross := crossScope(users, project)
+	return slices.Concat(diags, withoutShadowed(project.diags, cross), cross, once(append(users, project), (*scope).checkTools))
+}
+
+// Warnings returns what is no error in the layers sel names, as Check
+// merges them, but may not do what the pack means: a hook event that both
+// the shared hooks and a tool-scoped block declare. It returns nothing for
+// layers that cannot be selected.
+func Warnings(p *pack.Pack, sel Selection) []pack.Diagnostic {
+	users, project, _ := checked(p, sel)
+	if users == nil {
+		return nil
+	}
+	return once(append(users, project), (*scope).shadowedHooks)
+}
+
+// checked merges the layers sel names as Check does: the user scope once
+// per selected variant, on one merge of the base, and the project scope.
+// It returns the diagnostics of the user scopes, and no scope when sel
+// names layers that do not exist.
+func checked(p *pack.Pack, sel Selection) (users []*scope, project *scope, diags []pack.Diagnostic) {
 	variants, profiles, diags := resolve(p, sel, true)
 	if len(diags) > 0 {
-		return diags
+		return nil, nil, diags
 	}
 	base := newScope(layersOf(p, pack.LayerBase)...)
 	diags = base.diags
-	users := []*scope{base}
+	users = []*scope{base}
 	if len(variants) > 0 {
 		users = nil
 	}
@@ -112,17 +142,15 @@ func Check(p *pack.Pack, sel Selection) []pack.Diagnostic {
 		diags = append(diags, u.diags...)
 		users = append(users, u)
 	}
-	project := newScope(profiles...)
-	cross := crossScope(users, project)
-	return slices.Concat(diags, withoutShadowed(project.diags, cross), cross, toolDiags(append(users, project)...))
+	return users, newScope(profiles...), diags
 }
 
-// toolDiags is checkTools over scopes, each problem once: a setting of the
-// base is in the user scope of every variant.
-func toolDiags(scopes ...*scope) []pack.Diagnostic {
+// once is check over scopes, each problem once: what the base has is in
+// the user scope of every variant.
+func once(scopes []*scope, check func(*scope) []pack.Diagnostic) []pack.Diagnostic {
 	var out []pack.Diagnostic
 	for _, s := range scopes {
-		for _, d := range s.checkTools() {
+		for _, d := range check(s) {
 			if !slices.Contains(out, d) {
 				out = append(out, d)
 			}
@@ -142,7 +170,7 @@ func Stage(p *pack.Pack, sel Selection) (Staging, []pack.Diagnostic) {
 	user := newScope(append(layersOf(p, pack.LayerBase), variants...)...)
 	project := newScope(profiles...)
 	cross := crossScope([]*scope{user}, project)
-	if diags = slices.Concat(user.diags, withoutShadowed(project.diags, cross), cross, toolDiags(user, project)); len(diags) > 0 {
+	if diags = slices.Concat(user.diags, withoutShadowed(project.diags, cross), cross, once([]*scope{user, project}, (*scope).checkTools)); len(diags) > 0 {
 		return Staging{}, diags
 	}
 	return Staging{User: user.tree(), Project: project.tree(), UserSettings: user.mergedSettings(), ProjectSettings: project.mergedSettings()}, nil

@@ -9,10 +9,11 @@ import (
 
 // ANSI styles of the text report.
 const (
-	styleBold  = "1"
-	styleDim   = "2"
-	styleRed   = "31"
-	styleGreen = "32"
+	styleBold   = "1"
+	styleDim    = "2"
+	styleRed    = "31"
+	styleGreen  = "32"
+	styleYellow = "33"
 )
 
 // isTerminal reports whether f is a terminal that shows ANSI colors. On

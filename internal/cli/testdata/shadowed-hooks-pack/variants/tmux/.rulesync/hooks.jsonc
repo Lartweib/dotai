@@ -1,0 +1,8 @@
+{
+  // agy gets its own session start
+  "antigravity-cli": {
+    "hooks": {
+      "sessionStart": [{ "command": "echo agy" }]
+    }
+  }
+}

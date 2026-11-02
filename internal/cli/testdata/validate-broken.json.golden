@@ -72,7 +72,8 @@
         "code": "field-type",
         "message": "dotai: \"overrides\" must be true or false"
       }
-    ]
+    ],
+    "warnings": []
   },
   "error": {
     "code": "invalid",

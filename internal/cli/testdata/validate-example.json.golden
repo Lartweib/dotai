@@ -67,6 +67,7 @@
         }
       ]
     },
-    "diagnostics": []
+    "diagnostics": [],
+    "warnings": []
   }
 }

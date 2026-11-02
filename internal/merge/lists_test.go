@@ -218,3 +218,58 @@ func TestCheckListFiles(t *testing.T) {
 		})
 	}
 }
+
+// TestWarningsForShadowedHooks checks the warning for a hook event that
+// both the shared hooks and a tool-scoped block of hooks.jsonc declare:
+// rulesync 41 renders only the block's hooks of that event for that
+// harness. It names the event, the block and both files, once per problem
+// across variants, and it is no error.
+func TestWarningsForShadowedHooks(t *testing.T) {
+	shared := `{"hooks": {"sessionStart": [{"command": "a"}], "stop": [{"command": "s"}]}}`
+	tests := []struct {
+		name string
+		pack *pack.Pack
+		want []string
+	}{
+		{"no tool-scoped block", newPack(base(hooks(shared))), nil},
+		{"another event in the block", newPack(base(hooks(`{"hooks": {"stop": [{"command": "s"}]}, "claudecode": {"hooks": {"sessionStart": [{"command": "c"}]}}}`))), nil},
+		{
+			"the same event in one file",
+			newPack(base(hooks("{\n  \"hooks\": {\"sessionStart\": [{\"command\": \"a\"}]},\n  \"claudecode\": {\n    \"hooks\": {\"sessionStart\": [{\"command\": \"c\"}]}\n  }\n}\n"))),
+			[]string{"base/.rulesync/hooks.jsonc:4: hooks-shadowed: claudecode.hooks.sessionStart replaces the shared hooks.sessionStart for claudecode (first: base/.rulesync/hooks.jsonc:2)"},
+		},
+		{
+			"the block in a variant, two harnesses, with two variants",
+			newPack(base(hooks(shared)),
+				variant("a", hooks(`{"antigravity-cli": {"hooks": {"sessionStart": [{"command": "g"}]}}, "opencode": {"hooks": {"stop": [{"command": "o"}]}}}`)),
+				variant("b")),
+			[]string{
+				"variants/a/.rulesync/hooks.jsonc:1: hooks-shadowed: antigravity-cli.hooks.sessionStart replaces the shared hooks.sessionStart for antigravity-cli (first: base/.rulesync/hooks.jsonc:1)",
+				"variants/a/.rulesync/hooks.jsonc:1: hooks-shadowed: opencode.hooks.stop replaces the shared hooks.stop for opencode (first: base/.rulesync/hooks.jsonc:1)",
+			},
+		},
+		{
+			"in the project scope, the shared hooks from another profile",
+			newPack(profile("p", hooks(shared)), profile("q", hooks(`{"claudecode": {"hooks": {"stop": [{"command": "c"}]}}}`))),
+			[]string{"profiles/q/.rulesync/hooks.jsonc:1: hooks-shadowed: claudecode.hooks.stop replaces the shared hooks.stop for claudecode (first: profiles/p/.rulesync/hooks.jsonc:1)"},
+		},
+		{"the user and the project scope apart", newPack(base(hooks(shared)), profile("p", hooks(`{"claudecode": {"hooks": {"stop": [{"command": "c"}]}}}`))), nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if diags := merge.Check(tt.pack, merge.Selection{}); len(diags) != 0 {
+				t.Fatalf("Check() = %q, want no error", format(diags))
+			}
+			ws := merge.Warnings(tt.pack, merge.Selection{})
+			for i, w := range ws {
+				if !strings.Contains(w.Hint, "rulesync renders only one of them") {
+					t.Errorf("warning %d hint = %q, want the reason", i, w.Hint)
+				}
+				ws[i].Hint = ""
+			}
+			if got, want := format(ws), append([]string{}, tt.want...); !reflect.DeepEqual(got, want) {
+				t.Errorf("Warnings() =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+			}
+		})
+	}
+}

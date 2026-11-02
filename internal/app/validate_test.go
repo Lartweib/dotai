@@ -59,6 +59,7 @@ func TestValidateFS(t *testing.T) {
 				},
 			},
 			Diagnostics: []pack.Diagnostic{},
+			Warnings:    []pack.Diagnostic{},
 		}
 		if err != nil || !reflect.DeepEqual(res, want) {
 			t.Errorf("result = %+v\nwant %+v", res, want)

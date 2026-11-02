@@ -22,9 +22,17 @@ import (
 // in every layer that sets it. Nothing a layer adds can be removed or
 // changed by a later one.
 var listFiles = map[string]listCodes{
-	".rulesync/hooks.jsonc":       {CodeHooksInvalid, CodeHooksConflict},
+	HooksFile:                     {CodeHooksInvalid, CodeHooksConflict},
 	".rulesync/permissions.jsonc": {CodePermissionsInvalid, CodePermissionsConflict},
 }
+
+// HooksFile is the hooks of a layer, and the merged hooks of a scope.
+const HooksFile = ".rulesync/hooks.jsonc"
+
+// sharedHooks is the member of a hooks file that holds the hooks of every
+// harness; any other member with a hooks object of its own is a
+// tool-scoped block, such as claudecode.
+const sharedHooks = "hooks"
 
 // listCodes are the diagnostic codes of a list file.
 type listCodes struct{ invalid, conflict string }
@@ -281,4 +289,50 @@ func listFile(path string, n *node) File {
 	out.WriteByte('\n')
 	f.Data = out.Bytes()
 	return f
+}
+
+// shadowedHooks warns about each event of a tool-scoped block of the
+// scope's hooks that the shared hooks declare too: rulesync 41 renders the
+// block's hooks of that event for its harness, and drops the shared ones
+// (HARNESS-NOTES). The warning is at the event in the block and points at
+// the event in the shared hooks.
+func (s *scope) shadowedHooks() []pack.Diagnostic {
+	n, ok := s.lists[HooksFile]
+	if !ok || n.kind != '{' {
+		return nil
+	}
+	shared := n.vals[sharedHooks]
+	if shared == nil || shared.kind != '{' {
+		return nil
+	}
+	var out []pack.Diagnostic
+	for _, block := range n.keys {
+		hooks := blockHooks(n, block)
+		if hooks == nil {
+			continue
+		}
+		for _, event := range hooks.keys {
+			prev, ok := shared.vals[event]
+			if !ok {
+				continue
+			}
+			at := hooks.vals[event]
+			out = append(out, pack.NewDiagnostic(at.file, at.line, 0, CodeHooksShadowed, "%s.hooks.%s replaces the shared hooks.%s for %s", block, event, event, block).WithRelated(prev.file, prev.line).
+				WithHint("rulesync renders only one of them for %s: add the shared %s hooks to %s.hooks.%s too, or move the event out of one of the two", block, event, block, event))
+		}
+	}
+	return out
+}
+
+// blockHooks is the hooks object of the tool-scoped block of the hooks
+// file n, nil when that member of n is not a block.
+func blockHooks(n *node, block string) *node {
+	b := n.vals[block]
+	if block == sharedHooks || b.kind != '{' {
+		return nil
+	}
+	if h := b.vals[sharedHooks]; h != nil && h.kind == '{' {
+		return h
+	}
+	return nil
 }

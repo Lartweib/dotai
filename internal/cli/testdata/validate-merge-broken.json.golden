@@ -218,7 +218,8 @@
         },
         "hint": "rename it; overrides do not apply across scopes"
       }
-    ]
+    ],
+    "warnings": []
   },
   "error": {
     "code": "invalid",

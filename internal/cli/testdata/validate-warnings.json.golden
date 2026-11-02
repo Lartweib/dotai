@@ -1,0 +1,55 @@
+{
+  "schema": "dotai.cli/v1",
+  "command": "validate",
+  "ok": true,
+  "data": {
+    "valid": true,
+    "pack": {
+      "name": "shadowed-hooks-pack",
+      "version": "0.1.0",
+      "engine": ">=0.1.0",
+      "rulesync": "41.0.0",
+      "harnesses": [
+        "claudecode",
+        "antigravity-cli"
+      ],
+      "optionalHarnesses": [],
+      "profiles": [],
+      "variants": [
+        "tmux"
+      ],
+      "defaultVariant": "tmux",
+      "sharedSkills": [],
+      "layers": [
+        {
+          "kind": "base",
+          "name": "base",
+          "path": "base",
+          "items": 0
+        },
+        {
+          "kind": "variant",
+          "name": "tmux",
+          "path": "variants/tmux",
+          "items": 0
+        }
+      ]
+    },
+    "diagnostics": [],
+    "warnings": [
+      {
+        "file": "variants/tmux/.rulesync/hooks.jsonc",
+        "line": 5,
+        "column": 0,
+        "code": "hooks-shadowed",
+        "message": "antigravity-cli.hooks.sessionStart replaces the shared hooks.sessionStart for antigravity-cli",
+        "related": {
+          "file": "base/.rulesync/hooks.jsonc",
+          "line": 4,
+          "column": 0
+        },
+        "hint": "rulesync renders only one of them for antigravity-cli: add the shared sessionStart hooks to antigravity-cli.hooks.sessionStart too, or move the event out of one of the two"
+      }
+    ]
+  }
+}

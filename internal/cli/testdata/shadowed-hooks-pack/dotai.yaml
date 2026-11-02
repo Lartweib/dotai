@@ -1,0 +1,12 @@
+# Valid; the hooks declare one event both shared and per harness.
+schema: dotai.pack/v1
+name: shadowed-hooks-pack
+version: 0.1.0
+engine: ">=0.1.0"
+rulesync: 41.0.0
+harnesses: [claudecode, antigravity-cli]
+
+variants:
+  tmux:
+    path: variants/tmux
+    default: true

@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [{ "command": "echo shared" }],
+    "stop": [{ "command": "echo stop" }]
+  }
+}
