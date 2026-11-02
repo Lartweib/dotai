@@ -2,6 +2,7 @@ Apply plan · minimal-pack 0.1.0 · profile web · variant standalone
 project: /work/site
 record:  /home/u/.dotai/projects/0123456789abcdef/record.json
 marker:  /work/site/.dotai/state.json
+note: the mod hello loads in Claude Code 2.1.287 or later, in a terminal, only in a session started at /work/site, and only after you accept the workspace trust dialog there
 
 claudecode
   create     /home/u/.claude.json
@@ -9,6 +10,8 @@ claudecode
   create     /work/site/.claude/rules/web.md
   merge      /work/site/.claude/settings.local.json
              keys: merge permissions.allow, unchanged model
+  create     /work/site/.claude/skills/hello/hooks/hooks.json
+  create     /work/site/.claude/skills/hello/hooks/register.js
   skipped    skill lint: git tracks /work/site/.claude/skills/lint/SKILL.md
 
 antigravity-cli
@@ -27,9 +30,11 @@ exclude · /work/site/.git/info/exclude
   /.dotai/
   /.agents/hooks.json
   /.claude/rules/web.md
+  /.claude/skills/hello/
 
 warning: claudecode loads the user-level skill lint from /home/u/.claude/skills/lint instead of the project's
 warning: antigravity-cli has no project settings file, so the permissions of the profiles are not installed for it
+warning: opencode has no local place for project mods, so those of the profiles are not installed for it
 
-4 create, 1 merge, 0 remove, 1 unchanged, 1 conflict, 2 skipped · applied, the first apply in this project
+6 create, 1 merge, 0 remove, 1 unchanged, 1 conflict, 2 skipped · applied, the first apply in this project
 backup: /home/u/.dotai/projects/0123456789abcdef/backups/20261102T101500.000Z_apply

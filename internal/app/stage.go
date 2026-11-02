@@ -43,7 +43,8 @@ type StageResult struct {
 // StagedFile is one written file: its scope, its path inside the scope's
 // staging tree and the layer that provides it. A merged file has no layer
 // and gives the layer of each entry in Origins. A file rendered from the
-// staged sources has no layer and names its Generator, such as rulesync;
+// staged sources has no layer and names its Generator, such as rulesync,
+// and so does a file dotai makes, such as a mod's plugin manifest;
 // a settings file also gives the layer of each key in Origins.
 type StagedFile struct {
 	Scope     string            `json:"scope"`
@@ -167,7 +168,7 @@ func stage(ctx context.Context, w stageFS, fetch fetchFunc, run runFunc, cacheDi
 				c.perm = 0o755
 			}
 			files[path.Join(t.scope, f.Path)] = c
-			res.Files = append(res.Files, StagedFile{Scope: t.scope, Path: f.Path, Layer: f.Layer, Origins: f.Origins})
+			res.Files = append(res.Files, StagedFile{Scope: t.scope, Path: f.Path, Layer: f.Layer, Origins: f.Origins, Generator: f.Generator})
 		}
 	}
 	bin, err := fetch(ctx, cacheDir, p.Manifest.Rulesync, progress)

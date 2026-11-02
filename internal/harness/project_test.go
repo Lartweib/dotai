@@ -2,7 +2,6 @@ package harness_test
 
 import (
 	"reflect"
-	"slices"
 	"testing"
 
 	"github.com/lartweib/dotai/internal/harness"
@@ -24,6 +23,7 @@ func TestProjectTargets(t *testing.T) {
 		{"claudecode", ".claude/skills/lint/ref/a.md", ".claude/skills/lint/ref/a.md", harness.ProjectSkills, "skill lint", false},
 		{"claudecode", ".claude/commands/deploy.md", ".claude/commands/deploy.md", harness.ProjectCommands, "command deploy", false},
 		{"claudecode", ".claude/settings.json", ".claude/settings.local.json", harness.ProjectSettings, "", true},
+		{"claudecode", "mods/panel/hooks/hooks.json", ".claude/skills/panel/hooks/hooks.json", harness.ProjectMods, "mod panel", false},
 		{"antigravity-cli", ".agents/rules/web.md", ".agents/rules/web.md", harness.ProjectRules, "rule web", false},
 		{"antigravity-cli", ".agents/agents/webdev.md", ".agents/agents/webdev.md", harness.ProjectAgents, "agent webdev", false},
 		{"antigravity-cli", ".agents/skills/deploy/SKILL.md", ".agents/skills/deploy/SKILL.md", harness.ProjectSkills, "skill deploy", false},
@@ -106,8 +106,16 @@ func TestProjectLayoutSpecials(t *testing.T) {
 	if agy.Project.MCP != nil || oc.Project.MCP != nil {
 		t.Error("only Claude Code keeps its project MCP servers outside the project")
 	}
-	if !slices.Contains(agy.Project.NoSlot, harness.ProjectSettings) || len(cc.Project.NoSlot)+len(oc.Project.NoSlot) != 0 {
-		t.Errorf("NoSlot = %v, %v, %v, want settings for agy only", cc.Project.NoSlot, agy.Project.NoSlot, oc.Project.NoSlot)
+	if !reflect.DeepEqual(agy.Project.NoSlot, []harness.ProjectKind{harness.ProjectSettings, harness.ProjectMods}) ||
+		!reflect.DeepEqual(oc.Project.NoSlot, []harness.ProjectKind{harness.ProjectMods}) || len(cc.Project.NoSlot) != 0 {
+		t.Errorf("NoSlot = %v, %v, %v, want settings and mods for agy and mods for OpenCode", cc.Project.NoSlot, agy.Project.NoSlot, oc.Project.NoSlot)
+	}
+	mod, _ := cc.Project.Locate("mods/panel/register.js")
+	if mod.Dir != ".claude/skills/panel/" || mod.Name != "panel" || !mod.WholeDir {
+		t.Errorf("a mod's file = %+v, want an item of .claude/skills/panel/ owned whole", mod)
+	}
+	if skill, _ := cc.Project.Locate(".claude/skills/lint/SKILL.md"); skill.WholeDir {
+		t.Errorf("a skill = %+v, want it not owned whole", skill)
 	}
 	if !reflect.DeepEqual(oc.Project.AlsoReads, []string{".claude/skills/", ".agents/skills/"}) || len(cc.Project.AlsoReads)+len(agy.Project.AlsoReads) != 0 {
 		t.Errorf("AlsoReads = %v", oc.Project.AlsoReads)
@@ -135,11 +143,11 @@ func TestProjectLayoutSpecials(t *testing.T) {
 func TestAllClonesTheProjectLayout(t *testing.T) {
 	a := harness.All()
 	a[0].Project.Paths[0].To = "changed"
-	a[0].Project.Paths[4].Each[0].Path[0] = "changed"
+	a[0].Project.Paths[5].Each[0].Path[0] = "changed"
 	a[0].Project.UserItems[0].Dirs[0] = "changed"
 	a[0].Project.MCP.From = "changed"
 	b := harness.All()
-	if b[0].Project.Paths[0].To == "changed" || b[0].Project.Paths[4].Each[0].Path[0] == "changed" ||
+	if b[0].Project.Paths[0].To == "changed" || b[0].Project.Paths[5].Each[0].Path[0] == "changed" ||
 		b[0].Project.UserItems[0].Dirs[0] == "changed" || b[0].Project.MCP.From == "changed" {
 		t.Error("All() shares the project layout between calls")
 	}

@@ -117,6 +117,26 @@
       },
       {
         "action": "create",
+        "harness": "claudecode",
+        "kind": "mods",
+        "source": "mods/hello/hooks/hooks.json",
+        "target": "/work/site/.claude/skills/hello/hooks/hooks.json",
+        "before": "",
+        "after": "dd",
+        "keys": []
+      },
+      {
+        "action": "create",
+        "harness": "claudecode",
+        "kind": "mods",
+        "source": "mods/hello/hooks/register.js",
+        "target": "/work/site/.claude/skills/hello/hooks/register.js",
+        "before": "",
+        "after": "ee",
+        "keys": []
+      },
+      {
+        "action": "create",
         "harness": "",
         "kind": "marker",
         "source": "",
@@ -158,7 +178,8 @@
       "entries": [
         "/.dotai/",
         "/.agents/hooks.json",
-        "/.claude/rules/web.md"
+        "/.claude/rules/web.md",
+        "/.claude/skills/hello/"
       ]
     },
     "warnings": [
@@ -175,11 +196,20 @@
         "item": "",
         "path": "",
         "message": "antigravity-cli has no project settings file, so the permissions of the profiles are not installed for it"
+      },
+      {
+        "code": "no-local-slot",
+        "harness": "opencode",
+        "item": "mods",
+        "path": "",
+        "message": "opencode has no local place for project mods, so those of the profiles are not installed for it"
       }
     ],
     "refusals": [],
     "firstApply": true,
-    "notices": [],
+    "notices": [
+      "the mod hello loads in Claude Code 2.1.287 or later, in a terminal, only in a session started at /work/site, and only after you accept the workspace trust dialog there"
+    ],
     "diagnostics": []
   }
 }

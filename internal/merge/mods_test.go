@@ -40,7 +40,7 @@ func TestStagePlacesTheModsOfTheProfiles(t *testing.T) {
 	}{
 		{name: "one profile", profiles: []string{"web"}, want: []string{
 			".rulesync/rules/web.md profiles/web",
-			"mods/panel/.claude-plugin/plugin.json mods/panel",
+			"mods/panel/.claude-plugin/plugin.json dotai",
 			"mods/panel/agents/helper.md mods/panel",
 			"mods/panel/hooks/hooks.json mods/panel",
 			"mods/panel/hooks/register.js mods/panel",
@@ -51,7 +51,7 @@ func TestStagePlacesTheModsOfTheProfiles(t *testing.T) {
 			"mods/notes/.claude-plugin/plugin.json mods/notes",
 			"mods/notes/hooks/hooks.json mods/notes",
 			"mods/notes/hooks/r.ts mods/notes",
-			"mods/panel/.claude-plugin/plugin.json mods/panel",
+			"mods/panel/.claude-plugin/plugin.json dotai",
 			"mods/panel/agents/helper.md mods/panel",
 			"mods/panel/hooks/hooks.json mods/panel",
 			"mods/panel/hooks/register.js mods/panel",
@@ -66,7 +66,7 @@ func TestStagePlacesTheModsOfTheProfiles(t *testing.T) {
 			var got []string
 			data := map[string]string{}
 			for _, f := range s.Project {
-				got = append(got, f.Path+" "+f.Layer)
+				got = append(got, f.Path+" "+f.Layer+f.Generator)
 				data[f.Path] = string(f.Data)
 				if f.Path == "mods/notes/hooks/r.ts" && !f.Exec {
 					t.Errorf("%s lost its executable bit", f.Path)

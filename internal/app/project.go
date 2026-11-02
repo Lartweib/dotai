@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/lartweib/dotai/internal/harness"
 	"github.com/lartweib/dotai/internal/pack"
@@ -42,8 +43,8 @@ type ProjectPlan struct {
 	Refusals []plan.Warning `json:"refusals"`
 	// FirstApply is set when the project has no record of an earlier apply.
 	FirstApply bool `json:"firstApply"`
-	// Notices say why an optional harness is not in the plan, text for
-	// people.
+	// Notices say why an optional harness is not in the plan, and when
+	// Claude Code loads each mod the plan installs, text for people.
 	Notices     []string     `json:"notices"`
 	Diagnostics []Diagnostic `json:"diagnostics"`
 }
@@ -270,6 +271,7 @@ func withProjectPlan(ctx context.Context, d installFS, h host, g gitPort, fetch 
 		return err
 	}
 	res.Ops, res.Skipped = append(res.Ops, p.Ops...), append(res.Skipped, p.Skipped...)
+	res.Notices = append(res.Notices, modNotices(p.Ops, project)...)
 	res.Exclude.Entries, res.Warnings = append(res.Exclude.Entries, p.Exclude...), append(res.Warnings, p.Warnings...)
 	res.Refusals = append(res.Refusals, p.Refusals...)
 	planned.plan, planned.in, planned.kept = res, in, p.Kept
@@ -277,6 +279,27 @@ func withProjectPlan(ctx context.Context, d installFS, h host, g gitPort, fetch 
 		return err
 	}
 	return then(planned)
+}
+
+// modNotices say, for each mod the plan installs, when Claude Code loads
+// it (HARNESS-NOTES): only from the top of the project, after the user
+// trusts the workspace, and from a version that has mods.
+func modNotices(ops []plan.ProjectOp, project string) []string {
+	var names []string
+	for _, op := range ops {
+		rest, ok := strings.CutPrefix(op.Source, harness.ModsSource)
+		if !ok || op.Kind != string(harness.ProjectMods) || op.Action == plan.Remove {
+			continue
+		}
+		if name, _, _ := strings.Cut(rest, "/"); !slices.Contains(names, name) {
+			names = append(names, name)
+		}
+	}
+	var out []string
+	for _, name := range names {
+		out = append(out, fmt.Sprintf("the mod %s loads in Claude Code %s or later, in a terminal, only in a session started at %s, and only after you accept the workspace trust dialog there", name, harness.ModsMinClaude, project))
+	}
+	return out
 }
 
 // CodeMarkerMismatch is the warning of a project marker that does not say
@@ -346,6 +369,7 @@ func realPath(p string) string { return resolvePath(p) }
 // readProject fills in with what plan.BuildProject plans the project tree
 // tree from: each staged file whole, the harnesses that need the import of
 // a rules file, the state of each target and which of them git tracks,
+// with the directories of the items dotai owns whole,
 // the harnesses installed isolated by prev, and the paths of
 // plan.ProjectProbes that exist.
 func readProject(ctx context.Context, d installFS, g gitPort, tree string, prev *state.State, in *plan.ProjectInput) error {
@@ -396,6 +420,17 @@ func readProject(ctx context.Context, d installFS, g gitPort, tree string, prev 
 		}
 		if ok {
 			in.Disk[t.Path], in.Content[t.Path] = cur, data
+		}
+	}
+	// An item dotai owns whole, such as a mod, is skipped when git tracks
+	// any file in its directory.
+	whole, err := plan.ProjectDirs(*in)
+	if err != nil {
+		return err
+	}
+	for _, dir := range whole {
+		if rel, err := filepath.Rel(in.Project, dir); err == nil && filepath.IsLocal(rel) {
+			rels = append(rels, filepath.ToSlash(rel)+"/")
 		}
 	}
 	if in.Repo && len(rels) > 0 {

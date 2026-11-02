@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -36,7 +37,8 @@ type Repo struct {
 
 // gitPort is how a project plan asks git about the directory dir: the
 // repository it is in, nil outside one, and which of paths, slash paths
-// relative to dir, git tracks, by those paths. Neither writes anything.
+// relative to dir, git tracks, by those paths, a directory with a trailing
+// slash when git tracks any file in it. Neither writes anything.
 type gitPort interface {
 	Repo(ctx context.Context, dir string) (*Repo, error)
 	Tracked(ctx context.Context, dir string, paths []string) (map[string]bool, error)
@@ -165,7 +167,8 @@ const trackedBatch = 100
 // holds, each path read literally. Where the file system ignores case, as
 // foldCase says, a path matches an index entry spelled another way, which
 // is the same file there, and git gives the index's spelling: the answer
-// is by the paths asked.
+// is by the paths asked. A path with a trailing slash is a directory, held
+// when the index holds any file in it.
 func (g osGit) Tracked(ctx context.Context, dir string, paths []string) (map[string]bool, error) {
 	magic := ":(literal)"
 	if foldCase {
@@ -188,6 +191,13 @@ func (g osGit) Tracked(ctx context.Context, dir string, paths []string) (map[str
 		for name := range strings.SplitSeq(string(list), "\x00") {
 			if p, ok := asked[foldKey(name)]; ok && name != "" {
 				out[p] = true
+			}
+			// A directory asked with a trailing slash is tracked when git
+			// tracks any file in it.
+			for dir := path.Dir(name); name != "" && dir != "." && dir != "/"; dir = path.Dir(dir) {
+				if p, ok := asked[foldKey(dir+"/")]; ok {
+					out[p] = true
+				}
 			}
 		}
 	}

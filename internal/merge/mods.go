@@ -64,7 +64,7 @@ func modFiles(mods []pack.Mod, version string) []File {
 				Name    string `json:"name"`
 				Version string `json:"version"`
 			}{m.Name, version}, "", "  ")
-			out = append(out, File{Path: path.Join(ModsDir, m.Name, pack.ModManifest), Layer: m.Path, Data: append(data, '\n')})
+			out = append(out, File{Path: path.Join(ModsDir, m.Name, pack.ModManifest), Data: append(data, '\n'), Generator: GeneratorDotai})
 		}
 	}
 	slices.SortFunc(out, func(a, b File) int { return strings.Compare(a.Path, b.Path) })

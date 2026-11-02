@@ -90,7 +90,8 @@ func TestStageWritesEveryStagedFile(t *testing.T) {
 			}
 			continue
 		}
-		rel := strings.Replace(f.Path, ".dotai/tools/", "dotai/tools/", 1)
+		// A mod's file is at mods/<mod>/ in the tree, as in the pack.
+		rel := strings.TrimPrefix(strings.Replace(f.Path, ".dotai/tools/", "dotai/tools/", 1), f.Layer+"/")
 		src, err := os.ReadFile(filepath.Join(examplePack, filepath.FromSlash(f.Layer), filepath.FromSlash(rel)))
 		if err != nil || string(data) != expand.Replace(string(src)) || strings.Contains(string(data), "${DOTAI_") {
 			t.Errorf("%s/%s does not match its source in %s with the tools paths: %v", f.Scope, f.Path, f.Layer, err)

@@ -86,7 +86,13 @@ type File struct {
 	Origins map[string]string // for a merged file, the layer path of each entry by name
 	Data    []byte
 	Exec    bool // the source is executable
+	// Generator names what made a file no layer provides, such as a mod's
+	// plugin manifest, GeneratorDotai; "" for the others.
+	Generator string
 }
+
+// GeneratorDotai is the Generator of a file dotai makes while staging.
+const GeneratorDotai = "dotai"
 
 // Staging holds the merged tree of each scope, in path order, and the
 // merged settings of each scope by harness.

@@ -23,7 +23,9 @@
           "hints": [
             "package.json"
           ],
-          "mods": []
+          "mods": [
+            "hello"
+          ]
         }
       ],
       "variants": [

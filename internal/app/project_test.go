@@ -112,6 +112,9 @@ func TestPlanProjectListsEachTargetAndWritesNothing(t *testing.T) {
 		"create antigravity-cli " + at(project, ".agents/rules/web.md"),
 		"create claudecode " + at(project, ".claude/rules/web.md"),
 		"create claudecode " + at(project, ".claude/settings.local.json"),
+		"create claudecode " + at(project, ".claude/skills/hello/.claude-plugin/plugin.json"),
+		"create claudecode " + at(project, ".claude/skills/hello/hooks/hooks.json"),
+		"create claudecode " + at(project, ".claude/skills/hello/hooks/register.js"),
 		"create  " + at(project, ".dotai/state.json"),
 		"create opencode " + at(project, ".opencode/memories/web.md"),
 		"create opencode " + at(project, ".opencode/opencode.json"),
@@ -129,7 +132,7 @@ func TestPlanProjectListsEachTargetAndWritesNothing(t *testing.T) {
 	}
 	wantExclude := app.ExcludePlan{File: at(project, ".git/info/exclude"), Entries: []string{
 		"/.dotai/", "/.agents/mcp_config.json", "/.agents/rules/web.md", "/.claude/rules/web.md", "/.claude/settings.local.json",
-		"/.opencode/memories/web.md", "/.opencode/opencode.json",
+		"/.claude/skills/hello/", "/.opencode/memories/web.md", "/.opencode/opencode.json",
 	}}
 	if !reflect.DeepEqual(p.Exclude, wantExclude) {
 		t.Errorf("exclude = %+v, want %+v", p.Exclude, wantExclude)
@@ -353,6 +356,23 @@ func TestOSGitTracked(t *testing.T) {
 	}
 	if _, err := os.Stat(at(repo, ".git/index.lock")); err == nil {
 		t.Error("git left an index lock")
+	}
+}
+
+func TestOSGitTrackedDirectory(t *testing.T) {
+	needGit(t)
+	repo := t.TempDir()
+	git(t, repo, "init", "-q")
+	writeFile(t, at(repo, ".claude/skills/panel/README.md"), "team\n")
+	writeFile(t, at(repo, ".claude/skills/other/x.md"), "untracked\n")
+	git(t, repo, "add", ".claude/skills/panel/README.md")
+	git(t, repo, "commit", "-q", "-m", "init")
+	tracked, err := app.OSGit{}.Tracked(context.Background(), repo, []string{".claude/skills/panel/", ".claude/skills/other/", ".claude/skills/pan/", ".claude/skills/panel/hooks/hooks.json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := map[string]bool{".claude/skills/panel/": true}; !reflect.DeepEqual(tracked, want) {
+		t.Errorf("Tracked() = %v, want %v: a directory asked with a trailing slash is tracked when git tracks any file in it", tracked, want)
 	}
 }
 
