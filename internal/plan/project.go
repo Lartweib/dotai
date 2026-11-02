@@ -97,7 +97,12 @@ var (
 // Import holds the harnesses whose layout's Imports the project has and no
 // file of its ImportFiles imports. Isolated holds the harnesses the user
 // installed isolated, whose home file is in their isolated directory.
-// Exists holds each path of ProjectProbes that exists.
+// Exists holds each path of ProjectProbes that exists. Owned is what the
+// project record of an earlier apply says dotai owns, by target, and
+// Shared the keys of the home file of a harness's MCP servers that the
+// apply of another project owns, such as another worktree of the
+// repository, which shares the entry: such a key is dotai's, never a
+// foreign one, and this project's apply never deletes it.
 type ProjectInput struct {
 	Project  string // the absolute project directory
 	Home     string // the absolute home directory
@@ -112,17 +117,25 @@ type ProjectInput struct {
 	Import   map[string]bool
 	Isolated map[string]bool
 	Exists   map[string]bool
+	Owned    map[string]ProjectOwned
+	Shared   [][]string
 }
 
 // Placement is where a project apply puts each file. Ops are in target
 // order; Skipped are the items left uninstalled because git tracks their
 // target, by harness and target; Exclude are the entries of the exclude
-// file, as patterns relative to the project, the top of its worktree.
+// file, as patterns relative to the project, the top of its worktree: the
+// entries of what the plan creates, and of what an earlier apply created
+// that dotai still owns. Refusals are why the apply would refuse.
 type Placement struct {
 	Ops      []ProjectOp
 	Skipped  []Skipped
 	Exclude  []string
 	Warnings []Warning
+	Refusals []Warning
+	// Kept is what dotai owns that the plan leaves alone, since git tracks
+	// it now, by target.
+	Kept map[string]ProjectOwned
 }
 
 // ProjectOp is one target of a project plan. Harness is "" for the tools
@@ -130,21 +143,39 @@ type Placement struct {
 // file dotai makes. Before is the SHA-256 of the target, "" when it is
 // missing, and After that of what it gets when it is written whole, "" for
 // a file merged by key, whose Keys are the keys the profiles write there,
-// each with what it does to the key the target holds.
+// each with what it does to the key the target holds, and the keys an
+// earlier apply set that it puts back.
+//
+// The rest is what carrying the op out needs. Data is what a target gets
+// written, the merged content of a file merged by key; Edits, for the home
+// file of a harness's MCP servers, which the harness rewrites, are the
+// edits made on the file as it is when it is written. Owns is what dotai
+// owns in the target afterwards, nil for none and for the record. A
+// conflict with Removal set removes an owned file edited since; PutBack is
+// the backup whose copy a replace puts back, for a file dotai wrote over
+// another that the profiles no longer give.
 type ProjectOp struct {
-	Action  Action       `json:"action"`
-	Harness string       `json:"harness"`
-	Kind    string       `json:"kind"`
-	Source  string       `json:"source"`
-	Target  string       `json:"target"`
-	Before  string       `json:"before"`
-	After   string       `json:"after"`
-	Keys    []ProjectKey `json:"keys"`
+	Action  Action        `json:"action"`
+	Harness string        `json:"harness"`
+	Kind    string        `json:"kind"`
+	Source  string        `json:"source"`
+	Target  string        `json:"target"`
+	Before  string        `json:"before"`
+	After   string        `json:"after"`
+	Keys    []ProjectKey  `json:"keys"`
+	Data    []byte        `json:"-"`
+	Edits   []KeyEdit     `json:"-"`
+	Owns    *ProjectOwned `json:"-"`
+	Removal bool          `json:"-"`
+	PutBack string        `json:"-"`
 }
 
 // ProjectKey is a key of a file merged by key, by its path from the top of
 // the file: Create when the target lacks it, Unchanged when it holds the
-// same value, Merge when it holds another.
+// value dotai writes, Merge when it holds another, Remove for a key an
+// earlier apply set that the profiles no longer give, which gets back the
+// value it held before, and Conflict for a key dotai owns that holds
+// another value than the one dotai wrote.
 type ProjectKey struct {
 	Path   []string `json:"key"`
 	Action Action   `json:"action"`
@@ -204,9 +235,10 @@ type Target struct {
 	Read bool
 }
 
-// ProjectTargets are the targets BuildProject plans for in, from in.Files
-// and in.Import alone, in its order; the caller reads them and asks git
-// about them before it builds the plan.
+// ProjectTargets are the targets BuildProject plans for in, from in.Files,
+// in.Import and in.Owned alone, in its order, then each owned target it no
+// longer writes; the caller reads them and asks git about them before it
+// builds the plan.
 func ProjectTargets(in ProjectInput) ([]Target, error) {
 	targets, err := in.locate()
 	if err != nil {
@@ -215,6 +247,13 @@ func ProjectTargets(in ProjectInput) ([]Target, error) {
 	out := make([]Target, len(targets))
 	for i, t := range targets {
 		out[i] = Target{Path: t.target, Read: t.byKey || t.home != nil}
+	}
+	// What an earlier apply owns that the plan no longer writes is read too,
+	// so that it can be removed or given back.
+	for _, target := range slices.Sorted(maps.Keys(in.Owned)) {
+		if !slices.ContainsFunc(targets, func(t located) bool { return t.target == target }) {
+			out = append(out, Target{Path: target, Read: in.Owned[target].Hash == ""})
+		}
 	}
 	return out, nil
 }
@@ -267,11 +306,11 @@ func BuildProject(in ProjectInput) (Placement, error) {
 			}
 			continue
 		}
-		op, err := in.opOf(t)
+		op, refusals, err := in.opOf(t)
 		if err != nil {
 			return Placement{}, err
 		}
-		p.Ops = append(p.Ops, op)
+		p.Ops, p.Refusals = append(p.Ops, op), append(p.Refusals, refusals...)
 		if t.item != "" {
 			key := t.harness + "\x00" + t.item
 			if _, ok := created[key]; !ok {
@@ -300,7 +339,57 @@ func BuildProject(in ProjectInput) (Placement, error) {
 		}
 		p.Exclude = append(p.Exclude, in.pattern(rel))
 	}
+	// Each created file records the entry that covers it, so that the next
+	// apply keeps it in the exclude file while dotai owns the file.
+	for i, op := range p.Ops {
+		rel, ok := in.rel(op.Target)
+		if op.Owns == nil || !ok || strings.HasPrefix(rel, dotaiDir) {
+			continue
+		}
+		if op.Action == Create {
+			e := in.pattern(rel)
+			if j := slices.IndexFunc(p.Exclude[1:], func(x string) bool { return strings.HasSuffix(x, "/") && strings.HasPrefix(e, x) }); j >= 0 {
+				e = p.Exclude[1+j]
+			}
+			p.Ops[i].Owns.Exclude = e
+		}
+		if e := p.Ops[i].Owns.Exclude; e != "" && !slices.Contains(p.Exclude, e) {
+			p.Exclude = append(p.Exclude, e)
+		}
+	}
+	planned := map[string]bool{}
+	for _, t := range targets {
+		planned[t.target] = true
+	}
+	for _, target := range slices.Sorted(maps.Keys(in.Owned)) {
+		cur, exists := in.Disk[target]
+		switch {
+		case planned[target]:
+			continue
+		case in.Tracked[target]:
+			if p.Kept == nil {
+				p.Kept = map[string]ProjectOwned{}
+			}
+			p.Kept[target] = in.Owned[target] // git tracks it now: never written, still dotai's
+			continue
+		case !exists:
+			continue // gone already
+		}
+		op, err := in.removal(target, in.Owned[target], cur)
+		if err != nil {
+			return Placement{}, err
+		}
+		if op.Target != "" {
+			p.Ops = append(p.Ops, op)
+		}
+	}
 	slices.Sort(p.Exclude[1:])
+	for _, sk := range p.Skipped {
+		if sk.Item == recordItem {
+			p.Refusals = append(p.Refusals, Warning{Code: CodeRecordTracked, Path: sk.Target,
+				Message: fmt.Sprintf("git tracks %s, the project record, which stays local: untrack it (git rm --cached), then apply again", sk.Target)})
+		}
+	}
 	slices.SortFunc(p.Ops, func(a, b ProjectOp) int { return cmp.Compare(a.Target, b.Target) })
 	p.Warnings = in.warnings(installed)
 	return p, nil
@@ -413,57 +502,143 @@ func (in ProjectInput) locate() ([]located, error) {
 	return out, nil
 }
 
-// opOf plans the target t.
-func (in ProjectInput) opOf(t located) (ProjectOp, error) {
+// opOf plans the target t, with what dotai owns there by the record, and
+// gives the refusals it finds there.
+func (in ProjectInput) opOf(t located) (ProjectOp, []Warning, error) {
 	op := ProjectOp{Action: Create, Harness: t.harness, Kind: t.kind, Source: t.file.Path, Target: t.target, Keys: []ProjectKey{}}
 	cur, exists := in.Disk[t.target]
 	if exists {
 		op.Before = cur.Hash
 	}
+	owned, isOwned := in.Owned[t.target]
 	switch {
 	case t.kind == KindRecord:
 		if exists {
 			op.Action = Replace
 		}
-		return op, nil
-	case t.home != nil || t.byKey:
-		paths, values, err := t.stagedKeys(in.mcpKey())
-		if err != nil {
-			return ProjectOp{}, fmt.Errorf("staged %s: %w", t.file.Path, err)
-		}
+		return op, nil, nil
+	case (t.home != nil || t.byKey) && (!isOwned || owned.Hash == ""):
 		var doc *jsonc.Document
 		if exists {
+			var err error
 			if doc, err = jsonc.Parse(in.Content[t.target]); err != nil {
-				op.Action = Conflict // not a JSON object dotai can edit key by key
-				return op, nil
+				if t.home != nil {
+					return op, []Warning{{Code: CodeMCPServerForeign, Harness: t.harness, Path: t.target,
+						Message: fmt.Sprintf("%s is not a JSON object dotai can edit key by key, so apply refuses: fix it, then apply again", t.target)}}, nil
+				}
+				// Not a JSON object dotai can edit key by key: with consent it is
+				// written whole, and put back whole by a restore.
+				op.Action, op.Data, op.After = Conflict, t.file.Data, t.file.Hash
+				op.Owns = &ProjectOwned{Harness: t.harness, Kind: t.kind, Hash: t.file.Hash, Exec: t.file.Exec}
+				return op, nil, nil
 			}
 			op.Action = Unchanged
 		}
-		for i, p := range paths {
-			k := ProjectKey{Path: p, Action: Create}
-			if doc != nil {
-				if have, ok := doc.Get(p); ok {
-					k.Action = Unchanged
-					if same, err := sameJSON(have, values[i]); err != nil || !same {
-						k.Action = Merge
-					}
-				}
-				if k.Action != Unchanged {
-					op.Action = Merge
+		var p *ProjectOwned
+		if isOwned {
+			p = &owned
+		}
+		keys, edits, next, refusals, err := in.mergeKeys(t, doc, p)
+		if err != nil {
+			return ProjectOp{}, nil, err
+		}
+		op.Keys, op.Edits, op.Owns = append(op.Keys, keys...), edits, next
+		if len(next.Keys) == 0 {
+			op.Owns = nil
+		}
+		if !exists {
+			op.Data = t.file.Data
+			if t.home != nil {
+				if op.Data, err = ApplyEdits(nil, edits); err != nil {
+					return ProjectOp{}, nil, fmt.Errorf("%s: %w", t.target, err)
 				}
 			}
-			op.Keys = append(op.Keys, k)
+			return op, refusals, nil
+		}
+		if slices.ContainsFunc(keys, func(k ProjectKey) bool { return k.Action != Unchanged }) {
+			op.Action = Merge
+		}
+		if op.Data, err = ApplyEdits(in.Content[t.target], edits); err != nil {
+			return ProjectOp{}, nil, fmt.Errorf("%s: %w; fix it or move it away, then apply again", t.target, err)
+		}
+		if t.home == nil && next.Created && op.Action == Merge {
+			if d, err := jsonc.Parse(op.Data); err == nil {
+				if names, _ := d.Keys(nil); len(names) == 0 {
+					op.Action, op.Data, op.Owns = Remove, nil, nil // dotai created it, and nothing is left in it
+				}
+			}
+		}
+		return op, refusals, nil
+	}
+	op.After, op.Data = t.file.Hash, t.file.Data
+	op.Owns = &ProjectOwned{Harness: t.harness, Kind: t.kind, Hash: t.file.Hash, Exec: t.file.Exec, Created: !exists}
+	if !exists {
+		return op, nil, nil
+	}
+	switch {
+	case cur.Hash == t.file.Hash:
+		op.Action = Unchanged
+		if !isOwned {
+			op.Owns = nil // it was there already: it stays the user's
+		}
+	case isOwned && cur.Hash == owned.Hash:
+		op.Action = Replace
+	default:
+		op.Action = Conflict
+	}
+	if isOwned && op.Owns != nil {
+		op.Owns.Created, op.Owns.Backup, op.Owns.Exclude = owned.Created, owned.Backup, owned.Exclude
+	}
+	return op, nil, nil
+}
+
+// removal plans an owned target that the plan no longer writes, which is
+// on the disk as cur: a file dotai created is removed, one it wrote over
+// another gets that one back from its backup, and a file merged by key
+// gets back the keys dotai set there. A file edited since dotai wrote it
+// is a conflict.
+func (in ProjectInput) removal(target string, owned ProjectOwned, cur Current) (ProjectOp, error) {
+	op := ProjectOp{Action: Remove, Harness: owned.Harness, Kind: owned.Kind, Target: target, Before: cur.Hash, Keys: []ProjectKey{}}
+	if owned.Hash == "" {
+		doc, err := jsonc.Parse(in.Content[target])
+		if err != nil {
+			return ProjectOp{}, fmt.Errorf("%s: not a JSON object dotai can edit key by key: %w; fix it or move it away, then apply again", target, err)
+		}
+		t := located{harness: owned.Harness, kind: owned.Kind, target: target, file: File{Data: []byte("{}")}}
+		if owned.Kind == string(harness.ProjectMCP) && !in.inProject(target) {
+			t.home = &harness.HomeKeys{}
+		}
+		keys, edits, _, _, err := in.mergeKeys(t, doc, &owned)
+		if err != nil {
+			return ProjectOp{}, err
+		}
+		if len(keys) == 0 {
+			return ProjectOp{}, nil
+		}
+		op.Action, op.Keys, op.Edits = Merge, keys, edits
+		if op.Data, err = ApplyEdits(in.Content[target], edits); err != nil {
+			return ProjectOp{}, fmt.Errorf("%s: %w", target, err)
+		}
+		if d, err := jsonc.Parse(op.Data); err == nil && owned.Created && t.home == nil {
+			if names, _ := d.Keys(nil); len(names) == 0 {
+				op.Action, op.Data = Remove, nil
+			}
 		}
 		return op, nil
 	}
-	op.After = t.file.Hash
-	if exists {
-		op.Action = Conflict
-		if cur.Hash == t.file.Hash {
-			op.Action = Unchanged
-		}
+	if !owned.Created {
+		op.Action, op.PutBack = Replace, owned.Backup
+	}
+	if cur.Hash != owned.Hash {
+		op.Action, op.Removal = Conflict, true
 	}
 	return op, nil
+}
+
+// inProject reports whether target is inside the project.
+func (in ProjectInput) inProject(target string) bool {
+	_, ok := in.rel(target)
+	return ok
 }
 
 // stagedKeys are the keys t writes, with their values: the members of each
