@@ -49,6 +49,7 @@ Records were renumbered on 2026-10-26, when the records about the reference pack
 | [0039](0039-base-layer-installs-skills-at-user-level.md) | The base layer may install skills and agents at user level | accepted | 2026-11-01 |
 | [0040](0040-list-files-merged-as-a-union.md) | Hooks and permissions merge as a union in layer order | accepted | 2026-11-01 |
 | [0041](0041-project-scope-local-and-untracked.md) | The project scope stays local: excluded from git, never in tracked files | accepted | 2026-11-02 |
+| [0042](0042-tag-driven-release-binaries.md) | Tag-driven release binaries built by a script and published with gh | proposed | 2026-11-03 |
 
 ## Superseded (history only)
 

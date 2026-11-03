@@ -31,7 +31,8 @@ type Asset struct {
 // releases maps a rulesync version to its assets by GOOS/GOARCH. Every
 // value was checked three ways before it was added (0029): the release's
 // SHA256SUMS, the GitHub API digest of the asset, and a hash of the asset
-// downloaded independently.
+// downloaded independently. The release targets in scripts/release.sh
+// follow its platforms: a platform is added to both together (0042).
 var releases = map[string]map[string]Asset{
 	"41.0.0": {
 		"windows/amd64": {"rulesync-windows-x64.exe", "0a83edb66cb548868929836ae67682e608240d9a06b0ee459a9928fbd4334e0b"},

@@ -1,0 +1,105 @@
+name: release
+
+# A SemVer tag such as v0.1.0 builds the release archives and publishes them
+# with their SHA256SUMS as the GitHub release of that tag (0042).
+on:
+  push:
+    tags: ["v*"]
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # The exact toolchain of the release binaries, which `dotai version` and
+  # the release notes report.
+  GO_VERSION: "1.26.10"
+
+jobs:
+  test:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the release
+      id-token: write # sign the provenance attestation
+      attestations: write # store the provenance attestation
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          # The whole history and origin/main, for the ancestry check.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: tag is on main
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          commit=$(git rev-parse "refs/tags/$TAG^{commit}")
+          if ! git merge-base --is-ancestor "$commit" origin/main; then
+            echo "::error::$TAG points to $commit, which is not on main; only commits merged into main are released"
+            exit 1
+          fi
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - name: build
+        env:
+          TAG: ${{ github.ref_name }}
+        run: bash scripts/release.sh "$TAG" dist
+      # Attestations for a private repository need a paid plan; the release
+      # of a private repository ships without them.
+      - name: attest
+        if: ${{ !github.event.repository.private }}
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-checksums: dist/SHA256SUMS
+      # The release stays a draft until every file is uploaded. A rerun of
+      # the same tag completes its draft, with this run's title, notes,
+      # pre-release flag and files only; a published release is never
+      # changed.
+      - name: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          prerelease=false
+          case "$TAG" in *-*) prerelease=true ;; esac
+          notes="Built with $(go version | cut -d' ' -f3) by \`scripts/release.sh\`."
+          notes+=$'\n\n'$(gh api -X POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+            -f tag_name="$TAG" --jq .body)
+          drafts=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" \
+            --jq '.[] | select(.tag_name == env.TAG) | .draft')
+          case "$drafts" in
+            "")
+              gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
+                --title "dotai $TAG" --notes "$notes" --prerelease="$prerelease"
+              gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY"
+              ;;
+            true)
+              echo "completing the existing draft of $TAG"
+              gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" \
+                --title "dotai $TAG" --notes "$notes" --prerelease="$prerelease"
+              gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+              # A file the draft holds that this run did not build is removed.
+              gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' |
+                while IFS= read -r asset; do
+                  [ -e "dist/$asset" ] || gh release delete-asset "$TAG" "$asset" --repo "$GITHUB_REPOSITORY" --yes
+                done
+              ;;
+            *false*)
+              echo "::error::a published release of $TAG already exists; it is not changed. Delete it or release a new tag."
+              exit 1
+              ;;
+            *)
+              echo "::error::$TAG has several draft releases; delete all but one and rerun"
+              exit 1
+              ;;
+          esac
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
