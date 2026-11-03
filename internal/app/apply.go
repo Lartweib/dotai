@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/lartweib/dotai/internal/backup"
 	"github.com/lartweib/dotai/internal/plan"
@@ -69,21 +71,25 @@ func (e *ApplyConsentError) Error() string {
 		plural(e.Files, "file", "files"), plural(e.Keys, "key", "keys"))
 }
 
-// ApplyError is a project apply that stopped after it started writing:
-// the Cause, the outcome of the rollback, nil when everything was put
-// back, and the Backup directory, which is kept either way.
+// ApplyError is a project apply, or another write of a project journaled
+// as one, such as the fix of dotai doctor, Operation ("" for an apply),
+// that stopped after it started writing: the Cause, the outcome of the
+// rollback, nil when everything was put back, and the Backup directory,
+// which is kept either way.
 type ApplyError struct {
-	Cause    error
-	Rollback error
-	Backup   string
+	Operation string
+	Cause     error
+	Rollback  error
+	Backup    string
 }
 
 func (e *ApplyError) Error() string {
+	op := cmp.Or(e.Operation, "apply")
 	if e.Rollback == nil {
-		return fmt.Sprintf("the apply stopped: %v; everything it wrote was rolled back from the backup %s, which is kept", e.Cause, e.Backup)
+		return fmt.Sprintf("the %s stopped: %v; everything it wrote was rolled back from the backup %s, which is kept", op, e.Cause, e.Backup)
 	}
-	return fmt.Sprintf("the apply stopped: %v; the rollback failed: %v; the backup %s holds what was there before, "+
-		"and the project record keeps the journal: the next apply or restore --project rolls it back", e.Cause, e.Rollback, e.Backup)
+	return fmt.Sprintf("the %s stopped: %v; the rollback failed: %v; the backup %s holds what was there before, "+
+		"and the project record keeps the journal: the next apply or restore --project rolls it back", op, e.Cause, e.Rollback, e.Backup)
 }
 
 func (e *ApplyError) Unwrap() []error {
@@ -292,66 +298,43 @@ func (a applier) write(res *ApplyResult, next state.Project) error {
 	if !reflect.DeepEqual(cur, p.prev) {
 		return &ChangedError{Path: p.plan.Record}
 	}
-	root := projectBackups(a.home, project)
-	if err := ensureDir(a.d, a.home, root, 0o700); err != nil {
-		return fmt.Errorf("the backup failed, nothing was written: %w", err)
-	}
-	id, dir, now, err := newBackupDir(a.d, root, a.d.Now().UTC(), backup.OperationApply)
-	if err != nil {
-		return fmt.Errorf("the backup failed, nothing was written: %w", err)
-	}
 	writes, err := a.writes(&next)
-	if err == nil {
-		err = a.takeBackup(id, dir, project, now, writes, p.prev != nil)
-	}
 	if err != nil {
-		return fmt.Errorf("the backup failed, nothing was written: %w", errors.Join(err, a.d.RemoveAll(dir)))
+		return fmt.Errorf("the backup failed, nothing was written: %w", err)
 	}
 	base := state.Project{Schema: state.ProjectSchema, Pack: next.Pack, Project: project, ID: next.ID, MCPKey: next.MCPKey, Profiles: []string{}, Harnesses: []string{},
 		Backups: []string{}, Files: []state.ProjectFile{}, Dirs: []string{}, Exclude: state.ProjectExclude{Entries: []string{}}}
 	if p.prev != nil {
 		base = *p.prev
 	}
-	j := &state.ApplyJournal{Backup: id, Ops: []state.JournalOp{}}
-	if p.prev != nil {
-		j.Prior = priorCopy
-	}
-	for _, w := range writes {
-		j.Ops = append(j.Ops, w.op)
-	}
-	base.Pending = j
-	if err := a.writeRecord(base); err != nil {
-		return fmt.Errorf("the apply journal could not be written, nothing was written: %w", errors.Join(err, a.d.RemoveAll(dir)))
-	}
-	next.Backups = append(next.Backups, id)
-	// A file dotai writes over one it does not own is given back from this
-	// backup by a restore.
-	for i, f := range next.Files {
-		if f.Hash != "" && !f.Created && f.Backup == "" && slices.ContainsFunc(p.plan.Ops, func(op plan.ProjectOp) bool { return op.Target == f.Target && op.Action == plan.Conflict }) {
-			next.Files[i].Backup = id
-		}
-	}
-	if next.FirstApply.IsZero() {
-		next.FirstApply = now
-	}
-	next.AppliedAt = now
-	done, lost, err := a.executeWrites(writes)
+	ref, lost, err := a.journaled(journaledWrite{project: project, operation: backup.OperationApply, what: "apply", base: base, prior: p.prev != nil, writes: writes},
+		func(id string, now time.Time) error {
+			next.Backups = append(next.Backups, id)
+			// A file dotai writes over one it does not own is given back from
+			// this backup by a restore.
+			for i, f := range next.Files {
+				if f.Hash != "" && !f.Created && f.Backup == "" && slices.ContainsFunc(p.plan.Ops, func(op plan.ProjectOp) bool { return op.Target == f.Target && op.Action == plan.Conflict }) {
+					next.Files[i].Backup = id
+				}
+			}
+			if next.FirstApply.IsZero() {
+				next.FirstApply = now
+			}
+			next.AppliedAt = now
+			next.Dirs = a.pruneDirs(next.Dirs)
+			return a.writeRecord(next)
+		})
 	for _, target := range lost {
 		res.Warnings = append(res.Warnings, plan.Warning{Code: CodeMCPKeysLost, Harness: "claudecode", Path: target,
 			Message: fmt.Sprintf("%s was rewritten while dotai wrote its MCP servers there, twice, and lost them: close Claude Code, then apply again", target)})
 	}
-	if err == nil {
-		next.Dirs = a.pruneDirs(next.Dirs)
-		err = a.writeRecord(next)
+	if js, ok := errors.AsType[*journalStop](err); ok {
+		return &ApplyError{Cause: js.cause, Rollback: js.rollback, Backup: js.backup}
 	}
 	if err != nil {
-		rb := a.undoWrites(project, dir, done)
-		if rb == nil {
-			rb = a.putRecordBack(project, dir, j.Prior)
-		}
-		return &ApplyError{Cause: err, Rollback: rb, Backup: dir}
+		return err
 	}
-	res.Backup = &BackupRef{ID: id, Path: dir}
+	res.Backup = &ref
 	return nil
 }
 

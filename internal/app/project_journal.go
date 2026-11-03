@@ -290,6 +290,74 @@ func readProjects(d installFS, home string) (state.Projects, error) {
 	return p, nil
 }
 
+// journaledWrite is a write of a project carried out as an apply's is:
+// the project, the operation of its backup, what it is called in a
+// message, the record the journal goes into, whether the record exists,
+// so that the backup keeps a copy of it, and the writes, in order.
+type journaledWrite struct {
+	project, operation, what string
+	base                     state.Project
+	prior                    bool
+	writes                   []write
+}
+
+// journalStop is a journaled write that stopped after its journal was
+// written: the cause, the outcome of the rollback, nil when everything was
+// put back, and the backup directory. Callers report it as their own
+// error.
+type journalStop struct {
+	cause, rollback error
+	backup          string
+}
+
+func (e *journalStop) Error() string { return e.cause.Error() }
+
+// journaled carries out j under the lock the caller holds: a new backup
+// of what the writes overwrite or delete, with a copy of the record when
+// j.prior; the journal in j.base, written into the record; each write;
+// then finish, given the backup's id and when it was taken, which writes
+// the record that follows or removes it. A failure before the journal is
+// written leaves nothing behind; one after it rolls the writes back from
+// the backup, puts the record back as it was and is a *journalStop. It
+// gives the backup and the home files whose keys a harness lost twice.
+func (a runner) journaled(j journaledWrite, finish func(id string, at time.Time) error) (BackupRef, []string, error) {
+	root := projectBackups(a.home, j.project)
+	if err := ensureDir(a.d, a.home, root, 0o700); err != nil {
+		return BackupRef{}, nil, fmt.Errorf("the backup failed, nothing was written: %w", err)
+	}
+	id, dir, now, err := newBackupDir(a.d, root, a.d.Now().UTC(), j.operation)
+	if err != nil {
+		return BackupRef{}, nil, fmt.Errorf("the backup failed, nothing was written: %w", err)
+	}
+	if err := a.takeBackup(id, dir, j.project, now, j.writes, j.prior); err != nil {
+		return BackupRef{}, nil, fmt.Errorf("the backup failed, nothing was written: %w", errors.Join(err, a.d.RemoveAll(dir)))
+	}
+	journal := &state.ApplyJournal{Backup: id, Ops: []state.JournalOp{}}
+	if j.prior {
+		journal.Prior = priorCopy
+	}
+	for _, w := range j.writes {
+		journal.Ops = append(journal.Ops, w.op)
+	}
+	base := j.base
+	base.Pending = journal
+	if err := a.writeRecord(base); err != nil {
+		return BackupRef{}, nil, fmt.Errorf("the %s journal could not be written, nothing was written: %w", j.what, errors.Join(err, a.d.RemoveAll(dir)))
+	}
+	done, lost, err := a.executeWrites(j.writes)
+	if err == nil {
+		err = finish(id, now)
+	}
+	if err != nil {
+		rb := a.undoWrites(j.project, dir, done)
+		if rb == nil {
+			rb = a.putRecordBack(j.project, dir, journal.Prior)
+		}
+		return BackupRef{}, lost, &journalStop{cause: err, rollback: rb, backup: dir}
+	}
+	return BackupRef{ID: id, Path: dir}, lost, nil
+}
+
 // write is a target a project apply or restore writes, as its journal
 // records it, with how to write it: data, or with remove set nothing; or,
 // for a harness's home file (home), edits made on it as it is then.
