@@ -41,6 +41,9 @@ jobs:
       - name: govulncheck
         if: runner.os == 'Linux'
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+      - name: release tag pattern
+        if: runner.os == 'Linux'
+        run: bash scripts/release.sh --self-test
       - name: vet
         run: go vet ./...
       - name: test (race)
