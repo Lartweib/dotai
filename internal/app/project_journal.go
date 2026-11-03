@@ -188,6 +188,14 @@ func (sc recordScope) check(r state.Project) error {
 	if r.Exclude.File != "" && r.Exclude.File != sc.exclude {
 		return bad("names the exclude file %s", r.Exclude.File)
 	}
+	for _, e := range r.Exclude.Entries {
+		// An apply writes each entry as a pattern anchored at the project,
+		// from a name without a control character (pack.BadName): never a
+		// line break, nor a line that begins or ends a block.
+		if !strings.HasPrefix(e, "/") || strings.ContainsAny(e, "\r\n") {
+			return bad("has the exclude entry %q", e)
+		}
+	}
 	j := r.Pending
 	if j == nil {
 		return nil

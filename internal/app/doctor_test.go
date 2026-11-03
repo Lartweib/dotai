@@ -243,3 +243,37 @@ func TestDoctorSkipsAnInterruptedApply(t *testing.T) {
 		t.Errorf("Doctor() = %q, want only the interrupted apply", got)
 	}
 }
+
+func TestDoctorRefusesARecordWhoseExcludeEntriesBreakTheBlock(t *testing.T) {
+	project, home, g := applyRepo(t)
+	if _, err := applyWith(t, newClockFS(t), g, profileTree, project, home, nil); err != nil {
+		t.Fatal(err)
+	}
+	record := app.RecordPath(home, project)
+	saved := mustRead(t, record)
+	for _, bad := range []string{"/x\n*", "# <<< dotai " + project, "/x\r"} {
+		r := readJSON(t, record, func(data []byte) (state.Project, error) { return state.DecodeProject(data, project) })
+		r.Exclude.Entries = append(r.Exclude.Entries, bad)
+		data, err := state.EncodeProject(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, record, string(data))
+		if got := codes(runDoctor(t, g, home, true)); !reflect.DeepEqual(got, []string{"record-invalid " + record}) {
+			t.Errorf("Doctor() with the entry %q = %q, want record-invalid", bad, got)
+		}
+		if _, err := restoreProject(t, g, project, home, nil); !errors.As(err, new(*app.RecordInvalidError)) {
+			t.Errorf("RestoreProject() with the entry %q error = %v, want record-invalid", bad, err)
+		}
+		writeFile(t, record, string(saved))
+	}
+}
+
+func mustRead(t *testing.T, name string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
