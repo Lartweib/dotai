@@ -22,6 +22,9 @@
           "description": "Web projects with a JavaScript toolchain.",
           "hints": [
             "package.json"
+          ],
+          "mods": [
+            "hello"
           ]
         }
       ],

@@ -89,6 +89,15 @@ func TestApplyAndRestoreProjectWithRealRulesync(t *testing.T) {
 	if _, ok, _ := plan.GetKey(claudeJSON, []string{"projects", filepath.ToSlash(project), "mcpServers", "browser"}); !ok {
 		t.Errorf("~/.claude.json = %s, want the profile's server for the project", claudeJSON)
 	}
+	// The profile's mod, installed whole for Claude Code and excluded.
+	for _, rel := range helloFiles {
+		if _, err := os.Stat(at(project, rel)); err != nil {
+			t.Errorf("mod file %s: %v", rel, err)
+		}
+	}
+	if ex, _ := os.ReadFile(exclude); !strings.Contains(string(ex), "\n/.claude/skills/hello/\n") {
+		t.Errorf("exclude = %q, want the mod's directory", ex)
+	}
 	if got, _ := os.ReadFile(at(project, "AGENTS.md")); string(got) != before["AGENTS.md"] {
 		t.Errorf("AGENTS.md = %q, want it untouched", got)
 	}

@@ -86,7 +86,13 @@ type File struct {
 	Origins map[string]string // for a merged file, the layer path of each entry by name
 	Data    []byte
 	Exec    bool // the source is executable
+	// Generator names what made a file no layer provides, such as a mod's
+	// plugin manifest, GeneratorDotai; "" for the others.
+	Generator string
 }
+
+// GeneratorDotai is the Generator of a file dotai makes while staging.
+const GeneratorDotai = "dotai"
 
 // Staging holds the merged tree of each scope, in path order, and the
 // merged settings of each scope by harness.
@@ -102,34 +108,35 @@ type Staging struct {
 // on top of it, since variants are alternatives. The selected profiles are
 // peers that may be combined, so they are merged together.
 func Check(p *pack.Pack, sel Selection) []pack.Diagnostic {
-	users, project, diags := checked(p, sel)
+	users, project, profiles, diags := checked(p, sel)
 	if users == nil {
 		return diags
 	}
 	cross := crossScope(users, project)
-	return slices.Concat(diags, withoutShadowed(project.diags, cross), cross, once(append(users, project), (*scope).checkTools))
+	return slices.Concat(diags, withoutShadowed(project.diags, cross), cross, once(append(users, project), (*scope).checkTools), modConflicts(project, modsOf(p, profiles)))
 }
 
 // Warnings returns what is no error in the layers sel names, as Check
 // merges them, but may not do what the pack means: a hook event that both
-// the shared hooks and a tool-scoped block declare. It returns nothing for
+// the shared hooks and a tool-scoped block declare, and a mod's subagent
+// matcher that names its agent bare. It returns nothing for
 // layers that cannot be selected.
 func Warnings(p *pack.Pack, sel Selection) []pack.Diagnostic {
-	users, project, _ := checked(p, sel)
+	users, project, profiles, _ := checked(p, sel)
 	if users == nil {
 		return nil
 	}
-	return once(append(users, project), (*scope).shadowedHooks)
+	return append(once(append(users, project), (*scope).shadowedHooks), modWarnings(modsOf(p, profiles))...)
 }
 
 // checked merges the layers sel names as Check does: the user scope once
 // per selected variant, on one merge of the base, and the project scope.
-// It returns the diagnostics of the user scopes, and no scope when sel
-// names layers that do not exist.
-func checked(p *pack.Pack, sel Selection) (users []*scope, project *scope, diags []pack.Diagnostic) {
+// It returns the profile layers too, the diagnostics of the user scopes,
+// and no scope when sel names layers that do not exist.
+func checked(p *pack.Pack, sel Selection) (users []*scope, project *scope, profiles []pack.Layer, diags []pack.Diagnostic) {
 	variants, profiles, diags := resolve(p, sel, true)
 	if len(diags) > 0 {
-		return nil, nil, diags
+		return nil, nil, nil, diags
 	}
 	base := newScope(layersOf(p, pack.LayerBase)...)
 	diags = base.diags
@@ -142,7 +149,7 @@ func checked(p *pack.Pack, sel Selection) (users []*scope, project *scope, diags
 		diags = append(diags, u.diags...)
 		users = append(users, u)
 	}
-	return users, newScope(profiles...), diags
+	return users, newScope(profiles...), profiles, diags
 }
 
 // once is check over scopes, each problem once: what the base has is in
@@ -160,7 +167,8 @@ func once(scopes []*scope, check func(*scope) []pack.Diagnostic) []pack.Diagnost
 }
 
 // Stage merges the base and the selected or default variant into the user
-// tree, and the selected profiles into the project tree. With diagnostics,
+// tree, and the selected profiles into the project tree, with the mods
+// they name under mods/. With diagnostics,
 // the staging is empty.
 func Stage(p *pack.Pack, sel Selection) (Staging, []pack.Diagnostic) {
 	variants, profiles, diags := resolve(p, sel, false)
@@ -170,11 +178,14 @@ func Stage(p *pack.Pack, sel Selection) (Staging, []pack.Diagnostic) {
 	user := newScope(append(layersOf(p, pack.LayerBase), variants...)...)
 	project := newScope(profiles...)
 	cross := crossScope([]*scope{user}, project)
-	if diags = slices.Concat(user.diags, withoutShadowed(project.diags, cross), cross, once([]*scope{user, project}, (*scope).checkTools)); len(diags) > 0 {
+	mods := modsOf(p, profiles)
+	if diags = slices.Concat(user.diags, withoutShadowed(project.diags, cross), cross, once([]*scope{user, project}, (*scope).checkTools), modConflicts(project, mods)); len(diags) > 0 {
 		return Staging{}, diags
 	}
 	project.dropUserServers(user)
-	return Staging{User: user.tree(), Project: project.tree(), UserSettings: user.mergedSettings(), ProjectSettings: project.mergedSettings()}, nil
+	tree := append(project.tree(), modFiles(mods, p.Manifest)...)
+	slices.SortFunc(tree, func(a, b File) int { return strings.Compare(a.Path, b.Path) })
+	return Staging{User: user.tree(), Project: tree, UserSettings: user.mergedSettings(), ProjectSettings: project.mergedSettings()}, nil
 }
 
 // dropUserServers removes from the project scope s each MCP server that

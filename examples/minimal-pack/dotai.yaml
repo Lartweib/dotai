@@ -1,6 +1,8 @@
 schema: dotai.pack/v1
 name: minimal-pack
 version: 0.1.0
+description: A minimal example pack for the dotai engine.
+author: dotai examples
 engine: ">=0.1.0"
 rulesync: 41.0.0
 harnesses: [claudecode, antigravity-cli, opencode]
@@ -10,6 +12,7 @@ profiles:
     path: profiles/web
     description: Web projects with a JavaScript toolchain.
     hints: [package.json]
+    mods: [hello]
 
 variants:
   standalone:

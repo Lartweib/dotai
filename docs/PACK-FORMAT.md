@@ -18,6 +18,8 @@ my-pack/
   variants/
     standalone/            # same shape as base/
     orca/
+  mods/
+    panel/                 # a Claude Code plugin with a hooks module, named by profiles
 ```
 
 Every layer has the same shape:
@@ -45,6 +47,7 @@ profiles:
     path: profiles/web
     description: Web projects (Astro, Next.js), with SEO skills.
     hints: [astro.config.*, next.config.*]
+    mods: [panel]
   godot:
     path: profiles/godot
     description: Godot 4 games in GDScript.
@@ -66,6 +69,7 @@ variants:
 |---|---|---|
 | `schema` | yes | Format version. |
 | `name`, `version` | yes | Pack identity. |
+| `description`, `author` | no | What the pack is and who makes it, as strings. The `.claude-plugin/plugin.json` dotai writes for a mod carries them ([Mods](#mods)). |
 | `engine` | yes | Range of engine versions the pack supports. |
 | `rulesync` | yes | Exact rulesync version the pack was tested with. |
 | `harnesses` | yes | Required targets, using rulesync target names: `claudecode`, `antigravity-cli`, `opencode`. An install where one of them is not installed, or is left out with `--harness`, stops before writing anything, naming it and why ([0038](decisions/0038-replace-mode-resets-harness-to-fresh-install.md)). |
@@ -73,8 +77,9 @@ variants:
 | `profiles.<name>.path`, `variants.<name>.path` | yes | Layer directory, relative to the pack root. |
 | `profiles.<name>.description` | yes | What the profile is for. Read by the onboarding agent. |
 | `profiles.<name>.hints` | no | Evidence for the onboarding agent. The engine never acts on them. |
+| `profiles.<name>.mods` | no | The mods of the pack's `mods/` the profile installs in a project ([Mods](#mods)). Two profiles may name the same mod. Only profiles take it: a variant that names mods is `mod-scope` ([0011](decisions/0011-mods-always-project-scoped.md)). |
 
-`dotai validate --json` lists each profile with its `path`, `description` and `hints` in `pack.profiles`, in declaration order, so the onboarding agent can read them without parsing the manifest ([CLI-JSON](CLI-JSON.md)).
+`dotai validate --json` lists each profile with its `path`, `description`, `hints` and `mods` in `pack.profiles`, in declaration order, so the onboarding agent can read them without parsing the manifest ([CLI-JSON](CLI-JSON.md)).
 | `variants.<name>.default` | no | Variant used when nothing is chosen or detected. Exactly one variant sets it when the pack has variants. |
 | `variants.<name>.detect` | no | Mechanical rule that preselects the variant. `command`: preselect when that command is on `PATH`. |
 | `variants.<name>.shared-skills` | no | `true` makes the user's shared skills folder, `~/.agents/skills`, where other tools install skills, visible in the isolated install of this variant ([0036](decisions/0036-shared-skills-per-variant.md)). Default `false`: only the pack's content is visible. Only variants take it. |
@@ -121,6 +126,36 @@ Decided in [0030](decisions/0030-tools-paths-and-project-config.md).
   A bare path, in a hook or in agy's settings, cannot hold whitespace, a quote, or any of `& | < > ^ ( ) ; * ? [ ] { } !`, which `cmd.exe` or a shell would read as an operator or a pattern: a hook that agy reads from such a tools directory fails the stage, the dry run and the install with `hook-path-unquotable`, at the `hooks.jsonc` of the hook's layer, naming the hook and the harness, before anything is written. `validate` does not know the home directory, so it cannot report it. The characters refused inside double quotes, and network paths, fail as for a setting.
 - agy reads a `SessionStart` hook's standard output as JSON and drops plain text (checked on agy 1.4.12, [HARNESS-NOTES](HARNESS-NOTES.md#hook-commands)): a hook that gives agy context must print an `injectSteps` object, such as `{"injectSteps":[{"systemMessage":{"systemMessage":"<text>"}}]}`. How Claude Code and OpenCode read that JSON was not checked, so a hook that gives agy context belongs in `antigravity-cli.hooks.sessionStart`; that block then replaces the shared `sessionStart` hooks for agy (`hooks-shadowed`, under [Merge rules](#merge-rules)), so repeat there any shared one agy still needs.
 - `.dotai/config.yaml` in a project belongs to the user and the pack; the engine never writes it. Tools find it by walking up from the current directory to the nearest `.dotai/`. The engine writes a marker of the applied profiles in the same directory, `.dotai/state.json`, and keeps its own record under the home directory; `dotai restore --project` removes `.dotai/`, `config.yaml` included, into its backup. `.dotai/` stays local: apply lists it in `.git/info/exclude` and never commits it ([0041](decisions/0041-project-scope-local-and-untracked.md)).
+
+## Mods
+
+A mod is a Claude Code plugin with a hooks module, a JavaScript or TypeScript module that hooks into the session ([0027](decisions/0027-loose-files-and-plugins-only-for-mods.md)). Mods live at the pack root, one directory each, `mods/<mod>/`, and a profile names the ones it uses in `profiles.<name>.mods`. They are always project-scoped ([0011](decisions/0011-mods-always-project-scoped.md)): the base and the variants carry none.
+
+```
+mods/
+  panel/
+    hooks/
+      hooks.json           # {"modules": ["./register.js"]}, and optional settings-style "hooks"
+      register.js          # export function register(on, options) { ... }
+    agents/ skills/ commands/   # optional, as in any Claude Code plugin
+    .claude-plugin/plugin.json  # optional; dotai writes one when it is missing
+```
+
+The directory is the pack author's own plugin tree, and a project apply installs it as it is, for Claude Code only, at `<project>/.claude/skills/<mod>/` ([0041](decisions/0041-project-scope-local-and-untracked.md)); rulesync does not render it. When the mod ships no `.claude-plugin/plugin.json`, dotai writes one with `name`, the mod's name, `version` and `description`, the pack's (or `The mod <mod> of the pack <pack>.` when the manifest has no description), and `author`, `{"name": "<author>"}`, when the manifest has one; `claude plugin validate` warns about a manifest without a description or an author. The mod's files are copied byte for byte: unlike a layer's, their path variables (`${DOTAI_TOOLS}`, `${DOTAI_PROJECT_TOOLS}`) are not expanded. A mod that two applied profiles name is installed once.
+
+`dotai validate` checks every directory of `mods/`:
+
+- The name is lower-case letters, digits and single hyphens, at most 64 characters, and no Windows device name such as `con` or `lpt1`, so that it is safe as a folder and as a plugin name (`mod-name-invalid`); a profile that names a missing mod is `mod-unknown`, and one that names a mod twice `mod-duplicate`.
+- Every file path in the mod is one that each OS can store, with the rules of a staged path: no backslash, control character, `:<>"|?*` or Windows device name in a segment (`mod-path-invalid`), and no two paths that differ only by case, which a file system that ignores case holds as one file (`mod-path-case-conflict`, with `related` at the first).
+- `hooks/hooks.json` exists and is a JSON object with `modules`, a non-empty list of paths, and `hooks`, when present, an object of hook events (`mod-hooks-invalid`).
+- Each module is a relative slash path, resolved from `hooks/`, that stays inside the mod, ends in `.js`, `.mjs`, `.cjs`, `.jsx`, `.ts`, `.mts`, `.cts` or `.tsx` (Claude Code loads it with no build step) and is a file of the mod (`mod-module-invalid`).
+- A `.claude-plugin/plugin.json` it ships is a JSON object whose `name`, when set, is the mod's name (`mod-manifest-invalid`).
+- A mod with the name of a skill of the project scope is `mod-conflict`: both would install to `.claude/skills/<name>/`.
+- Links, files that are not regular and files over 1 MiB are refused as in a layer.
+
+Inside a plugin, Claude Code names the mod's items after it: skills `/<mod>:<skill>`, agents `<mod>:<agent>`, MCP servers `plugin:<mod>:<server>`. A `SubagentStart` or `SubagentStop` matcher of the mod's `hooks` that names one of its own agents bare never matches, so `validate` warns about it with `mod-matcher-bare`; match `^<mod>:<agent>$` instead.
+
+A mod loads only in Claude Code 2.1.287 or later, run in a terminal, in a session started at the project's top, after the user accepts the workspace trust dialog ([HARNESS-NOTES](HARNESS-NOTES.md#mods)). agy and OpenCode have no mods: their plans warn `no-local-slot`. A pack author can check a mod with Claude Code itself, `claude plugin validate <dir>`, run on the installed `.claude/skills/<mod>/` or on a copy of `mods/<mod>/` with its plugin manifest; it reports the module's hooks and the calls it makes, and what Claude Code would refuse.
 
 ## Merge rules
 

@@ -46,8 +46,8 @@ func TestValidateFS(t *testing.T) {
 				Name: "p", Version: "1.0.0", Engine: ">=0.1.0", Rulesync: "41.0.0",
 				Harnesses: []string{"opencode"}, OptionalHarnesses: []string{"claudecode"}, Variants: []string{"a", "b"}, DefaultVariant: "a",
 				Profiles: []app.ProfileSummary{
-					{Name: "web", Path: "profiles/web", Description: "Web projects.", Hints: []string{"astro.config.*", "next.config.*"}},
-					{Name: "api", Path: "profiles/api", Description: "APIs.", Hints: []string{}},
+					{Name: "web", Path: "profiles/web", Description: "Web projects.", Hints: []string{"astro.config.*", "next.config.*"}, Mods: []string{}},
+					{Name: "api", Path: "profiles/api", Description: "APIs.", Hints: []string{}, Mods: []string{}},
 				},
 				SharedSkills: []string{"b"},
 				Layers: []app.LayerSummary{
@@ -89,8 +89,8 @@ func TestValidateFSProfilesJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const want = `[{"name":"out","path":"","description":"Outside.","hints":[]},` +
-		`{"name":"gone","path":"","description":"Missing.","hints":[]}]`
+	const want = `[{"name":"out","path":"","description":"Outside.","hints":[],"mods":[]},` +
+		`{"name":"gone","path":"","description":"Missing.","hints":[],"mods":[]}]`
 	if string(got) != want {
 		t.Errorf("profiles = %s\nwant %s", got, want)
 	}

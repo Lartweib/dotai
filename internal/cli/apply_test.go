@@ -30,6 +30,8 @@ var projectPlan = app.ProjectPlan{
 		{Action: plan.Create, Harness: "claudecode", Kind: "rules", Source: ".claude/rules/web.md", Target: "/work/site/.claude/rules/web.md", After: "bb", Keys: []plan.ProjectKey{}},
 		{Action: plan.Merge, Harness: "claudecode", Kind: "settings", Source: ".claude/settings.json", Target: "/work/site/.claude/settings.local.json", Before: "cc",
 			Keys: []plan.ProjectKey{{Path: []string{"permissions", "allow"}, Action: plan.Merge}, {Path: []string{"model"}, Action: plan.Unchanged}}},
+		{Action: plan.Create, Harness: "claudecode", Kind: "mods", Source: "mods/hello/hooks/hooks.json", Target: "/work/site/.claude/skills/hello/hooks/hooks.json", After: "dd", Keys: []plan.ProjectKey{}},
+		{Action: plan.Create, Harness: "claudecode", Kind: "mods", Source: "mods/hello/hooks/register.js", Target: "/work/site/.claude/skills/hello/hooks/register.js", After: "ee", Keys: []plan.ProjectKey{}},
 		{Action: plan.Create, Kind: "marker", Target: "/work/site/.dotai/state.json", Keys: []plan.ProjectKey{}},
 		{Action: plan.Unchanged, Harness: "opencode", Kind: "rules", Source: ".opencode/memories/web.md", Target: "/work/site/.opencode/memories/web.md", Before: "bb", After: "bb", Keys: []plan.ProjectKey{}},
 	},
@@ -37,14 +39,15 @@ var projectPlan = app.ProjectPlan{
 		{Harness: "claudecode", Kind: "skills", Item: "skill lint", Target: "/work/site/.claude/skills/lint/SKILL.md", Reason: plan.SkipTracked},
 		{Harness: "opencode", Kind: "hooks", Item: "hook sessionStart: echo hi", Target: "/work/site/.opencode/plugins/rulesync-hooks.js", Reason: plan.SkipTracked},
 	},
-	Exclude: app.ExcludePlan{File: "/work/site/.git/info/exclude", Entries: []string{"/.dotai/", "/.agents/hooks.json", "/.claude/rules/web.md"}},
+	Exclude: app.ExcludePlan{File: "/work/site/.git/info/exclude", Entries: []string{"/.dotai/", "/.agents/hooks.json", "/.claude/rules/web.md", "/.claude/skills/hello/"}},
 	Warnings: []plan.Warning{
 		{Code: plan.CodeScopeClash, Harness: "claudecode", Item: "skill lint", Path: "/home/u/.claude/skills/lint", Message: "claudecode loads the user-level skill lint from /home/u/.claude/skills/lint instead of the project's"},
 		{Code: plan.CodeNoLocalSlot, Harness: "antigravity-cli", Message: "antigravity-cli has no project settings file, so the permissions of the profiles are not installed for it"},
+		{Code: plan.CodeNoLocalSlot, Harness: "opencode", Item: "mods", Message: "opencode has no local place for project mods, so those of the profiles are not installed for it"},
 	},
 	Refusals:    []plan.Warning{},
 	FirstApply:  true,
-	Notices:     []string{},
+	Notices:     []string{"the mod hello loads in Claude Code 2.1.287 or later, in a terminal, only in a session started at /work/site, and only after you accept the workspace trust dialog there"},
 	Diagnostics: []app.Diagnostic{},
 }
 

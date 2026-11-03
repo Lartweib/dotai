@@ -4,6 +4,8 @@ import (
 	"path"
 	"slices"
 	"strings"
+
+	"github.com/lartweib/dotai/internal/pack"
 )
 
 // ProjectKind is a kind of item a profile installs in a project.
@@ -19,6 +21,9 @@ const (
 	ProjectSkills   ProjectKind = "skills"
 	ProjectCommands ProjectKind = "commands"
 	ProjectMCP      ProjectKind = "mcp"
+	// ProjectMods are mods, Claude Code plugins with a hooks module, which
+	// install whole (decision 0027).
+	ProjectMods ProjectKind = "mods"
 )
 
 // What the members of an object of a file merged by key are, besides keys:
@@ -40,7 +45,9 @@ type Members struct {
 // instead (decision 0041): From, a slash path in the project staging tree,
 // installs to To, relative to the project directory. A From that ends in /
 // is a directory, and To is then one too; DirItems marks one whose items
-// are directories, such as skills, rather than files. ByKey marks a
+// are directories, such as skills, rather than files, and WholeDir one
+// whose item directories dotai owns whole: git tracking any file in one,
+// the item's or another, skips the item. ByKey marks a
 // settings or configuration file, merged by key into its target
 // (decisions 0013 and 0035), whose Each are the objects whose members are
 // keys of their own.
@@ -49,6 +56,7 @@ type ProjectPath struct {
 	To       string
 	Kind     ProjectKind
 	DirItems bool
+	WholeDir bool
 	ByKey    bool
 	Each     []Members
 }
@@ -106,21 +114,23 @@ type ProjectLayout struct {
 // to the project directory, its Kind, Item, the item it belongs to, such as
 // "skill lint", "" for a file merged by key, whose items are its keys,
 // Name, the item's name, Dir, the item's directory with a trailing slash
-// for an item that is one, and ByKey and Each as in its ProjectPath.
+// for an item that is one, and WholeDir, ByKey and Each as in its
+// ProjectPath.
 type ProjectTarget struct {
-	Target string
-	Kind   ProjectKind
-	Item   string
-	Name   string
-	Dir    string
-	ByKey  bool
-	Each   []Members
+	Target   string
+	Kind     ProjectKind
+	Item     string
+	Name     string
+	Dir      string
+	WholeDir bool
+	ByKey    bool
+	Each     []Members
 }
 
 // itemNames are how an item of each kind is named, by the file stem or,
 // for a skill, its directory.
 var itemNames = map[ProjectKind]string{
-	ProjectRules: "rule", ProjectAgents: "agent", ProjectSkills: "skill", ProjectCommands: "command",
+	ProjectRules: "rule", ProjectAgents: "agent", ProjectSkills: "skill", ProjectCommands: "command", ProjectMods: "mod",
 }
 
 // Locate gives the target of source, a slash path in the project staging
@@ -138,7 +148,7 @@ func (l ProjectLayout) Locate(source string) (ProjectTarget, bool) {
 		if !ok {
 			continue
 		}
-		t := ProjectTarget{Target: p.To + rest, Kind: p.Kind}
+		t := ProjectTarget{Target: p.To + rest, Kind: p.Kind, WholeDir: p.WholeDir}
 		if p.DirItems {
 			name, _, _ := strings.Cut(rest, "/")
 			t.Name, t.Dir = name, p.To+name+"/"
@@ -153,6 +163,11 @@ func (l ProjectLayout) Locate(source string) (ProjectTarget, bool) {
 		return t, true
 	}
 	return ProjectTarget{}, false
+}
+
+// Takes reports whether the layout has a place for items of kind.
+func (l ProjectLayout) Takes(kind ProjectKind) bool {
+	return slices.ContainsFunc(l.Paths, func(p ProjectPath) bool { return p.Kind == kind })
 }
 
 // ImportFile is the pack's rules file that imports AGENTS.md, relative to
@@ -202,6 +217,13 @@ func (l ProjectLayout) clone() ProjectLayout {
 	return l
 }
 
+// ModsSource is where the project tree holds the mods, one directory each,
+// and ModsMinClaude the first Claude Code that loads a mod (HARNESS-NOTES).
+const (
+	ModsSource    = pack.ModsDir + "/"
+	ModsMinClaude = "2.1.287"
+)
+
 // The project layout of each harness (decision 0041), from rulesync's
 // project output and the project scope inventory of HARNESS-NOTES.
 var (
@@ -211,6 +233,10 @@ var (
 			{From: ".claude/agents/", To: ".claude/agents/", Kind: ProjectAgents},
 			{From: ".claude/skills/", To: ".claude/skills/", Kind: ProjectSkills, DirItems: true},
 			{From: ".claude/commands/", To: ".claude/commands/", Kind: ProjectCommands},
+			// A mod, staged under mods/, is a plugin, which Claude Code loads
+			// from the project only under .claude/skills/<name>/ (decision
+			// 0027).
+			{From: ModsSource, To: ".claude/skills/", Kind: ProjectMods, DirItems: true, WholeDir: true},
 			// .claude/settings.json is the team's; the local file wins over it
 			// and its allow rules apply without workspace trust.
 			{From: ".claude/settings.json", To: ".claude/settings.local.json", Kind: ProjectSettings, ByKey: true,
@@ -246,8 +272,8 @@ var (
 				Each: []Members{{Path: []string{"mcpServers"}, Item: ItemServer}}},
 		},
 		// agy has no project settings file, and rulesync renders no project
-		// permissions for it.
-		NoSlot: []ProjectKind{ProjectSettings},
+		// permissions for it; it has no mods.
+		NoSlot: []ProjectKind{ProjectSettings, ProjectMods},
 		UserItems: []UserItems{
 			{Kind: ProjectSkills, Dirs: []string{".gemini/config/skills", ".gemini/antigravity-cli/skills", IsolatedDir + "/gemini/config/skills"}, ProjectWins: true},
 			{Kind: ProjectAgents, Dirs: []string{".gemini/config/agents", IsolatedDir + "/gemini/config/agents"}, ProjectWins: true},
@@ -267,6 +293,8 @@ var (
 			{From: "opencode.jsonc", To: ".opencode/opencode.json", Kind: ProjectSettings, ByKey: true,
 				Each: []Members{{Path: []string{"mcp", "servers"}, Item: ItemServer}}},
 		},
+		// OpenCode has no mods.
+		NoSlot: []ProjectKind{ProjectMods},
 		UserItems: []UserItems{
 			{Kind: ProjectSkills, Dirs: []string{".config/opencode/skills", ".agents/skills", ".claude/skills", IsolatedDir + "/opencode/config/opencode/skills"}, ProjectWins: true},
 			{Kind: ProjectAgents, Dirs: []string{".config/opencode/agents", IsolatedDir + "/opencode/config/opencode/agents"}, ProjectWins: true},

@@ -30,6 +30,7 @@ import (
 
 	"github.com/lartweib/dotai/internal/harness"
 	"github.com/lartweib/dotai/internal/merge"
+	"github.com/lartweib/dotai/internal/pack"
 )
 
 // ScopeUser is the scope of the user-level configuration.
@@ -507,16 +508,6 @@ func orList(items []string) string {
 	return strings.Join(items[:len(items)-1], ", ") + " or " + items[len(items)-1]
 }
 
-// reserved are the device names Windows refuses as a file name, with or
-// without an extension.
-var reserved = []string{"CON", "PRN", "AUX", "NUL",
-	"COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
-	"LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"}
-
-// forbidden are the characters Windows refuses in a file name, besides
-// the control characters and the separators.
-const forbidden = `:<>"|?*`
-
 // checkPath rejects a staged path that is not a slash path inside the
 // tree, or that Windows cannot store: a backslash, which separates there,
 // or a segment with a control character such as NUL, a character in
@@ -526,9 +517,7 @@ func checkPath(name string) error {
 		return fmt.Errorf("staged path %q is not a slash path inside the tree", name)
 	}
 	for seg := range strings.SplitSeq(name, "/") {
-		base, _, _ := strings.Cut(seg, ".")
-		control := strings.ContainsFunc(seg, func(r rune) bool { return r < 0x20 })
-		if control || strings.ContainsAny(seg, forbidden) || slices.Contains(reserved, strings.ToUpper(base)) {
+		if pack.BadName(seg) {
 			return fmt.Errorf("staged path %q: %q is not a valid file name on Windows", name, seg)
 		}
 	}

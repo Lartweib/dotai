@@ -83,6 +83,7 @@ var (
 		harness.ProjectAgents:   {".rulesync/subagents/"},
 		harness.ProjectSkills:   {".rulesync/skills/"},
 		harness.ProjectCommands: {".rulesync/commands/"},
+		harness.ProjectMods:     {harness.ModsSource},
 	}
 	kindWords = map[harness.ProjectKind]string{harness.ProjectSettings: "settings and permissions", harness.ProjectMCP: "MCP servers"}
 )
@@ -222,6 +223,7 @@ type located struct {
 	item    string
 	name    string
 	dir     string
+	whole   bool
 	target  string
 	byKey   bool
 	each    []harness.Members
@@ -266,7 +268,9 @@ func ProjectTargets(in ProjectInput) ([]Target, error) {
 //
 // An item that git tracks the target of is skipped whole: each of its files
 // is left as it is, and it is named in Skipped; a file merged by key that
-// git tracks names each of its keys, hooks or MCP servers. A file merged by
+// git tracks names each of its keys, hooks or MCP servers. An item dotai
+// owns whole, such as a mod, is skipped when git tracks any file in its
+// directory, its own or another. A file merged by
 // key that exists is merged into, key by key; a file written whole that
 // exists with the same content is unchanged and otherwise a conflict, left
 // as it is. A target that exists, or that the plan does not write, is not
@@ -282,18 +286,24 @@ func BuildProject(in ProjectInput) (Placement, error) {
 	p := Placement{Exclude: []string{in.pattern(dotaiDir)}}
 	tracked := map[string]string{} // the first tracked target of each skipped item, by harness and item
 	for _, t := range targets {
-		if t.item != "" && in.Tracked[t.target] {
+		at := t.target
+		if t.whole {
+			at = t.dir // git tracks a file in the directory, the item's or not
+		}
+		if t.item != "" && in.Tracked[at] {
 			if _, ok := tracked[t.harness+"\x00"+t.item]; !ok {
-				tracked[t.harness+"\x00"+t.item] = t.target
+				tracked[t.harness+"\x00"+t.item] = at
 			}
 		}
 	}
+	named := map[string]bool{}          // the skipped items named already
 	installed := map[string][]located{} // the items installed, by harness
 	created := map[string]bool{}        // the items whose every file is created
 	for _, t := range targets {
 		if first, ok := tracked[t.harness+"\x00"+t.item]; ok && t.item != "" {
-			if first == t.target {
-				p.Skipped = append(p.Skipped, Skipped{Harness: t.harness, Kind: t.kind, Item: t.item, Target: t.target, Reason: SkipTracked})
+			if (first == t.target || first == t.dir) && !named[t.harness+"\x00"+t.item] {
+				named[t.harness+"\x00"+t.item] = true
+				p.Skipped = append(p.Skipped, Skipped{Harness: t.harness, Kind: t.kind, Item: t.item, Target: first, Reason: SkipTracked})
 			}
 			continue
 		}
@@ -396,6 +406,37 @@ func BuildProject(in ProjectInput) (Placement, error) {
 	return p, nil
 }
 
+// sourceKind is the kind whose staged sources hold path, and whether there
+// is one.
+func sourceKind(path string) (harness.ProjectKind, bool) {
+	for _, kind := range slices.Sorted(maps.Keys(kindSources)) {
+		if slices.ContainsFunc(kindSources[kind], func(src string) bool {
+			return path == src || strings.HasSuffix(src, "/") && strings.HasPrefix(path, src)
+		}) {
+			return kind, true
+		}
+	}
+	return "", false
+}
+
+// ProjectDirs are the directories of the items dotai owns whole, such as
+// mods, which the caller asks git about as a whole: git tracking any file
+// in one, the item's or another, skips the item. They are sorted.
+func ProjectDirs(in ProjectInput) ([]string, error) {
+	targets, err := in.locate()
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, t := range targets {
+		if t.whole {
+			out = append(out, t.dir)
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out), nil
+}
+
 // ProjectProbes are the paths whose existence BuildProject reads from
 // in.Exists: where a user-level item of the name of each item the plan may
 // install lives, the skills directories of other harnesses a harness reads
@@ -460,7 +501,7 @@ func (in ProjectInput) locate() ([]located, error) {
 				break
 			}
 			if t, ok := a.Project.Locate(f.Path); ok {
-				l := located{file: f, harness: a.ID, kind: string(t.Kind), item: t.Item, name: t.Name, target: in.at(t.Target), byKey: t.ByKey, each: t.Each}
+				l := located{file: f, harness: a.ID, kind: string(t.Kind), item: t.Item, name: t.Name, whole: t.WholeDir, target: in.at(t.Target), byKey: t.ByKey, each: t.Each}
 				if t.Dir != "" {
 					l.dir = in.at(strings.TrimSuffix(t.Dir, "/"))
 				}
@@ -469,7 +510,10 @@ func (in ProjectInput) locate() ([]located, error) {
 				break
 			}
 		}
-		if !found {
+		// A source of a kind that no planned harness has a place for, such
+		// as a mod without Claude Code, is not installed: the plan warns
+		// no-local-slot.
+		if _, isKind := sourceKind(f.Path); !found && !isKind {
 			unmapped = append(unmapped, f.Path)
 		}
 	}
@@ -837,11 +881,7 @@ func (in ProjectInput) warnings(installed map[string][]located) []Warning {
 	}
 	for _, a := range in.Adapters {
 		for _, kind := range a.Project.NoSlot {
-			if !slices.ContainsFunc(in.Files, func(f File) bool {
-				return slices.ContainsFunc(kindSources[kind], func(src string) bool {
-					return f.Path == src || strings.HasSuffix(src, "/") && strings.HasPrefix(f.Path, src)
-				})
-			}) {
+			if !slices.ContainsFunc(in.Files, func(f File) bool { k, ok := sourceKind(f.Path); return ok && k == kind }) {
 				continue
 			}
 			word := cmp.Or(kindWords[kind], string(kind))
