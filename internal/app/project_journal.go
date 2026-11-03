@@ -134,11 +134,11 @@ func (sc recordScope) homeKey(p []string, object bool) bool {
 // copyName is the name of a copy in a project backup.
 var copyName = regexp.MustCompile(`^files/[0-9]+$`)
 
-// validBackup reports whether id is the id of a backup of a project apply
-// or restore, which names a directory of the project's backups.
+// validBackup reports whether id is the id of a backup of a project apply,
+// fix or restore, which names a directory of the project's backups.
 func validBackup(id string) bool {
 	op, ok := backup.Operation(id)
-	return ok && (op == backup.OperationApply || op == backup.OperationRestore)
+	return ok && backup.ProjectOperation(op)
 }
 
 // cleanRel reports whether p is a clean slash path that stays inside the

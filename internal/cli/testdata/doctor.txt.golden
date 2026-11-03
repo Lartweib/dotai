@@ -7,4 +7,4 @@ projects: /work/site
   orphan-entry     /home/u/.dotai/projects.json lists the project /work/old, but its directory is gone: the keys it owns in /home/u/.claude.json stay there until you remove them and its entry by hand
   exclude-missing  (fixed) wrote the 4 exclude entries of /work/site to /work/site/.git/info/exclude
 
-backup: /home/u/.dotai/projects/0123456789abcdef/backups/20261103T101500.000Z_apply
+backup: /home/u/.dotai/projects/0123456789abcdef/backups/20261103T101500.000Z_fix

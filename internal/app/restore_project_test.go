@@ -72,6 +72,26 @@ func TestRestoreProjectLeavesTheProjectAsBeforeTheFirstApply(t *testing.T) {
 	}
 }
 
+func TestRestoreProjectAfterADoctorFixLeavesTheProjectAsBefore(t *testing.T) {
+	project, home, g := applyRepo(t)
+	writeFile(t, at(project, "README.md"), "# site\n")
+	before, homeBefore := files(t, project), homeFiles(t, home)
+	fixExclude(t, g, project, home)
+	res, err := restoreProject(t, g, project, home, nil)
+	if err != nil {
+		t.Fatalf("RestoreProject() after doctor --fix error = %v", err)
+	}
+	if len(res.Conflicts) != 0 || res.Backup == nil || !res.Exclude.Removed {
+		t.Errorf("RestoreProject() = %+v, want no conflicts, a backup and the exclude block removed", res)
+	}
+	if got := files(t, project); !reflect.DeepEqual(got, before) {
+		t.Errorf("project = %v\nwant %v", got, before)
+	}
+	if got := homeFiles(t, home); !reflect.DeepEqual(got, homeBefore) {
+		t.Errorf("home = %v\nwant %v", got, homeBefore)
+	}
+}
+
 func mapValues(m map[string]string) []string {
 	var out []string
 	for _, v := range m {

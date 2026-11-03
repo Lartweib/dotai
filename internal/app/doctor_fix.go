@@ -14,7 +14,8 @@ import (
 )
 
 // The fix of dotai doctor (Doctor): the exclude block of a project written
-// as its record lists it, journaled as an apply is.
+// as its record lists it, journaled as an apply is, in a backup of its own
+// operation, backup.OperationFix.
 
 // exclusion is an exclude block --fix completes: the project's record and
 // what it may name, and the index of its finding.
@@ -87,7 +88,7 @@ func (doc *doctorRun) prepareExclude(fx exclusion) (*write, state.Project, error
 // project of the record r, journaled in r, and then writes next, which
 // names the backup too.
 func (doc *doctorRun) writeExclude(r state.Project, w write, next state.Project) (*BackupRef, error) {
-	ref, _, err := doc.journaled(journaledWrite{project: r.Project, operation: backup.OperationApply, what: "fix", base: r, prior: true, writes: []write{w}},
+	ref, _, err := doc.journaled(journaledWrite{project: r.Project, operation: backup.OperationFix, what: "fix", base: r, prior: true, writes: []write{w}},
 		func(id string, _ time.Time) error {
 			next.Backups = append(slices.Clone(r.Backups), id)
 			return doc.writeRecord(next)

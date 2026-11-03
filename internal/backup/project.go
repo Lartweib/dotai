@@ -19,9 +19,19 @@ import (
 // ProjectSchema is the version of the manifest of a project backup.
 const ProjectSchema = "dotai.project-backup/v1"
 
-// OperationApply is the operation of a project apply's backup; a restore
-// of the project takes one of OperationRestore.
-const OperationApply = "apply"
+// The operations of a project backup: OperationApply for a project apply,
+// OperationFix for the fix of dotai doctor, which writes a project's
+// exclude block as an apply does; a restore of the project takes one of
+// OperationRestore.
+const (
+	OperationApply = "apply"
+	OperationFix   = "fix"
+)
+
+// ProjectOperation reports whether op is the operation of a project backup.
+func ProjectOperation(op string) bool {
+	return op == OperationApply || op == OperationFix || op == OperationRestore
+}
 
 // ProjectManifest describes one project backup: its id, operation and
 // time, the project, and each copy it holds.
@@ -66,18 +76,21 @@ func EncodeProject(m ProjectManifest) ([]byte, error) {
 }
 
 // DecodeProject reads a project manifest of this ProjectSchema taken as id
-// for project, whose copies have absolute targets and their files under
-// FilesDir.
+// for project, with the operation of id, one of a project backup, whose
+// copies have absolute targets and their files under FilesDir.
 func DecodeProject(data []byte, id, project string) (ProjectManifest, error) {
 	var m ProjectManifest
 	if err := json.Unmarshal(data, &m); err != nil {
 		return ProjectManifest{}, fmt.Errorf("project backup manifest: %w", err)
 	}
+	op, _ := Operation(id)
 	switch {
 	case m.Schema != ProjectSchema:
 		return ProjectManifest{}, fmt.Errorf("project backup manifest has schema %q, want %q", m.Schema, ProjectSchema)
 	case m.ID != id:
 		return ProjectManifest{}, fmt.Errorf("project backup manifest has the id %q, want %q", m.ID, id)
+	case !ProjectOperation(op) || m.Operation != op:
+		return ProjectManifest{}, fmt.Errorf("project backup manifest %s has the operation %q, want %q", id, m.Operation, op)
 	case m.Project != project:
 		return ProjectManifest{}, fmt.Errorf("project backup %s was taken for the project %s, not %s", id, m.Project, project)
 	}
