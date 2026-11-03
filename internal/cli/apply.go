@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -189,7 +188,7 @@ func writeProjectPlan(w io.Writer, p app.ProjectPlan, color bool, footer string)
 			if len(op.Keys) > 0 {
 				items := make([]string, len(op.Keys))
 				for i, k := range op.Keys {
-					items[i] = paint(color, projectStyle[k.Action], string(k.Action)) + " " + projectKey(k.Path)
+					items[i] = paint(color, projectStyle[k.Action], string(k.Action)) + " " + plan.KeyPath(k.Path)
 				}
 				fmt.Fprintf(&b, "%skeys: %s\n", indent, strings.Join(items, ", "))
 			}
@@ -232,25 +231,4 @@ var projectStyle = map[plan.Action]string{plan.Create: styleGreen, plan.Replace:
 // paintProjectAction pads action to the widest action and colors it.
 func paintProjectAction(color bool, a plan.Action) string {
 	return paintWord(color, projectStyle[a], string(a))
-}
-
-// simpleKey is a key name that reads as it is after a dot.
-var simpleKey = regexp.MustCompile(`^[A-Za-z0-9_$-]+$`)
-
-// projectKey is a key of a file merged by key as people read it: each
-// name after a dot, or quoted in brackets when it is not a simple name,
-// such as projects["C:/work"].mcpServers.browser.
-func projectKey(key []string) string {
-	var b strings.Builder
-	for i, k := range key {
-		switch {
-		case !simpleKey.MatchString(k):
-			fmt.Fprintf(&b, "[%q]", k)
-		case i > 0:
-			b.WriteString("." + k)
-		default:
-			b.WriteString(k)
-		}
-	}
-	return b.String()
 }

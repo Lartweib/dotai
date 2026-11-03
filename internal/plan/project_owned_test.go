@@ -278,3 +278,19 @@ func TestBuildProjectSharesAnMCPServerWithAnotherWorktree(t *testing.T) {
 		t.Errorf("op = %+v, want the shared server left alone", op)
 	}
 }
+
+func TestKeyPathQuotesNamesThatAreNotSimple(t *testing.T) {
+	for _, tt := range []struct {
+		key  []string
+		want string
+	}{
+		{[]string{"model"}, "model"},
+		{[]string{"env", "DOTAI_TERMINAL"}, "env.DOTAI_TERMINAL"},
+		{[]string{"projects", "C:/work", "mcpServers", "browser"}, `projects["C:/work"].mcpServers.browser`},
+		{[]string{"a b"}, `["a b"]`},
+	} {
+		if got := plan.KeyPath(tt.key); got != tt.want {
+			t.Errorf("KeyPath(%q) = %s, want %s", tt.key, got, tt.want)
+		}
+	}
+}

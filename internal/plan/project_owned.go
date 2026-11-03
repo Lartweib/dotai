@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -58,6 +59,27 @@ type OwnedKey struct {
 
 // Name is the key's path joined with dots.
 func (k OwnedKey) Name() string { return strings.Join(k.Path, ".") }
+
+// simpleKey is a key name that reads as it is after a dot.
+var simpleKey = regexp.MustCompile(`^[A-Za-z0-9_$-]+$`)
+
+// KeyPath is a key path of a file merged by key as people read it: each
+// name after a dot, or quoted in brackets when it is not a simple name,
+// such as projects["C:/work"].mcpServers.browser.
+func KeyPath(key []string) string {
+	var b strings.Builder
+	for i, k := range key {
+		switch {
+		case !simpleKey.MatchString(k):
+			fmt.Fprintf(&b, "[%q]", k)
+		case i > 0:
+			b.WriteString("." + k)
+		default:
+			b.WriteString(k)
+		}
+	}
+	return b.String()
+}
 
 // KeyEdit is one change to a file merged by key: the key at Path, never
 // empty, gets Value, or is deleted when Value is nil; with Prune, the
