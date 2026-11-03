@@ -68,3 +68,18 @@ func TestExcludeBlockKeepsTheLineBreakItAddedWithTheFile(t *testing.T) {
 		t.Errorf("removal before a line of the user's = %q, want the line break kept", got)
 	}
 }
+
+func TestExcludeBlockReadsTheEntriesOfTheProjectsBlock(t *testing.T) {
+	const project = "/work/site"
+	out := plan.WithExcludeBlock([]byte("*.log\r\n"), project, []string{"/.dotai/", "/.claude/rules/web.md"})
+	out = plan.WithExcludeBlock(out, "/work/other", []string{"/x"})
+	if got, ok := plan.ExcludeBlock(out, project); !ok || len(got) != 2 || got[0] != "/.dotai/" || got[1] != "/.claude/rules/web.md" {
+		t.Errorf("ExcludeBlock() = %q, %v, want the project's two entries", got, ok)
+	}
+	if got, ok := plan.ExcludeBlock([]byte(beginSite+"\n"+endSite), project); !ok || len(got) != 0 {
+		t.Errorf("ExcludeBlock() of an empty block without a final line break = %q, %v, want none", got, ok)
+	}
+	if got, ok := plan.ExcludeBlock([]byte("*.log\n"), project); ok || got != nil {
+		t.Errorf("ExcludeBlock() without a block = %q, %v, want none", got, ok)
+	}
+}

@@ -91,6 +91,18 @@ func WithoutExcludeBlock(content []byte, project string) []byte {
 	return out
 }
 
+// ExcludeBlock is the entries of the block of project in content, an
+// exclude file, and whether it has one.
+func ExcludeBlock(content []byte, project string) ([]string, bool) {
+	b, ok := findBlock(content, project)
+	if !ok {
+		return nil, false
+	}
+	text := strings.TrimSuffix(strings.ReplaceAll(string(content[b.start:b.end]), "\r\n", "\n"), "\n")
+	lines := strings.Split(text, "\n")
+	return append([]string{}, lines[1:len(lines)-1]...), true // between the begin and the end line
+}
+
 // lineEnd is the line ending of content: that of its first line, "\n" by
 // default.
 func lineEnd(content []byte) string {
