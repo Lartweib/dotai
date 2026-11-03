@@ -28,7 +28,7 @@ The scope is set by [0020](decisions/0020-v1-scope-engine-and-pack.md) and the c
 | 10-3 | `dotai apply --profile` enabled: writes with merge by key and union, the exclude block, the project record under `~/.dotai/projects/` with its ownership record and a marker in `.dotai/`, rollback, per-project MCP keys in `~/.claude.json`, or in the isolated `.claude.json` of an isolated install (retry on `EPERM`, re-read, one rewrite), the reserved `.dotai/packs/<pack>/`, the first-apply flag in CLI-JSON, replace keeping the owned MCP keys, and `dotai restore --project`, run in the project, which undoes it from the apply's backups ([0041](decisions/0041-project-scope-local-and-untracked.md)) | Apply a profile to a test repository: `git status` stays clean, foreign content is kept, and a second apply reports it is not the first; `dotai restore --project` then leaves the project, its `.git/info/exclude` and the owned `~/.claude.json` keys as before the first apply |
 | 10-4 | Mods as plugins under `.claude/skills/<mod>/` ([0027](decisions/0027-loose-files-and-plugins-only-for-mods.md)), excluded like the rest: `mods/<mod>/` at the pack root, named by profiles, checked by `validate`, installed whole for Claude Code with the plugin manifest dotai writes when the mod ships none, removed by `restore --project` ([PACK-FORMAT](PACK-FORMAT.md#mods)) | Apply a profile with a mod and see it load in Claude Code after workspace trust |
 | 11 | `doctor`: read-only, the files and keys of the install state and of every project record checked against the disk, the project markers, the orphan entries of `~/.dotai/projects.json` and orphan records, stable finding codes and exit code 3 in [CLI-JSON](CLI-JSON.md), and `--fix`, the only repair, which writes the exclude entries that are pending or missing with a backup and a journal; the agy `--gemini_dir` launch cannot be checked, since only `dotai run` passes it ([0041](decisions/0041-project-scope-local-and-untracked.md)) | Edit an installed file by hand and see `dotai doctor` report it; it also reports owned per-project MCP keys that went missing, orphan entries whose path no longer exists, and completes pending exclude entries ([0041](decisions/0041-project-scope-local-and-untracked.md)) |
-| 12 | Release: binaries per platform | Install `dotai` from a release and repeat the PR 8 demo |
+| 12 | Release: binaries per platform, built from a `vX.Y.Z` tag by `scripts/release.sh` and published with `SHA256SUMS` by the release workflow ([0042](decisions/0042-tag-driven-release-binaries.md)); the workflow is in place, the first release is not cut yet | Install `dotai` from a release and repeat the PR 8 demo |
 
 Follow-ups from [0041](decisions/0041-project-scope-local-and-untracked.md), not decided yet, to be placed in a row when they are:
 
@@ -47,5 +47,12 @@ The UI is a thin layer over the same use cases as the CLI ([0026](decisions/0026
 |---|---|---|
 | 13 | `dotai ui`, read-only | Installed state, the current plan and the `doctor` result in the browser |
 | 14 | UI actions | Install, apply profiles and restore from the UI; each action shows its plan and asks for confirmation |
+
+Follow-ups after v1, in priority order:
+
+1. A `doctor` check of the always-on context budget, split into rules, the skill and agent listing, and the total, against caps the pack declares ([0007](decisions/0007-always-on-context-budget.md)).
+2. `doctor` checks the external skills a profile expects (`capabilities`).
+3. `claudecode.skillOverrides` merged per skill across layers.
+4. Support for a newer rulesync (43.x), with its checksums embedded ([0029](decisions/0029-rulesync-checksums-embedded-in-the-engine.md)).
 
 Also after v1: engine support for stack detection during onboarding ([0020](decisions/0020-v1-scope-engine-and-pack.md)).
