@@ -10,15 +10,16 @@ dotai is split into a Go **engine** and **packs** of content. A reference pack i
 
 ## Install
 
-Each release on [github.com/lartweib/dotai/releases](https://github.com/lartweib/dotai/releases) has an archive per platform (Windows x64, Linux x64 and arm64, macOS x64 and arm64) and a `SHA256SUMS` file ([0042](docs/decisions/0042-tag-driven-release-binaries.md)).
+No release is published yet. Each release on [github.com/lartweib/dotai/releases](https://github.com/lartweib/dotai/releases) will have an archive per platform (Windows x64, Linux x64 and arm64, macOS x64 and arm64) and a `SHA256SUMS` file ([0042](docs/decisions/0042-tag-driven-release-binaries.md)). The archives are named `dotai_<version>_<os>_<arch>.tar.gz`, or `.zip` for Windows; below, `<archive>` is the one you downloaded.
 
-1. Download the archive for your platform, such as `dotai_0.1.0_linux_amd64.tar.gz` or `dotai_0.1.0_windows_amd64.zip`, and `SHA256SUMS` from the same release.
+1. Download the archive for your platform and `SHA256SUMS` from the same release.
 2. Verify the checksum in the download directory:
-   - Linux: `grep dotai_0.1.0_linux_amd64.tar.gz SHA256SUMS | sha256sum --check`
-   - macOS: `grep dotai_0.1.0_darwin_arm64.tar.gz SHA256SUMS | shasum -a 256 --check`
-   - Windows (PowerShell): `(Get-FileHash dotai_0.1.0_windows_amd64.zip).Hash`, and compare it with the line for that file in `SHA256SUMS`.
-3. Extract the archive and put `dotai` (`dotai.exe` on Windows) in a directory on your `PATH`, such as `~/.local/bin`.
-4. Check it with `dotai version`.
+   - Linux: `grep <archive> SHA256SUMS | sha256sum --check`
+   - macOS: `grep <archive> SHA256SUMS | shasum -a 256 --check`
+   - Windows (PowerShell): `(Get-FileHash <archive>).Hash`, and compare it with the line for that file in `SHA256SUMS`.
+3. Once the repository is public, releases also carry a build provenance attestation. Verify it with the GitHub CLI: `gh attestation verify <archive> --repo lartweib/dotai`.
+4. Extract the archive and put `dotai` (`dotai.exe` on Windows) in a directory on your `PATH`, such as `~/.local/bin`.
+5. Check it with `dotai version`.
 
 From source, with Go installed: `go install github.com/lartweib/dotai/cmd/dotai@latest`.
 
