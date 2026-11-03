@@ -61,27 +61,37 @@ jobs:
         with:
           subject-checksums: dist/SHA256SUMS
       # The release stays a draft until every file is uploaded. A rerun of
-      # the same tag completes its draft; a published release is never
+      # the same tag completes its draft, with this run's title, notes,
+      # pre-release flag and files only; a published release is never
       # changed.
       - name: release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
+          prerelease=false
+          case "$TAG" in *-*) prerelease=true ;; esac
+          notes="Built with $(go version | cut -d' ' -f3) by \`scripts/release.sh\`."
+          notes+=$'\n\n'$(gh api -X POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+            -f tag_name="$TAG" --jq .body)
           drafts=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" \
             --jq '.[] | select(.tag_name == env.TAG) | .draft')
           case "$drafts" in
             "")
-              prerelease=()
-              case "$TAG" in *-*) prerelease=(--prerelease) ;; esac
               gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
-                --title "dotai $TAG" --generate-notes \
-                --notes "Built with $(go version | cut -d' ' -f3) by \`scripts/release.sh\`." "${prerelease[@]}"
+                --title "dotai $TAG" --notes "$notes" --prerelease="$prerelease"
               gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY"
               ;;
             true)
               echo "completing the existing draft of $TAG"
+              gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" \
+                --title "dotai $TAG" --notes "$notes" --prerelease="$prerelease"
               gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+              # A file the draft holds that this run did not build is removed.
+              gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' |
+                while IFS= read -r asset; do
+                  [ -e "dist/$asset" ] || gh release delete-asset "$TAG" "$asset" --repo "$GITHUB_REPOSITORY" --yes
+                done
               ;;
             *false*)
               echo "::error::a published release of $TAG already exists; it is not changed. Delete it or release a new tag."
