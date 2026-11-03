@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/lartweib/dotai/internal/app"
+	"github.com/lartweib/dotai/internal/backup"
 	"github.com/lartweib/dotai/internal/plan"
 	"github.com/lartweib/dotai/internal/state"
 )
@@ -153,6 +154,44 @@ func TestDoctorReportsWhatChangedInAnAppliedProject(t *testing.T) {
 	}
 	if got := codes(runDoctor(t, g, home, false)); slices.ContainsFunc(got, func(s string) bool { return strings.HasPrefix(s, "exclude-") }) {
 		t.Errorf("Doctor() after --fix = %q, want the exclude block fine", got)
+	}
+}
+
+// fixExclude applies the profile to project, takes dotai's block out of its
+// exclude file and runs doctor --fix, which writes it back.
+func fixExclude(t *testing.T, g app.GitPort, project, home string) app.DoctorResult {
+	t.Helper()
+	if _, err := applyWith(t, newClockFS(t), g, profileTree, project, home, nil); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, at(project, ".git/info/exclude"), "# the user's own\n*.log\n")
+	fixed := runDoctor(t, g, home, true)
+	if fixed.Problems() != 0 || len(fixed.Backups) != 1 {
+		t.Fatalf("Doctor(--fix) = %+v, want the exclude block fixed with a backup", fixed)
+	}
+	return fixed
+}
+
+func TestDoctorFixNamesItsBackupAfterTheFix(t *testing.T) {
+	project, home, g := applyRepo(t)
+	ref := fixExclude(t, g, project, home).Backups[0]
+	if !strings.HasSuffix(ref.ID, "_"+backup.OperationFix) || filepath.Base(ref.Path) != ref.ID {
+		t.Errorf("backup = %+v, want an id and a directory that end in _fix", ref)
+	}
+	data, err := os.ReadFile(filepath.Join(ref.Path, backup.ManifestName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := backup.DecodeProject(data, ref.ID, project)
+	if err != nil || m.Operation != backup.OperationFix {
+		t.Errorf("manifest = %+v, %v, want the operation fix", m, err)
+	}
+	r := readJSON(t, app.RecordPath(home, project), func(data []byte) (state.Project, error) { return state.DecodeProject(data, project) })
+	if len(r.Backups) != 2 || r.Backups[1] != ref.ID || !strings.HasSuffix(r.Backups[0], "_"+backup.OperationApply) {
+		t.Errorf("record backups = %q, want the apply's then the fix's %s", r.Backups, ref.ID)
+	}
+	if res := runDoctor(t, g, home, false); len(res.Findings) != 0 {
+		t.Errorf("Doctor() after --fix = %q, want the record with its fix backup valid", codes(res))
 	}
 }
 

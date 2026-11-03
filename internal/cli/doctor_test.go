@@ -29,7 +29,7 @@ var doctorFound = app.DoctorResult{
 		{Code: app.CodeExcludeMissing, Project: "/work/site", Path: "/work/site/.git/info/exclude", Key: []string{}, Fixable: true, Fixed: true,
 			Message: "wrote the 4 exclude entries of /work/site to /work/site/.git/info/exclude"},
 	},
-	Backups: []app.BackupRef{{ID: "20261103T101500.000Z_apply", Path: "/home/u/.dotai/projects/0123456789abcdef/backups/20261103T101500.000Z_apply"}},
+	Backups: []app.BackupRef{{ID: "20261103T101500.000Z_fix", Path: "/home/u/.dotai/projects/0123456789abcdef/backups/20261103T101500.000Z_fix"}},
 }
 
 func TestRunDoctor(t *testing.T) {
