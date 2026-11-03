@@ -1,0 +1,10 @@
+Doctor · 3 problems, 1 fixed
+state:    /home/u/.dotai/state.json
+projects: /work/site
+
+  file-changed     /home/u/.dotai/isolated/claude/CLAUDE.md was changed since dotai installed it: an install stops on it until you move it away, and a restore asks before overwriting it
+  key-missing      the key projects["/work/site"].mcpServers.browser that dotai set in /home/u/.claude.json is gone: apply again in /work/site to put it back
+  orphan-entry     /home/u/.dotai/projects.json lists the project /work/old, but its directory is gone: the keys it owns in /home/u/.claude.json stay there until you remove them and its entry by hand
+  exclude-missing  (fixed) wrote the 4 exclude entries of /work/site to /work/site/.git/info/exclude
+
+backup: /home/u/.dotai/projects/0123456789abcdef/backups/20261103T101500.000Z_apply

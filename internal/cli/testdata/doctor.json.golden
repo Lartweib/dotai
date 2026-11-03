@@ -1,0 +1,68 @@
+{
+  "schema": "dotai.cli/v1",
+  "command": "doctor",
+  "ok": false,
+  "data": {
+    "state": "/home/u/.dotai/state.json",
+    "projects": [
+      "/work/site"
+    ],
+    "findings": [
+      {
+        "code": "file-changed",
+        "harness": "claudecode",
+        "project": "",
+        "path": "/home/u/.dotai/isolated/claude/CLAUDE.md",
+        "key": [],
+        "fixable": false,
+        "fixed": false,
+        "message": "/home/u/.dotai/isolated/claude/CLAUDE.md was changed since dotai installed it: an install stops on it until you move it away, and a restore asks before overwriting it"
+      },
+      {
+        "code": "key-missing",
+        "harness": "claudecode",
+        "project": "/work/site",
+        "path": "/home/u/.claude.json",
+        "key": [
+          "projects",
+          "/work/site",
+          "mcpServers",
+          "browser"
+        ],
+        "fixable": false,
+        "fixed": false,
+        "message": "the key projects[\"/work/site\"].mcpServers.browser that dotai set in /home/u/.claude.json is gone: apply again in /work/site to put it back"
+      },
+      {
+        "code": "orphan-entry",
+        "harness": "",
+        "project": "/work/old",
+        "path": "/home/u/.dotai/projects.json",
+        "key": [],
+        "fixable": false,
+        "fixed": false,
+        "message": "/home/u/.dotai/projects.json lists the project /work/old, but its directory is gone: the keys it owns in /home/u/.claude.json stay there until you remove them and its entry by hand"
+      },
+      {
+        "code": "exclude-missing",
+        "harness": "",
+        "project": "/work/site",
+        "path": "/work/site/.git/info/exclude",
+        "key": [],
+        "fixable": true,
+        "fixed": true,
+        "message": "wrote the 4 exclude entries of /work/site to /work/site/.git/info/exclude"
+      }
+    ],
+    "backups": [
+      {
+        "id": "20261103T101500.000Z_apply",
+        "path": "/home/u/.dotai/projects/0123456789abcdef/backups/20261103T101500.000Z_apply"
+      }
+    ]
+  },
+  "error": {
+    "code": "invalid",
+    "message": "doctor found 3 problems"
+  }
+}
