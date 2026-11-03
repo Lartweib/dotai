@@ -3,6 +3,8 @@ package cli_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -90,5 +92,39 @@ func TestRunDoctorReal(t *testing.T) {
 	}
 	if got := filepath.Join(home, ".dotai"); dirExists(got) {
 		t.Errorf("%s exists, want nothing created", got)
+	}
+}
+
+// TestRunDoctorFixThatFails checks that a fix that stops midway still
+// prints what doctor found and fixed before it, with the error.
+func TestRunDoctorFixThatFails(t *testing.T) {
+	stopped := &app.ApplyError{Operation: "fix", Cause: errors.New("disk full"), Backup: "/home/u/.dotai/projects/0123456789abcdef/backups/x"}
+	for _, asJSON := range []bool{false, true} {
+		var stdout, stderr bytes.Buffer
+		env := testEnv(&stdout, &stderr)
+		env.Doctor = func(context.Context, string, app.DoctorOptions) (app.DoctorResult, error) {
+			return doctorFound, stopped
+		}
+		args := []string{"doctor", "--fix"}
+		if asJSON {
+			args = append(args, "--json")
+		}
+		if code := cli.Run(args, env); code != cli.ExitInternal {
+			t.Errorf("JSON %v: exit code = %d, want %d", asJSON, code, cli.ExitInternal)
+		}
+		if !asJSON {
+			if !strings.Contains(stdout.String(), "(fixed) wrote the 4 exclude entries") || !strings.Contains(stderr.String(), "the fix stopped: disk full") {
+				t.Errorf("stdout = %q, stderr = %q, want the report and the error", stdout.String(), stderr.String())
+			}
+			continue
+		}
+		var e struct {
+			OK    bool                  `json:"ok"`
+			Data  app.DoctorResult      `json:"data"`
+			Error struct{ Code string } `json:"error"`
+		}
+		if err := json.Unmarshal(stdout.Bytes(), &e); err != nil || e.OK || e.Error.Code != "internal" || len(e.Data.Findings) != len(doctorFound.Findings) {
+			t.Errorf("envelope = %s, %v, want an internal failure with the result in data", stdout.Bytes(), err)
+		}
 	}
 }

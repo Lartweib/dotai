@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -36,6 +37,16 @@ func newDoctorCmd(env Env, jsonOut *bool) *cobra.Command {
 		ctx, stop := interruptible(cmd)
 		defer stop()
 		res, err := env.Doctor(ctx, home, app.DoctorOptions{Fix: fix})
+		if err != nil && res.Findings != nil {
+			// A fix that failed: what was found and fixed before it still
+			// tells what happened.
+			if !*jsonOut {
+				if werr := writeDoctor(env.Stdout, res, useColor(env.Stdout)); werr != nil {
+					return errors.Join(err, werr)
+				}
+			}
+			return &resultError{err: err, data: res}
+		}
 		if err != nil {
 			return err
 		}

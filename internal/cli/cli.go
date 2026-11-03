@@ -56,6 +56,17 @@ type Env struct {
 	Prompt func(ctx context.Context, question string) (bool, error)
 }
 
+// resultError is a command that failed after it produced a result that
+// tells what happened before, such as a doctor --fix that failed midway:
+// data is that result, in the envelope.
+type resultError struct {
+	err  error
+	data any
+}
+
+func (e *resultError) Error() string { return e.err.Error() }
+func (e *resultError) Unwrap() error { return e.err }
+
 // invalidError is a command outcome that rejects its input, such as a pack
 // with errors. data is the result that explains why.
 type invalidError struct {
@@ -138,6 +149,9 @@ func Run(args []string, env Env) int {
 		code, data = output.CodeApplyRefused, applyRefused.Plan
 	case errors.As(err, new(*app.RecordInvalidError)):
 		code = output.CodeRecordInvalid
+	}
+	if re, ok := errors.AsType[*resultError](err); ok && data == nil {
+		data = re.data
 	}
 	if parsed && jsonOut || !parsed && jsonRequested(root, args) {
 		e := output.Failure(commandName(cmd), code, err.Error())
