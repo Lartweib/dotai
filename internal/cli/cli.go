@@ -44,6 +44,9 @@ type Env struct {
 	RestoreProject func(ctx context.Context, cwd, home string, overwrite func(app.ProjectRestoreResult) (bool, error)) (app.ProjectRestoreResult, error)
 	// Apply is dotai apply: it carries the plan of PlanProject out.
 	Apply func(ctx context.Context, cacheDir, dir, project, home string, opts app.ApplyOptions, progress app.Progress, consent app.ApplyConsent) (app.ApplyResult, error)
+	// Doctor is dotai doctor: it reports what changed outside dotai, and
+	// with Fix writes the exclude entries that are pending or missing.
+	Doctor func(ctx context.Context, home string, opts app.DoctorOptions) (app.DoctorResult, error)
 	// PlanRun and Launch are dotai run: Launch gives the harness's exit
 	// code, and on Unix replaces dotai with the harness.
 	PlanRun func(home, id string, args []string) (app.RunPlan, error)
@@ -52,6 +55,17 @@ type Env struct {
 	// answer, such as when stdin is not a terminal.
 	Prompt func(ctx context.Context, question string) (bool, error)
 }
+
+// resultError is a command that failed after it produced a result that
+// tells what happened before, such as a doctor --fix that failed midway:
+// data is that result, in the envelope.
+type resultError struct {
+	err  error
+	data any
+}
+
+func (e *resultError) Error() string { return e.err.Error() }
+func (e *resultError) Unwrap() error { return e.err }
 
 // invalidError is a command outcome that rejects its input, such as a pack
 // with errors. data is the result that explains why.
@@ -83,7 +97,7 @@ func Run(args []string, env Env) int {
 	root.SetArgs(args)
 	root.SetOut(env.Stdout)
 	root.SetErr(env.Stderr)
-	root.AddCommand(newVersionCmd(env, &jsonOut), newValidateCmd(env, &jsonOut), newStageCmd(env, &jsonOut), newRulesyncCmd(env, &jsonOut), newInstallCmd(env, &jsonOut), newApplyCmd(env, &jsonOut), newRestoreCmd(env, &jsonOut), newRunCmd(env, &jsonOut, &parsed))
+	root.AddCommand(newVersionCmd(env, &jsonOut), newValidateCmd(env, &jsonOut), newStageCmd(env, &jsonOut), newRulesyncCmd(env, &jsonOut), newInstallCmd(env, &jsonOut), newApplyCmd(env, &jsonOut), newRestoreCmd(env, &jsonOut), newDoctorCmd(env, &jsonOut), newRunCmd(env, &jsonOut, &parsed))
 
 	// In JSON mode help is a result like any other: one envelope whose data
 	// holds the help text.
@@ -135,6 +149,9 @@ func Run(args []string, env Env) int {
 		code, data = output.CodeApplyRefused, applyRefused.Plan
 	case errors.As(err, new(*app.RecordInvalidError)):
 		code = output.CodeRecordInvalid
+	}
+	if re, ok := errors.AsType[*resultError](err); ok && data == nil {
+		data = re.data
 	}
 	if parsed && jsonOut || !parsed && jsonRequested(root, args) {
 		e := output.Failure(commandName(cmd), code, err.Error())

@@ -230,3 +230,9 @@ func ApplyWithRulesync(ctx context.Context, g gitPort, cacheDir, dir, project, h
 
 // RecordPath is the record of project under home.
 func RecordPath(home, project string) string { return recordPath(home, project) }
+
+// DoctorWith is Doctor reading and writing through d and asking git
+// through g.
+func DoctorWith(ctx context.Context, d executeFS, g gitPort, home string, opts DoctorOptions) (DoctorResult, error) {
+	return doctor(ctx, d, g, home, opts)
+}

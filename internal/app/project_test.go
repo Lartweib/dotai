@@ -52,14 +52,23 @@ func (f projectRulesync) run(_ context.Context, _ rulesync.Result, _ []string, j
 }
 
 // fakeGit is a repository at the top of the project whose index holds
-// tracked, or no repository when outside is set.
+// tracked, or no repository when outside is set; repos gives the
+// repository of a directory instead, and fail the error git gives there.
 type fakeGit struct {
 	outside bool
 	tracked []string
 	asked   []string
+	repos   map[string]*app.Repo
+	fail    map[string]error
 }
 
 func (g *fakeGit) Repo(_ context.Context, dir string) (*app.Repo, error) {
+	if err := g.fail[dir]; err != nil {
+		return nil, err
+	}
+	if r, ok := g.repos[dir]; ok {
+		return r, nil
+	}
 	if g.outside {
 		return nil, nil
 	}

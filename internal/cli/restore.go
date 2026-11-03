@@ -174,7 +174,7 @@ func writeProjectRestore(w io.Writer, res app.ProjectRestoreResult, color bool) 
 		if len(op.Keys) > 0 {
 			items := make([]string, len(op.Keys))
 			for i, k := range op.Keys {
-				items[i] = paint(color, projectStyle[k.Action], string(k.Action)) + " " + projectKey(k.Path)
+				items[i] = paint(color, projectStyle[k.Action], string(k.Action)) + " " + plan.KeyPath(k.Path)
 			}
 			fmt.Fprintf(&b, "%skeys: %s\n", indent, strings.Join(items, ", "))
 		}

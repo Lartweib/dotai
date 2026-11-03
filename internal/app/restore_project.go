@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/lartweib/dotai/internal/backup"
 	"github.com/lartweib/dotai/internal/plan"
@@ -346,40 +347,18 @@ func (a runner) dotaiRemovals(project string, planned map[string]bool) ([]write,
 // back from the backup.
 func (a runner) writeProjectRestore(res *ProjectRestoreResult, r state.Project, writes []write) error {
 	project := r.Project
-	root := projectBackups(a.home, project)
-	if err := ensureDir(a.d, a.home, root, 0o700); err != nil {
-		return fmt.Errorf("the backup failed, nothing was written: %w", err)
-	}
-	id, dir, t, err := newBackupDir(a.d, root, a.d.Now().UTC(), backup.OperationRestore)
-	if err != nil {
-		return fmt.Errorf("the backup failed, nothing was written: %w", err)
-	}
-	if err := a.takeBackup(id, dir, project, t, writes, true); err != nil {
-		return fmt.Errorf("the backup failed, nothing was written: %w", errors.Join(err, a.d.RemoveAll(dir)))
-	}
-	j := r
-	j.Pending = &state.ApplyJournal{Backup: id, Prior: priorCopy, Ops: []state.JournalOp{}}
-	for _, w := range writes {
-		j.Pending.Ops = append(j.Pending.Ops, w.op)
-	}
-	if err := a.writeRecord(j); err != nil {
-		return fmt.Errorf("the restore journal could not be written, nothing was written: %w", errors.Join(err, a.d.RemoveAll(dir)))
-	}
-	done, lost, err := a.executeWrites(writes)
+	ref, lost, err := a.journaled(journaledWrite{project: project, operation: backup.OperationRestore, what: "restore", base: r, prior: true, writes: writes},
+		func(string, time.Time) error { return a.d.RemoveIn(projectHome(a.home, project), recordName) })
 	for _, target := range lost {
 		res.Warnings = append(res.Warnings, fmt.Sprintf("%s was rewritten while dotai took its MCP servers out of it, twice: close Claude Code, then check its projects entry for %s", target, project))
 	}
-	if err == nil {
-		err = a.d.RemoveIn(projectHome(a.home, project), recordName)
+	if js, ok := errors.AsType[*journalStop](err); ok {
+		return &RestoreError{Cause: js.cause, Rollback: js.rollback, Backup: js.backup}
 	}
 	if err != nil {
-		rb := a.undoWrites(project, dir, done)
-		if rb == nil {
-			rb = a.putRecordBack(project, dir, priorCopy)
-		}
-		return &RestoreError{Cause: err, Rollback: rb, Backup: dir}
+		return err
 	}
-	res.Backup = &BackupRef{ID: id, Path: dir}
+	res.Backup = &ref
 	if err := a.d.RemoveAllIn(project, ".dotai"); err != nil {
 		res.Warnings = append(res.Warnings, fmt.Sprintf("%s could not be removed: %v", filepath.Join(project, ".dotai"), err))
 	}
