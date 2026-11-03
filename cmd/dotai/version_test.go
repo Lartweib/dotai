@@ -19,7 +19,12 @@ func TestVersionStampedAtBuild(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		bin += ".exe"
 	}
-	build := exec.Command("go", "build", "-trimpath",
+	// The go of the toolchain that runs the test, not whichever is on PATH.
+	goTool := filepath.Join(runtime.GOROOT(), "bin", "go")
+	if runtime.GOOS == "windows" {
+		goTool += ".exe"
+	}
+	build := exec.Command(goTool, "build", "-trimpath",
 		"-ldflags", "-X github.com/lartweib/dotai/internal/app.version="+tag, "-o", bin, ".")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("go build: %v\n%s", err, out)
