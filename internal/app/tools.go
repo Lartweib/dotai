@@ -27,7 +27,9 @@ type ToolPaths struct {
 	Home    string // ${DOTAI_HOME}: the real home directory, in either install mode
 	OS      string
 
-	UserErr, ProjectErr, HomeErr error
+	// UserErr is also the error of Home: both come from the home
+	// directory.
+	UserErr, ProjectErr error
 
 	project bool   // the settings being expanded are the project scope's
 	harness string // the harness whose settings are expanded; "" reads them as a shell does
@@ -188,16 +190,39 @@ func expandPaths(data []byte, tools ToolPaths) ([]byte, error) {
 	for _, v := range []struct {
 		token, path string
 		err         error
-	}{{"${DOTAI_TOOLS}", tools.User, tools.UserErr}, {"${DOTAI_PROJECT_TOOLS}", tools.Project, tools.ProjectErr}, {"${DOTAI_HOME}", tools.Home, tools.HomeErr}} {
+	}{{"${DOTAI_TOOLS}", tools.User, tools.UserErr}, {"${DOTAI_PROJECT_TOOLS}", tools.Project, tools.ProjectErr}, {homeToken, tools.Home, tools.UserErr}} {
 		if !bytes.Contains(data, []byte(v.token)) {
 			continue
 		}
 		if v.err != nil {
 			return nil, fmt.Errorf("%s cannot be expanded: %w", v.token, v.err)
 		}
+		if v.token == homeToken {
+			if err := checkHome(v.path, tools.goos()); err != nil {
+				return nil, err
+			}
+		}
 		data = bytes.ReplaceAll(data, []byte(v.token), []byte(filepath.ToSlash(v.path)))
 	}
 	return data, nil
+}
+
+// homeToken is the path variable of the real home directory.
+const homeToken = "${DOTAI_HOME}"
+
+// checkHome refuses a home directory that ${DOTAI_HOME} cannot name in a
+// command, as a tools directory is refused for a tool command: one with a
+// character some harness's shell does not take literally inside double
+// quotes, or a network path on Windows, whose leading \\ bash reads as one
+// \. Spaces are kept: a command quotes the path.
+func checkHome(home, goos string) error {
+	if goos == "windows" && (strings.HasPrefix(home, `\\`) || strings.HasPrefix(home, "//")) {
+		return fmt.Errorf(`%s cannot be expanded: the home directory %s starts with \\ or //, as a network path does, and bash reads \\ inside double quotes as a single \: put the home directory on a local drive`, homeToken, home)
+	}
+	if i := strings.IndexAny(home, unquoted(goos)); i >= 0 {
+		return fmt.Errorf("%s cannot be expanded: the home directory %s holds %q, which a harness's shell would not take literally inside double quotes", homeToken, home, home[i])
+	}
+	return nil
 }
 
 // ToolCommand is a tool command of decision 0037 that a harness's settings

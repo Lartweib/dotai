@@ -296,7 +296,6 @@ func toolPaths() app.ToolPaths {
 	t := app.ToolsIn(home, project)
 	if homeErr != nil {
 		t.UserErr = fmt.Errorf("the home directory is unknown: %w", homeErr)
-		t.HomeErr = t.UserErr
 	}
 	if projectErr != nil {
 		t.ProjectErr = fmt.Errorf("the current directory is unknown: %w", projectErr)
