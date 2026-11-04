@@ -57,7 +57,7 @@ What each harness reads in a project was checked in sessions on Windows ([HARNES
 - Good: applying a profile leaves `git status` clean and never changes what the team shares.
 - Accepted cost: a fresh clone or `git clean -fdx` loses `.dotai/`, `config.yaml` included; an export can come later.
 - Accepted cost: agy gets no project settings or permissions in v1.
-- Accepted cost: OpenCode also reads the project's `.claude/skills` and `.agents/skills`, so a skill applied for every harness appears more than once there. A user-level Claude Code skill hides a project skill of the same name; in agy the project one wins. The plan names each clash it can see.
+- Accepted cost: OpenCode also reads the project's `.claude/skills` and `.agents/skills`, so a skill applied for every harness appears more than once there. A user-level Claude Code skill hides a project skill of the same name; in agy the project one wins. The plan names each clash it can see. Corrected 2026-11-04: OpenCode lists a project skill of the same name once, its `.opencode/skills` copy winning ([HARNESS-NOTES](../HARNESS-NOTES.md#opencode-2030-windows-1)), so the plan no longer warns about it (`read-twice` is gone).
 - Accepted cost: an edit Claude Code makes to `~/.claude.json` during dotai's write can still drop a key after the check; `doctor` reports it.
 - Pending: the name of the record in `.dotai/`; follow-ups in [ROADMAP](../ROADMAP.md) (`${DOTAI_TOOL:<name>}` in hook commands, identical MCP definitions across profiles, the shared-and-per-harness hook warning, agy `SessionStart` output in PACK-FORMAT).
 

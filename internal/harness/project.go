@@ -95,9 +95,8 @@ type UserItems struct {
 // project the harness does not load alone, which the pack's own rules file
 // imports (Import, with <pack> for the pack's name, holding ImportLine)
 // unless one of ImportFiles already does; the MCP servers it keeps outside
-// the project; the kinds it has no local slot for; where same-name user
-// items live; and the project skills directories of other harnesses it
-// reads too. Paths are slash paths.
+// the project; the kinds it has no local slot for; and where same-name
+// user items live. Paths are slash paths.
 type ProjectLayout struct {
 	Paths       []ProjectPath
 	Imports     string
@@ -107,7 +106,6 @@ type ProjectLayout struct {
 	MCP         *HomeKeys
 	NoSlot      []ProjectKind
 	UserItems   []UserItems
-	AlsoReads   []string
 }
 
 // ProjectTarget is where a staged project file installs: Target, relative
@@ -205,7 +203,7 @@ func (l ProjectLayout) clone() ProjectLayout {
 		m := *l.MCP
 		l.MCP = &m
 	}
-	l.NoSlot, l.AlsoReads = slices.Clone(l.NoSlot), slices.Clone(l.AlsoReads)
+	l.NoSlot = slices.Clone(l.NoSlot)
 	l.ImportFiles = slices.Clone(l.ImportFiles)
 	for i := range l.ImportFiles {
 		l.ImportFiles[i].Lines = slices.Clone(l.ImportFiles[i].Lines)
@@ -295,11 +293,13 @@ var (
 		},
 		// OpenCode has no mods.
 		NoSlot: []ProjectKind{ProjectMods},
+		// OpenCode reads the project's .claude/skills and .agents/skills too,
+		// but lists a skill of the same name once, the .opencode/skills copy
+		// winning (HARNESS-NOTES), so a skill installed for every harness
+		// needs no warning.
 		UserItems: []UserItems{
 			{Kind: ProjectSkills, Dirs: []string{".config/opencode/skills", ".agents/skills", ".claude/skills", IsolatedDir + "/opencode/config/opencode/skills"}, ProjectWins: true},
 			{Kind: ProjectAgents, Dirs: []string{".config/opencode/agents", IsolatedDir + "/opencode/config/opencode/agents"}, ProjectWins: true},
 		},
-		// OpenCode collects .claude and .agents of every directory too.
-		AlsoReads: []string{".claude/skills/", ".agents/skills/"},
 	}
 )
