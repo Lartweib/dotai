@@ -5,8 +5,10 @@ import (
 	"runtime"
 )
 
-// OpenBrowser opens url in the user's default browser and does not wait
-// for it.
+// OpenBrowser opens url, an address or the path of a page, in the user's
+// default browser and does not wait for it. dotai ui gives it the path of
+// the page that holds the one-time code (writeLauncher), since a command
+// line can be read by the other users of the machine.
 func OpenBrowser(url string) error {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {

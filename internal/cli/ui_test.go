@@ -14,6 +14,10 @@ import (
 
 const uiURL = "http://127.0.0.1:4321/#code=abc"
 
+// uiLauncher is the page a faked dotai ui asks to open, which sends the
+// browser to uiURL without the code on any command line.
+const uiLauncher = "/tmp/dotai-ui-1/open-1.html"
+
 // uiRun is what a faked dotai ui was given: whether it started, its
 // options, and the addresses the browser was asked to open.
 type uiRun struct {
@@ -34,6 +38,11 @@ func uiEnv(stdout, stderr *bytes.Buffer, run *uiRun, err error) cli.Env {
 		if opts.Ready != nil {
 			if rerr := opts.Ready(uiURL); rerr != nil {
 				return rerr
+			}
+		}
+		if opts.Open != nil {
+			if oerr := opts.Open(uiLauncher); oerr != nil {
+				return oerr
 			}
 		}
 		return err
@@ -58,8 +67,8 @@ func TestRunUIPrintsTheAddressAndOpensTheBrowser(t *testing.T) {
 	if !strings.Contains(stdout.String(), uiURL) || !strings.Contains(stdout.String(), "Ctrl+C") {
 		t.Errorf("stdout = %q, want the address and how to stop", stdout.String())
 	}
-	if len(run.opened) != 1 || run.opened[0] != uiURL {
-		t.Errorf("opened = %v, want the address once", run.opened)
+	if len(run.opened) != 1 || run.opened[0] != uiLauncher || strings.Contains(run.opened[0], "code") {
+		t.Errorf("opened = %v, want the launcher page once, never the address with its code", run.opened)
 	}
 	if run.opts.Home != home || !filepath.IsAbs(run.opts.CacheDir) || run.opts.Port != 0 {
 		t.Errorf("options = %+v, want the home, an absolute cache and a free port", run.opts)
@@ -75,7 +84,7 @@ func TestRunUIWithNoOpenAndAPort(t *testing.T) {
 	if code := cli.Run([]string{"ui", "--no-open", "--port", "8123"}, uiEnv(&stdout, &stderr, &run, nil)); code != cli.ExitOK {
 		t.Fatalf("exit code = %d, stderr %q", code, stderr.String())
 	}
-	if len(run.opened) != 0 || run.opts.Port != 8123 {
+	if len(run.opened) != 0 || run.opts.Open != nil || run.opts.Port != 8123 {
 		t.Errorf("opened = %v, port %d, want no browser and port 8123", run.opened, run.opts.Port)
 	}
 }

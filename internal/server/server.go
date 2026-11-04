@@ -68,7 +68,8 @@ func AppDeps(p app.Ports) Deps {
 // which the Host and Origin checks compare with. Code is the one-time code
 // of the address dotai ui opens, good for one exchange until CodeExpires;
 // the exchange returns Session, the token every other API request must
-// carry. PlanTimeout stops a plan or an action that runs longer
+// carry; CodeSpent, when it is not nil, is called once the code is
+// traded. PlanTimeout stops a plan or an action that runs longer
 // (defaultPlanTimeout when it is 0), and Now is the clock (time.Now when it is nil).
 type Config struct {
 	Home, CacheDir string
@@ -76,6 +77,7 @@ type Config struct {
 	Code           string
 	CodeExpires    time.Time
 	Session        string
+	CodeSpent      func()
 	PlanTimeout    time.Duration
 	Now            func() time.Time
 }
@@ -127,7 +129,7 @@ func New(cfg Config, deps Deps, web fs.FS) http.Handler {
 		cfg.Now = time.Now
 	}
 	s := &handler{cfg: cfg, deps: deps, ops: make(chan struct{}, 1),
-		session: &session{code: cfg.Code, expires: cfg.CodeExpires, token: cfg.Session, now: cfg.Now}}
+		session: &session{code: cfg.Code, expires: cfg.CodeExpires, token: cfg.Session, now: cfg.Now, onSpent: cfg.CodeSpent}}
 	api := map[string]endpoint{
 		"/api/session":                 {command, http.MethodPost, s.exchange},
 		"/api/version":                 {"version", http.MethodGet, s.version},

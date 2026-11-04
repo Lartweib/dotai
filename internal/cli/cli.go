@@ -63,12 +63,14 @@ type Env struct {
 
 // UIOptions holds the choices of dotai ui that Env.UI receives: the
 // absolute home and rulesync cache directories, the port (0 picks a free
-// one), and Ready, which UI calls once it listens, with the address to
-// open.
+// one), Ready, which UI calls once it listens, with the address to print,
+// and Open, nil with --no-open, which UI calls with the path of a page that
+// sends the browser to that address.
 type UIOptions struct {
 	Home, CacheDir string
 	Port           int
 	Ready          func(url string) error
+	Open           func(page string) error
 }
 
 // resultError is a command that failed after it produced a result that

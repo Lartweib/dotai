@@ -7,6 +7,9 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -146,5 +149,88 @@ func TestRunStopsWhenReadyFails(t *testing.T) {
 	err := server.Run(context.Background(), server.Options{Ready: func(string) error { return errors.New("no terminal") }}, fakeDeps())
 	if err == nil || !strings.Contains(err.Error(), "no terminal") {
 		t.Errorf("Run() = %v, want the error of Ready", err)
+	}
+}
+
+// startOpened runs the server with an Open that records the page it is
+// asked to open, and gives the address, the page and stop.
+func startOpened(t *testing.T) (addr *url.URL, page string, stop func() error) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	ready, opened := make(chan string, 1), make(chan string, 1)
+	done := make(chan error, 1)
+	go func() {
+		done <- server.Run(ctx, server.Options{Home: t.TempDir(), CacheDir: t.TempDir(),
+			Ready: func(u string) error { ready <- u; return nil },
+			Open:  func(p string) error { opened <- p; return nil }}, fakeDeps())
+	}()
+	u, err := url.Parse(<-ready)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page = <-opened
+	stop = func() error {
+		cancel()
+		return <-done
+	}
+	return u, page, stop
+}
+
+func TestTheBrowserOpensAPageOnlyTheUserReadsInsteadOfTheCode(t *testing.T) {
+	addr, page, stop := startOpened(t)
+	defer stop()
+	code := fragmentCode(t, addr)
+	if strings.Contains(page, code) || !strings.HasSuffix(page, ".html") || !filepath.IsAbs(page) {
+		t.Fatalf("opened %q, want an absolute .html path without the code", page)
+	}
+	info, err := os.Stat(page)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" {
+		dir, _ := os.Stat(filepath.Dir(page))
+		if info.Mode().Perm() != 0o600 || dir.Mode().Perm() != 0o700 {
+			t.Errorf("page %v in a directory %v, want 0600 in 0700", info.Mode().Perm(), dir.Mode().Perm())
+		}
+	}
+	data, err := os.ReadFile(page)
+	if err != nil || !strings.Contains(string(data), "#code="+code) || !strings.Contains(string(data), addr.Host) {
+		t.Errorf("page = %s, %v, want it to send the browser to the address with the code", data, err)
+	}
+	res, err := http.Post("http://"+addr.Host+"/api/session", "application/json", strings.NewReader(`{"code":"`+code+`"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if _, err := os.Stat(page); !os.IsNotExist(err) {
+		t.Errorf("page after the exchange = %v, want it deleted", err)
+	}
+	if _, err := os.Stat(filepath.Dir(page)); !os.IsNotExist(err) {
+		t.Errorf("its directory after the exchange = %v, want it deleted", err)
+	}
+}
+
+func TestThePageToOpenIsDeletedOnShutdown(t *testing.T) {
+	_, page, stop := startOpened(t)
+	if _, err := os.Stat(page); err != nil {
+		t.Fatal(err)
+	}
+	if err := stop(); err != nil {
+		t.Fatalf("Run() = %v", err)
+	}
+	if _, err := os.Stat(filepath.Dir(page)); !os.IsNotExist(err) {
+		t.Errorf("page directory after shutdown = %v, want it deleted", err)
+	}
+}
+
+func TestWithoutOpenNoPageIsWritten(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+	t.Setenv("TMP", tmp)
+	t.Setenv("TEMP", tmp)
+	_, stop := startRun(t, fakeDeps())
+	_ = stop()
+	if entries, _ := os.ReadDir(tmp); len(entries) != 0 {
+		t.Errorf("temporary directory holds %d entries, want none without Open", len(entries))
 	}
 }

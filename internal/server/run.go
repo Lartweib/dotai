@@ -13,11 +13,16 @@ import (
 // Options holds the choices of a run of dotai ui: the absolute home and
 // rulesync cache directories the use cases receive, and the port, 0 for a
 // free one. Run calls Ready once the server listens, with the address to
-// open, which carries the one-time code; Ready may be nil.
+// open, which carries the one-time code; Ready may be nil. Open, when it is
+// not nil, is then given the path of a page, readable by the user alone,
+// that sends the browser to that address, so that the program that opens
+// the browser never has the code on its command line; the page is deleted
+// once the code is traded, or when Run returns.
 type Options struct {
 	Home, CacheDir string
 	Port           int
 	Ready          func(url string) error
+	Open           func(page string) error
 }
 
 // shutdownWait is how long a stop waits for the requests in flight, whose
@@ -47,11 +52,26 @@ func Run(ctx context.Context, opts Options, deps Deps) error {
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
 	cfg := Config{Home: opts.Home, CacheDir: opts.CacheDir, Port: port, Code: code, CodeExpires: time.Now().Add(codeTTL), Session: token}
+	var page string
+	if opts.Open != nil {
+		var remove func()
+		if page, remove, err = writeLauncher(URL(port, code)); err != nil {
+			ln.Close()
+			return err
+		}
+		defer remove()
+		cfg.CodeSpent = remove
+	}
 	srv := newHTTPServer(ctx, New(cfg, deps, Web()))
 	served := make(chan error, 1)
 	go func() { served <- srv.Serve(ln) }()
 	if opts.Ready != nil {
 		if err := opts.Ready(URL(port, code)); err != nil {
+			return errors.Join(err, shutdown(srv, served))
+		}
+	}
+	if opts.Open != nil {
+		if err := opts.Open(page); err != nil {
 			return errors.Join(err, shutdown(srv, served))
 		}
 	}
