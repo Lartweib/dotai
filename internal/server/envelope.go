@@ -12,7 +12,9 @@ import (
 // its code. A failure of the API itself has its own code and status.
 func writeFailure(w http.ResponseWriter, command string, err error) {
 	if ae, ok := errors.AsType[*apiError](err); ok {
-		writeEnvelope(w, ae.status, envelope.Failure(command, ae.code, ae.msg))
+		e := envelope.Failure(command, ae.code, ae.msg)
+		e.Data = ae.data
+		writeEnvelope(w, ae.status, e)
 		return
 	}
 	e := envelope.FromError(command, err)
@@ -42,6 +44,8 @@ func statusOf(code string) int {
 		return http.StatusMethodNotAllowed
 	case CodeBusy:
 		return http.StatusTooManyRequests
+	case CodePlanChanged:
+		return http.StatusConflict
 	}
 	return http.StatusInternalServerError
 }

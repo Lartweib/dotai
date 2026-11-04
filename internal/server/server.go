@@ -36,6 +36,11 @@ type Deps struct {
 	PreviewRestore        func(ctx context.Context, home, id string) (app.RestoreResult, error)
 	PreviewProjectRestore func(ctx context.Context, cwd, home string) (app.ProjectRestoreResult, error)
 	Doctor                func(ctx context.Context, home string, opts app.DoctorOptions) (app.DoctorResult, error)
+	Validate              func(dir string, sel app.Selection) (app.ValidateResult, error)
+	Install               func(ctx context.Context, cacheDir, dir, home string, opts app.InstallOptions, progress app.Progress, warn app.Warn, consent app.Consent) (app.InstallResult, error)
+	Apply                 func(ctx context.Context, cacheDir, dir, cwd, home string, opts app.ApplyOptions, progress app.Progress, consent app.ApplyConsent) (app.ApplyResult, error)
+	Restore               func(ctx context.Context, home, id string, opts app.RestoreOptions, warn app.Warn, overwrite func(app.RestoreResult) (bool, error)) (app.RestoreResult, error)
+	RestoreProject        func(ctx context.Context, cwd, home string, opts app.ProjectRestoreOptions, overwrite func(app.ProjectRestoreResult) (bool, error)) (app.ProjectRestoreResult, error)
 }
 
 // AppDeps returns the use cases of internal/app, which fetch and run
@@ -50,6 +55,11 @@ func AppDeps(p app.Ports) Deps {
 		PreviewRestore:        app.PreviewRestore,
 		PreviewProjectRestore: app.PreviewProjectRestore,
 		Doctor:                app.Doctor,
+		Validate:              app.Validate,
+		Install:               p.Install,
+		Apply:                 p.Apply,
+		Restore:               p.Restore,
+		RestoreProject:        app.RestoreProject,
 	}
 }
 
@@ -58,8 +68,8 @@ func AppDeps(p app.Ports) Deps {
 // which the Host and Origin checks compare with. Code is the one-time code
 // of the address dotai ui opens, good for one exchange until CodeExpires;
 // the exchange returns Session, the token every other API request must
-// carry. PlanTimeout stops a plan that runs longer (defaultPlanTimeout
-// when it is 0), and Now is the clock (time.Now when it is nil).
+// carry. PlanTimeout stops a plan or an action that runs longer
+// (defaultPlanTimeout when it is 0), and Now is the clock (time.Now when it is nil).
 type Config struct {
 	Home, CacheDir string
 	Port           int
@@ -70,33 +80,39 @@ type Config struct {
 	Now            func() time.Time
 }
 
-// defaultPlanTimeout bounds a plan, which may download rulesync first.
+// defaultPlanTimeout bounds a plan or an action, which may download
+// rulesync first.
 const defaultPlanTimeout = 5 * time.Minute
 
 // Error codes of the API besides those of the command line
 // (internal/envelope): a request the guard refuses, an unknown path, a
-// method the path does not take, and a plan asked for while another runs.
+// method the path does not take, a plan or an action asked for while
+// another runs, and an action whose plan is no longer the one its digest
+// names (digest.go).
 const (
 	CodeForbidden        = "forbidden"
 	CodeUnauthorized     = "unauthorized"
 	CodeNotFound         = "not-found"
 	CodeMethodNotAllowed = "method-not-allowed"
 	CodeBusy             = "busy"
+	CodePlanChanged      = "plan-changed"
 )
 
 // serverCodes lists the codes above.
-var serverCodes = []string{CodeForbidden, CodeUnauthorized, CodeNotFound, CodeMethodNotAllowed, CodeBusy}
+var serverCodes = []string{CodeForbidden, CodeUnauthorized, CodeNotFound, CodeMethodNotAllowed, CodeBusy, CodePlanChanged}
 
 // command names the envelopes of the session exchange and of the requests
 // that reach no endpoint.
 const command = "ui"
 
 // apiError reports a failure of the API itself, with its own code and
-// HTTP status, such as a refused session exchange or a busy plan.
+// HTTP status, such as a refused session exchange or a busy plan, and
+// the data that explains it, nil when there is none.
 type apiError struct {
 	code   string
 	status int
 	msg    string
+	data   any
 }
 
 func (e *apiError) Error() string { return e.msg }
@@ -110,7 +126,7 @@ func New(cfg Config, deps Deps, web fs.FS) http.Handler {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
-	s := &handler{cfg: cfg, deps: deps, plans: make(chan struct{}, 1),
+	s := &handler{cfg: cfg, deps: deps, ops: make(chan struct{}, 1),
 		session: &session{code: cfg.Code, expires: cfg.CodeExpires, token: cfg.Session, now: cfg.Now}}
 	api := map[string]endpoint{
 		"/api/session":                 {command, http.MethodPost, s.exchange},
@@ -122,6 +138,12 @@ func New(cfg Config, deps Deps, web fs.FS) http.Handler {
 		"/api/restore/preview":         {"restore", http.MethodGet, s.previewRestore},
 		"/api/restore/project/preview": {"restore", http.MethodGet, s.previewProjectRestore},
 		"/api/doctor":                  {"doctor", http.MethodGet, s.doctor},
+		"/api/pack":                    {"validate", http.MethodGet, s.pack},
+		"/api/install":                 {"install", http.MethodPost, s.install},
+		"/api/apply":                   {"apply", http.MethodPost, s.apply},
+		"/api/restore":                 {"restore", http.MethodPost, s.restore},
+		"/api/restore/project":         {"restore", http.MethodPost, s.restoreProject},
+		"/api/doctor/fix":              {"doctor", http.MethodPost, s.fix},
 	}
 	files := http.FileServerFS(web)
 	mux := http.NewServeMux()
@@ -154,12 +176,13 @@ func New(cfg Config, deps Deps, web fs.FS) http.Handler {
 	return guard(cfg, mux)
 }
 
-// handler serves the API. plans holds the one plan that may run at a time.
+// handler serves the API. ops holds the one plan or action that may run
+// at a time.
 type handler struct {
 	cfg     Config
 	deps    Deps
 	session *session
-	plans   chan struct{}
+	ops     chan struct{}
 }
 
 // endpoint describes one path of the API: the command its envelope names,
@@ -212,13 +235,16 @@ func (s *handler) planInstall(r *http.Request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	opts := app.InstallOptions{Variant: req.Variant, Mode: req.Mode, Harnesses: req.Harnesses}
+	opts := req.options()
 	return s.plan(r, func(ctx context.Context) (any, error) {
 		p, err := s.deps.PlanInstall(ctx, s.cfg.CacheDir, pack, s.cfg.Home, opts, nil)
-		if err == nil && len(p.Diagnostics) > 0 {
+		if err != nil {
+			return nil, err
+		}
+		if len(p.Diagnostics) > 0 {
 			return nil, envelope.PackInvalid(p.Diagnostics, p)
 		}
-		return p, err
+		return withDigest(p)
 	})
 }
 
@@ -247,32 +273,41 @@ func (s *handler) planProject(r *http.Request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	opts := app.ApplyOptions{Profiles: append([]string{}, req.Profiles...), Variant: req.Variant}
+	opts := req.options()
 	return s.plan(r, func(ctx context.Context) (any, error) {
 		p, err := s.deps.PlanProject(ctx, s.cfg.CacheDir, pack, project, s.cfg.Home, opts, nil)
-		if err == nil && len(p.Diagnostics) > 0 {
+		if err != nil {
+			return nil, err
+		}
+		if len(p.Diagnostics) > 0 {
 			return nil, envelope.PackInvalid(p.Diagnostics, p)
 		}
-		return p, err
+		return withDigest(p)
 	})
 }
 
 // plan runs a plan, which fetches rulesync into the cache, stages the pack
-// into a temporary directory and may run git. Only one plan runs at a
-// time: a second one is refused as busy, not queued. A plan that runs
-// longer than the plan timeout is cancelled.
+// into a temporary directory and may run git, as one operation.
 func (s *handler) plan(r *http.Request, run func(context.Context) (any, error)) (any, error) {
+	return s.operate(r, "plan", run)
+}
+
+// operate runs a plan or an action, what. Only one runs at a time: a
+// second one is refused as busy, not queued. One that runs longer than
+// the plan timeout is cancelled, and an action that is cancelled rolls
+// back what it wrote, as on the command line.
+func (s *handler) operate(r *http.Request, what string, run func(context.Context) (any, error)) (any, error) {
 	select {
-	case s.plans <- struct{}{}:
-		defer func() { <-s.plans }()
+	case s.ops <- struct{}{}:
+		defer func() { <-s.ops }()
 	default:
-		return nil, &apiError{code: CodeBusy, status: http.StatusTooManyRequests, msg: "another plan is running: try again once it ends"}
+		return nil, &apiError{code: CodeBusy, status: http.StatusTooManyRequests, msg: "another plan or action is running: try again once it ends"}
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), s.cfg.PlanTimeout)
 	defer cancel()
 	data, err := run(ctx)
 	if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return nil, fmt.Errorf("the plan took longer than %s and was stopped: %w", s.cfg.PlanTimeout, err)
+		return nil, fmt.Errorf("the %s took longer than %s and was stopped: %w", what, s.cfg.PlanTimeout, err)
 	}
 	return data, err
 }
@@ -280,7 +315,11 @@ func (s *handler) plan(r *http.Request, run func(context.Context) (any, error)) 
 // previewRestore previews the restore of the query parameter id, by
 // default the last install.
 func (s *handler) previewRestore(r *http.Request) (any, error) {
-	return s.deps.PreviewRestore(r.Context(), s.cfg.Home, r.URL.Query().Get("id"))
+	res, err := s.deps.PreviewRestore(r.Context(), s.cfg.Home, r.URL.Query().Get("id"))
+	if err != nil {
+		return nil, err
+	}
+	return withDigest(res)
 }
 
 // previewProjectRestore previews restore --project in the project at the
@@ -290,20 +329,32 @@ func (s *handler) previewProjectRestore(r *http.Request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return s.deps.PreviewProjectRestore(r.Context(), project, s.cfg.Home)
+	res, err := s.deps.PreviewProjectRestore(r.Context(), project, s.cfg.Home)
+	if err != nil {
+		return nil, err
+	}
+	return withDigest(res)
 }
 
 // doctor runs dotai doctor without --fix. Problems make an invalid
-// outcome with the result, as on the command line.
+// outcome with the result, as on the command line. Either way the result
+// carries its digest, which doctor --fix takes back.
 func (s *handler) doctor(r *http.Request) (any, error) {
 	res, err := s.deps.Doctor(r.Context(), s.cfg.Home, app.DoctorOptions{})
 	if err != nil {
 		return nil, err
 	}
-	if err := envelope.DoctorProblems(res); err != nil {
+	data, err := withDigest(res)
+	if err != nil {
 		return nil, err
 	}
-	return res, nil
+	if err := envelope.DoctorProblems(res); err != nil {
+		if ie, ok := errors.AsType[*envelope.InvalidError](err); ok {
+			ie.Data = data
+		}
+		return nil, err
+	}
+	return data, nil
 }
 
 // absParam checks v, the parameter name, a path that must be absolute:

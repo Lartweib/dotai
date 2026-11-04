@@ -54,10 +54,38 @@ func fakeDeps() server.Deps {
 		PreviewProjectRestore: func(context.Context, string, string) (app.ProjectRestoreResult, error) {
 			return app.ProjectRestoreResult{}, nil
 		},
-		Doctor: func(context.Context, string, app.DoctorOptions) (app.DoctorResult, error) {
-			return app.DoctorResult{Findings: []app.Finding{}}, nil
+		Doctor: func(_ context.Context, _ string, opts app.DoctorOptions) (app.DoctorResult, error) {
+			res := app.DoctorResult{Findings: []app.Finding{}}
+			if opts.Fix && opts.Confirm != nil {
+				return app.DoctorResult{}, opts.Confirm(res)
+			}
+			return res, nil
+		},
+		Validate: func(string, app.Selection) (app.ValidateResult, error) {
+			return app.ValidateResult{Valid: true, Pack: &app.PackSummary{Name: "minimal-pack"}}, nil
+		},
+		Install: func(_ context.Context, _, _, _ string, opts app.InstallOptions, _ app.Progress, _ app.Warn, _ app.Consent) (app.InstallResult, error) {
+			p := app.InstallPlan{Mode: app.ModeIsolated}
+			return app.InstallResult{InstallPlan: p}, confirm(opts.Confirm, p)
+		},
+		Apply: func(_ context.Context, _, _, _, _ string, opts app.ApplyOptions, _ app.Progress, _ app.ApplyConsent) (app.ApplyResult, error) {
+			return app.ApplyResult{}, confirm(opts.Confirm, app.ProjectPlan{})
+		},
+		Restore: func(_ context.Context, _, _ string, opts app.RestoreOptions, _ app.Warn, _ func(app.RestoreResult) (bool, error)) (app.RestoreResult, error) {
+			return app.RestoreResult{}, confirm(opts.Confirm, app.RestoreResult{})
+		},
+		RestoreProject: func(_ context.Context, _, _ string, opts app.ProjectRestoreOptions, _ func(app.ProjectRestoreResult) (bool, error)) (app.ProjectRestoreResult, error) {
+			return app.ProjectRestoreResult{}, confirm(opts.Confirm, app.ProjectRestoreResult{})
 		},
 	}
+}
+
+// confirm asks c with v, as the use cases do, when c is not nil.
+func confirm[T any](c func(T) error, v T) error {
+	if c == nil {
+		return nil
+	}
+	return c(v)
 }
 
 // request is a request for the test server: its Host, and the session
@@ -337,10 +365,10 @@ func TestARequestFromAnotherOriginIsRefused(t *testing.T) {
 }
 
 var getEndpoints = []string{
-	"/api/version", "/api/status", "/api/backups", "/api/restore/preview", "/api/restore/project/preview", "/api/doctor",
+	"/api/version", "/api/pack", "/api/status", "/api/backups", "/api/restore/preview", "/api/restore/project/preview", "/api/doctor",
 }
 
-var postEndpoints = []string{"/api/install/plan", "/api/apply/plan"}
+var postEndpoints = []string{"/api/install/plan", "/api/apply/plan", "/api/install", "/api/apply", "/api/restore", "/api/restore/project", "/api/doctor/fix"}
 
 func TestEachEndpointTakesOnlyItsMethod(t *testing.T) {
 	h := server.New(testConfig(t), fakeDeps(), testWeb)
