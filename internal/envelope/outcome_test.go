@@ -20,6 +20,8 @@ func TestTheSharedOutcomesClassify(t *testing.T) {
 	}{
 		{"usage", envelope.Usage("the query parameter pack is required"), envelope.CodeUsage, "the query parameter pack is required", nil},
 		{"invalid pack", envelope.PackInvalid(plan.Diagnostics, plan), envelope.CodeInvalid, "pack is invalid: 2 problem(s)", plan},
+		{"invalid import", &app.PackInvalidError{Path: "/p", Result: app.ValidateResult{Diagnostics: plan.Diagnostics}}, envelope.CodeInvalid,
+			"/p is not a valid pack: dotai validate reports 2 problems", app.ValidateResult{Diagnostics: plan.Diagnostics}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

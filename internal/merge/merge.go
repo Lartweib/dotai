@@ -570,3 +570,17 @@ func withoutShadowed(project, cross []pack.Diagnostic) []pack.Diagnostic {
 		return d.Code == CodeOverrideWithoutTarget && slices.ContainsFunc(cross, func(c pack.Diagnostic) bool { return c.File == d.File })
 	})
 }
+
+// MCPServerNames lists the servers of an mcp.jsonc file by name, in file
+// order, for a reader such as the web UI's pack detail.
+func MCPServerNames(data []byte) ([]string, error) {
+	servers, err := readMCP(data)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(servers))
+	for _, s := range servers {
+		names = append(names, s.name)
+	}
+	return names, nil
+}

@@ -33,6 +33,9 @@ const (
 	// A project's record under the home directory that names what an apply
 	// of the project never writes, refused before anything was written.
 	CodeRecordInvalid = "record-invalid"
+	// A copy of a pack refused before it wrote anything: its target exists
+	// or has no parent, or the pack holds a link.
+	CodeCopyRefused = "copy-refused"
 )
 
 // Codes lists every error code above, so that an adapter that maps each
@@ -40,7 +43,7 @@ const (
 // all.
 var Codes = []string{
 	CodeUsage, CodeInternal, CodeInvalid, CodeConsent, CodeRefused, CodeRunning,
-	CodeProjectRefused, CodeApplyRefused, CodeRecordInvalid,
+	CodeProjectRefused, CodeApplyRefused, CodeRecordInvalid, CodeCopyRefused,
 }
 
 // Envelope is the single JSON document a command prints with --json.
