@@ -30,7 +30,7 @@ This is option 2 of that research.
 - Good: packs stay nearly compatible with rulesync; anyone who wants more harnesses can run rulesync over the same tree without dotai depending on it.
 - Bad or accepted cost: maintaining three renderers for fast-changing harnesses.
 - Closes the "study neighbors" pending item from [0003](0003-align-with-official-standards.md).
-- Pending: verify that rulesync tolerates an unknown `dotai:` block (an open question); find out whether rulesync supports custom targets.
+- Pending: verify that rulesync tolerates an unknown `dotai:` block in a source file without an error or a warning; find out whether rulesync supports custom targets.
 
 ## Evidence
 

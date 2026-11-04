@@ -24,7 +24,7 @@ All public docs and decision records are written in English.
 
 - Good: the docs are readable by the widest audience.
 - Bad or accepted cost: the existing Spanish docs have to be translated once.
-- Resolved: open question 19 (template language) is removed from the open questions.
+- Resolved: the ADR templates are in English too.
 
 ## Evidence
 
