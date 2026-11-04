@@ -473,7 +473,8 @@ func TestPlanRunDropsClaudeCodeSessionAndPluginVariables(t *testing.T) {
 	home := runHome(t, app.ModeIsolated, []string{"claudecode"}, nil)
 	dropped := []string{"CLAUDE_CODE_PLUGIN_DIRS=/p", "CLAUDE_CODE_PLUGIN_SEED_DIR=/s", "CLAUDE_CODE_PLUGIN_CACHE_DIR=/c", "CLAUDE_ENV_FILE=/e.sh",
 		"CLAUDE_CODE_SESSION_ID=abc", "claudecode=1", "CLAUDE_CODE_CHILD_SESSION=1"}
-	kept := []string{"CLAUDE_CODE_OAUTH_TOKEN=secret-oauth", "ANTHROPIC_API_KEY=secret-key", "KEEP=1"}
+	kept := []string{"CLAUDE_CODE_OAUTH_TOKEN=secret-oauth", "ANTHROPIC_API_KEY=secret-key", "CLAUDE_CODE_USE_BEDROCK=1", "AWS_BEARER_TOKEN_BEDROCK=secret-bearer",
+		"ANTHROPIC_BASE_URL=https://gateway.example", "ANTHROPIC_CUSTOM_HEADERS=X-Secret: s", "KEEP=1"}
 	p, err := app.PlanRunWith(home, "claudecode", nil, append(slices.Clone(dropped), kept...), lookPathAt(home), "windows")
 	if err != nil {
 		t.Fatal(err)
@@ -491,7 +492,8 @@ func TestPlanRunDropsClaudeCodeSessionAndPluginVariables(t *testing.T) {
 	if len(p.Notes) != 1 || !strings.Contains(p.Notes[0], "CLAUDE_CODE_PLUGIN_DIRS, CLAUDE_CODE_PLUGIN_SEED_DIR, CLAUDE_CODE_PLUGIN_CACHE_DIR, CLAUDE_ENV_FILE, CLAUDE_CODE_SESSION_ID, claudecode, CLAUDE_CODE_CHILD_SESSION") {
 		t.Errorf("Notes = %q, want one naming the removed variables", p.Notes)
 	}
-	if len(p.Warnings) != 1 || !strings.Contains(p.Warnings[0], "CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY") ||
+	if len(p.Warnings) != 1 || !strings.Contains(p.Warnings[0], "CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY, CLAUDE_CODE_USE_BEDROCK, AWS_BEARER_TOKEN_BEDROCK, ANTHROPIC_BASE_URL, ANTHROPIC_CUSTOM_HEADERS") ||
+		strings.Contains(p.Warnings[0], "gateway.example") || strings.Contains(p.Warnings[0], "X-Secret") ||
 		strings.Contains(p.Warnings[0], "ANTHROPIC_AUTH_TOKEN") || strings.Contains(p.Warnings[0], "secret") {
 		t.Errorf("Warnings = %q, want one naming the credential variables that are set, without their values", p.Warnings)
 	}

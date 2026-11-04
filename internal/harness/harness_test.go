@@ -372,6 +372,16 @@ func TestLeaksAt(t *testing.T) {
 // that drops variables says why, a walk-up leak has one %s for its paths,
 // and each rename names both files and both ids.
 func TestAdapterData(t *testing.T) {
+	claude, err := harness.Lookup([]string{"claudecode"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX",
+		"CLAUDE_CODE_USE_FOUNDRY", "AWS_BEARER_TOKEN_BEDROCK", "ANTHROPIC_BASE_URL", "ANTHROPIC_CUSTOM_HEADERS"} {
+		if !slices.Contains(claude[0].Isolation.Credentials, name) {
+			t.Errorf("Claude Code's Credentials lack %s", name)
+		}
+	}
 	for _, a := range harness.All() {
 		if len(a.Isolation.Drop) > 0 && a.Isolation.DropNote == "" {
 			t.Errorf("%s drops %q without a DropNote", a.ID, a.Isolation.Drop)

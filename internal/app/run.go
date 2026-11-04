@@ -196,7 +196,7 @@ func planRun(d executeFS, lookPath func(string) (string, error), goos, home, cwd
 	}
 	// Names only: a value is a secret.
 	if len(logins) > 0 {
-		p.Warnings = append(p.Warnings, fmt.Sprintf("the credentials in %s are set in your environment and passed on: %s uses them rather than the isolated login", strings.Join(logins, ", "), a.ID))
+		p.Warnings = append(p.Warnings, fmt.Sprintf("%s, which log in or choose a provider or an endpoint, are set in your environment and passed on: %s uses them rather than the isolated login", strings.Join(logins, ", "), a.ID))
 	}
 	for _, ptr := range h.Pointers {
 		if ptr.Mechanism == string(harness.Env) {

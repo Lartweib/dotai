@@ -152,7 +152,9 @@ type Isolation struct {
 	Drop     []string
 	DropNote string
 	// Credentials are variables of the user's environment that log the
-	// harness in, which dotai run passes on and names in a warning.
+	// harness in, or switch it to another provider or endpoint, which dotai
+	// run passes on, since the user may mean them, and names in a warning,
+	// never with their values. The list is not exhaustive.
 	Credentials []string
 	// Instructions are the home directory's instruction files that the
 	// isolated mode excludes, nil for a harness that does not need it.
@@ -378,8 +380,14 @@ var adapters = []Adapter{
 			Drop: []string{"CLAUDE_CODE_PLUGIN_DIRS", "CLAUDE_CODE_PLUGIN_SEED_DIR", "CLAUDE_CODE_PLUGIN_CACHE_DIR", "CLAUDE_ENV_FILE",
 				"CLAUDE_CODE_SESSION_ID", "CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION"},
 			DropNote: "each loads your own plugins or shell setup, or carries the Claude Code session dotai runs in, into the isolated one",
-			// Each logs Claude Code in instead of the isolated login.
-			Credentials: []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"},
+			// Each logs Claude Code in instead of the isolated login, or
+			// sends its requests to another provider or endpoint, from the
+			// same reference; not exhaustive: the reference lists more
+			// provider settings, such as regions and model names.
+			Credentials: []string{"CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_REFRESH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
+				"CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY", "CLAUDE_CODE_USE_MANTLE", "CLAUDE_CODE_USE_ANTHROPIC_AWS",
+				"AWS_BEARER_TOKEN_BEDROCK", "ANTHROPIC_FOUNDRY_API_KEY", "ANTHROPIC_FOUNDRY_AUTH_TOKEN", "ANTHROPIC_AWS_API_KEY",
+				"ANTHROPIC_BASE_URL", "ANTHROPIC_CUSTOM_HEADERS"},
 		},
 	},
 	{
