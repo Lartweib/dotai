@@ -68,6 +68,11 @@ type InstallPlan struct {
 	// Notices say why an optional harness is not managed, text for people.
 	Notices     []string     `json:"notices"`
 	Diagnostics []Diagnostic `json:"diagnostics"`
+	// Blocked says that the install refuses the plan whatever the consent,
+	// for its diagnostics or refusals; Consent that it needs consent
+	// (--yes) to wipe or overwrite what dotai does not own.
+	Blocked bool `json:"blocked"`
+	Consent bool `json:"consent"`
 }
 
 // InstallOptions are the choices of an install besides the pack: the
@@ -142,7 +147,14 @@ type InstallOp struct {
 	Keys       []plan.KeyChange `json:"keys"`
 	Link       string           `json:"link"`
 	BeforeLink string           `json:"beforeLink"`
+	// Kind is the kind of item the target holds, as the harness lays out
+	// its user scope: rules, skills, agents, commands or settings, tools
+	// for a file of the tools directory, and "" for another file.
+	Kind string `json:"kind"`
 }
+
+// KindTools is the kind of a file of the tools directory.
+const KindTools = "tools"
 
 // NotRegularError is a path on the way to a target that the install would
 // have to follow or replace: a target that is not a regular file, or a
@@ -243,6 +255,20 @@ func planInstall(ctx context.Context, d installFS, h host, fetch fetchFunc, run 
 	return res, nil
 }
 
+// settle sets what the plan of p says of carrying it out: whether it is
+// blocked, by diagnostics or refusals, which no consent overrides, and
+// whether it needs consent, for what it wipes or overwrites that dotai does
+// not own (foreign).
+func (p *planned) settle(d installFS) error {
+	p.plan.Blocked = len(p.plan.Diagnostics) > 0 || len(p.plan.Refusals) > 0
+	if len(p.plan.Diagnostics) > 0 {
+		return nil
+	}
+	entries, keys, files, err := foreign(d, *p)
+	p.plan.Consent = entries+keys+files > 0
+	return err
+}
+
 // planned is a plan with what carrying it out needs: the plan's own
 // operations, the user staging tree that holds the staged files, the
 // state of the previous install (nil before the first one), the harnesses
@@ -266,6 +292,13 @@ type planned struct {
 // then returns. A staging that cannot be removed is a *stagingError, on
 // its own when nothing else failed.
 func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run runFunc, cacheDir, dir, home string, opts InstallOptions, progress Progress, then func(planned) error) (err error) {
+	next := then
+	then = func(p planned) error {
+		if err := p.settle(d); err != nil {
+			return err
+		}
+		return next(p)
+	}
 	home, err = requireAbs(home)
 	if err != nil {
 		return err
@@ -381,11 +414,15 @@ func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run run
 		}
 		res.Harnesses = append(res.Harnesses, hp)
 	}
+	byID := map[string]harness.Adapter{}
+	for _, a := range adapters {
+		byID[a.ID] = a
+	}
 	for _, op := range p.Ops {
 		res.Ops = append(res.Ops, InstallOp{
 			Action: op.Action, Harness: op.Harness, Source: op.Source, Target: op.Target,
 			Exec: op.Exec, Before: op.Before, After: op.After, BeforeExec: op.BeforeExec, Keys: append([]plan.KeyChange{}, op.Changes...),
-			Link: op.Link, BeforeLink: op.BeforeLink,
+			Link: op.Link, BeforeLink: op.BeforeLink, Kind: opKind(byID, harness.Mode(mode), home, op),
 		})
 	}
 	return then(planned{plan: res, shared: shared, ops: p.Ops, tree: tree, prev: prev, harnesses: s.Harnesses, choice: choice, owned: p.Owned, keys: p.Keys, ignoreExec: !d.ExecBit()})
@@ -670,6 +707,26 @@ func unmappedDiagnostics(u *plan.UnmappedError) []Diagnostic {
 			WithHint("add the harness that reads it to harnesses, or remove the source that renders it"))
 	}
 	return diags
+}
+
+// opKind is the kind of item the target of op holds: by its staged
+// source, or, for a remove, which has none, by the staged path of its
+// target.
+func opKind(adapters map[string]harness.Adapter, m harness.Mode, home string, op plan.Op) string {
+	if op.Harness == "" {
+		return KindTools
+	}
+	a, ok := adapters[op.Harness]
+	if !ok {
+		return ""
+	}
+	staged := op.Source
+	if staged == "" {
+		if rel, err := filepath.Rel(home, op.Target); err == nil {
+			staged = a.StagedOf(m, filepath.ToSlash(rel))
+		}
+	}
+	return string(a.KindOf(staged))
 }
 
 // harnessPlan is how a, a harness the install manages, runs after an

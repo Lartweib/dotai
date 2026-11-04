@@ -404,3 +404,16 @@ func TestAFixThatFailsPartwayGivesWhatItFoundAndFixed(t *testing.T) {
 		t.Errorf("data = %s, %v, want what was found and fixed before the failure", decode(t, w).Data, err)
 	}
 }
+
+func TestTheHarnessesEndpointNamesEachHarness(t *testing.T) {
+	w := serve(server.New(testConfig(t), fakeDeps(), testWeb), request("GET", "/api/harnesses", testToken))
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /api/harnesses = %d; body %s", w.Code, w.Body)
+	}
+	var data struct {
+		Harnesses []app.HarnessInfo `json:"harnesses"`
+	}
+	if err := json.Unmarshal(decode(t, w).Data, &data); err != nil || len(data.Harnesses) != 1 || data.Harnesses[0].Name != "Claude Code" {
+		t.Errorf("data = %s, %v, want each harness with its name", decode(t, w).Data, err)
+	}
+}

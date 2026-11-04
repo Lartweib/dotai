@@ -47,6 +47,11 @@ type ProjectPlan struct {
 	// Claude Code loads each mod the plan installs, text for people.
 	Notices     []string     `json:"notices"`
 	Diagnostics []Diagnostic `json:"diagnostics"`
+	// Blocked says that the apply refuses the plan whatever the consent,
+	// for its diagnostics or refusals; Consent that it needs consent
+	// (--yes) for its conflicts.
+	Blocked bool `json:"blocked"`
+	Consent bool `json:"consent"`
 }
 
 // ExcludePlan is the entries of .git/info/exclude a project apply adds:
@@ -162,6 +167,13 @@ func findProject(ctx context.Context, g gitPort, cwd, home string) (project, mcp
 // project record of the earlier apply, and calls then with the plan while
 // the staging still exists; the staging is removed after then returns.
 func withProjectPlan(ctx context.Context, d installFS, h host, g gitPort, fetch fetchFunc, run runFunc, cacheDir, dir, cwd, home string, opts ApplyOptions, progress Progress, then func(projectPlanned) error) (err error) {
+	next := then
+	then = func(p projectPlanned) error {
+		p.plan.Blocked = len(p.plan.Diagnostics) > 0 || len(p.plan.Refusals) > 0
+		files, keys := conflicts(p.plan)
+		p.plan.Consent = files+keys > 0
+		return next(p)
+	}
 	if !filepath.IsAbs(home) || !filepath.IsAbs(cwd) {
 		return fmt.Errorf("home directory %q and current directory %q must be absolute", home, cwd)
 	}

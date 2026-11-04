@@ -38,6 +38,7 @@ type Deps struct {
 	PreviewProjectRestore func(ctx context.Context, cwd, home string) (app.ProjectRestoreResult, error)
 	Doctor                func(ctx context.Context, home string, opts app.DoctorOptions) (app.DoctorResult, error)
 	Validate              func(dir string, sel app.Selection) (app.ValidateResult, error)
+	Harnesses             func() []app.HarnessInfo
 	Install               func(ctx context.Context, cacheDir, dir, home string, opts app.InstallOptions, progress app.Progress, warn app.Warn, consent app.Consent) (app.InstallResult, error)
 	Apply                 func(ctx context.Context, cacheDir, dir, cwd, home string, opts app.ApplyOptions, progress app.Progress, consent app.ApplyConsent) (app.ApplyResult, error)
 	Restore               func(ctx context.Context, home, id string, opts app.RestoreOptions, warn app.Warn, overwrite func(app.RestoreResult) (bool, error)) (app.RestoreResult, error)
@@ -57,6 +58,7 @@ func AppDeps(p app.Ports) Deps {
 		PreviewProjectRestore: app.PreviewProjectRestore,
 		Doctor:                app.Doctor,
 		Validate:              app.Validate,
+		Harnesses:             app.Harnesses,
 		Install:               p.Install,
 		Apply:                 p.Apply,
 		Restore:               p.Restore,
@@ -171,6 +173,7 @@ func newUI(cfg Config, deps Deps, web fs.FS) *ui {
 		"/api/restore/project/preview": {"restore", http.MethodGet, s.previewProjectRestore},
 		"/api/doctor":                  {"doctor", http.MethodGet, s.doctor},
 		"/api/pack":                    {"validate", http.MethodGet, s.pack},
+		"/api/harnesses":               {command, http.MethodGet, s.harnesses},
 		"/api/install":                 {"install", http.MethodPost, s.install},
 		"/api/apply":                   {"apply", http.MethodPost, s.apply},
 		"/api/restore":                 {"restore", http.MethodPost, s.restore},
@@ -243,6 +246,12 @@ func (s *handler) exchange(r *http.Request) (any, error) {
 }
 
 func (s *handler) version(*http.Request) (any, error) { return s.deps.Version(), nil }
+
+// harnesses lists the harnesses dotai supports, with their names, so that
+// the page names them as dotai does.
+func (s *handler) harnesses(*http.Request) (any, error) {
+	return map[string]any{"harnesses": s.deps.Harnesses()}, nil
+}
 
 func (s *handler) status(*http.Request) (any, error) { return s.deps.Status(s.cfg.Home) }
 

@@ -61,6 +61,7 @@ func fakeDeps() server.Deps {
 			}
 			return res, nil
 		},
+		Harnesses: func() []app.HarnessInfo { return []app.HarnessInfo{{ID: "claudecode", Name: "Claude Code"}} },
 		Validate: func(string, app.Selection) (app.ValidateResult, error) {
 			return app.ValidateResult{Valid: true, Pack: &app.PackSummary{Name: "minimal-pack"}}, nil
 		},
@@ -365,7 +366,7 @@ func TestARequestFromAnotherOriginIsRefused(t *testing.T) {
 }
 
 var getEndpoints = []string{
-	"/api/version", "/api/pack", "/api/status", "/api/backups", "/api/restore/preview", "/api/restore/project/preview", "/api/doctor",
+	"/api/version", "/api/pack", "/api/harnesses", "/api/status", "/api/backups", "/api/restore/preview", "/api/restore/project/preview", "/api/doctor",
 }
 
 var postEndpoints = []string{"/api/install/plan", "/api/apply/plan", "/api/install", "/api/apply", "/api/restore", "/api/restore/project", "/api/doctor/fix"}
