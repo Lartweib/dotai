@@ -18,6 +18,7 @@ import (
 	"mime"
 	"net/http"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/lartweib/dotai/internal/app"
@@ -69,7 +70,9 @@ func AppDeps(p app.Ports) Deps {
 // of the address dotai ui opens, good for one exchange until CodeExpires;
 // the exchange returns Session, the token every other API request must
 // carry; CodeSpent, when it is not nil, is called once the code is
-// traded. PlanTimeout stops a plan or an action that runs longer
+// traded. Context is the life of the server (context.Background when it is
+// nil): an action is cancelled only when it ends, never by its request.
+// PlanTimeout stops a plan or an action that runs longer
 // (defaultPlanTimeout when it is 0), and Now is the clock (time.Now when it is nil).
 type Config struct {
 	Home, CacheDir string
@@ -80,6 +83,7 @@ type Config struct {
 	CodeSpent      func()
 	PlanTimeout    time.Duration
 	Now            func() time.Time
+	Context        context.Context
 }
 
 // defaultPlanTimeout bounds a plan or an action, which may download
@@ -122,6 +126,32 @@ func (e *apiError) Error() string { return e.msg }
 // New returns the handler of the web UI for cfg. Its endpoints call deps,
 // and every other path serves the frontend in web.
 func New(cfg Config, deps Deps, web fs.FS) http.Handler {
+	return newUI(cfg, deps, web)
+}
+
+// ui is the handler of New, with the API it serves, which Run waits for.
+type ui struct {
+	http.Handler
+	api *handler
+}
+
+// wait waits up to d for the actions in flight, and their rollback, to
+// end, and reports whether they did.
+func (u *ui) wait(d time.Duration) bool {
+	done := make(chan struct{})
+	go func() { u.api.actions.Wait(); close(done) }()
+	select {
+	case <-done:
+		return true
+	case <-time.After(d):
+		return false
+	}
+}
+
+func newUI(cfg Config, deps Deps, web fs.FS) *ui {
+	if cfg.Context == nil {
+		cfg.Context = context.Background()
+	}
 	if cfg.PlanTimeout == 0 {
 		cfg.PlanTimeout = defaultPlanTimeout
 	}
@@ -175,7 +205,7 @@ func New(cfg Config, deps Deps, web fs.FS) http.Handler {
 		}
 		files.ServeHTTP(w, r)
 	})
-	return guard(cfg, mux)
+	return &ui{Handler: guard(cfg, mux), api: s}
 }
 
 // handler serves the API. ops holds the one plan or action that may run
@@ -185,6 +215,7 @@ type handler struct {
 	deps    Deps
 	session *session
 	ops     chan struct{}
+	actions sync.WaitGroup
 }
 
 // endpoint describes one path of the API: the command its envelope names,
@@ -291,21 +322,35 @@ func (s *handler) planProject(r *http.Request) (any, error) {
 // plan runs a plan, which fetches rulesync into the cache, stages the pack
 // into a temporary directory and may run git, as one operation.
 func (s *handler) plan(r *http.Request, run func(context.Context) (any, error)) (any, error) {
-	return s.operate(r, "plan", run)
+	return s.operate(r.Context(), "plan", run)
+}
+
+// act runs an action, what, which writes: on a context of its own that its
+// request does not cancel, so that a closed tab or a reload does not stop
+// it halfway, and that only the end of the server cancels, after which the
+// use case rolls back what it wrote. Run waits for it.
+func (s *handler) act(r *http.Request, what string, run func(context.Context) (any, error)) (any, error) {
+	s.actions.Add(1)
+	defer s.actions.Done()
+	ctx, cancel := context.WithCancel(context.WithoutCancel(r.Context()))
+	defer cancel()
+	stop := context.AfterFunc(s.cfg.Context, cancel)
+	defer stop()
+	return s.operate(ctx, what, run)
 }
 
 // operate runs a plan or an action, what. Only one runs at a time: a
 // second one is refused as busy, not queued. One that runs longer than
 // the plan timeout is cancelled, and an action that is cancelled rolls
 // back what it wrote, as on the command line.
-func (s *handler) operate(r *http.Request, what string, run func(context.Context) (any, error)) (any, error) {
+func (s *handler) operate(parent context.Context, what string, run func(context.Context) (any, error)) (any, error) {
 	select {
 	case s.ops <- struct{}{}:
 		defer func() { <-s.ops }()
 	default:
 		return nil, &apiError{code: CodeBusy, status: http.StatusTooManyRequests, msg: "another plan or action is running: try again once it ends"}
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), s.cfg.PlanTimeout)
+	ctx, cancel := context.WithTimeout(parent, s.cfg.PlanTimeout)
 	defer cancel()
 	data, err := run(ctx)
 	if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {

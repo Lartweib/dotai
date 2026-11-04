@@ -77,7 +77,7 @@ func (s *handler) install(r *http.Request) (any, error) {
 	}
 	opts := req.options()
 	opts.Confirm = confirm[app.InstallPlan](req.Digest)
-	return s.operate(r, "install", func(ctx context.Context) (any, error) {
+	return s.act(r, "install", func(ctx context.Context) (any, error) {
 		res, err := s.deps.Install(ctx, s.cfg.CacheDir, pack, s.cfg.Home, opts, nil, nil, yes[app.InstallPlan](req.confirmation))
 		if err != nil {
 			return nil, err
@@ -112,7 +112,7 @@ func (s *handler) apply(r *http.Request) (any, error) {
 	}
 	opts := req.options()
 	opts.Confirm = confirm[app.ProjectPlan](req.Digest)
-	return s.operate(r, "apply", func(ctx context.Context) (any, error) {
+	return s.act(r, "apply", func(ctx context.Context) (any, error) {
 		res, err := s.deps.Apply(ctx, s.cfg.CacheDir, pack, project, s.cfg.Home, opts, nil, yes[app.ProjectPlan](req.confirmation))
 		if err != nil {
 			return nil, err
@@ -138,7 +138,7 @@ func (s *handler) restore(r *http.Request) (any, error) {
 		return nil, err
 	}
 	opts := app.RestoreOptions{Confirm: confirm[app.RestoreResult](req.Digest)}
-	return s.operate(r, "restore", func(ctx context.Context) (any, error) {
+	return s.act(r, "restore", func(ctx context.Context) (any, error) {
 		return s.deps.Restore(ctx, s.cfg.Home, req.ID, opts, nil, yes[app.RestoreResult](req.confirmation))
 	})
 }
@@ -161,7 +161,7 @@ func (s *handler) restoreProject(r *http.Request) (any, error) {
 		return nil, err
 	}
 	opts := app.ProjectRestoreOptions{Confirm: confirm[app.ProjectRestoreResult](req.Digest)}
-	return s.operate(r, "restore", func(ctx context.Context) (any, error) {
+	return s.act(r, "restore", func(ctx context.Context) (any, error) {
 		return s.deps.RestoreProject(ctx, project, s.cfg.Home, opts, yes[app.ProjectRestoreResult](req.confirmation))
 	})
 }
@@ -180,8 +180,13 @@ func (s *handler) fix(r *http.Request) (any, error) {
 		return nil, err
 	}
 	opts := app.DoctorOptions{Fix: true, Confirm: confirm[app.DoctorResult](req.Digest)}
-	return s.operate(r, "fix", func(ctx context.Context) (any, error) {
+	return s.act(r, "fix", func(ctx context.Context) (any, error) {
 		res, err := s.deps.Doctor(ctx, s.cfg.Home, opts)
+		if err != nil && res.Findings != nil {
+			// A fix that failed: what was found and fixed before it
+			// still tells what happened, as on the command line.
+			return nil, &resultError{err: err, data: res}
+		}
 		if err != nil {
 			return nil, err
 		}

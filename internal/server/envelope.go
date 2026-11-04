@@ -18,8 +18,21 @@ func writeFailure(w http.ResponseWriter, command string, err error) {
 		return
 	}
 	e := envelope.FromError(command, err)
+	if re, ok := errors.AsType[*resultError](err); ok {
+		e.Data = re.data
+	}
 	writeEnvelope(w, statusOf(e.Error.Code), e)
 }
+
+// resultError is an error of a use case that comes with the result it got
+// to before it failed, which the envelope carries as its data.
+type resultError struct {
+	err  error
+	data any
+}
+
+func (e *resultError) Error() string { return e.err.Error() }
+func (e *resultError) Unwrap() error { return e.err }
 
 // statusOf gives the HTTP status of an envelope's error code: 400 for a
 // wrong request, 422 for input that is not valid, 409 for a refusal of the

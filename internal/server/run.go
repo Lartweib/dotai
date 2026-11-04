@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/lartweib/dotai/internal/app"
 )
 
 // Options holds the choices of a run of dotai ui: the absolute home and
@@ -62,24 +64,26 @@ func Run(ctx context.Context, opts Options, deps Deps) error {
 		defer remove()
 		cfg.CodeSpent = remove
 	}
-	srv := newHTTPServer(ctx, New(cfg, deps, Web()))
+	cfg.Context = ctx
+	h := newUI(cfg, deps, Web())
+	srv := newHTTPServer(ctx, h)
 	served := make(chan error, 1)
 	go func() { served <- srv.Serve(ln) }()
 	if opts.Ready != nil {
 		if err := opts.Ready(URL(port, code)); err != nil {
-			return errors.Join(err, shutdown(srv, served))
+			return errors.Join(err, shutdown(srv, served, h))
 		}
 	}
 	if opts.Open != nil {
 		if err := opts.Open(page); err != nil {
-			return errors.Join(err, shutdown(srv, served))
+			return errors.Join(err, shutdown(srv, served, h))
 		}
 	}
 	select {
 	case err := <-served:
 		return fmt.Errorf("dotai ui stopped: %w", err)
 	case <-ctx.Done():
-		return shutdown(srv, served)
+		return shutdown(srv, served, h)
 	}
 }
 
@@ -102,8 +106,14 @@ func URL(port int, code string) string {
 	return fmt.Sprintf("http://127.0.0.1:%d/#%s=%s", port, CodeParam, code)
 }
 
-// shutdown stops srv, whose Serve sends its outcome to served.
-func shutdown(srv *http.Server, served <-chan error) error {
+// actionWait is how long a stop waits for an action in flight, whose
+// context the stop cancels, to roll back what it wrote.
+const actionWait = app.RollbackTimeout + 15*time.Second
+
+// shutdown stops srv, whose Serve sends its outcome to served, once the
+// actions of h in flight have ended, up to actionWait.
+func shutdown(srv *http.Server, served <-chan error, h *ui) error {
+	h.wait(actionWait)
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownWait)
 	defer cancel()
 	err := srv.Shutdown(ctx)

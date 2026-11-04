@@ -3,9 +3,12 @@ package server_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/lartweib/dotai/internal/app"
 	"github.com/lartweib/dotai/internal/envelope"
@@ -308,4 +311,96 @@ func TestThePackEndpointValidatesThePack(t *testing.T) {
 	wantFailure(t, serve(h, request("GET", "/api/pack?path="+abs("bad"), testToken)), http.StatusUnprocessableEntity, envelope.CodeInvalid)
 	wantFailure(t, serve(h, request("GET", "/api/pack", testToken)), http.StatusBadRequest, envelope.CodeUsage)
 	wantFailure(t, serve(h, request("GET", "/api/pack?path=rel", testToken)), http.StatusBadRequest, envelope.CodeUsage)
+}
+
+func TestAClosedTabDoesNotCancelAnAction(t *testing.T) {
+	deps := fakeDeps()
+	started := make(chan struct{})
+	finished := make(chan error, 1)
+	deps.Install = func(ctx context.Context, _, _, _ string, opts app.InstallOptions, _ app.Progress, _ app.Warn, _ app.Consent) (app.InstallResult, error) {
+		close(started)
+		select {
+		case <-ctx.Done():
+			finished <- ctx.Err()
+		case <-time.After(300 * time.Millisecond):
+			finished <- nil
+		}
+		return app.InstallResult{}, opts.Confirm(app.InstallPlan{Mode: app.ModeIsolated})
+	}
+	h := server.New(testConfig(t), deps, testWeb)
+	reqCtx, closeTab := context.WithCancel(context.Background())
+	r := post("/api/install", actions[0].body(digests(t)["/api/install"]), testToken).WithContext(reqCtx)
+	go serve(h, r)
+	<-started
+	closeTab()
+	if err := <-finished; err != nil {
+		t.Errorf("the install saw %v when the tab closed, want it to go on", err)
+	}
+}
+
+func TestAPlanStopsWhenItsRequestEnds(t *testing.T) {
+	deps := fakeDeps()
+	finished := make(chan error, 1)
+	deps.PlanInstall = func(ctx context.Context, _, _, _ string, _ app.InstallOptions, _ app.Progress) (app.InstallPlan, error) {
+		<-ctx.Done()
+		finished <- ctx.Err()
+		return app.InstallPlan{}, ctx.Err()
+	}
+	h := server.New(testConfig(t), deps, testWeb)
+	reqCtx, closeTab := context.WithCancel(context.Background())
+	go serve(h, post("/api/install/plan", `{"pack":`+jsonString(abs("pack"))+`}`, testToken).WithContext(reqCtx))
+	closeTab()
+	select {
+	case err := <-finished:
+		if err == nil {
+			t.Error("the plan ended without its context done")
+		}
+	case <-time.After(5 * time.Second):
+		t.Error("the plan went on after its request ended")
+	}
+}
+
+func TestShutdownCancelsAnActionAndWaitsForItsRollback(t *testing.T) {
+	cfg := testConfig(t)
+	life, shutdown := context.WithCancel(context.Background())
+	cfg.Context = life
+	deps := fakeDeps()
+	started := make(chan struct{})
+	var rolledBack atomic.Bool
+	deps.Install = func(ctx context.Context, _, _, _ string, _ app.InstallOptions, _ app.Progress, _ app.Warn, _ app.Consent) (app.InstallResult, error) {
+		close(started)
+		<-ctx.Done()
+		time.Sleep(200 * time.Millisecond) // the rollback
+		rolledBack.Store(true)
+		return app.InstallResult{}, ctx.Err()
+	}
+	h := server.New(cfg, deps, testWeb)
+	done := make(chan struct{})
+	go func() {
+		serve(h, post("/api/install", actions[0].body(digests(t)["/api/install"]), testToken))
+		close(done)
+	}()
+	<-started
+	shutdown()
+	if !server.WaitForActions(h, 5*time.Second) || !rolledBack.Load() {
+		t.Error("the wait ended before the action rolled back")
+	}
+	<-done
+}
+
+func TestAFixThatFailsPartwayGivesWhatItFoundAndFixed(t *testing.T) {
+	deps := fakeDeps()
+	deps.Doctor = func(_ context.Context, _ string, opts app.DoctorOptions) (app.DoctorResult, error) {
+		if err := opts.Confirm(app.DoctorResult{Findings: []app.Finding{}}); err != nil {
+			return app.DoctorResult{}, err
+		}
+		res := app.DoctorResult{Findings: []app.Finding{{Code: app.CodeExcludeMissing, Fixable: true, Fixed: true}, {Code: app.CodeExcludeMissing, Fixable: true}}}
+		return res, &app.ApplyError{Operation: "fix", Cause: errors.New("disk full"), Backup: "b"}
+	}
+	w := serve(server.New(testConfig(t), deps, testWeb), post("/api/doctor/fix", `{"digest":`+jsonString(digests(t)["/api/doctor/fix"])+`}`, testToken))
+	wantFailure(t, w, http.StatusInternalServerError, envelope.CodeInternal)
+	var res app.DoctorResult
+	if err := json.Unmarshal(decode(t, w).Data, &res); err != nil || len(res.Findings) != 2 || !res.Findings[0].Fixed {
+		t.Errorf("data = %s, %v, want what was found and fixed before the failure", decode(t, w).Data, err)
+	}
 }
