@@ -318,7 +318,22 @@ type PackContents struct {
 	Version string         `json:"version"`
 	Layers  []LayerOutline `json:"layers"`
 	Mods    []string       `json:"mods"` // the directories of mods/
+	// Onboarding is the pack's onboarding agent (decision 0008): the first
+	// subagent named onboarding, in layer order; nil when it has none.
+	Onboarding *AgentSource `json:"onboarding"`
 }
+
+// AgentSource is the source of a subagent: the layer that defines it, its
+// path from the pack root and its content.
+type AgentSource struct {
+	Layer   string `json:"layer"`
+	Path    string `json:"path"`
+	Content string `json:"content"`
+}
+
+// onboardingAgent is the name of the subagent PackContents shows as the
+// pack's onboarding agent.
+const onboardingAgent = "onboarding"
 
 // LayerOutline is one layer and its contents.
 type LayerOutline struct {
@@ -384,6 +399,9 @@ func SummarizePack(dir string) (PackContents, error) {
 			}
 		}
 		for _, f := range l.Files {
+			if out.Onboarding == nil && f.Item == (pack.ItemRef{Kind: pack.ItemSubagent, Name: onboardingAgent}) {
+				out.Onboarding = &AgentSource{Layer: l.Name, Path: f.Path, Content: string(f.Data)}
+			}
 			switch {
 			case f.Rel == ".rulesync/mcp.jsonc":
 				if names, err := merge.MCPServerNames(f.Data); err == nil {

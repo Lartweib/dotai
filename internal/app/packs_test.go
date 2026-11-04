@@ -152,6 +152,17 @@ func TestCopyPackCopiesFilesWithoutGitOrImport(t *testing.T) {
 	}
 }
 
+func TestSummarizePackOfAPackWithoutAnOnboardingAgentHasNone(t *testing.T) {
+	dir := packCopy(t)
+	if err := os.Remove(filepath.Join(dir, "base", ".rulesync", "subagents", "onboarding.md")); err != nil {
+		t.Fatal(err)
+	}
+	sum, err := app.SummarizePack(dir)
+	if err != nil || sum.Onboarding != nil {
+		t.Errorf("SummarizePack() = %+v, %v, want no onboarding agent", sum.Onboarding, err)
+	}
+}
+
 func TestCopyPackRefusesATargetThatExistsOrHasNoParent(t *testing.T) {
 	from := packCopy(t)
 	for name, to := range map[string]string{
@@ -196,7 +207,7 @@ func TestSummarizePackListsEachLayerByType(t *testing.T) {
 	}
 	base := byName["base/base"]
 	if !reflect.DeepEqual(base.Rules, []string{"overview"}) || !reflect.DeepEqual(base.Skills, []string{"commit-message"}) ||
-		!reflect.DeepEqual(base.Subagents, []string{"reviewer"}) || !base.Permissions || base.Hooks ||
+		!reflect.DeepEqual(base.Subagents, []string{"onboarding", "reviewer"}) || !base.Permissions || base.Hooks ||
 		!reflect.DeepEqual(base.Tools, []string{"hello.ps1", "hello.sh"}) || len(base.Settings) == 0 {
 		t.Errorf("base = %+v", base)
 	}
@@ -208,5 +219,12 @@ func TestSummarizePackListsEachLayerByType(t *testing.T) {
 	}
 	if !reflect.DeepEqual(sum.Mods, []string{"hello"}) {
 		t.Errorf("mods = %v", sum.Mods)
+	}
+	want, err := os.ReadFile(filepath.Join("..", "..", "examples", "minimal-pack", "base", ".rulesync", "subagents", "onboarding.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o := sum.Onboarding; o == nil || o.Layer != "base" || o.Path != "base/.rulesync/subagents/onboarding.md" || o.Content != string(want) {
+		t.Errorf("onboarding = %+v, want the base's onboarding subagent", o)
 	}
 }
