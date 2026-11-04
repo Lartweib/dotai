@@ -21,12 +21,15 @@ type Backups struct {
 	Projects []ProjectBackups `json:"projects"`
 }
 
-// ProjectBackups is the backups of one project, newest first: the project,
-// "" when neither its record nor a manifest says, and the directory of its
-// backups.
+// ProjectBackups lists the backups of one project directory under
+// ~/.dotai/projects, newest first. Project is "" when neither the record
+// nor a manifest names the project, and Path is the directory of the
+// backups. Error says why the directory could not be read, such as an
+// entry that is a file or a link, and is "" otherwise.
 type ProjectBackups struct {
 	Project string       `json:"project"`
 	Path    string       `json:"path"`
+	Error   string       `json:"error"`
 	Backups []BackupInfo `json:"backups"`
 }
 
@@ -57,10 +60,12 @@ type BackupInfo struct {
 // ListBackups lists the backups in the absolute home directory home, as
 // Backups describes, without writing anything. A backup whose manifest is
 // missing, cannot be read or is not one dotai writes is listed as invalid
-// with the reason, and the rest are still read; a directory under the
-// backups that is not named by a backup id is not a backup and is left
-// out. Only a home that is not absolute, or a backups directory that
-// cannot be listed, is an error.
+// with the reason, and the rest are still read. A project directory that
+// cannot be read, or an entry under ~/.dotai/projects that is not a
+// directory, is listed with its error and no backups. A name under the
+// backups that is not a backup id is left out. ListBackups fails only for
+// a home that is not absolute, or when ~/.dotai/backups or
+// ~/.dotai/projects itself cannot be listed.
 func ListBackups(home string) (Backups, error) {
 	return listBackups(context.Background(), osInstallFS{}, home)
 }
@@ -91,11 +96,8 @@ func listBackups(ctx context.Context, d installFS, home string) (Backups, error)
 		return Backups{}, err
 	}
 	for _, dir := range dirs {
-		p, err := projectBackupList(ctx, d, home, filepath.Join(projects, dir), dir)
-		if err != nil {
-			return Backups{}, err
-		}
-		if len(p.Backups) > 0 {
+		p := projectBackupList(ctx, d, home, filepath.Join(projects, dir), dir)
+		if len(p.Backups) > 0 || p.Error != "" {
 			out.Projects = append(out.Projects, p)
 		}
 	}
@@ -170,9 +172,13 @@ func homeBackup(d installFS, home, root, id string) BackupInfo {
 // projectBackupList reads the backups of the project directory dir, named
 // id. Its project is the one of its record, else the one its newest
 // readable manifest names.
-func projectBackupList(ctx context.Context, d installFS, home, dir, id string) (ProjectBackups, error) {
+func projectBackupList(ctx context.Context, d installFS, home, dir, id string) ProjectBackups {
 	root := filepath.Join(dir, backupsDir)
 	p := ProjectBackups{Path: root, Backups: []BackupInfo{}}
+	if err := checkDir(d, dir); err != nil {
+		p.Error = err.Error()
+		return p
+	}
 	if data, _, ok, err := readTarget(ctx, d, home, filepath.Join(dir, recordName)); err == nil && ok {
 		if project, _, err := decodeRecord(data, id); err == nil || project != "" {
 			p.Project = project
@@ -180,7 +186,8 @@ func projectBackupList(ctx context.Context, d installFS, home, dir, id string) (
 	}
 	ids, err := backupIDs(d, root)
 	if err != nil {
-		return ProjectBackups{}, err
+		p.Error = err.Error()
+		return p
 	}
 	for _, bid := range ids {
 		b := backupHead(root, bid)
@@ -205,7 +212,7 @@ func projectBackupList(ctx context.Context, d installFS, home, dir, id string) (
 		b.Targets = slices.Compact(b.Targets)
 		p.Backups = append(p.Backups, b)
 	}
-	return p, nil
+	return p
 }
 
 // manifestProject is the project the project manifest data names, "" when

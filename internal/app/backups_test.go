@@ -2,6 +2,8 @@ package app_test
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -111,5 +113,41 @@ func TestListBackupsGivesTheBackupsOfEachProject(t *testing.T) {
 	}
 	if !slices.Contains(applied.Targets, at(project, ".claude/settings.local.json")) {
 		t.Errorf("apply backup targets = %v, want the file it overwrote", applied.Targets)
+	}
+}
+
+func TestListBackupsReportsAnOddProjectEntryAndGoesOn(t *testing.T) {
+	project, home, g := applyRepo(t)
+	if _, err := applyWith(t, newClockFS(t), g, profileTree, project, home, nil); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, at(home, ".dotai/projects/stray"), "not a project directory")
+	writeFile(t, at(home, ".dotai/projects/0123456789abcdef/backups"), "a file where the backups directory goes")
+	linked := false
+	if err := os.Symlink(t.TempDir(), at(home, ".dotai/projects/fedcba9876543210")); err == nil {
+		linked = true
+	}
+	l, err := app.ListBackups(home)
+	if err != nil {
+		t.Fatalf("ListBackups() error = %v, want the odd entries reported in the list", err)
+	}
+	var good int
+	odd := map[string]string{}
+	for _, p := range l.Projects {
+		switch {
+		case p.Error == "" && p.Project == project && len(p.Backups) == 1:
+			good++
+		case p.Error != "" && len(p.Backups) == 0:
+			odd[filepath.Base(filepath.Dir(p.Path))+"/"+filepath.Base(p.Path)] = p.Error
+		default:
+			t.Errorf("project entry %+v, want either the applied project or an odd entry with its error", p)
+		}
+	}
+	want := 2
+	if linked {
+		want = 3
+	}
+	if good != 1 || len(odd) != want {
+		t.Errorf("ListBackups() projects = %+v, want the applied project and %d odd entries", l.Projects, want)
 	}
 }
