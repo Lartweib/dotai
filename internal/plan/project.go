@@ -54,9 +54,6 @@ const (
 	// CodeScopeClash: an item the plan installs has the name of a user-level
 	// item of the same harness, and one of them hides the other.
 	CodeScopeClash = "scope-clash"
-	// CodeReadTwice: a harness reads an item the plan installs from more
-	// than one directory of the project.
-	CodeReadTwice = "read-twice"
 )
 
 const (
@@ -463,11 +460,6 @@ func ProjectProbes(in ProjectInput) ([]string, error) {
 				}
 			}
 		}
-		if t.dir != "" {
-			for _, dir := range a.Project.AlsoReads {
-				out = append(out, filepath.Join(in.Project, filepath.FromSlash(dir+t.name)))
-			}
-		}
 	}
 	slices.Sort(out)
 	return slices.Compact(out), nil
@@ -837,9 +829,9 @@ func hookItems(event string, value []byte) []string {
 	return out
 }
 
-// warnings are the scope clashes and the items read twice of the items
-// installed, by harness, the slots a harness lacks, and the exclude entries
-// that wait for a repository, in that order.
+// warnings are the scope clashes of the items installed, by harness, the
+// slots a harness lacks, and the exclude entries that wait for a
+// repository, in that order.
 func (in ProjectInput) warnings(installed map[string][]located) []Warning {
 	out := []Warning{}
 	for _, a := range in.Adapters {
@@ -858,23 +850,6 @@ func (in ProjectInput) warnings(installed map[string][]located) []Warning {
 						msg = fmt.Sprintf("%s loads the project's %s instead of the user-level one in %s", a.ID, t.item, p)
 					}
 					out = append(out, Warning{Code: CodeScopeClash, Harness: a.ID, Item: t.item, Path: p, Message: msg})
-				}
-			}
-		}
-	}
-	for _, a := range in.Adapters {
-		for _, t := range installed[a.ID] {
-			if t.dir == "" {
-				continue
-			}
-			for _, dir := range a.Project.AlsoReads {
-				p := filepath.Join(in.Project, filepath.FromSlash(dir+t.name))
-				other := slices.ContainsFunc(in.Adapters, func(b harness.Adapter) bool {
-					return slices.ContainsFunc(installed[b.ID], func(o located) bool { return o.kind == t.kind && o.dir == p })
-				})
-				if in.Exists[p] || other {
-					out = append(out, Warning{Code: CodeReadTwice, Harness: a.ID, Item: t.item, Path: p,
-						Message: fmt.Sprintf("%s also reads the %s from %s, so it lists it more than once", a.ID, t.item, p)})
 				}
 			}
 		}

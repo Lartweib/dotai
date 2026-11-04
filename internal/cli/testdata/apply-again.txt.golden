@@ -7,6 +7,7 @@ note: the mod hello loads in Claude Code 2.1.287 or later, in a terminal, only i
 claudecode
   create     /home/u/.claude.json
              keys: create projects["/work/site"].mcpServers.browser
+  replace    /work/site/.claude/commands/deploy.md
   create     /work/site/.claude/rules/web.md
   merge      /work/site/.claude/settings.local.json
              keys: merge permissions.allow, unchanged model
@@ -36,5 +37,5 @@ warning: claudecode loads the user-level skill lint from /home/u/.claude/skills/
 warning: antigravity-cli has no project settings file, so the permissions of the profiles are not installed for it
 warning: opencode has no local place for project mods, so those of the profiles are not installed for it
 
-6 create, 1 merge, 0 remove, 1 unchanged, 1 conflict, 2 skipped · applied, not the first apply in this project
+6 create, 1 replace, 1 merge, 0 remove, 1 unchanged, 1 conflict, 2 skipped · applied, not the first apply in this project
 backup: none, no file was written

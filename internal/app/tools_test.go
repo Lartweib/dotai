@@ -22,6 +22,7 @@ func TestExpandPaths(t *testing.T) {
 	user, proj := filepath.ToSlash(filepath.Join(home, ".dotai", "tools")), filepath.ToSlash(filepath.Join(project, ".dotai", "tools"))
 	for _, tt := range []struct{ name, in, want string }{
 		{"both tokens", `{"command": "${DOTAI_TOOLS}/hello.sh ${DOTAI_PROJECT_TOOLS}/lint"}`, `{"command": "` + user + `/hello.sh ` + proj + `/lint"}`},
+		{"home", `{"command": "cat ${DOTAI_HOME}/notes.md"}`, `{"command": "cat ` + filepath.ToSlash(home) + `/notes.md"}`},
 		{"other variables", "${OTHER} $DOTAI_TOOLS ${DOTAI_TOOLS ${dotai_tools}", "${OTHER} $DOTAI_TOOLS ${DOTAI_TOOLS ${dotai_tools}"},
 		{"not UTF-8", "\xff${DOTAI_TOOLS}", "\xff${DOTAI_TOOLS}"},
 		{"NUL byte", "\x00${DOTAI_TOOLS}", "\x00${DOTAI_TOOLS}"},
@@ -39,13 +40,14 @@ func TestExpandPaths(t *testing.T) {
 
 func TestExpandPathsUnknownDirectory(t *testing.T) {
 	errHome, errWd := errors.New("$HOME is not defined"), errors.New("getwd failed")
+	// ${DOTAI_HOME} fails with the home directory, as ${DOTAI_TOOLS} does.
 	tools := app.ToolPaths{UserErr: errHome, ProjectErr: errWd}
 	for _, in := range []string{"no tokens", "\xff${DOTAI_TOOLS}"} {
 		if got, err := app.ExpandPaths([]byte(in), tools); err != nil || string(got) != in {
 			t.Errorf("ExpandPaths(%q) = %q, %v, want it unchanged", in, got, err)
 		}
 	}
-	for token, cause := range map[string]error{"${DOTAI_TOOLS}": errHome, "${DOTAI_PROJECT_TOOLS}": errWd} {
+	for token, cause := range map[string]error{"${DOTAI_TOOLS}": errHome, "${DOTAI_PROJECT_TOOLS}": errWd, "${DOTAI_HOME}": errHome} {
 		_, err := app.ExpandPaths([]byte("run "+token+"/x"), tools)
 		if !errors.Is(err, cause) || !strings.Contains(err.Error(), token) {
 			t.Errorf("ExpandPaths(%s) error = %v, want one that names the token and %v", token, err, cause)
@@ -273,5 +275,52 @@ func TestAToolCommandWithoutItsScriptWritesNothing(t *testing.T) {
 	}
 	if _, err := os.Lstat(at(home, ".dotai")); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("~/.dotai = %v, want nothing written", err)
+	}
+}
+
+// TestIsolatedInstallExpandsTheRealHome checks that ${DOTAI_HOME} is the
+// real home directory in an isolated install too, not the harness's
+// isolated directory, with forward slashes.
+func TestIsolatedInstallExpandsTheRealHome(t *testing.T) {
+	home, _ := installHome(t)
+	dir := copyPack(t)
+	editPack(t, dir, "base/dotai/settings.yaml", "  model: sonnet\n", "  model: sonnet\n  env: { NOTES: \"${DOTAI_HOME}/notes.md\" }\n")
+	if _, err := installVariant(t, newClockFS(t), dir, "", home); err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+	env, _ := settingsOf(t, at(home, claudeSettings))["env"].(map[string]any)
+	if want := filepath.ToSlash(home) + "/notes.md"; env["NOTES"] != want {
+		t.Errorf("env = %v, want NOTES=%s", env, want)
+	}
+}
+
+// TestExpandHomeChecksItsCharacters checks ${DOTAI_HOME}: a home directory
+// with spaces expands as it is, with forward slashes, and one with a
+// character a shell would not take literally inside double quotes, or a
+// network path on Windows, fails with an error that names it.
+func TestExpandHomeChecksItsCharacters(t *testing.T) {
+	expand := func(home, goos string) (string, error) {
+		tools := app.ToolsIn(home, t.TempDir())
+		tools.OS = goos
+		got, err := app.ExpandPaths([]byte(`cat "${DOTAI_HOME}/notes.md"`), tools)
+		return string(got), err
+	}
+	spaced := filepath.Join(t.TempDir(), "Ana Lopez")
+	if got, err := expand(spaced, runtime.GOOS); err != nil || got != `cat "`+filepath.ToSlash(spaced)+`/notes.md"` {
+		t.Errorf("a home with spaces = %q, %v, want it as it is, with forward slashes", got, err)
+	}
+	for _, tt := range []struct{ home, goos, char string }{
+		{`/home/a"b`, "linux", `"`}, {`/home/a$b`, "linux", "$"}, {"/home/a`b", "linux", "`"}, {`/home/a\b`, "linux", `\`},
+		{`C:\Users\a%b`, "windows", "%"}, {`C:\Users\a"b`, "windows", `"`},
+	} {
+		if got, err := expand(tt.home, tt.goos); err == nil || !strings.Contains(err.Error(), "${DOTAI_HOME}") || !strings.Contains(err.Error(), tt.char) {
+			t.Errorf("home %s on %s = %q, %v, want an error that names ${DOTAI_HOME} and %s", tt.home, tt.goos, got, err, tt.char)
+		}
+	}
+	if _, err := expand(`\\server\share\ana`, "windows"); err == nil || !strings.Contains(err.Error(), "network path") {
+		t.Errorf("a network home on Windows: %v, want it refused", err)
+	}
+	if got, err := app.ExpandPaths([]byte("no variable"), app.ToolsIn(`/home/a"b`, t.TempDir())); err != nil || string(got) != "no variable" {
+		t.Errorf("a file without ${DOTAI_HOME} = %q, %v, want it untouched", got, err)
 	}
 }

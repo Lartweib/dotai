@@ -71,6 +71,14 @@ func keyNames(keys []plan.Key) []string {
 	return out
 }
 
+// isolatedClaude is want, Claude Code's isolated settings as a test
+// expects them, with the claudeMdExcludes an isolated install into home
+// owns there (homeExcludes).
+func isolatedClaude(home string, want map[string]any) map[string]any {
+	want["claudeMdExcludes"] = homeExcludes(home)
+	return want
+}
+
 // TestInstallKeepsWhatTheHarnessWroteInItsSettings is the case decision
 // 0035 starts from: Claude Code adds the theme to its settings on the first
 // launch, and a later install of another variant must neither refuse nor
@@ -89,7 +97,7 @@ func TestInstallKeepsWhatTheHarnessWroteInItsSettings(t *testing.T) {
 		t.Fatalf("Install() error = %v, want the variant installed over the harness's key", err)
 	}
 	got := settingsOf(t, target)
-	if want := map[string]any{"model": "opus", "theme": "dark", "env": map[string]any{"DOTAI_TERMINAL": "tmux"}}; !reflect.DeepEqual(got, want) {
+	if want := isolatedClaude(home, map[string]any{"model": "opus", "theme": "dark", "env": map[string]any{"DOTAI_TERMINAL": "tmux"}}); !reflect.DeepEqual(got, want) {
 		t.Errorf("settings = %v, want %v", got, want)
 	}
 	var op app.InstallOp
@@ -107,8 +115,8 @@ func TestInstallKeepsWhatTheHarnessWroteInItsSettings(t *testing.T) {
 	}
 	s := readJSON(t, res.State, state.Decode)
 	f, ok := ownedFile(t, s, target)
-	if !ok || !reflect.DeepEqual(keyNames(f.Keys), []string{"model", "env.DOTAI_TERMINAL"}) {
-		t.Errorf("state record = %+v, want the keys model and env.DOTAI_TERMINAL", f)
+	if !ok || !reflect.DeepEqual(keyNames(f.Keys), []string{"model", "env.DOTAI_TERMINAL", "claudeMdExcludes"}) {
+		t.Errorf("state record = %+v, want the keys model, env.DOTAI_TERMINAL and claudeMdExcludes", f)
 	}
 	for _, o := range res.Ops {
 		if o.Target != target && o.Keys == nil {
@@ -173,8 +181,8 @@ func TestInstallAfterTheHarnessWroteItsSettingsWritesNothing(t *testing.T) {
 		t.Errorf("settings = %s, backup %+v, want the file untouched and no backup", got, res.Backup)
 	}
 	s := readJSON(t, res.State, state.Decode)
-	if f, _ := ownedFile(t, s, target); f.SHA256 != sum(string(written)) || !reflect.DeepEqual(keyNames(f.Keys), []string{"model"}) {
-		t.Errorf("state record = %+v, want the file as it is and the key model", f)
+	if f, _ := ownedFile(t, s, target); f.SHA256 != sum(string(written)) || !reflect.DeepEqual(keyNames(f.Keys), []string{"model", "claudeMdExcludes"}) {
+		t.Errorf("state record = %+v, want the file as it is and the keys model and claudeMdExcludes", f)
 	}
 }
 
@@ -256,7 +264,7 @@ func TestInstallAndRestoreSettleAKilledSettingsWrite(t *testing.T) {
 						t.Fatal("the killed install left no journal")
 					}
 					harnessWrites(t, target, map[string]any{"verbose": true})
-					want := map[string]any{"model": "opus", "theme": "dark", "verbose": true, "env": map[string]any{"DOTAI_TERMINAL": "tmux"}}
+					want := isolatedClaude(home, map[string]any{"model": "opus", "theme": "dark", "verbose": true, "env": map[string]any{"DOTAI_TERMINAL": "tmux"}})
 					if then == "install" {
 						if _, err := installVariant(t, c, examplePack, "tmux", home); err != nil {
 							t.Fatalf("Install() error = %v", err)
@@ -266,7 +274,7 @@ func TestInstallAndRestoreSettleAKilledSettingsWrite(t *testing.T) {
 						if _, err := restore(c, home, "", nil); err != nil {
 							t.Fatalf("Restore() error = %v", err)
 						}
-						want = map[string]any{"model": "sonnet", "theme": "dark", "verbose": true}
+						want = isolatedClaude(home, map[string]any{"model": "sonnet", "theme": "dark", "verbose": true})
 					}
 					if got := settingsOf(t, target); !reflect.DeepEqual(got, want) {
 						t.Errorf("settings = %v, want %v", got, want)
@@ -299,7 +307,7 @@ func TestRestoreKeepsWhatTheHarnessWroteInItsSettings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Restore() error = %v", err)
 	}
-	if got, want := settingsOf(t, target), map[string]any{"model": "sonnet", "theme": "dark", "verbose": true}; !reflect.DeepEqual(got, want) {
+	if got, want := settingsOf(t, target), isolatedClaude(home, map[string]any{"model": "sonnet", "theme": "dark", "verbose": true}); !reflect.DeepEqual(got, want) {
 		t.Errorf("settings = %v, want %v", got, want)
 	}
 	var op app.RestoreOp
@@ -312,8 +320,8 @@ func TestRestoreKeepsWhatTheHarnessWroteInItsSettings(t *testing.T) {
 		t.Errorf("settings op = %+v, want a replace of %+v", op, want)
 	}
 	s := readJSON(t, res.State, state.Decode)
-	if f, _ := ownedFile(t, s, target); !reflect.DeepEqual(keyNames(f.Keys), []string{"model"}) {
-		t.Errorf("state record = %+v, want the key model of the standalone variant", f)
+	if f, _ := ownedFile(t, s, target); !reflect.DeepEqual(keyNames(f.Keys), []string{"model", "claudeMdExcludes"}) {
+		t.Errorf("state record = %+v, want the key model of the standalone variant and claudeMdExcludes", f)
 	}
 
 	res, err = restore(d, home, first.Backup.ID, nil)
@@ -359,7 +367,7 @@ func TestRestoreRefusesAChangedSettingsKeyWithoutConsent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Restore() error = %v", err)
 	}
-	if got, want := settingsOf(t, target), map[string]any{"model": "sonnet", "theme": "dark"}; !reflect.DeepEqual(got, want) {
+	if got, want := settingsOf(t, target), isolatedClaude(home, map[string]any{"model": "sonnet", "theme": "dark"}); !reflect.DeepEqual(got, want) {
 		t.Errorf("settings = %v, want %v", got, want)
 	}
 	copied, err := os.ReadFile(filepath.Join(res.Backup.Path, "files", filepath.FromSlash(claudeSettings)))

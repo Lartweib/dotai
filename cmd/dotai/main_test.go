@@ -202,7 +202,8 @@ func TestRunLaunchesClaudeCodeIsolated(t *testing.T) {
 		for _, line := range []string{
 			"dotai: claudecode · partial isolation · CLAUDE_CONFIG_DIR=" + filepath.Join(home, ".dotai", "isolated", "claude") + "\n",
 			login,
-			"dotai: leaks: ~/.claude/CLAUDE.md still loads when the working directory is under the home directory\n",
+			// The fake install wrote no settings, so nothing excludes them.
+			"dotai: leaks: the CLAUDE.md, .claude/CLAUDE.md and CLAUDE.local.md of each directory above the working directory still load, and so do your ~/CLAUDE.md, ~/CLAUDE.local.md, ~/.claude/CLAUDE.md and ~/.claude/rules: the isolated settings do not exclude them with claudeMdExcludes, so run dotai install again\n",
 		} {
 			if !strings.Contains(stderr, line) {
 				t.Errorf("stderr = %q, want the line %q", stderr, line)

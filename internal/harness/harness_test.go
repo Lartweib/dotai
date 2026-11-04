@@ -212,12 +212,12 @@ func TestSettings(t *testing.T) {
 func TestIsolationPerOS(t *testing.T) {
 	openCodeLeaks := []string{
 		"provider credentials do not carry over",
-		"AGENTS.md, .agents and .opencode load from the working directory and every directory above it, so under your home directory your ~/.agents/skills, ~/.opencode and ~/AGENTS.md still load",
+		"AGENTS.md, .agents and .opencode load from the working directory and every directory above it, so under your home directory these still load: ~/.agents/skills, ~/.opencode and ~/AGENTS.md",
 		"OPENCODE_TEST_HOME, which OpenCode does not document, hides ~/.agents/skills only outside your home directory, and a later OpenCode may drop it",
 		"with --server, OpenCode reaches a server that runs with its own configuration",
 		"a command that does not take --standalone, such as debug config, starts a background service on the port of your own OpenCode service and leaves it running",
 	}
-	claudeMD := "~/.claude/CLAUDE.md still loads when the working directory is under the home directory"
+	claudeMD := "the CLAUDE.md, .claude/CLAUDE.md and CLAUDE.local.md of each directory above the working directory still load, but for your ~/CLAUDE.md, ~/CLAUDE.local.md, ~/.claude/CLAUDE.md and ~/.claude/rules, which the isolated settings exclude with claudeMdExcludes"
 	credentials := "credentials live in the configuration directory, so you must log in again"
 	tests := []struct {
 		id, goos string
@@ -261,12 +261,12 @@ func TestIsolationWithSharedSkills(t *testing.T) {
 		copy  bool
 		leaks []string
 	}{
-		"claudecode":      {"skills", false, []string{"~/.claude/CLAUDE.md still loads when the working directory is under the home directory", linked}},
+		"claudecode":      {"skills", false, []string{"the CLAUDE.md, .claude/CLAUDE.md and CLAUDE.local.md of each directory above the working directory still load, but for your ~/CLAUDE.md, ~/CLAUDE.local.md, ~/.claude/CLAUDE.md and ~/.claude/rules, which the isolated settings exclude with claudeMdExcludes", linked}},
 		"antigravity-cli": {"antigravity-cli/skills", true, []string{"authentication is shared through the OS keyring", copied}},
 		"opencode": {"", false, []string{
 			"provider credentials do not carry over",
 			"OpenCode runs with your home directory, as the variant shares skills: your ~/.agents/skills loads, and so does anything else OpenCode reads there",
-			"AGENTS.md, .agents and .opencode load from the working directory and every directory above it, so under your home directory your ~/.opencode and ~/AGENTS.md still load",
+			"AGENTS.md, .agents and .opencode load from the working directory and every directory above it, so under your home directory these still load: ~/.opencode and ~/AGENTS.md",
 			"with --server, OpenCode reaches a server that runs with its own configuration",
 			"a command that does not take --standalone, such as debug config, starts a background service on the port of your own OpenCode service and leaves it running",
 		}},
@@ -311,5 +311,105 @@ func TestCommandQuoting(t *testing.T) {
 		if a.Commands != want[a.ID] {
 			t.Errorf("%s reads commands as %q, want %q", a.ID, a.Commands, want[a.ID])
 		}
+	}
+}
+
+// TestLeaksAt checks the leaks of a launch: the walk-up leak only under
+// the home directory and only with the paths that exist there, and the
+// home instructions excluded or not.
+func TestLeaksAt(t *testing.T) {
+	all, err := harness.Lookup([]string{"claudecode", "opencode"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claude, oc := all[0].Isolation, all[1].Isolation
+	walkUp := func(leaks []string) []string {
+		var out []string
+		for _, l := range leaks {
+			if strings.Contains(l, "every directory above it") {
+				out = append(out, l)
+			}
+		}
+		return out
+	}
+	only := func(paths ...string) func(string) bool {
+		return func(rel string) bool { return slices.Contains(paths, rel) }
+	}
+	for _, tt := range []struct {
+		name   string
+		launch harness.Launch
+		want   []string
+	}{
+		{"outside the home directory", harness.Launch{GOOS: "linux", Exists: only(".agents/skills", "AGENTS.md")}, nil},
+		{"under it, nothing there", harness.Launch{GOOS: "linux", UnderHome: true, Exists: only()}, nil},
+		{"under it, one path", harness.Launch{GOOS: "linux", UnderHome: true, Exists: only(".opencode")},
+			[]string{"AGENTS.md, .agents and .opencode load from the working directory and every directory above it, so under your home directory these still load: ~/.opencode"}},
+		{"under it, two paths", harness.Launch{GOOS: "linux", UnderHome: true, Exists: only(".agents/skills", "AGENTS.md")},
+			[]string{"AGENTS.md, .agents and .opencode load from the working directory and every directory above it, so under your home directory these still load: ~/.agents/skills and ~/AGENTS.md"}},
+		{"shared skills leave ~/.agents/skills out", harness.Launch{GOOS: "linux", Shared: true, UnderHome: true, Exists: only(".agents/skills", "AGENTS.md")},
+			[]string{"AGENTS.md, .agents and .opencode load from the working directory and every directory above it, so under your home directory these still load: ~/AGENTS.md"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := walkUp(oc.LeaksAt(tt.launch)); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("walk-up leaks = %q, want %q", got, tt.want)
+			}
+		})
+	}
+	excluded := claude.LeaksAt(harness.Launch{GOOS: "linux", Exclusion: harness.Excluded})
+	if len(excluded) == 0 || !strings.Contains(excluded[0], "but for your ~/CLAUDE.md, ~/CLAUDE.local.md, ~/.claude/CLAUDE.md and ~/.claude/rules, which the isolated settings exclude with claudeMdExcludes") {
+		t.Errorf("leaks with the instructions excluded = %q", excluded)
+	}
+	missing := claude.LeaksAt(harness.Launch{GOOS: "linux"})
+	if len(missing) == 0 || !strings.Contains(missing[0], "do not exclude them with claudeMdExcludes, so run dotai install again") {
+		t.Errorf("leaks with the instructions not excluded = %q", missing)
+	}
+	glob := claude.LeaksAt(harness.Launch{GOOS: "linux", Exclusion: harness.Unnameable})
+	if len(glob) == 0 || !strings.Contains(glob[0], "holds a glob character, so no claudeMdExcludes pattern can name them") || strings.Contains(glob[0], "install again") {
+		t.Errorf("leaks for a home with a glob character = %q, want the cause and no advice to install again", glob)
+	}
+	if got := oc.LeaksAt(harness.Launch{GOOS: "linux", Exists: only()}); slices.ContainsFunc(got, func(l string) bool { return strings.Contains(l, "%") }) {
+		t.Errorf("leaks = %q, want every template filled", got)
+	}
+}
+
+// TestAdapterData checks rules every adapter's data must keep: a harness
+// that drops variables says why, a walk-up leak has one %s for its paths,
+// and each rename names both files and both ids.
+func TestAdapterData(t *testing.T) {
+	claude, err := harness.Lookup([]string{"claudecode"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX",
+		"CLAUDE_CODE_USE_FOUNDRY", "AWS_BEARER_TOKEN_BEDROCK", "ANTHROPIC_BASE_URL", "ANTHROPIC_CUSTOM_HEADERS"} {
+		if !slices.Contains(claude[0].Isolation.Credentials, name) {
+			t.Errorf("Claude Code's Credentials lack %s", name)
+		}
+	}
+	for _, a := range harness.All() {
+		if len(a.Isolation.Drop) > 0 && a.Isolation.DropNote == "" {
+			t.Errorf("%s drops %q without a DropNote", a.ID, a.Isolation.Drop)
+		}
+		for _, l := range a.Isolation.Leaks {
+			if n := strings.Count(l.Text, "%"); len(l.WalkUp) > 0 && (n != 1 || !strings.Contains(l.Text, "%s")) || len(l.WalkUp) == 0 && n != 0 && !strings.Contains(l.Text, "%TEMP%") {
+				t.Errorf("%s leak %q: want one %%s exactly when it has WalkUp", a.ID, l.Text)
+			}
+		}
+		for _, r := range a.Project.Renames {
+			if r.From == "" || r.To == "" || r.From == r.To || r.Old == "" || r.New == "" || r.Old == r.New {
+				t.Errorf("%s rename %+v: want two files and two ids", a.ID, r)
+			}
+		}
+		if h := a.Isolation.Instructions; h != nil && (h.Key == "" || len(h.Paths) == 0 || h.Others == "") {
+			t.Errorf("%s instructions %+v: want a key, paths and the files that still load", a.ID, h)
+		}
+	}
+	oc, err := harness.Lookup([]string{"opencode"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []harness.Rename{{From: ".opencode/plugins/rulesync-hooks.js", To: ".opencode/plugins/rulesync-hooks-project.js", Old: `id: "rulesync-hooks",`, New: `id: "rulesync-hooks-project",`}}
+	if !reflect.DeepEqual(oc[0].Project.Renames, want) {
+		t.Errorf("OpenCode renames = %+v, want %+v", oc[0].Project.Renames, want)
 	}
 }

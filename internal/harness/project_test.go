@@ -118,9 +118,6 @@ func TestProjectLayoutSpecials(t *testing.T) {
 	if skill, _ := cc.Project.Locate(".claude/skills/lint/SKILL.md"); skill.WholeDir {
 		t.Errorf("a skill = %+v, want it not owned whole", skill)
 	}
-	if !reflect.DeepEqual(oc.Project.AlsoReads, []string{".claude/skills/", ".agents/skills/"}) || len(cc.Project.AlsoReads)+len(agy.Project.AlsoReads) != 0 {
-		t.Errorf("AlsoReads = %v", oc.Project.AlsoReads)
-	}
 	wins := map[string]map[harness.ProjectKind]bool{}
 	for _, a := range []harness.Adapter{cc, agy, oc} {
 		wins[a.ID] = map[harness.ProjectKind]bool{}

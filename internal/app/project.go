@@ -383,6 +383,18 @@ func checkProject(project, home string) error {
 // short names too (resolvePath).
 func realPath(p string) string { return resolvePath(p) }
 
+// underHome reports whether cwd is home or a directory below it, both
+// resolved through their links, without case where goos folds it
+// (plan.FoldsCase).
+func underHome(goos, home, cwd string) bool {
+	h, c := filepath.Clean(realPath(home)), filepath.Clean(realPath(cwd))
+	if plan.FoldsCase(goos) {
+		h, c = strings.ToLower(h), strings.ToLower(c)
+	}
+	// Not filepath.Rel, which folds case on Windows whatever goos says.
+	return c == h || strings.HasPrefix(c, strings.TrimSuffix(h, string(filepath.Separator))+string(filepath.Separator))
+}
+
 // readProject fills in with what plan.BuildProject plans the project tree
 // tree from: each staged file whole, the harnesses that need the import of
 // a rules file, the state of each target and which of them git tracks,
