@@ -144,6 +144,10 @@ func PlanRunWith(home, id string, args, environ []string, lookPath func(string) 
 	return planRun(osInstallFS{}, lookPath, goos, home, "", id, args, environ)
 }
 
+// HomePatterns are the claudeMdExcludes patterns of the forms of a home
+// directory.
+var HomePatterns = homePatterns
+
 // UnderHome is the check of a working directory under the home directory.
 var UnderHome = underHome
 

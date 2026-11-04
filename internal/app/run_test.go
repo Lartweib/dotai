@@ -345,7 +345,7 @@ func TestPlanRunShowsTheIsolationOfTheOS(t *testing.T) {
 		goos, relogin string
 		leaks         int
 	}{
-		{"windows", "yes", 3},
+		{"windows", "yes", 2},
 		{"linux", "unknown", 1},
 		{"darwin", "unknown", 1},
 	}

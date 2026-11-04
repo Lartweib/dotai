@@ -218,14 +218,13 @@ func TestIsolationPerOS(t *testing.T) {
 		"a command that does not take --standalone, such as debug config, starts a background service on the port of your own OpenCode service and leaves it running",
 	}
 	claudeMD := "the CLAUDE.md, .claude/CLAUDE.md and CLAUDE.local.md of each directory above the working directory still load, but for your ~/CLAUDE.md, ~/CLAUDE.local.md, ~/.claude/CLAUDE.md and ~/.claude/rules, which the isolated settings exclude with claudeMdExcludes"
-	windowsExcludes := "on Windows, that claudeMdExcludes matches these paths in the form dotai writes them, with forward slashes, is not verified"
 	credentials := "credentials live in the configuration directory, so you must log in again"
 	tests := []struct {
 		id, goos string
 		relogin  harness.Relogin
 		leaks    []string
 	}{
-		{"claudecode", "windows", harness.ReloginYes, []string{claudeMD, windowsExcludes, credentials}},
+		{"claudecode", "windows", harness.ReloginYes, []string{claudeMD, credentials}},
 		{"claudecode", "linux", harness.ReloginUnknown, []string{claudeMD}},
 		{"claudecode", "darwin", harness.ReloginUnknown, []string{claudeMD}},
 		{"antigravity-cli", "windows", harness.ReloginNo, []string{"authentication is shared through the OS keyring"}},

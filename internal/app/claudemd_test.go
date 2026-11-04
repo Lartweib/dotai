@@ -1,8 +1,10 @@
 package app_test
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -29,7 +31,7 @@ func TestInstallExcludesTheHomeInstructionsFromIsolatedClaudeCode(t *testing.T) 
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
-	got := rawSettingsOf(t, at(home, claudeSettings))
+	got := settingsOf(t, at(home, claudeSettings))
 	if want := homeExcludes(home); !reflect.DeepEqual(got["claudeMdExcludes"], want) {
 		t.Errorf("claudeMdExcludes = %v, want %v", got["claudeMdExcludes"], want)
 	}
@@ -58,7 +60,7 @@ func TestInstallMergesThePackClaudeMdExcludes(t *testing.T) {
 	if _, err := installVariant(t, newClockFS(t), dir, "", home); err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
-	got := rawSettingsOf(t, at(home, claudeSettings))["claudeMdExcludes"]
+	got := settingsOf(t, at(home, claudeSettings))["claudeMdExcludes"]
 	want := append([]any{"**/vendor/CLAUDE.md"}, homeExcludes(home)...)
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("claudeMdExcludes = %v, want %v", got, want)
@@ -102,5 +104,96 @@ func TestPlanReplaceWritesNoClaudeMdExcludes(t *testing.T) {
 				t.Errorf("op %+v plans claudeMdExcludes", op)
 			}
 		}
+	}
+}
+
+// claudePatterns are the claudeMdExcludes of each form of a home
+// directory, in order.
+func claudePatterns(forms ...string) []any {
+	var out []any
+	for _, f := range forms {
+		out = append(out, homeExcludes(f)...)
+	}
+	return out
+}
+
+// TestInstallExcludesTheHomeInItsOnDiskCase checks that the patterns name
+// the home directory as it is on disk, since Claude Code matches them with
+// case, and as given too when that differs.
+func TestInstallExcludesTheHomeInItsOnDiskCase(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("a home directory given in another case resolves only on Windows")
+	}
+	base, _ := installHome(t)
+	onDisk := filepath.Join(base, "Home")
+	if err := os.Mkdir(onDisk, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	home := filepath.Join(base, "home")
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	if _, err := installVariant(t, newClockFS(t), examplePack, "", home); err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+	got := settingsOf(t, at(home, claudeSettings))["claudeMdExcludes"]
+	if want := claudePatterns(onDisk, home); !reflect.DeepEqual(got, want) {
+		t.Errorf("claudeMdExcludes = %v, want %v", got, want)
+	}
+}
+
+// TestHomePatternsRefuseGlobCharacters checks that a form of the home
+// directory with a character a glob pattern reads, extglob ones included,
+// gives no patterns.
+func TestHomePatternsRefuseGlobCharacters(t *testing.T) {
+	paths := []string{"CLAUDE.md"}
+	if got, ok := app.HomePatterns([]string{"C:/Users/ana", "C:/users/ana"}, paths); !ok || !reflect.DeepEqual(got, []string{"C:/Users/ana/CLAUDE.md", "C:/users/ana/CLAUDE.md"}) {
+		t.Errorf("HomePatterns() = %q, %v, want one pattern per form", got, ok)
+	}
+	for _, c := range []string{"*", "?", "[", "]", "{", "}", "(", ")", "+", "@", "!", `\`} {
+		if got, ok := app.HomePatterns([]string{"C:/Users/ana", "C:/Users/a" + c + "na"}, paths); ok || got != nil {
+			t.Errorf("HomePatterns() with %q = %q, %v, want none", c, got, ok)
+		}
+	}
+}
+
+// TestInstallRefusesAPackClaudeMdExcludesThatIsNotAList checks that a pack
+// value the home patterns cannot join fails the install with a clear
+// error.
+func TestInstallRefusesAPackClaudeMdExcludesThatIsNotAList(t *testing.T) {
+	home, _ := installHome(t)
+	dir := copyPack(t)
+	editPack(t, dir, "base/dotai/settings.yaml", "  model: sonnet\n", "  model: sonnet\n  claudeMdExcludes: \"**/vendor/CLAUDE.md\"\n")
+	_, err := installVariant(t, newClockFS(t), dir, "", home)
+	if err == nil || !strings.Contains(err.Error(), "claudeMdExcludes must be a list of patterns") {
+		t.Fatalf("Install() error = %v, want one that says claudeMdExcludes must be a list", err)
+	}
+	if _, err := os.Stat(at(home, claudeSettings)); !os.IsNotExist(err) {
+		t.Errorf("settings = %v, want nothing installed", err)
+	}
+}
+
+// TestInstallAgainLeavesTheExcludesAlone checks that a second install of
+// the same pack finds the patterns as it wrote them: nothing to write and
+// no backup.
+func TestInstallAgainLeavesTheExcludesAlone(t *testing.T) {
+	home, _ := installHome(t)
+	d := newClockFS(t)
+	if _, err := installVariant(t, d, examplePack, "", home); err != nil {
+		t.Fatal(err)
+	}
+	res, err := installVariant(t, d, examplePack, "", home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, op := range res.Ops {
+		if op.Action != plan.Unchanged {
+			t.Errorf("op %+v, want unchanged", op)
+		}
+	}
+	if res.Backup != nil {
+		t.Errorf("backup = %+v, want none", res.Backup)
+	}
+	if got := settingsOf(t, at(home, claudeSettings))["claudeMdExcludes"]; !reflect.DeepEqual(got, homeExcludes(home)) {
+		t.Errorf("claudeMdExcludes = %v, want each pattern once", got)
 	}
 }

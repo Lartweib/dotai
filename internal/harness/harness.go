@@ -366,7 +366,6 @@ var adapters = []Adapter{
 			Instructions: &HomeInstructions{Key: "claudeMdExcludes", Paths: []string{"CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md", ".claude/rules/**"},
 				Others: "the CLAUDE.md, .claude/CLAUDE.md and CLAUDE.local.md of each directory above the working directory still load"},
 			Leaks: []Leak{
-				{Text: "on Windows, that claudeMdExcludes matches these paths in the form dotai writes them, with forward slashes, is not verified", GOOS: "windows"},
 				{Text: "credentials live in the configuration directory, so you must log in again", GOOS: "windows"},
 				{Text: linkedSkills, Skills: SkillsShared},
 			},

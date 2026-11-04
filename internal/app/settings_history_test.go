@@ -147,13 +147,13 @@ func TestRestoreAnOlderJournal(t *testing.T) {
 		editPack(t, dir, baseSettings, "claudecode:\n  model: sonnet\n", "")
 		editPack(t, dir, "variants/tmux/dotai/settings.yaml", "dotai:\n  overrides: [claudecode.model]\n", "") // nothing left to override
 		crash(t, &finalStateCrashFS{clockFS: c}, dir, "standalone", home)
-		if got := settingsOf(t, target); !reflect.DeepEqual(got, map[string]any{"theme": "dark"}) {
+		if got := settingsOf(t, target); !reflect.DeepEqual(got, isolatedClaude(home, map[string]any{"theme": "dark"})) {
 			t.Fatalf("settings after the killed install = %v, want dotai's key deleted", got)
 		}
 		if _, err := restore(c, home, "", nil); err != nil {
 			t.Fatalf("Restore() error = %v", err)
 		}
-		if got, want := settingsOf(t, target), map[string]any{"model": "sonnet", "theme": "dark"}; !reflect.DeepEqual(got, want) {
+		if got, want := settingsOf(t, target), isolatedClaude(home, map[string]any{"model": "sonnet", "theme": "dark"}); !reflect.DeepEqual(got, want) {
 			t.Errorf("settings = %v, want %v", got, want)
 		}
 	})
@@ -178,7 +178,7 @@ func TestRestoreOverAnOlderPriorState(t *testing.T) {
 	if _, err := restore(d, home, "", nil); err != nil {
 		t.Fatalf("Restore() error = %v", err)
 	}
-	if got, want := settingsOf(t, target), map[string]any{"model": "sonnet", "theme": "dark"}; !reflect.DeepEqual(got, want) {
+	if got, want := settingsOf(t, target), isolatedClaude(home, map[string]any{"model": "sonnet", "theme": "dark"}); !reflect.DeepEqual(got, want) {
 		t.Errorf("settings = %v, want %v", got, want)
 	}
 }
@@ -203,14 +203,18 @@ func TestRestoreAChainOfThreeInstalls(t *testing.T) {
 			}
 			ids = append(ids, res.Backup.ID)
 		}
-		want := map[string]any{"model": "sonnet", "verbose": true, "theme": "dark"}
+		want := isolatedClaude(home, map[string]any{"model": "sonnet", "verbose": true, "theme": "dark"})
 		if got := settingsOf(t, at(home, claudeSettings)); !reflect.DeepEqual(got, want) {
 			t.Fatalf("settings after three installs = %v, want %v", got, want)
 		}
 		return home, ids
 	}
+	// Undoing all three installs takes dotai's claudeMdExcludes too.
 	for i, want := range []map[string]any{{"theme": "dark"}, {"model": "sonnet", "theme": "dark"}} {
 		home, ids := setup(t)
+		if i > 0 {
+			want = isolatedClaude(home, want)
+		}
 		res, err := restore(newClockFS(t), home, ids[i], nil)
 		if err != nil || len(res.Undone) != 3-i {
 			t.Fatalf("Restore(%s) = %+v, %v, want %d installs undone", ids[i], res.Undone, err, 3-i)
@@ -243,7 +247,7 @@ func TestRestoreGivesBackTheHarnessValueThePackOverwrote(t *testing.T) {
 	if _, err := restore(d, home, "", nil); err != nil {
 		t.Fatalf("Restore() error = %v", err)
 	}
-	if got, want := settingsOf(t, target), map[string]any{"model": "sonnet", "theme": "dark"}; !reflect.DeepEqual(got, want) {
+	if got, want := settingsOf(t, target), isolatedClaude(home, map[string]any{"model": "sonnet", "theme": "dark"}); !reflect.DeepEqual(got, want) {
 		t.Errorf("settings = %v, want %v", got, want)
 	}
 }
