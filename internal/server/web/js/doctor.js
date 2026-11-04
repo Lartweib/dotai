@@ -87,8 +87,8 @@ function draw(list, detail, d, ctx, msg, checked) {
     mount(list,
       h("div", { class: "listhead stack" },
         h("p", { class: "t-meta", text: t("doctor.status", { n: open.length, f: fixable.length, time: checked }) }),
-        actions([fix, h("button", { class: "btn", type: "button", onclick: () => ctx.again(), text: t("doctor.again") })],
-          fixable.length ? t("doctor.fixNote", { n: new Set(fixable.map((f) => f.project)).size }) : t("doctor.nothingFixable")),
+        actions([open.length ? fix : null, h("button", { class: "btn", type: "button", onclick: () => ctx.again(), text: t("doctor.again") })].filter(Boolean),
+          fixable.length ? t("doctor.fixNote", { n: new Set(fixable.map((f) => f.project)).size }) : open.length ? t("doctor.nothingFixable") : ""),
         msg, out),
       findings.length ? rows() : h("p", { class: "help empty", text: t("doctor.clean") }));
     showFinding(detail, cur, d);
@@ -104,7 +104,7 @@ function where(f) {
 function showFinding(detail, f, d) {
   if (!f) {
     mount(detail, h("div", { class: "col intro" }, h("h2", { class: "h-detail", text: t("doctor.allClear") }),
-      h("p", { class: "body", text: d.state ? t("doctor.allClearBody", { n: d.projects.length }) : t("doctor.allClearNoState", { n: d.projects.length }) })));
+      h("p", { class: "body", text: d.state ? t("doctor.allClearBody", { n: d.projects.length }) : d.projects.length ? t("doctor.allClearNoState", { n: d.projects.length }) : t("doctor.allClearEmpty") })));
     return;
   }
   mount(detail,

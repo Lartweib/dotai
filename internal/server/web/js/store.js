@@ -1,12 +1,11 @@
-// What the pages share: the API client, the recent packs and the pieces
-// of state every page reads. There is no pack registry yet (decision
-// 0043): the user types the path of a pack, and the page remembers the
-// recent ones in localStorage, in this browser only.
+// What the pages share: the API client, the pack registry and the pieces
+// of state every page reads. The registry lives in ~/.dotai/packs.json
+// (decision 0043); this browser remembers only the selected pack and the
+// projects opened here.
 
 import { t } from "./i18n.js";
 
 const tokenKey = "dotai.session";
-const packsKey = "dotai.packs";
 const selectedKey = "dotai.pack";
 const projectsKey = "dotai.projects";
 
@@ -78,35 +77,44 @@ function write(key, value) {
 
 const recentMax = 12;
 
-export const recentPacks = () => read(packsKey, []).filter((p) => typeof p === "string");
 export const recentProjects = () => read(projectsKey, []).filter((p) => typeof p === "string");
-
-export function rememberPack(path) {
-  write(packsKey, [path, ...recentPacks().filter((p) => p !== path)].slice(0, recentMax));
-  selectPack(path);
-}
-
-export function forgetPack(path) {
-  write(packsKey, recentPacks().filter((p) => p !== path));
-  if (selectedPack() === path) selectPack(recentPacks()[0] || "");
-}
 
 export function rememberProject(path) {
   write(projectsKey, [path, ...recentProjects().filter((p) => p !== path)].slice(0, recentMax));
 }
 
-export const selectedPack = () => read(selectedKey, "") || recentPacks()[0] || "";
+// The packs of the registry, ~/.dotai/packs.json, as the server lists
+// them: the page keeps only which one is selected, in this browser.
+export const registry = () => (shared.registry ? shared.registry.packs : []);
+export const packPaths = () => registry().map((p) => p.path);
+
+export const selectedPack = () => {
+  const paths = packPaths();
+  const s = read(selectedKey, "");
+  return paths.find((p) => samePath(p, s)) || paths[0] || "";
+};
 export const selectPack = (path) => write(selectedKey, path);
+
+export async function loadRegistry() {
+  const res = await api("/api/packs");
+  if (res.ok) shared.registry = res.data;
+  return res;
+}
+
+// setRegistry keeps the list an import or a removal answered with.
+export function setRegistry(list) {
+  shared.registry = list;
+}
 
 // isAbsolute accepts the absolute paths of every OS, as the API wants them.
 export const isAbsolute = (p) => /^(\/|[A-Za-z]:[\\/]|\\\\)/.test(p);
 
 // The state every page reads, loaded once and again after an action: the
 // status, the packs read this visit and the names of the harnesses.
-export const shared = { status: null, packs: new Map(), harnesses: new Map() };
+export const shared = { status: null, registry: null, packs: new Map(), harnesses: new Map() };
 
 export async function loadStatus() {
-  const [res, hs] = await Promise.all([api("/api/status"), shared.harnesses.size ? null : api("/api/harnesses")]);
+  const [res, hs] = await Promise.all([api("/api/status"), shared.harnesses.size ? null : api("/api/harnesses"), loadRegistry()]);
   shared.status = res.ok ? res.data : null;
   if (hs && hs.ok) for (const x of hs.data.harnesses) shared.harnesses.set(x.id, x.name);
   return res;
@@ -119,6 +127,15 @@ export async function loadPack(path, fresh) {
   if (!fresh && shared.packs.has(path)) return shared.packs.get(path);
   const res = await api(query("/api/pack", { path }));
   if (res.ok || !["aborted", "network", "session", "bad-response"].includes(res.error.code)) shared.packs.set(path, res);
+  return res;
+}
+
+// loadOutline gives what each layer of the pack at path holds, by type.
+export async function loadOutline(path) {
+  const key = "outline:" + path;
+  if (shared.packs.has(key)) return shared.packs.get(key);
+  const res = await api(query("/api/pack/summary", { path }));
+  if (res.ok) shared.packs.set(key, res);
   return res;
 }
 

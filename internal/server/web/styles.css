@@ -345,7 +345,37 @@ legend.label { margin-bottom: 6px; }
 .notice.good { box-shadow: 0 0 0 1px color-mix(in oklch, var(--plus) 55%, var(--line)); }
 .notice .code { font: 500 var(--t-xs) var(--fm); color: var(--warn-ink); }
 .notice.good .code { color: var(--plus); }
-.notice .detail { font-size: var(--t-sm); color: var(--mut); }
+.notice .nd { font-size: var(--t-sm); color: var(--mut); }
+
+/* Pack detail, home and installed */
+.facts { display: flex; flex-direction: column; gap: var(--s2); max-width: 68ch; }
+.facts li { position: relative; padding-left: var(--s4); line-height: 1.55; }
+.facts li::before { content: ""; position: absolute; left: 2px; top: 0.62em; width: 5px; height: 5px; border-radius: 50%; background: var(--lane); }
+.layers { display: flex; flex-direction: column; }
+.layer { display: flex; flex-direction: column; gap: 10px; padding: var(--s3) 0 var(--s4); border-bottom: 1px solid var(--line); }
+.layers .layer:first-child { padding-top: 2px; }
+.layers .layer:last-child, .sc > .layer { border-bottom: 0; }
+.sc > .layer { padding-top: 2px; }
+.layer-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s1) 10px; }
+.layer-head .text { flex: 1 1 14rem; }
+.layer-head .full { flex: 1 1 100%; }
+.layer .kv { grid-template-columns: minmax(7.5rem, max-content) minmax(0, 1fr); gap: 6px var(--s4); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; height: 22px; padding: 0 var(--s2); border-radius: var(--r-s); background: var(--chip); font: 400 var(--t-xs) var(--fm); color: var(--ink); overflow-wrap: anywhere; }
+.inline.wide { max-width: 40rem; }
+form.well { gap: var(--s3); }
+.repos { display: flex; flex-direction: column; }
+.repo { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s4); padding: var(--s3) 0; border-bottom: 1px solid var(--line); }
+.repo:first-child { padding-top: 2px; }
+.repo:last-child { border-bottom: 0; }
+.repo-main { display: flex; flex-direction: column; gap: 3px; flex: 1 1 18rem; min-width: 0; }
+.repo-main .title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.repo-main .title b { font: 600 var(--t-lg)/22px var(--fh); }
+.repo .out { flex: 1 1 100%; }
+.levels { display: flex; flex-direction: column; gap: var(--s3); padding: 0; margin: 0; list-style: none; counter-reset: lvl; }
+.level { display: grid; grid-template-columns: minmax(9rem, max-content) minmax(0, 1fr); gap: var(--s1) var(--s4); align-items: baseline; }
+.level-head { display: flex; align-items: center; gap: var(--s2); }
+.level-head b { font-weight: 600; }
 
 /* Tree */
 .grp { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 0 var(--s3) 0 6px; border: 0; border-radius: var(--r-m); background: transparent; color: var(--ink); font: 600 var(--t-lg) var(--fh); text-align: left; cursor: pointer; transition: background-color var(--m-fast) var(--m-ease); }
@@ -400,6 +430,8 @@ legend.label { margin-bottom: 6px; }
   .sec > h2 { flex-basis: 100%; }
   .kv { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .kv dd + dt { margin-top: 10px; }
+  .layer .kv { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .level { grid-template-columns: minmax(0, 1fr); }
   .op .why { padding-left: 0; }
   .tag { flex-basis: auto; }
   .inline { max-width: none; }

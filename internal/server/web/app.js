@@ -8,8 +8,10 @@
 
 import { failure, h, icon, mount } from "./js/dom.js";
 import { languages, lang, setLang, t } from "./js/i18n.js";
-import { api, loadStatus, recentPacks, shared, tilde } from "./js/store.js";
+import { api, loadStatus, registry, shared, tilde } from "./js/store.js";
+import * as home from "./js/home.js";
 import * as packs from "./js/packs.js";
+import * as installed from "./js/installed.js";
 import * as tree from "./js/tree.js";
 import * as plan from "./js/plan.js";
 import * as projects from "./js/projects.js";
@@ -42,22 +44,26 @@ async function exchange(code) {
 }
 
 // The boards, by the route in the address: #/packs, #/tree and so on.
+// The plan of an install, the files it writes and the apply to a project
+// are steps of the Installed board.
 const routes = {
+  home: { view: home, nav: "home" },
   packs: { view: packs, nav: "packs" },
-  tree: { view: tree, nav: "tree" },
-  plan: { view: plan, nav: "packs" },
-  projects: { view: projects, nav: "projects" },
+  installed: { view: installed, nav: "installed" },
+  tree: { view: tree, nav: "installed" },
+  plan: { view: plan, nav: "installed" },
+  projects: { view: projects, nav: "installed" },
   backups: { view: backups, nav: "backups" },
   doctor: { view: doctor, nav: "doctor" },
 };
 
-const navItems = ["packs", "tree", "projects", "backups", "doctor"];
+const navItems = ["home", "packs", "installed", "backups", "doctor"];
 
 const counts = {};
 
 function route() {
   const [name, ...rest] = location.hash.replace(/^#\/?/, "").split("/");
-  return { name: routes[name] ? name : "packs", arg: decodeURIComponent(rest.join("/")) };
+  return { name: routes[name] ? name : "home", arg: decodeURIComponent(rest.join("/")) };
 }
 
 function renderNav() {
@@ -101,8 +107,8 @@ async function render() {
 export async function refresh() {
   await loadStatus();
   paintHome();
-  counts.packs = recentPacks().length;
-  counts.projects = shared.status ? shared.status.projects.length : 0;
+  counts.packs = registry().length;
+  counts.installed = shared.status ? shared.status.projects.length + (shared.status.state ? 1 : 0) : 0;
   renderNav();
   api("/api/backups").then((res) => {
     if (res.ok) setCount("backups", res.data.home.length + res.data.projects.reduce((n, p) => n + p.backups.length, 0));

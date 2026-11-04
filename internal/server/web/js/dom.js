@@ -54,7 +54,8 @@ export function icon(name, size = 18) {
 
 const paths = {
   packs: "M12 2.75l8.25 4.5v9.5L12 21.25l-8.25-4.5v-9.5z M3.75 7.25L12 11.75l8.25-4.5 M12 11.75v9.5 M7.9 5l8.25 4.5",
-  tree: "M3 11L12 3.5l9 7.5 M5.25 9.25v10a2 2 0 0 0 2 2h9.5a2 2 0 0 0 2-2v-10 M10 21.25V16.5a2 2 0 0 1 4 0v4.75",
+  installed: "M12 3.5v11 M7.5 10l4.5 4.5 4.5-4.5 M4 15.5v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3",
+  home: "M3 11L12 3.5l9 7.5 M5.25 9.25v10a2 2 0 0 0 2 2h9.5a2 2 0 0 0 2-2v-10 M10 21.25V16.5a2 2 0 0 1 4 0v4.75",
   projects: "M8 7L3 12l5 5 M16 7l5 5-5 5 M14 4l-4 16",
   backups: "M19.25 13a7.25 7.25 0 1 1-14.5 0 7.25 7.25 0 0 1 14.5 0z M12 9.25V13l2.5 1.75 M3.25 6.25l3-2.75 M20.75 6.25l-3-2.75",
   doctor: "M12 21.25c-4.6-1.6-7.75-5-7.75-10V5.75L12 2.75l7.75 3v5.5c0 5-3.15 8.4-7.75 10z M8.75 12l2.25 2.25 4.25-4.5",
@@ -119,7 +120,7 @@ export function notice(kind, text, code, detail) {
   return h("div", { class: "notice " + (kind || ""), role: kind === "bad" ? "alert" : "status" },
     code ? h("span", { class: "code", text: code }) : null,
     h("span", { class: "msg", text }),
-    detail ? h("span", { class: "detail", text: detail }) : null);
+    detail ? h("span", { class: "nd", text: detail }) : null);
 }
 
 // failure shows an API error in the chosen language, with what the

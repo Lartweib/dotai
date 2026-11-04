@@ -6,7 +6,7 @@
 import { actions, boardHead, busy, failure, h, hint, kv, lm, mount, notice, op, sec, warning } from "./dom.js";
 import { confirmFlow, guard, rel, restoreProjectFlow } from "./flows.js";
 import { fmtDate, fmtRelative, t } from "./i18n.js";
-import { act, harnessName, isAbsolute, loadPack, post, recentPacks, recentProjects, rememberProject, selectedPack, shared, tilde } from "./store.js";
+import { act, harnessName, isAbsolute, loadPack, packPaths, post, recentProjects, rememberProject, selectedPack, shared, tilde } from "./store.js";
 
 const base = (p) => p.split(/[\\/]/).filter(Boolean).pop() || p;
 
@@ -60,7 +60,7 @@ export async function render(root, ctx) {
 async function showProject(detail, project, st, ctx) {
   const rec = st && st.record;
   const packPath = rec ? rec.pack.path : selectedPack();
-  const packs = [...new Set([packPath, ...recentPacks()].filter(Boolean))];
+  const packs = [...new Set([packPath, ...packPaths()].filter(Boolean))];
   const area = h("div", { class: "form" });
   const restoreArea = h("div", { class: "stack" });
   mount(detail,
