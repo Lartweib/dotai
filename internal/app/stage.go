@@ -191,6 +191,11 @@ func stage(ctx context.Context, w stageFS, fetch fetchFunc, run runFunc, cacheDi
 				return nil, err
 			}
 		}
+		if slices.Contains(harnesses, "opencode") {
+			if err := renameProjectPlugin(w, filepath.Join(tmp, ScopeProject), p.Manifest.Rulesync); err != nil {
+				return nil, err
+			}
+		}
 		var rendered []StagedFile
 		for _, t := range []struct {
 			scope    string

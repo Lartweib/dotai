@@ -57,7 +57,7 @@ func TestPlanProjectWithRealRulesync(t *testing.T) {
 	for _, rel := range []string{
 		".claude/rules/web.md", ".claude/skills/lint/SKILL.md", ".claude/commands/deploy.md", ".claude/settings.local.json",
 		".agents/rules/web.md", ".agents/skills/lint/SKILL.md", ".agents/skills/deploy/SKILL.md", ".agents/mcp_config.json",
-		".opencode/memories/web.md", ".opencode/skills/lint/SKILL.md", ".opencode/commands/deploy.md", ".opencode/plugins/rulesync-hooks.js", ".opencode/opencode.json",
+		".opencode/memories/web.md", ".opencode/skills/lint/SKILL.md", ".opencode/commands/deploy.md", ".opencode/plugins/rulesync-hooks-project.js", ".opencode/opencode.json",
 		".dotai/state.json",
 	} {
 		if targets[at(project, rel)] != plan.Create {
