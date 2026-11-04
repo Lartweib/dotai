@@ -43,6 +43,11 @@ type Deps struct {
 	Apply                 func(ctx context.Context, cacheDir, dir, cwd, home string, opts app.ApplyOptions, progress app.Progress, consent app.ApplyConsent) (app.ApplyResult, error)
 	Restore               func(ctx context.Context, home, id string, opts app.RestoreOptions, warn app.Warn, overwrite func(app.RestoreResult) (bool, error)) (app.RestoreResult, error)
 	RestoreProject        func(ctx context.Context, cwd, home string, opts app.ProjectRestoreOptions, overwrite func(app.ProjectRestoreResult) (bool, error)) (app.ProjectRestoreResult, error)
+	ListPacks             func(home string) (app.PackList, error)
+	ImportPack            func(home, dir string) (app.PackList, error)
+	RemovePack            func(home, dir string) (app.PackList, error)
+	CopyPack              func(from, to string) (app.CopyResult, error)
+	SummarizePack         func(dir string) (app.PackContents, error)
 }
 
 // AppDeps returns the use cases of internal/app, which fetch and run
@@ -63,6 +68,11 @@ func AppDeps(p app.Ports) Deps {
 		Apply:                 p.Apply,
 		Restore:               p.Restore,
 		RestoreProject:        app.RestoreProject,
+		ListPacks:             app.ListPacks,
+		ImportPack:            app.ImportPack,
+		RemovePack:            app.RemovePack,
+		CopyPack:              app.CopyPack,
+		SummarizePack:         app.SummarizePack,
 	}
 }
 
@@ -179,6 +189,11 @@ func newUI(cfg Config, deps Deps, web fs.FS) *ui {
 		"/api/restore":                 {"restore", http.MethodPost, s.restore},
 		"/api/restore/project":         {"restore", http.MethodPost, s.restoreProject},
 		"/api/doctor/fix":              {"doctor", http.MethodPost, s.fix},
+		"/api/packs":                   {command, http.MethodGet, s.packs},
+		"/api/packs/import":            {command, http.MethodPost, s.importPack},
+		"/api/packs/remove":            {command, http.MethodPost, s.removePack},
+		"/api/packs/copy":              {command, http.MethodPost, s.copyPack},
+		"/api/pack/summary":            {command, http.MethodGet, s.packSummary},
 	}
 	files := http.FileServerFS(web)
 	mux := http.NewServeMux()
