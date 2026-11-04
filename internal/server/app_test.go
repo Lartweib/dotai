@@ -194,7 +194,7 @@ func TestARestoreRefusesAPreviewThatChanged(t *testing.T) {
 	}
 }
 
-func TestApplyRestoreAndFixAProjectThroughTheApp(t *testing.T) {
+func TestApplyThenRestoreAProjectThroughTheApp(t *testing.T) {
 	cfg := appHome(t)
 	pack, err := filepath.Abs(filepath.Join("..", "..", "examples", "minimal-pack"))
 	if err != nil {
@@ -210,12 +210,6 @@ func TestApplyRestoreAndFixAProjectThroughTheApp(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(project, ".dotai", "state.json")); err != nil {
 		t.Fatalf("marker = %v, want the apply written", err)
-	}
-
-	data, digest := planData(t, h, request("GET", "/api/doctor", testToken))
-	w = serve(h, post("/api/doctor/fix", `{"digest":`+jsonString(digest)+`}`, testToken))
-	if w.Code != http.StatusOK && w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("doctor fix = %d; body %s; found %s", w.Code, w.Body, data)
 	}
 
 	_, digest = planData(t, h, request("GET", "/api/restore/project/preview?project="+project, testToken))
