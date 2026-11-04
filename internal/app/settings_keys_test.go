@@ -24,8 +24,21 @@ func installVariant(t *testing.T, d app.ExecuteFS, dir, variant, home string) (a
 	return app.InstallWith(context.Background(), d, f.fetch, f.run, dir, variant, home)
 }
 
-// settingsOf decodes a settings file as JSON.
+// settingsOf decodes a settings file as JSON. In Claude Code's isolated
+// settings, the claudeMdExcludes an isolated install writes for its home
+// is left out when it is exactly that list, so that a test sees the pack's
+// keys and the harness's; the tests of claudemd_test.go check it.
 func settingsOf(t *testing.T, name string) map[string]any {
+	t.Helper()
+	v := rawSettingsOf(t, name)
+	if home, ok := strings.CutSuffix(name, filepath.FromSlash("/"+claudeSettings)); ok && reflect.DeepEqual(v["claudeMdExcludes"], homeExcludes(home)) {
+		delete(v, "claudeMdExcludes")
+	}
+	return v
+}
+
+// rawSettingsOf decodes a settings file as JSON, whole.
+func rawSettingsOf(t *testing.T, name string) map[string]any {
 	t.Helper()
 	data, err := os.ReadFile(name)
 	if err != nil {
@@ -42,7 +55,7 @@ func settingsOf(t *testing.T, name string) map[string]any {
 // runs: Claude Code writes the theme on its first launch.
 func harnessWrites(t *testing.T, name string, keys map[string]any) {
 	t.Helper()
-	v := settingsOf(t, name)
+	v := rawSettingsOf(t, name)
 	for k, val := range keys {
 		v[k] = val
 	}
@@ -63,10 +76,14 @@ func ownedFile(t *testing.T, s state.State, target string) (state.File, bool) {
 	return state.File{}, false
 }
 
+// keyNames are the names of keys, but for claudeMdExcludes, which an
+// isolated install owns in Claude Code's settings beside the pack's keys.
 func keyNames(keys []plan.Key) []string {
 	var out []string
 	for _, k := range keys {
-		out = append(out, k.Name())
+		if k.Name() != "claudeMdExcludes" {
+			out = append(out, k.Name())
+		}
 	}
 	return out
 }

@@ -264,7 +264,11 @@ var adapters = []Adapter{
 			// credentials live in the configuration directory.
 			Relogin: map[string]Relogin{"windows": ReloginYes},
 			Leaks: []Leak{
-				{Text: "~/.claude/CLAUDE.md still loads when the working directory is under the home directory"},
+				// Claude Code walks up from the working directory for its
+				// instructions, past CLAUDE_CONFIG_DIR; an isolated install
+				// excludes the home directory's (HARNESS-NOTES).
+				{Text: "the CLAUDE.md, .claude/CLAUDE.md and CLAUDE.local.md of each directory above the working directory still load, but for your ~/CLAUDE.md, ~/CLAUDE.local.md, ~/.claude/CLAUDE.md and ~/.claude/rules, which the isolated settings exclude with claudeMdExcludes"},
+				{Text: "on Windows, that claudeMdExcludes matches these paths in the form dotai writes them, with forward slashes, is not verified", GOOS: "windows"},
 				{Text: "credentials live in the configuration directory, so you must log in again", GOOS: "windows"},
 				{Text: linkedSkills, Skills: SkillsShared},
 			},

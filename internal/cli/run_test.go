@@ -18,7 +18,7 @@ var runPlan = app.RunPlan{
 	Harness: app.HarnessPlan{
 		ID: "claudecode", Level: "partial", Dir: "/home/u/.dotai/isolated/claude", Relogin: "yes",
 		Pointers: []app.PointerPlan{{Mechanism: "env", Name: "CLAUDE_CONFIG_DIR", Dir: "/home/u/.dotai/isolated/claude"}},
-		Leaks:    []string{"~/.claude/CLAUDE.md still loads when the working directory is under the home directory", "credentials do not carry over"},
+		Leaks:    []string{"the CLAUDE.md, .claude/CLAUDE.md and CLAUDE.local.md of each directory above the working directory still load, but for your ~/CLAUDE.md, ~/CLAUDE.local.md, ~/.claude/CLAUDE.md and ~/.claude/rules, which the isolated settings exclude with claudeMdExcludes", "credentials do not carry over"},
 	},
 	Command: "claude", Program: "/usr/bin/claude", Env: []string{"CLAUDE_CONFIG_DIR=/home/u/.dotai/isolated/claude"},
 }
@@ -72,7 +72,7 @@ func TestRunRunLaunchesAndForwardsTheExitCode(t *testing.T) {
 	}
 	want := "dotai: claudecode · partial isolation · CLAUDE_CONFIG_DIR=/home/u/.dotai/isolated/claude\n" +
 		"dotai: login: you must log in again in the isolated configuration\n" +
-		"dotai: leaks: ~/.claude/CLAUDE.md still loads when the working directory is under the home directory\n" +
+		"dotai: leaks: the CLAUDE.md, .claude/CLAUDE.md and CLAUDE.local.md of each directory above the working directory still load, but for your ~/CLAUDE.md, ~/CLAUDE.local.md, ~/.claude/CLAUDE.md and ~/.claude/rules, which the isolated settings exclude with claudeMdExcludes\n" +
 		"dotai: leaks: credentials do not carry over\n"
 	if stderr.String() != want {
 		t.Errorf("stderr = %q, want %q", stderr.String(), want)

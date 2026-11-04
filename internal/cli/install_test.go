@@ -25,7 +25,7 @@ var installPlan = app.InstallPlan{
 		{ID: "claudecode", Required: true, Managed: true, Detection: app.Detection{Detected: true, Binary: "/usr/bin/claude", Config: "/home/u/.claude", ConfigFound: true},
 			Level: "partial", Dir: "/home/u/.dotai/isolated/claude", Relogin: "unknown",
 			Pointers: []app.PointerPlan{{Mechanism: "env", Name: "CLAUDE_CONFIG_DIR", Dir: "/home/u/.dotai/isolated/claude"}},
-			Leaks:    []string{"~/.claude/CLAUDE.md still loads when the working directory is under the home directory"}, Tools: []app.ToolCommand{}},
+			Leaks:    []string{"the CLAUDE.md, .claude/CLAUDE.md and CLAUDE.local.md of each directory above the working directory still load, but for your ~/CLAUDE.md, ~/CLAUDE.local.md, ~/.claude/CLAUDE.md and ~/.claude/rules, which the isolated settings exclude with claudeMdExcludes"}, Tools: []app.ToolCommand{}},
 		{ID: "antigravity-cli", Required: true, Managed: true, Detection: app.Detection{Detected: true, Binary: "/usr/bin/agy", Config: "/home/u/.gemini"},
 			Level: "partial", Dir: "/home/u/.dotai/isolated/gemini", Relogin: "no",
 			Pointers: []app.PointerPlan{{Mechanism: "flag", Name: "--gemini_dir", Dir: "/home/u/.dotai/isolated/gemini"}},
