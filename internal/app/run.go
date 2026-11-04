@@ -132,9 +132,12 @@ func planRun(d executeFS, lookPath func(string) (string, error), goos, home, id 
 		return RunPlan{}, err
 	}
 	p = RunPlan{Harness: h, Command: a.Command, Program: program, Args: []string{}, Env: []string{}, Vars: []string{}, Notes: []string{}, Warnings: []string{}}
-	set, drop := map[string]bool{}, map[string]bool{}
+	set, drop, credentials := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for _, name := range a.Isolation.Drop {
 		drop[envKey(goos, name)] = true
+	}
+	for _, name := range a.Isolation.Credentials {
+		credentials[envKey(goos, name)] = true
 	}
 	for _, ptr := range h.Pointers {
 		if ptr.Mechanism == string(harness.Flag) {
@@ -159,7 +162,7 @@ func planRun(d executeFS, lookPath func(string) (string, error), goos, home, id 
 	}
 	args, p.Notes, p.Warnings = addFlags(a.Isolation.Flags, args, isDir)
 	p.Args = append(p.Args, args...)
-	var dropped []string
+	var dropped, logins []string
 	for _, kv := range environ {
 		name, _, _ := strings.Cut(kv, "=")
 		switch key := envKey(goos, name); {
@@ -167,10 +170,17 @@ func planRun(d executeFS, lookPath func(string) (string, error), goos, home, id 
 			dropped = append(dropped, name)
 		case !set[key]:
 			p.Env = append(p.Env, kv)
+			if credentials[key] {
+				logins = append(logins, name)
+			}
 		}
 	}
 	if len(dropped) > 0 {
-		p.Notes = append(p.Notes, fmt.Sprintf("removed %s from the environment, since each points %s at another configuration", strings.Join(dropped, ", "), a.ID))
+		p.Notes = append(p.Notes, fmt.Sprintf("removed %s from the environment, since %s", strings.Join(dropped, ", "), a.Isolation.DropNote))
+	}
+	// Names only: a value is a secret.
+	if len(logins) > 0 {
+		p.Warnings = append(p.Warnings, fmt.Sprintf("the credentials in %s are set in your environment and passed on: %s uses them rather than the isolated login", strings.Join(logins, ", "), a.ID))
 	}
 	for _, ptr := range h.Pointers {
 		if ptr.Mechanism == string(harness.Env) {

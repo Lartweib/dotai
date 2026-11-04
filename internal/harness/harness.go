@@ -109,8 +109,13 @@ type Isolation struct {
 	Vars     []Var       // set by dotai run after the pointers
 	Flags    []AddedFlag // added by dotai run to the user's arguments
 	// Drop are variables of the user's environment that point the harness
-	// at another configuration; dotai run removes them and says so.
-	Drop []string
+	// at another configuration, or carry another session into it; dotai
+	// run removes them and says so, with DropNote, why, text for people.
+	Drop     []string
+	DropNote string
+	// Credentials are variables of the user's environment that log the
+	// harness in, which dotai run passes on and names in a warning.
+	Credentials []string
 }
 
 // Var is an environment variable that dotai run sets to a fixed value.
@@ -273,6 +278,16 @@ var adapters = []Adapter{
 				{Text: linkedSkills, Skills: SkillsShared},
 			},
 			Pointers: []Pointer{{Mechanism: Env, Name: "CLAUDE_CONFIG_DIR"}},
+			// From the environment variables reference
+			// (https://code.claude.com/docs/en/env-vars, read 2026-11-04):
+			// plugin directories, a shell setup sourced before each Bash
+			// command, and the markers Claude Code sets in the processes it
+			// spawns, which a session started from one would inherit.
+			Drop: []string{"CLAUDE_CODE_PLUGIN_DIRS", "CLAUDE_CODE_PLUGIN_SEED_DIR", "CLAUDE_CODE_PLUGIN_CACHE_DIR", "CLAUDE_ENV_FILE",
+				"CLAUDE_CODE_SESSION_ID", "CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION"},
+			DropNote: "each loads your own plugins or shell setup, or carries the Claude Code session dotai runs in, into the isolated one",
+			// Each logs Claude Code in instead of the isolated login.
+			Credentials: []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"},
 		},
 	},
 	{
@@ -352,7 +367,8 @@ var adapters = []Adapter{
 			}},
 			// Checked on 2.0.30: each points OpenCode at a configuration or a
 			// database of its own.
-			Drop: []string{"OPENCODE_CONFIG", "OPENCODE_CONFIG_DIR", "OPENCODE_CONFIG_CONTENT", "OPENCODE_CLI_CONFIG_CONTENT", "OPENCODE_DB"},
+			Drop:     []string{"OPENCODE_CONFIG", "OPENCODE_CONFIG_DIR", "OPENCODE_CONFIG_CONTENT", "OPENCODE_CLI_CONFIG_CONTENT", "OPENCODE_DB"},
+			DropNote: "each points opencode at another configuration",
 		},
 	},
 }
@@ -374,6 +390,7 @@ func All() []Adapter {
 		out[i].Isolation.Vars = slices.Clone(out[i].Isolation.Vars)
 		out[i].Isolation.Flags = slices.Clone(out[i].Isolation.Flags)
 		out[i].Isolation.Drop = slices.Clone(out[i].Isolation.Drop)
+		out[i].Isolation.Credentials = slices.Clone(out[i].Isolation.Credentials)
 		for j := range out[i].Isolation.Flags {
 			f := &out[i].Isolation.Flags[j]
 			f.Commands, f.Subcommands, f.Unless = slices.Clone(f.Commands), slices.Clone(f.Subcommands), slices.Clone(f.Unless)

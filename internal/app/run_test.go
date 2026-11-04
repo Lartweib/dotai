@@ -463,6 +463,43 @@ func TestPlanRunAddsStandalone(t *testing.T) {
 	}
 }
 
+// TestPlanRunDropsClaudeCodeSessionAndPluginVariables checks that the
+// variables that would load the user's own plugins or shell setup, or
+// carry a parent Claude Code session into the isolated one, are removed and
+// named in a note, and that the credential variables are kept and named,
+// without their values, in a warning.
+func TestPlanRunDropsClaudeCodeSessionAndPluginVariables(t *testing.T) {
+	home := runHome(t, app.ModeIsolated, []string{"claudecode"}, nil)
+	dropped := []string{"CLAUDE_CODE_PLUGIN_DIRS=/p", "CLAUDE_CODE_PLUGIN_SEED_DIR=/s", "CLAUDE_CODE_PLUGIN_CACHE_DIR=/c", "CLAUDE_ENV_FILE=/e.sh",
+		"CLAUDE_CODE_SESSION_ID=abc", "claudecode=1", "CLAUDE_CODE_CHILD_SESSION=1"}
+	kept := []string{"CLAUDE_CODE_OAUTH_TOKEN=secret-oauth", "ANTHROPIC_API_KEY=secret-key", "KEEP=1"}
+	p, err := app.PlanRunWith(home, "claudecode", nil, append(slices.Clone(dropped), kept...), lookPathAt(home), "windows")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kv := range dropped {
+		if slices.Contains(p.Env, kv) {
+			t.Errorf("Env has %q, want it removed", kv)
+		}
+	}
+	for _, kv := range kept {
+		if !slices.Contains(p.Env, kv) {
+			t.Errorf("Env = %q, want %q kept", p.Env, kv)
+		}
+	}
+	if len(p.Notes) != 1 || !strings.Contains(p.Notes[0], "CLAUDE_CODE_PLUGIN_DIRS, CLAUDE_CODE_PLUGIN_SEED_DIR, CLAUDE_CODE_PLUGIN_CACHE_DIR, CLAUDE_ENV_FILE, CLAUDE_CODE_SESSION_ID, claudecode, CLAUDE_CODE_CHILD_SESSION") {
+		t.Errorf("Notes = %q, want one naming the removed variables", p.Notes)
+	}
+	if len(p.Warnings) != 1 || !strings.Contains(p.Warnings[0], "CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY") ||
+		strings.Contains(p.Warnings[0], "ANTHROPIC_AUTH_TOKEN") || strings.Contains(p.Warnings[0], "secret") {
+		t.Errorf("Warnings = %q, want one naming the credential variables that are set, without their values", p.Warnings)
+	}
+	p, err = app.PlanRunWith(home, "claudecode", nil, []string{"KEEP=1"}, lookPathAt(home), "linux")
+	if err != nil || len(p.Notes) != 0 || len(p.Warnings) != 0 {
+		t.Errorf("without them: Notes = %q, Warnings = %q, %v, want none", p.Notes, p.Warnings, err)
+	}
+}
+
 // TestPlanRunDropsVariablesThatPointOpenCodeElsewhere checks that an
 // inherited configuration or database of OpenCode's is removed, in any
 // case on Windows, and named in a note.
