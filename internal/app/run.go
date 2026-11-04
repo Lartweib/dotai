@@ -118,13 +118,16 @@ func planRun(d executeFS, lookPath func(string) (string, error), goos, home, cwd
 	}
 	root := filepath.Join(home, filepath.FromSlash(harness.IsolatedDir))
 	h := harnessPlan(harness.Isolated, home, a, goos, s.SharedSkills)
+	launch := harness.Launch{GOOS: goos, Shared: s.SharedSkills, UnderHome: true, Exists: func(string) bool { return true },
+		Excluded: homeExcluded(d, home, h.Dir, a)}
 	if cwd != "" {
-		exists := func(rel string) bool {
+		launch.UnderHome = underHome(goos, home, cwd)
+		launch.Exists = func(rel string) bool {
 			_, err := d.Lstat(filepath.Join(home, filepath.FromSlash(rel)))
 			return err == nil
 		}
-		h.Leaks = a.Isolation.LeaksAt(harness.Launch{GOOS: goos, Shared: s.SharedSkills, UnderHome: underHome(goos, home, cwd), Exists: exists, Excluded: true})
 	}
+	h.Leaks = a.Isolation.LeaksAt(launch)
 	dirs := []string{root, h.Dir}
 	if a.Install != "" {
 		dir := h.Dir

@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -708,5 +709,56 @@ func TestUnderHome(t *testing.T) {
 	}
 	if !app.UnderHome(runtime.GOOS, home, link) {
 		t.Errorf("a link to the home directory is not under it")
+	}
+}
+
+// TestPlanRunSaysWhetherTheHomeInstructionsAreExcluded checks that the
+// leak of Claude Code's walk-up says the home directory's instruction
+// files are excluded only when the isolated settings list every pattern
+// an install writes, and otherwise that they still load and to install
+// again, as after an install from before claudeMdExcludes.
+func TestPlanRunSaysWhetherTheHomeInstructionsAreExcluded(t *testing.T) {
+	home := runHome(t, app.ModeIsolated, []string{"claudecode"}, nil)
+	settings := at(home, ".dotai/isolated/claude/settings.json")
+	patterns, ok := app.HomePatterns([]string{filepath.ToSlash(home)}, []string{"CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md", ".claude/rules/**"})
+	if !ok {
+		t.Fatal("no patterns")
+	}
+	list := func(p []string) string {
+		data, err := json.Marshal(map[string]any{"model": "sonnet", "claudeMdExcludes": p})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	for _, tt := range []struct {
+		name, settings string // "" for no settings file
+		excluded       bool
+	}{
+		{"no settings file", "", false},
+		{"settings without the key", `{"model": "sonnet"}`, false},
+		{"some patterns only", list(patterns[:2]), false},
+		{"not JSON", "{", false},
+		{"every pattern, with the pack's", list(append([]string{"**/vendor/CLAUDE.md"}, patterns...)), true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := os.Remove(settings); err != nil && !errors.Is(err, os.ErrNotExist) {
+				t.Fatal(err)
+			}
+			if tt.settings != "" {
+				writeFile(t, settings, tt.settings)
+			}
+			p, err := app.PlanRunWith(home, "claudecode", nil, nil, lookPathAt(home), "linux")
+			if err != nil || len(p.Harness.Leaks) == 0 {
+				t.Fatalf("PlanRun() = %+v, %v", p.Harness.Leaks, err)
+			}
+			leak := p.Harness.Leaks[0]
+			if got := strings.Contains(leak, "which the isolated settings exclude with claudeMdExcludes"); got != tt.excluded {
+				t.Errorf("leak = %q, want excluded %v", leak, tt.excluded)
+			}
+			if !tt.excluded && !strings.Contains(leak, "run dotai install again") {
+				t.Errorf("leak = %q, want it to say to install again", leak)
+			}
+		})
 	}
 }

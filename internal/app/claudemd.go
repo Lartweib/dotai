@@ -81,3 +81,39 @@ func excludeHomeInstructions(d stageFS, tree, home string, a harness.Adapter) (n
 	}
 	return "", d.WriteFile(tree, name, doc.Bytes(), 0o644)
 }
+
+// homeExcluded reports whether a's isolated settings, in its isolated
+// directory dir, list under the key of its Instructions every pattern an
+// install writes for home, so that dotai run can say whether the home
+// directory's instruction files still load: an install from before the
+// key, or for a home with a glob character, has none. A harness without
+// Instructions has nothing to exclude.
+func homeExcluded(d stageFS, home, dir string, a harness.Adapter) bool {
+	hi := a.Isolation.Instructions
+	if hi == nil {
+		return true
+	}
+	patterns, ok := homePatterns(homeForms(home), hi.Paths)
+	if !ok {
+		return false
+	}
+	data, err := d.ReadFile(filepath.Join(dir, filepath.FromSlash(a.Install)), a.Settings)
+	if err != nil {
+		return false
+	}
+	doc, err := jsonc.Parse(data)
+	if err != nil {
+		return false
+	}
+	raw, ok := doc.Get([]string{hi.Key})
+	var list []string
+	if !ok || json.Unmarshal(raw, &list) != nil {
+		return false
+	}
+	for _, p := range patterns {
+		if !slices.Contains(list, p) {
+			return false
+		}
+	}
+	return true
+}
