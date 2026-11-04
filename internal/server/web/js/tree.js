@@ -62,7 +62,7 @@ export async function render(root, ctx) {
       h("div", { class: "listhead stack" },
         h("p", { class: "meta" }, h("a", { class: "t-meta", href: "#/packs", text: summary ? summary.name + " " + summary.version : tilde(pack) }),
           h("span", { class: on ? "pill sm you" : "pill sm state", text: on ? t("tree.installedNow", { variant: s.variant }) : t("tree.notInstalled") })),
-        h("p", { class: "help", text: t("tree.summary", { variant: p.variant || t("tree.noVariant"), mode: t("mode." + p.mode) }) }),
+        h("p", { class: "help", text: t("tree.summary", { variant: p.variant || t("tree.noVariant"), mode: t("mode." + p.mode).toLocaleLowerCase() }) }),
         h("div", { class: "tabs", role: "tablist", "aria-label": t("tree.harness") }, tabs.map((x) =>
           h("button", { class: "btn sm", type: "button", role: "tab", "aria-selected": String(x.id === view.harness), text: harnessName(x.id),
             onclick: () => { view.harness = x.id; view.sel = ""; draw(); } }))),

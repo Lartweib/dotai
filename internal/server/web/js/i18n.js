@@ -483,6 +483,17 @@ const en = {
   "errors.copy-refused": "dotai refused the copy before writing anything.",
 
   "doctor.allClearEmpty": "Nothing is installed and no repository has a profile applied, so there is nothing to check yet.",
+
+  "home.flow": "From install to a set-up repository",
+  "home.flowHint": "dotai keeps the steps safe; the choice of profiles stays with you and the pack's onboarding agent.",
+  "home.flow.1": "dotai install puts the base of the pack, with its onboarding agent, in the user configuration of each harness.",
+  "home.flow.2": "In a new repository, ask the onboarding agent to set it up: it analyzes the project by content, reads the pack's profiles and their descriptions, and asks you only what it cannot tell.",
+  "home.flow.3": "It proposes profiles, runs dotai apply --dry-run to show you the plan, and applies it through dotai apply only after you approve.",
+  "home.flow.4": "The engine never picks a profile itself. It writes safely: a backup first, a record of what it owns, git exclude entries so nothing is committed, and dotai restore --project to undo.",
+  "home.agent.fromPack": "The onboarding agent of {name}",
+  "home.agent.none": "The selected pack has no onboarding agent, a subagent named onboarding. The example pack has a template to start from:",
+  "home.agent.noPack": "Import a pack to see its onboarding agent here. The example pack has a template to start from:",
+  "home.agent.adapt": "Whoever builds a pack should include an onboarding agent and adapt it: its questions, the evidence it looks for and the profiles it proposes.",
 };
 
 const es = {
@@ -955,6 +966,17 @@ const es = {
   "errors.copy-refused": "dotai rechazó la copia antes de escribir nada.",
 
   "doctor.allClearEmpty": "No hay nada instalado ni repositorios con perfiles aplicados, así que todavía no hay nada que comprobar.",
+
+  "home.flow": "De la instalación a un repositorio configurado",
+  "home.flowHint": "dotai mantiene seguros los pasos; la elección de perfiles queda en tus manos y en las del agente de incorporación del paquete.",
+  "home.flow.1": "dotai install coloca la base del paquete, con su agente de incorporación, en la configuración de usuario de cada harness.",
+  "home.flow.2": "En un repositorio nuevo, pide al agente de incorporación que lo configure: analiza el proyecto por su contenido, lee los perfiles del paquete y sus descripciones, y solo te pregunta lo que no puede deducir.",
+  "home.flow.3": "Propone perfiles, ejecuta dotai apply --dry-run para mostrarte el plan y lo aplica mediante dotai apply solo después de que lo apruebes.",
+  "home.flow.4": "El motor nunca elige un perfil por su cuenta. Escribe de forma segura: primero una copia de seguridad, un registro de lo que le pertenece, entradas exclude de git para que nada llegue a un commit, y dotai restore --project para deshacerlo.",
+  "home.agent.fromPack": "El agente de incorporación de {name}",
+  "home.agent.none": "El paquete seleccionado no tiene agente de incorporación, un subagente llamado onboarding. El paquete de ejemplo incluye una plantilla para empezar:",
+  "home.agent.noPack": "Importa un paquete para ver aquí su agente de incorporación. El paquete de ejemplo incluye una plantilla para empezar:",
+  "home.agent.adapt": "Quien construya un paquete debería incluir un agente de incorporación y adaptarlo: sus preguntas, la evidencia que busca y los perfiles que propone.",
 };
 
 const dicts = { en, es };
