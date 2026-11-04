@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -49,7 +48,7 @@ func appHome(t *testing.T) server.Config {
 	for _, v := range []string{"TMPDIR", "TMP", "TEMP"} {
 		t.Setenv(v, tmp)
 	}
-	return server.Config{Home: home, CacheDir: filepath.Join(tmp, "cache"), Token: testToken, Port: testPort}
+	return server.Config{Home: home, CacheDir: filepath.Join(tmp, "cache"), Session: testToken, Port: testPort}
 }
 
 // fakePorts never downloads or runs rulesync, and sees no process running.
@@ -92,7 +91,7 @@ func TestPlanInstallThroughTheAppPlansTheExamplePack(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := server.New(cfg, server.AppDeps(fakePorts), server.Web())
-	w := serve(h, request("GET", "/api/install/plan?pack="+url.QueryEscape(pack)+"", testToken))
+	w := serve(h, post("/api/install/plan", `{"pack":`+jsonString(pack)+`}`, testToken))
 	if w.Code != http.StatusOK {
 		t.Fatalf("plan install = %d; body %s", w.Code, w.Body)
 	}
@@ -108,6 +107,6 @@ func TestPlanInstallThroughTheAppPlansTheExamplePack(t *testing.T) {
 func TestPlanProjectThroughTheAppRefusesTheHomeDirectory(t *testing.T) {
 	cfg := appHome(t)
 	h := server.New(cfg, server.AppDeps(fakePorts), server.Web())
-	w := serve(h, request("GET", "/api/apply/plan?project="+url.QueryEscape(cfg.Home)+"&profile=web", testToken))
+	w := serve(h, post("/api/apply/plan", `{"project":`+jsonString(cfg.Home)+`,"profiles":["web"]}`, testToken))
 	wantFailure(t, w, http.StatusConflict, "project-refused")
 }

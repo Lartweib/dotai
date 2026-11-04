@@ -12,7 +12,7 @@ import (
 	"github.com/lartweib/dotai/internal/cli"
 )
 
-const uiURL = "http://127.0.0.1:4321/?token=abc"
+const uiURL = "http://127.0.0.1:4321/#code=abc"
 
 // uiRun is what a faked dotai ui was given: whether it started, its
 // options, and the addresses the browser was asked to open.

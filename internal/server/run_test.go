@@ -6,7 +6,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"net/http/cookiejar"
 	"net/url"
 	"strings"
 	"testing"
@@ -57,30 +56,56 @@ func startRun(t *testing.T, deps server.Deps) (addr *url.URL, stop func() error)
 	return addr, stop
 }
 
-func TestRunServesOn127001UntilCancelled(t *testing.T) {
-	addr, stop := startRun(t, fakeDeps())
-	if addr.Scheme != "http" || addr.Hostname() != "127.0.0.1" || addr.Port() == "" || addr.Port() == "0" || addr.Path != "/" {
-		t.Fatalf("address = %s, want http://127.0.0.1:<port>/", addr)
-	}
-	token := addr.Query().Get(server.TokenParam)
-	if len(token) < 43 {
-		t.Fatalf("token = %q, want 32 random bytes", token)
-	}
-	jar, err := cookiejar.New(nil)
+// fragmentCode is the one-time code in the fragment of addr.
+func fragmentCode(t *testing.T, addr *url.URL) string {
+	t.Helper()
+	q, err := url.ParseQuery(addr.Fragment)
 	if err != nil {
 		t.Fatal(err)
 	}
-	client := &http.Client{Jar: jar, Timeout: 10 * time.Second}
-	res, err := client.Get(addr.String())
+	return q.Get(server.CodeParam)
+}
+
+func TestRunServesOn127001UntilCancelled(t *testing.T) {
+	addr, stop := startRun(t, fakeDeps())
+	if addr.Scheme != "http" || addr.Hostname() != "127.0.0.1" || addr.Port() == "" || addr.Port() == "0" || addr.Path != "/" || addr.RawQuery != "" {
+		t.Fatalf("address = %s, want http://127.0.0.1:<port>/ with no query", addr)
+	}
+	code := fragmentCode(t, addr)
+	if len(code) < 43 {
+		t.Fatalf("code = %q, want 32 random bytes in the fragment", code)
+	}
+	client := &http.Client{Timeout: 10 * time.Second}
+	res, err := client.Get("http://" + addr.Host + "/")
 	if err != nil {
 		t.Fatal(err)
 	}
 	page, _ := io.ReadAll(res.Body)
 	res.Body.Close()
-	if res.StatusCode != http.StatusOK || res.Request.URL.RawQuery != "" || !strings.Contains(string(page), "<title>dotai</title>") {
-		t.Fatalf("opening the address = %d at %s, want the embedded index page without the token in the address", res.StatusCode, res.Request.URL)
+	if res.StatusCode != http.StatusOK || !strings.Contains(string(page), "<title>dotai</title>") {
+		t.Fatalf("GET / = %d, want the embedded index page", res.StatusCode)
 	}
-	res, err = client.Get("http://" + addr.Host + "/api/version")
+	res, err = client.Post("http://"+addr.Host+"/api/session", "application/json", strings.NewReader(`{"code":"`+code+`"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var session struct {
+		OK   bool `json:"ok"`
+		Data struct {
+			Token string `json:"token"`
+		} `json:"data"`
+	}
+	err = json.NewDecoder(res.Body).Decode(&session)
+	res.Body.Close()
+	if err != nil || !session.OK || session.Data.Token == "" || session.Data.Token == code {
+		t.Fatalf("exchange = %+v, %v, want a session token other than the code", session, err)
+	}
+	req, err := http.NewRequest(http.MethodGet, "http://"+addr.Host+"/api/version", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+session.Data.Token)
+	res, err = client.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +116,7 @@ func TestRunServesOn127001UntilCancelled(t *testing.T) {
 	err = json.NewDecoder(res.Body).Decode(&e)
 	res.Body.Close()
 	if err != nil || res.StatusCode != http.StatusOK || !e.OK || e.Command != "version" {
-		t.Errorf("GET /api/version with the cookie = %d %+v, %v, want the version", res.StatusCode, e, err)
+		t.Errorf("GET /api/version with the session token = %d %+v, %v, want the version", res.StatusCode, e, err)
 	}
 	if err := stop(); err != nil {
 		t.Errorf("Run() after cancel = %v, want nil", err)
@@ -104,7 +129,7 @@ func TestRunServesOn127001UntilCancelled(t *testing.T) {
 func TestEachRunHasItsOwnToken(t *testing.T) {
 	a, _ := startRun(t, fakeDeps())
 	b, _ := startRun(t, fakeDeps())
-	if a.Query().Get(server.TokenParam) == b.Query().Get(server.TokenParam) || a.Host == b.Host {
+	if fragmentCode(t, a) == fragmentCode(t, b) || a.Host == b.Host {
 		t.Errorf("two runs = %s and %s, want two ports and two tokens", a, b)
 	}
 }

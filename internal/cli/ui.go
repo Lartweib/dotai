@@ -16,10 +16,12 @@ func newUICmd(env Env, jsonOut *bool) *cobra.Command {
 		Use:   "ui",
 		Short: "Open the local web UI in the browser",
 		Long: "Serve the local web UI on 127.0.0.1, on a free port unless --port names one, print its address and open it\n" +
-			"in the browser unless --no-open. The address carries a token made for this run: every request must carry it,\n" +
-			"name the server by 127.0.0.1 or localhost and come from its own page. The UI reads what the commands read and\n" +
-			"shows their plans; it writes nothing. It runs until Ctrl+C. With --json it prints one envelope, whose data has\n" +
-			"the url, once it listens.",
+			"in the browser unless --no-open. The address carries a one-time code, good for two minutes, that the page trades\n" +
+			"for the session token of this run; open it once, and restart dotai ui for a new one. Every request must name the\n" +
+			"server by 127.0.0.1 or localhost and come from its own page. The UI shows the state, the backups, the plans and\n" +
+			"doctor; it writes nothing in the home directory or a project. A plan, as with --dry-run, fetches rulesync into\n" +
+			"the cache, stages into a temporary directory and runs git in the project. It runs until Ctrl+C. With --json it\n" +
+			"prints one envelope, whose data has the url, once it listens.",
 		// Checked with the arguments, so a port out of range is a usage error.
 		Args: func(cmd *cobra.Command, args []string) error {
 			if port < 0 || port > 65535 {

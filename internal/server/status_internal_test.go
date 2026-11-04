@@ -22,6 +22,7 @@ func TestEveryCodeHasItsIntendedStatus(t *testing.T) {
 		CodeForbidden:               http.StatusForbidden,
 		CodeNotFound:                http.StatusNotFound,
 		CodeMethodNotAllowed:        http.StatusMethodNotAllowed,
+		CodeBusy:                    http.StatusTooManyRequests,
 	}
 	for _, code := range append(append([]string{}, envelope.Codes...), serverCodes...) {
 		status, ok := want[code]

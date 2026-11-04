@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/lartweib/dotai/internal/envelope"
@@ -8,8 +9,12 @@ import (
 
 // writeFailure writes the envelope of err for command, with the codes and
 // data the command line gives (envelope.Classify), and the HTTP status of
-// its code.
+// its code. A failure of the API itself has its own code and status.
 func writeFailure(w http.ResponseWriter, command string, err error) {
+	if ae, ok := errors.AsType[*apiError](err); ok {
+		writeEnvelope(w, ae.status, envelope.Failure(command, ae.code, ae.msg))
+		return
+	}
 	e := envelope.FromError(command, err)
 	writeEnvelope(w, statusOf(e.Error.Code), e)
 }
@@ -35,6 +40,8 @@ func statusOf(code string) int {
 		return http.StatusNotFound
 	case CodeMethodNotAllowed:
 		return http.StatusMethodNotAllowed
+	case CodeBusy:
+		return http.StatusTooManyRequests
 	}
 	return http.StatusInternalServerError
 }

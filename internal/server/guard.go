@@ -2,7 +2,6 @@ package server
 
 import (
 	"crypto/rand"
-	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
 	"net/http"
@@ -11,52 +10,45 @@ import (
 	"github.com/lartweib/dotai/internal/envelope"
 )
 
-// NewToken is a random token for one run of the server: 32 bytes from
-// crypto/rand, in unpadded base64url.
+// NewToken returns a random secret for one run of the server: 32 bytes
+// from crypto/rand, in unpadded base64url. A run makes two, the one-time
+// code and the session token.
 func NewToken() (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
-		return "", fmt.Errorf("making the token of the web UI: %w", err)
+		return "", fmt.Errorf("making a secret of the web UI: %w", err)
 	}
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
-// TokenParam is the query parameter of the address dotai ui opens, which
-// carries the token; bearerPrefix starts the Authorization header that
-// carries it on an API request instead of the cookie.
-const (
-	TokenParam   = "token"
-	bearerPrefix = "Bearer "
-)
+// CodeParam names the one-time code in the fragment of the address dotai
+// ui opens. A fragment never reaches the server or a Referer header.
+const CodeParam = "code"
 
-// cookieName is the name of the cookie that carries the token for the
-// server on port: a cookie is not bound to a port, so that two servers on
-// two ports keep theirs apart.
-func cookieName(port int) string { return fmt.Sprintf("dotai_ui_%d", port) }
+// sessionPath is the one API path that needs no session token: it is the
+// path that gives it.
+const sessionPath = "/api/session"
 
-// guard lets a request reach next only when it is for this server and
-// carries its token:
+// guard lets a request reach next only when the request is for this
+// server, and, on the API, carries the session token:
 //
 //   - its Host is 127.0.0.1:<port> or localhost:<port>, which a page that
 //     renamed its own host to 127.0.0.1 by DNS rebinding does not send;
 //   - its Origin, when it has one, is the server's own, and its
 //     Sec-Fetch-Site, when it has one, is not another site's, so that no
 //     other page can make the browser call the API (CSRF);
-//   - it carries the token in the cookie or, on an API request, in an
-//     Authorization: Bearer header. The address dotai ui opens has the
-//     token as a query parameter of /: that request sets the cookie,
-//     HttpOnly and SameSite=Strict, and is redirected to / without it, so
-//     that the token leaves the address bar.
+//   - on /api/, except the session exchange, it carries the session token
+//     in an Authorization: Bearer header. No cookie is a credential, since
+//     a browser sends a cookie of 127.0.0.1 to every port.
 //
-// Every response also tells the browser not to frame the page, sniff
-// types or send a referrer.
+// The embedded frontend is public and needs no token. Every response also
+// tells the browser not to frame the page, sniff types or send a referrer.
 func guard(cfg Config, next http.Handler) http.Handler {
 	hosts := map[string]bool{fmt.Sprintf("127.0.0.1:%d", cfg.Port): true, fmt.Sprintf("localhost:%d", cfg.Port): true}
 	origins := map[string]bool{}
 	for h := range hosts {
 		origins["http://"+h] = true
 	}
-	cookie := cookieName(cfg.Port)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		securityHeaders(w.Header())
 		if !hosts[strings.ToLower(r.Host)] {
@@ -71,45 +63,24 @@ func guard(cfg Config, next http.Handler) http.Handler {
 			refuse(w, r, http.StatusForbidden, CodeForbidden, "the request comes from another site, not from dotai ui")
 			return
 		}
-		if t, ok := r.URL.Query()[TokenParam]; ok && r.URL.Path == "/" {
-			if len(t) != 1 || !sameToken(t[0], cfg.Token) {
-				refuse(w, r, http.StatusUnauthorized, CodeUnauthorized, "the token in the address is not the one of this run of dotai ui: open the address it printed")
-				return
-			}
-			http.SetCookie(w, &http.Cookie{Name: cookie, Value: cfg.Token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
-			http.Redirect(w, r, "/", http.StatusSeeOther)
-			return
-		}
-		if !authorized(r, cookie, cfg.Token) {
-			refuse(w, r, http.StatusUnauthorized, CodeUnauthorized, "the request carries no token of this run of dotai ui: open the address it printed")
+		if isAPI(r) && r.URL.Path != sessionPath && !authorized(r, cfg.Session) {
+			refuse(w, r, http.StatusUnauthorized, CodeUnauthorized, "the request carries no session token of this run of dotai ui: open the address it printed")
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
 }
 
-// authorized reports whether r carries token, in the cookie or, on an API
-// request, in the Authorization header.
-func authorized(r *http.Request, cookie, token string) bool {
-	if c, err := r.Cookie(cookie); err == nil && sameToken(c.Value, token) {
-		return true
-	}
-	if !isAPI(r) {
-		return false
-	}
-	h, ok := strings.CutPrefix(r.Header.Get("Authorization"), bearerPrefix)
+// authorized reports whether r carries token in its Authorization header.
+func authorized(r *http.Request, token string) bool {
+	h, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	return ok && sameToken(h, token)
-}
-
-// sameToken compares in constant time; an empty token never matches.
-func sameToken(got, want string) bool {
-	return want != "" && subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
 }
 
 func isAPI(r *http.Request) bool { return strings.HasPrefix(r.URL.Path, "/api/") }
 
-// refuse answers a request the guard refuses: an envelope on the API,
-// plain text elsewhere, where a person reads it in the browser.
+// refuse answers a request the guard refuses: with an envelope on the
+// API, and with plain text elsewhere, where a person reads it.
 func refuse(w http.ResponseWriter, r *http.Request, status int, code, msg string) {
 	if isAPI(r) {
 		writeEnvelope(w, status, envelope.Failure(command, code, msg))

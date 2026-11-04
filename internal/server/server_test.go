@@ -9,8 +9,10 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/lartweib/dotai/internal/app"
 	"github.com/lartweib/dotai/internal/envelope"
@@ -18,14 +20,16 @@ import (
 )
 
 const (
-	testToken = "the-token-of-this-run"
+	testToken = "the-session-token-of-this-run"
+	testCode  = "the-one-time-code-of-this-run"
 	testPort  = 4321
 	testHost  = "127.0.0.1:4321"
 )
 
 // testConfig is the configuration every handler of these tests serves.
 func testConfig(t *testing.T) server.Config {
-	return server.Config{Home: t.TempDir(), CacheDir: t.TempDir(), Token: testToken, Port: testPort}
+	return server.Config{Home: t.TempDir(), CacheDir: t.TempDir(), Port: testPort,
+		Code: testCode, CodeExpires: time.Now().Add(2 * time.Minute), Session: testToken}
 }
 
 var testWeb = fstest.MapFS{"index.html": {Data: []byte("<!doctype html><title>dotai</title>")}}
@@ -56,11 +60,22 @@ func fakeDeps() server.Deps {
 	}
 }
 
-// request is a request for the test server: its Host, and the token in
-// the Authorization header unless auth is "".
+// request is a request for the test server: its Host, and the session
+// token in the Authorization header unless auth is "".
 func request(method, target, auth string) *http.Request {
 	r := httptest.NewRequest(method, target, nil)
 	r.Host = testHost
+	if auth != "" {
+		r.Header.Set("Authorization", "Bearer "+auth)
+	}
+	return r
+}
+
+// post is a POST of the JSON body to target for the test server.
+func post(target, body, auth string) *http.Request {
+	r := httptest.NewRequest(http.MethodPost, target, strings.NewReader(body))
+	r.Host = testHost
+	r.Header.Set("Content-Type", "application/json")
 	if auth != "" {
 		r.Header.Set("Authorization", "Bearer "+auth)
 	}
@@ -107,39 +122,48 @@ func wantFailure(t *testing.T, w *httptest.ResponseRecorder, status int, code st
 	}
 }
 
-func TestAPIRequiresTheToken(t *testing.T) {
+// abs is an absolute path on this OS.
+func abs(name string) string {
+	if runtime.GOOS == "windows" {
+		return `C:\work\` + name
+	}
+	return "/work/" + name
+}
+
+// jsonString is s as a JSON string.
+func jsonString(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
+}
+
+func TestAPIRequiresTheSessionToken(t *testing.T) {
 	h := server.New(testConfig(t), fakeDeps(), testWeb)
-	cookie := &http.Cookie{Name: "dotai_ui_4321", Value: testToken}
 	tests := []struct {
-		name   string
-		req    func() *http.Request
-		status int
+		name string
+		req  func() *http.Request
+		ok   bool
 	}{
-		{"no token", func() *http.Request { return request("GET", "/api/version", "") }, http.StatusUnauthorized},
-		{"wrong token", func() *http.Request { return request("GET", "/api/version", "nope") }, http.StatusUnauthorized},
-		{"token in the query of the API", func() *http.Request { return request("GET", "/api/version?token="+testToken, "") }, http.StatusUnauthorized},
+		{"no token", func() *http.Request { return request("GET", "/api/version", "") }, false},
+		{"wrong token", func() *http.Request { return request("GET", "/api/version", "nope") }, false},
+		{"the one-time code", func() *http.Request { return request("GET", "/api/version", testCode) }, false},
+		{"token in the query", func() *http.Request { return request("GET", "/api/version?token="+testToken, "") }, false},
 		{"token without the Bearer scheme", func() *http.Request {
 			r := request("GET", "/api/version", "")
 			r.Header.Set("Authorization", testToken)
 			return r
-		}, http.StatusUnauthorized},
-		{"cookie of another port", func() *http.Request {
+		}, false},
+		{"token in a cookie", func() *http.Request {
 			r := request("GET", "/api/version", "")
-			r.AddCookie(&http.Cookie{Name: "dotai_ui_1234", Value: testToken})
+			r.AddCookie(&http.Cookie{Name: "dotai_ui_4321", Value: testToken})
 			return r
-		}, http.StatusUnauthorized},
-		{"bearer token", func() *http.Request { return request("GET", "/api/version", testToken) }, http.StatusOK},
-		{"cookie", func() *http.Request {
-			r := request("GET", "/api/version", "")
-			r.AddCookie(cookie)
-			return r
-		}, http.StatusOK},
+		}, false},
+		{"bearer token", func() *http.Request { return request("GET", "/api/version", testToken) }, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			w := serve(h, tt.req())
-			if tt.status != http.StatusOK {
-				wantFailure(t, w, tt.status, server.CodeUnauthorized)
+			if !tt.ok {
+				wantFailure(t, w, http.StatusUnauthorized, server.CodeUnauthorized)
 				return
 			}
 			if w.Code != http.StatusOK {
@@ -149,36 +173,109 @@ func TestAPIRequiresTheToken(t *testing.T) {
 	}
 }
 
-func TestTheTokenInTheAddressSetsTheCookie(t *testing.T) {
+func TestTheOneTimeCodeGivesTheSessionTokenOnce(t *testing.T) {
 	h := server.New(testConfig(t), fakeDeps(), testWeb)
-	w := serve(h, request("GET", "/?token="+testToken, ""))
-	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/" {
-		t.Fatalf("GET /?token = %d to %q, want a redirect to /", w.Code, w.Header().Get("Location"))
+	wrong := serve(h, post("/api/session", `{"code":"nope"}`, ""))
+	wantFailure(t, wrong, http.StatusUnauthorized, server.CodeUnauthorized)
+	w := serve(h, post("/api/session", `{"code":`+jsonString(testCode)+`}`, ""))
+	if w.Code != http.StatusOK || len(w.Result().Cookies()) != 0 {
+		t.Fatalf("exchange = %d with cookies %v, want 200 and no cookie; body %s", w.Code, w.Result().Cookies(), w.Body)
 	}
-	cookies := w.Result().Cookies()
-	if len(cookies) != 1 {
-		t.Fatalf("cookies = %v, want one", cookies)
+	e := decode(t, w)
+	var data struct {
+		Token string `json:"token"`
 	}
-	c := cookies[0]
-	if c.Name != "dotai_ui_4321" || c.Value != testToken || !c.HttpOnly || c.SameSite != http.SameSiteStrictMode || c.Path != "/" {
-		t.Errorf("cookie = %+v, want the token, HttpOnly and SameSite=Strict", c)
+	if err := json.Unmarshal(e.Data, &data); err != nil || !e.OK || e.Command != "ui" || data.Token != testToken {
+		t.Errorf("exchange = %+v, %v, want the session token", e, err)
 	}
-	page := request("GET", "/", "")
-	page.AddCookie(c)
-	if w := serve(h, page); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "<title>dotai</title>") {
-		t.Errorf("GET / with the cookie = %d %s, want the index page", w.Code, w.Body)
+	again := serve(h, post("/api/session", `{"code":`+jsonString(testCode)+`}`, ""))
+	wantFailure(t, again, http.StatusUnauthorized, server.CodeUnauthorized)
+	if msg := decode(t, again).Error.Message; !strings.Contains(msg, "already used") || !strings.Contains(msg, "restart dotai ui") {
+		t.Errorf("second exchange message = %q, want it to say the link was already used", msg)
 	}
-	if w := serve(h, request("GET", "/", "")); w.Code != http.StatusUnauthorized || strings.Contains(w.Body.String(), "<title>") {
-		t.Errorf("GET / without the cookie = %d %s, want it refused", w.Code, w.Body)
+}
+
+func TestTheOneTimeCodeIsUsedOnceUnderConcurrency(t *testing.T) {
+	h := server.New(testConfig(t), fakeDeps(), testWeb)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	won := 0
+	for range 20 {
+		wg.Go(func() {
+			if w := serve(h, post("/api/session", `{"code":`+jsonString(testCode)+`}`, "")); w.Code == http.StatusOK {
+				mu.Lock()
+				won++
+				mu.Unlock()
+			}
+		})
 	}
-	if w := serve(h, request("GET", "/?token=nope", "")); w.Code != http.StatusUnauthorized || len(w.Result().Cookies()) != 0 {
-		t.Errorf("GET /?token=nope = %d with cookies %v, want it refused without a cookie", w.Code, w.Result().Cookies())
+	wg.Wait()
+	if won != 1 {
+		t.Errorf("%d exchanges succeeded, want exactly one", won)
+	}
+}
+
+func TestTheOneTimeCodeExpires(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.CodeExpires = time.Now().Add(-time.Second)
+	w := serve(server.New(cfg, fakeDeps(), testWeb), post("/api/session", `{"code":`+jsonString(testCode)+`}`, ""))
+	wantFailure(t, w, http.StatusUnauthorized, server.CodeUnauthorized)
+	if msg := decode(t, w).Error.Message; !strings.Contains(msg, "expired") {
+		t.Errorf("message = %q, want it to say the link expired", msg)
+	}
+}
+
+func TestTheSessionExchangeTakesOnlyAJSONPost(t *testing.T) {
+	h := server.New(testConfig(t), fakeDeps(), testWeb)
+	w := serve(h, request("GET", "/api/session", ""))
+	if w.Code != http.StatusMethodNotAllowed || w.Header().Get("Allow") != "POST" {
+		t.Errorf("GET /api/session = %d, Allow %q, want 405 with Allow POST", w.Code, w.Header().Get("Allow"))
+	}
+	form := post("/api/session", "code="+testCode, "")
+	form.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	wantFailure(t, serve(h, form), http.StatusBadRequest, envelope.CodeUsage)
+	wantFailure(t, serve(h, post("/api/session", `{"code":"x","more":1}`, "")), http.StatusBadRequest, envelope.CodeUsage)
+	// The code is still good after the refused requests.
+	if w := serve(h, post("/api/session", `{"code":`+jsonString(testCode)+`}`, "")); w.Code != http.StatusOK {
+		t.Errorf("exchange after refused requests = %d, want 200", w.Code)
+	}
+}
+
+func TestTheFrontendIsServedWithoutAToken(t *testing.T) {
+	h := server.New(testConfig(t), fakeDeps(), testWeb)
+	if w := serve(h, request("GET", "/", "")); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "<title>dotai</title>") {
+		t.Errorf("GET / = %d %s, want the index page", w.Code, w.Body)
+	}
+	if w := serve(h, request("POST", "/", "")); w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST / = %d, want 405", w.Code)
+	}
+	r := request("GET", "/", "")
+	r.Host = "evil.example:4321"
+	if w := serve(h, r); w.Code != http.StatusForbidden {
+		t.Errorf("GET / for another host = %d, want 403", w.Code)
+	}
+}
+
+func TestTheEmbeddedPageExchangesTheCode(t *testing.T) {
+	h := server.New(testConfig(t), fakeDeps(), server.Web())
+	page := serve(h, request("GET", "/", "")).Body.String()
+	if !strings.Contains(page, `<script type="module" src="app.js">`) {
+		t.Fatalf("index.html = %s, want it to load app.js", page)
+	}
+	js := serve(h, request("GET", "/app.js", ""))
+	if js.Code != http.StatusOK {
+		t.Fatalf("GET /app.js = %d", js.Code)
+	}
+	for _, want := range []string{"/api/session", "history.replaceState", "sessionStorage", "Bearer "} {
+		if !strings.Contains(js.Body.String(), want) {
+			t.Errorf("app.js lacks %q", want)
+		}
 	}
 }
 
 func TestEveryResponseCarriesTheSecurityHeaders(t *testing.T) {
 	h := server.New(testConfig(t), fakeDeps(), testWeb)
-	for _, r := range []*http.Request{request("GET", "/api/version", testToken), request("GET", "/api/version", "")} {
+	for _, r := range []*http.Request{request("GET", "/api/version", testToken), request("GET", "/api/version", ""), request("GET", "/", "")} {
 		w := serve(h, r)
 		for k, want := range map[string]string{"X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer"} {
 			if got := w.Header().Get(k); got != want {
@@ -198,11 +295,9 @@ func TestARequestForAnotherHostIsRefused(t *testing.T) {
 			r := request("GET", "/api/version", testToken)
 			r.Host = host
 			wantFailure(t, serve(h, r), http.StatusForbidden, server.CodeForbidden)
-			r = request("GET", "/?token="+testToken, "")
+			r = post("/api/session", `{"code":`+jsonString(testCode)+`}`, "")
 			r.Host = host
-			if w := serve(h, r); w.Code != http.StatusForbidden || len(w.Result().Cookies()) != 0 {
-				t.Errorf("GET /?token for %q = %d with cookies %v, want it refused", host, w.Code, w.Result().Cookies())
-			}
+			wantFailure(t, serve(h, r), http.StatusForbidden, server.CodeForbidden)
 		})
 	}
 	for _, host := range []string{"127.0.0.1:4321", "localhost:4321", "LOCALHOST:4321"} {
@@ -221,10 +316,13 @@ func TestARequestFromAnotherOriginIsRefused(t *testing.T) {
 			r := request("GET", "/api/version", testToken)
 			r.Header.Set("Origin", origin)
 			wantFailure(t, serve(h, r), http.StatusForbidden, server.CodeForbidden)
+			r = post("/api/session", `{"code":`+jsonString(testCode)+`}`, "")
+			r.Header.Set("Origin", origin)
+			wantFailure(t, serve(h, r), http.StatusForbidden, server.CodeForbidden)
 		})
 	}
 	for _, site := range []string{"cross-site", "same-site"} {
-		r := request("GET", "/api/version", testToken)
+		r := post("/api/session", `{"code":`+jsonString(testCode)+`}`, "")
 		r.Header.Set("Sec-Fetch-Site", site)
 		wantFailure(t, serve(h, r), http.StatusForbidden, server.CodeForbidden)
 	}
@@ -238,43 +336,54 @@ func TestARequestFromAnotherOriginIsRefused(t *testing.T) {
 	}
 }
 
-var readEndpoints = []string{
-	"/api/version", "/api/status", "/api/install/plan", "/api/apply/plan", "/api/backups",
-	"/api/restore/preview", "/api/restore/project/preview", "/api/doctor",
+var getEndpoints = []string{
+	"/api/version", "/api/status", "/api/backups", "/api/restore/preview", "/api/restore/project/preview", "/api/doctor",
 }
 
-func TestTheReadEndpointsTakeOnlyGet(t *testing.T) {
+var postEndpoints = []string{"/api/install/plan", "/api/apply/plan"}
+
+func TestEachEndpointTakesOnlyItsMethod(t *testing.T) {
 	h := server.New(testConfig(t), fakeDeps(), testWeb)
-	for _, path := range readEndpoints {
+	for _, path := range getEndpoints {
 		for _, method := range []string{"POST", "PUT", "PATCH", "DELETE", "HEAD"} {
 			w := serve(h, request(method, path, testToken))
 			if w.Code != http.StatusMethodNotAllowed || w.Header().Get("Allow") != "GET" {
 				t.Errorf("%s %s = %d, Allow %q, want 405 with Allow GET", method, path, w.Code, w.Header().Get("Allow"))
-				continue
-			}
-			if method != "HEAD" {
-				wantFailure(t, w, http.StatusMethodNotAllowed, server.CodeMethodNotAllowed)
 			}
 		}
 	}
+	for _, path := range postEndpoints {
+		for _, method := range []string{"GET", "PUT", "DELETE", "HEAD"} {
+			w := serve(h, request(method, path, testToken))
+			if w.Code != http.StatusMethodNotAllowed || w.Header().Get("Allow") != "POST" {
+				t.Errorf("%s %s = %d, Allow %q, want 405 with Allow POST", method, path, w.Code, w.Header().Get("Allow"))
+			}
+		}
+	}
+	wantFailure(t, serve(h, request("POST", "/api/version", testToken)), http.StatusMethodNotAllowed, server.CodeMethodNotAllowed)
 }
 
 func TestTheEndpointsAnswerWithTheEnvelope(t *testing.T) {
 	h := server.New(testConfig(t), fakeDeps(), testWeb)
-	commands := map[string]string{
-		"/api/version": "version", "/api/status": "status", "/api/install/plan?pack=" + abs("pack"): "install",
-		"/api/apply/plan?project=" + abs("repo"): "apply", "/api/backups": "backups", "/api/restore/preview": "restore",
-		"/api/restore/project/preview?project=" + abs("repo"): "restore", "/api/doctor": "doctor",
+	reqs := map[*http.Request]string{
+		request("GET", "/api/version", testToken):                                      "version",
+		request("GET", "/api/status", testToken):                                       "status",
+		post("/api/install/plan", `{"pack":`+jsonString(abs("pack"))+`}`, testToken):   "install",
+		post("/api/apply/plan", `{"project":`+jsonString(abs("repo"))+`}`, testToken):  "apply",
+		request("GET", "/api/backups", testToken):                                      "backups",
+		request("GET", "/api/restore/preview", testToken):                              "restore",
+		request("GET", "/api/restore/project/preview?project="+abs("repo"), testToken): "restore",
+		request("GET", "/api/doctor", testToken):                                       "doctor",
 	}
-	for target, command := range commands {
-		w := serve(h, request("GET", target, testToken))
+	for r, command := range reqs {
+		w := serve(h, r)
 		if w.Code != http.StatusOK || w.Header().Get("Cache-Control") != "no-store" {
-			t.Errorf("GET %s = %d, Cache-Control %q, want 200, not cached; body %s", target, w.Code, w.Header().Get("Cache-Control"), w.Body)
+			t.Errorf("%s %s = %d, Cache-Control %q, want 200, not cached; body %s", r.Method, r.URL, w.Code, w.Header().Get("Cache-Control"), w.Body)
 			continue
 		}
 		e := decode(t, w)
 		if !e.OK || e.Command != command || e.Error != nil || len(e.Data) == 0 || e.Data[0] != '{' {
-			t.Errorf("GET %s = %+v, want a success of %q with an object", target, e, command)
+			t.Errorf("%s %s = %+v, want a success of %q with an object", r.Method, r.URL, e, command)
 		}
 	}
 	var v app.VersionInfo
@@ -284,15 +393,7 @@ func TestTheEndpointsAnswerWithTheEnvelope(t *testing.T) {
 	wantFailure(t, serve(h, request("GET", "/api/nope", testToken)), http.StatusNotFound, server.CodeNotFound)
 }
 
-// abs is an absolute path on this OS.
-func abs(name string) string {
-	if runtime.GOOS == "windows" {
-		return `C:\work\` + name
-	}
-	return "/work/" + name
-}
-
-func TestPlanInstallTakesItsOptionsFromTheQuery(t *testing.T) {
+func TestPlanInstallTakesItsOptionsFromTheBody(t *testing.T) {
 	cfg := testConfig(t)
 	deps := fakeDeps()
 	var gotCache, gotDir, gotHome string
@@ -302,23 +403,26 @@ func TestPlanInstallTakesItsOptionsFromTheQuery(t *testing.T) {
 		return app.InstallPlan{Mode: app.ModeIsolated}, nil
 	}
 	h := server.New(cfg, deps, testWeb)
-	q := "?pack=" + abs("pack") + "&variant=tmux&mode=replace&harness=claudecode,opencode&harness=antigravity-cli"
-	if w := serve(h, request("GET", "/api/install/plan"+q, testToken)); w.Code != http.StatusOK {
+	body := `{"pack":` + jsonString(abs("pack")) + `,"variant":"tmux","mode":"replace","harnesses":["claudecode","opencode"]}`
+	if w := serve(h, post("/api/install/plan", body, testToken)); w.Code != http.StatusOK {
 		t.Fatalf("status = %d; body %s", w.Code, w.Body)
 	}
-	want := app.InstallOptions{Variant: "tmux", Mode: "replace", Harnesses: []string{"claudecode", "opencode", "antigravity-cli"}}
+	want := app.InstallOptions{Variant: "tmux", Mode: "replace", Harnesses: []string{"claudecode", "opencode"}}
 	if gotCache != cfg.CacheDir || gotDir != abs("pack") || gotHome != cfg.Home || !reflect.DeepEqual(gotOpts, want) {
 		t.Errorf("PlanInstall(%q, %q, %q, %+v), want the configured directories and %+v", gotCache, gotDir, gotHome, gotOpts, want)
 	}
-	if w := serve(h, request("GET", "/api/install/plan?pack="+abs("pack"), testToken)); w.Code != http.StatusOK || gotOpts.Harnesses != nil {
-		t.Errorf("without harness: status %d, harnesses %#v, want nil, the saved selection", w.Code, gotOpts.Harnesses)
+	if w := serve(h, post("/api/install/plan", `{"pack":`+jsonString(abs("pack"))+`}`, testToken)); w.Code != http.StatusOK || gotOpts.Harnesses != nil {
+		t.Errorf("without harnesses: status %d, harnesses %#v, want nil, the saved selection", w.Code, gotOpts.Harnesses)
 	}
-	wantFailure(t, serve(h, request("GET", "/api/install/plan", testToken)), http.StatusBadRequest, envelope.CodeUsage)
-	wantFailure(t, serve(h, request("GET", "/api/install/plan?pack=relative/pack", testToken)), http.StatusBadRequest, envelope.CodeUsage)
+	for _, bad := range []string{`{}`, `{"pack":"relative/pack"}`, `{"pack":` + jsonString(abs("pack")) + `,"profile":["web"]}`, `not json`, ``} {
+		wantFailure(t, serve(h, post("/api/install/plan", bad, testToken)), http.StatusBadRequest, envelope.CodeUsage)
+	}
+	noType := post("/api/install/plan", `{"pack":`+jsonString(abs("pack"))+`}`, testToken)
+	noType.Header.Del("Content-Type")
+	wantFailure(t, serve(h, noType), http.StatusBadRequest, envelope.CodeUsage)
 }
 
-func TestPlanProjectTakesItsOptionsFromTheQuery(t *testing.T) {
-	cfg := testConfig(t)
+func TestPlanProjectTakesItsOptionsFromTheBody(t *testing.T) {
 	deps := fakeDeps()
 	var gotDir, gotCwd string
 	var gotOpts app.ApplyOptions
@@ -326,16 +430,59 @@ func TestPlanProjectTakesItsOptionsFromTheQuery(t *testing.T) {
 		gotDir, gotCwd, gotOpts = dir, cwd, opts
 		return app.ProjectPlan{}, nil
 	}
-	h := server.New(cfg, deps, testWeb)
-	if w := serve(h, request("GET", "/api/apply/plan?project="+abs("repo")+"&profile=web,go&profile=docs&variant=tmux", testToken)); w.Code != http.StatusOK {
+	h := server.New(testConfig(t), deps, testWeb)
+	body := `{"project":` + jsonString(abs("repo")) + `,"profiles":["web","docs"],"variant":"tmux"}`
+	if w := serve(h, post("/api/apply/plan", body, testToken)); w.Code != http.StatusOK {
 		t.Fatalf("status = %d; body %s", w.Code, w.Body)
 	}
-	want := app.ApplyOptions{Profiles: []string{"web", "go", "docs"}, Variant: "tmux"}
+	want := app.ApplyOptions{Profiles: []string{"web", "docs"}, Variant: "tmux"}
 	if gotDir != "" || gotCwd != abs("repo") || !reflect.DeepEqual(gotOpts, want) {
 		t.Errorf("PlanProject(%q, %q, %+v), want no pack, the project and %+v", gotDir, gotCwd, gotOpts, want)
 	}
-	wantFailure(t, serve(h, request("GET", "/api/apply/plan", testToken)), http.StatusBadRequest, envelope.CodeUsage)
-	wantFailure(t, serve(h, request("GET", "/api/apply/plan?project="+abs("repo")+"&pack=rel", testToken)), http.StatusBadRequest, envelope.CodeUsage)
+	wantFailure(t, serve(h, post("/api/apply/plan", `{}`, testToken)), http.StatusBadRequest, envelope.CodeUsage)
+	wantFailure(t, serve(h, post("/api/apply/plan", `{"project":`+jsonString(abs("repo"))+`,"pack":"rel"}`, testToken)), http.StatusBadRequest, envelope.CodeUsage)
+}
+
+func TestOnlyOnePlanRunsAtATime(t *testing.T) {
+	deps := fakeDeps()
+	started, release := make(chan struct{}), make(chan struct{})
+	deps.PlanInstall = func(context.Context, string, string, string, app.InstallOptions, app.Progress) (app.InstallPlan, error) {
+		close(started)
+		<-release
+		return app.InstallPlan{Mode: app.ModeIsolated}, nil
+	}
+	h := server.New(testConfig(t), deps, testWeb)
+	body := `{"pack":` + jsonString(abs("pack")) + `}`
+	first := make(chan int, 1)
+	go func() { first <- serve(h, post("/api/install/plan", body, testToken)).Code }()
+	<-started
+	busy := serve(h, post("/api/apply/plan", `{"project":`+jsonString(abs("repo"))+`}`, testToken))
+	wantFailure(t, busy, http.StatusTooManyRequests, server.CodeBusy)
+	if w := serve(h, request("GET", "/api/status", testToken)); w.Code != http.StatusOK {
+		t.Errorf("status while a plan runs = %d, want 200: only plans wait for each other", w.Code)
+	}
+	close(release)
+	if code := <-first; code != http.StatusOK {
+		t.Errorf("first plan = %d, want 200", code)
+	}
+	if w := serve(h, post("/api/apply/plan", `{"project":`+jsonString(abs("repo"))+`}`, testToken)); w.Code != http.StatusOK {
+		t.Errorf("plan after the first one ended = %d, want 200", w.Code)
+	}
+}
+
+func TestAPlanThatRunsTooLongIsStopped(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.PlanTimeout = 20 * time.Millisecond
+	deps := fakeDeps()
+	deps.PlanInstall = func(ctx context.Context, _, _, _ string, _ app.InstallOptions, _ app.Progress) (app.InstallPlan, error) {
+		<-ctx.Done()
+		return app.InstallPlan{}, ctx.Err()
+	}
+	w := serve(server.New(cfg, deps, testWeb), post("/api/install/plan", `{"pack":`+jsonString(abs("pack"))+`}`, testToken))
+	wantFailure(t, w, http.StatusInternalServerError, envelope.CodeInternal)
+	if msg := decode(t, w).Error.Message; !strings.Contains(msg, "longer than") {
+		t.Errorf("message = %q, want it to say the plan took too long", msg)
+	}
 }
 
 func TestAPackWithProblemsIsInvalidWithItsPlan(t *testing.T) {
@@ -343,7 +490,7 @@ func TestAPackWithProblemsIsInvalidWithItsPlan(t *testing.T) {
 	deps.PlanInstall = func(context.Context, string, string, string, app.InstallOptions, app.Progress) (app.InstallPlan, error) {
 		return app.InstallPlan{Diagnostics: []app.Diagnostic{{Code: "path-unmapped"}}}, nil
 	}
-	w := serve(server.New(testConfig(t), deps, testWeb), request("GET", "/api/install/plan?pack="+abs("pack"), testToken))
+	w := serve(server.New(testConfig(t), deps, testWeb), post("/api/install/plan", `{"pack":`+jsonString(abs("pack"))+`}`, testToken))
 	wantFailure(t, w, http.StatusUnprocessableEntity, envelope.CodeInvalid)
 	var p app.InstallPlan
 	if err := json.Unmarshal(decode(t, w).Data, &p); err != nil || len(p.Diagnostics) != 1 {
@@ -371,7 +518,7 @@ func TestErrorsGetTheCodesOfTheCommandLine(t *testing.T) {
 			deps.PlanInstall = func(context.Context, string, string, string, app.InstallOptions, app.Progress) (app.InstallPlan, error) {
 				return app.InstallPlan{}, tt.err
 			}
-			w := serve(server.New(testConfig(t), deps, testWeb), request("GET", "/api/install/plan?pack="+abs("pack"), testToken))
+			w := serve(server.New(testConfig(t), deps, testWeb), post("/api/install/plan", `{"pack":`+jsonString(abs("pack"))+`}`, testToken))
 			wantFailure(t, w, tt.status, tt.code)
 			if e := decode(t, w); (len(e.Data) > 0) != tt.data || e.Command != "install" {
 				t.Errorf("envelope = %+v, want data %v for install", e, tt.data)

@@ -1,21 +1,24 @@
-// Package server is the local web UI of dotai ui (decision 0043): an HTTP
-// server bound to 127.0.0.1 that serves the frontend embedded in the
-// binary and a JSON API whose handlers call the use cases in internal/app
-// directly, never the command line, and answer with the envelope of
-// internal/envelope, as --json does. It is a presentation layer only:
-// it holds no logic of its own. Every request must name the server by its
-// own host and, when it carries an Origin, come from the server's own
-// origin; every request but the first, which trades the token of the URL
-// for a cookie, must carry the token of the run (guard.go).
+// Package server serves the local web UI of dotai ui (decision 0043): an
+// HTTP server bound to 127.0.0.1 that serves the frontend embedded in the
+// binary and a JSON API. The API handlers call the use cases in
+// internal/app directly, never the command line, and answer with the
+// envelope of internal/envelope, as --json does. The package is a
+// presentation layer and holds no logic of its own. Every request must
+// name the server by its own host and come from its own origin; every API
+// request but the session exchange must carry the session token
+// (guard.go, session.go).
 package server
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
+	"mime"
 	"net/http"
 	"path/filepath"
-	"strings"
+	"time"
 
 	"github.com/lartweib/dotai/internal/app"
 	"github.com/lartweib/dotai/internal/envelope"
@@ -50,45 +53,75 @@ func AppDeps(p app.Ports) Deps {
 	}
 }
 
-// Config is what a handler serves: the absolute home directory and
-// rulesync cache directory the use cases are given, the token of the run,
-// and the port the server listens on, which the Host and Origin checks
-// compare with.
+// Config is what a handler serves: the absolute home and rulesync cache
+// directories the use cases receive, and the port the server listens on,
+// which the Host and Origin checks compare with. Code is the one-time code
+// of the address dotai ui opens, good for one exchange until CodeExpires;
+// the exchange returns Session, the token every other API request must
+// carry. PlanTimeout stops a plan that runs longer (defaultPlanTimeout
+// when it is 0), and Now is the clock (time.Now when it is nil).
 type Config struct {
 	Home, CacheDir string
-	Token          string
 	Port           int
+	Code           string
+	CodeExpires    time.Time
+	Session        string
+	PlanTimeout    time.Duration
+	Now            func() time.Time
 }
 
+// defaultPlanTimeout bounds a plan, which may download rulesync first.
+const defaultPlanTimeout = 5 * time.Minute
+
 // Error codes of the API besides those of the command line
-// (internal/envelope): a request refused by the guard, an unknown path,
-// and a method the path does not take.
+// (internal/envelope): a request the guard refuses, an unknown path, a
+// method the path does not take, and a plan asked for while another runs.
 const (
 	CodeForbidden        = "forbidden"
 	CodeUnauthorized     = "unauthorized"
 	CodeNotFound         = "not-found"
 	CodeMethodNotAllowed = "method-not-allowed"
+	CodeBusy             = "busy"
 )
 
 // serverCodes lists the codes above.
-var serverCodes = []string{CodeForbidden, CodeUnauthorized, CodeNotFound, CodeMethodNotAllowed}
+var serverCodes = []string{CodeForbidden, CodeUnauthorized, CodeNotFound, CodeMethodNotAllowed, CodeBusy}
 
-// command names the envelopes of the requests that reach no endpoint.
+// command names the envelopes of the session exchange and of the requests
+// that reach no endpoint.
 const command = "ui"
 
-// New is the handler of the web UI for cfg, calling deps, with the
-// frontend in web.
+// apiError is a failure of the API itself, with its own code and HTTP
+// status, such as a refused session exchange or a busy plan.
+type apiError struct {
+	code   string
+	status int
+	msg    string
+}
+
+func (e *apiError) Error() string { return e.msg }
+
+// New returns the handler of the web UI for cfg. Its endpoints call deps,
+// and every other path serves the frontend in web.
 func New(cfg Config, deps Deps, web fs.FS) http.Handler {
-	s := &handler{cfg: cfg, deps: deps}
+	if cfg.PlanTimeout == 0 {
+		cfg.PlanTimeout = defaultPlanTimeout
+	}
+	if cfg.Now == nil {
+		cfg.Now = time.Now
+	}
+	s := &handler{cfg: cfg, deps: deps, plans: make(chan struct{}, 1),
+		session: &session{code: cfg.Code, expires: cfg.CodeExpires, token: cfg.Session, now: cfg.Now}}
 	api := map[string]endpoint{
-		"/api/version":                 {"version", s.version},
-		"/api/status":                  {"status", s.status},
-		"/api/install/plan":            {"install", s.planInstall},
-		"/api/apply/plan":              {"apply", s.planProject},
-		"/api/backups":                 {"backups", s.backups},
-		"/api/restore/preview":         {"restore", s.previewRestore},
-		"/api/restore/project/preview": {"restore", s.previewProjectRestore},
-		"/api/doctor":                  {"doctor", s.doctor},
+		"/api/session":                 {command, http.MethodPost, s.exchange},
+		"/api/version":                 {"version", http.MethodGet, s.version},
+		"/api/status":                  {"status", http.MethodGet, s.status},
+		"/api/install/plan":            {"install", http.MethodPost, s.planInstall},
+		"/api/apply/plan":              {"apply", http.MethodPost, s.planProject},
+		"/api/backups":                 {"backups", http.MethodGet, s.backups},
+		"/api/restore/preview":         {"restore", http.MethodGet, s.previewRestore},
+		"/api/restore/project/preview": {"restore", http.MethodGet, s.previewProjectRestore},
+		"/api/doctor":                  {"doctor", http.MethodGet, s.doctor},
 	}
 	files := http.FileServerFS(web)
 	mux := http.NewServeMux()
@@ -98,9 +131,9 @@ func New(cfg Config, deps Deps, web fs.FS) http.Handler {
 			writeEnvelope(w, http.StatusNotFound, envelope.Failure(command, CodeNotFound, "no endpoint "+r.URL.Path))
 			return
 		}
-		if r.Method != http.MethodGet {
-			w.Header().Set("Allow", http.MethodGet)
-			writeEnvelope(w, http.StatusMethodNotAllowed, envelope.Failure(e.command, CodeMethodNotAllowed, r.Method+" is not allowed on "+r.URL.Path+": it is read-only, use GET"))
+		if r.Method != e.method {
+			w.Header().Set("Allow", e.method)
+			writeEnvelope(w, http.StatusMethodNotAllowed, envelope.Failure(e.command, CodeMethodNotAllowed, r.Method+" is not allowed on "+r.URL.Path+": use "+e.method))
 			return
 		}
 		data, err := e.run(r)
@@ -121,17 +154,36 @@ func New(cfg Config, deps Deps, web fs.FS) http.Handler {
 	return guard(cfg, mux)
 }
 
-// handler serves the API.
+// handler serves the API. plans holds the one plan that may run at a time.
 type handler struct {
-	cfg  Config
-	deps Deps
+	cfg     Config
+	deps    Deps
+	session *session
+	plans   chan struct{}
 }
 
 // endpoint is one path of the API: the command its envelope names, as the
-// command line names it, and what it runs, which gives the envelope's data.
+// command line names it, the one method it takes, and what it runs, which
+// gives the envelope's data.
 type endpoint struct {
 	command string
+	method  string
 	run     func(*http.Request) (any, error)
+}
+
+// exchange trades the one-time code in the body for the session token.
+func (s *handler) exchange(r *http.Request) (any, error) {
+	var req struct {
+		Code string `json:"code"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		return nil, err
+	}
+	token, err := s.session.exchange(req.Code)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]string{"token": token}, nil
 }
 
 func (s *handler) version(*http.Request) (any, error) { return s.deps.Version(), nil }
@@ -140,50 +192,89 @@ func (s *handler) status(*http.Request) (any, error) { return s.deps.Status(s.cf
 
 func (s *handler) backups(*http.Request) (any, error) { return s.deps.Backups(s.cfg.Home) }
 
-// planInstall is install --dry-run of the pack at the query parameter
-// pack, with variant, mode and each harness.
-func (s *handler) planInstall(r *http.Request) (any, error) {
-	q := r.URL.Query()
-	pack, err := absParam(q.Get("pack"), "pack", true)
-	if err != nil {
-		return nil, err
-	}
-	opts := app.InstallOptions{Variant: q.Get("variant"), Mode: q.Get("mode")}
-	if h, ok := q["harness"]; ok {
-		opts.Harnesses = splitList(h)
-	}
-	p, err := s.deps.PlanInstall(r.Context(), s.cfg.CacheDir, pack, s.cfg.Home, opts, nil)
-	if err != nil {
-		return nil, err
-	}
-	if len(p.Diagnostics) > 0 {
-		return nil, envelope.PackInvalid(p.Diagnostics, p)
-	}
-	return p, nil
+// installRequest is the body of a plan of an install: the absolute path
+// of the pack and the options of install --dry-run. Harnesses is nil for
+// the saved selection.
+type installRequest struct {
+	Pack      string   `json:"pack"`
+	Variant   string   `json:"variant"`
+	Mode      string   `json:"mode"`
+	Harnesses []string `json:"harnesses"`
 }
 
-// planProject is apply --dry-run in the project at the query parameter
-// project, of the pack at pack, by default the one the project or the
-// install state names, with variant and each profile.
+// planInstall runs install --dry-run as the body asks.
+func (s *handler) planInstall(r *http.Request) (any, error) {
+	var req installRequest
+	if err := decodeJSON(r, &req); err != nil {
+		return nil, err
+	}
+	pack, err := absParam(req.Pack, "pack", true)
+	if err != nil {
+		return nil, err
+	}
+	opts := app.InstallOptions{Variant: req.Variant, Mode: req.Mode, Harnesses: req.Harnesses}
+	return s.plan(r, func(ctx context.Context) (any, error) {
+		p, err := s.deps.PlanInstall(ctx, s.cfg.CacheDir, pack, s.cfg.Home, opts, nil)
+		if err == nil && len(p.Diagnostics) > 0 {
+			return nil, envelope.PackInvalid(p.Diagnostics, p)
+		}
+		return p, err
+	})
+}
+
+// applyRequest is the body of a plan of a project apply: the project
+// directory, which the command would run in, the pack, by default the one
+// the project or the install state names, and the options of apply
+// --dry-run. Both paths are absolute.
+type applyRequest struct {
+	Project  string   `json:"project"`
+	Pack     string   `json:"pack"`
+	Profiles []string `json:"profiles"`
+	Variant  string   `json:"variant"`
+}
+
+// planProject runs apply --dry-run as the body asks.
 func (s *handler) planProject(r *http.Request) (any, error) {
-	q := r.URL.Query()
-	project, err := absParam(q.Get("project"), "project", true)
+	var req applyRequest
+	if err := decodeJSON(r, &req); err != nil {
+		return nil, err
+	}
+	project, err := absParam(req.Project, "project", true)
 	if err != nil {
 		return nil, err
 	}
-	pack, err := absParam(q.Get("pack"), "pack", false)
+	pack, err := absParam(req.Pack, "pack", false)
 	if err != nil {
 		return nil, err
 	}
-	opts := app.ApplyOptions{Profiles: splitList(q["profile"]), Variant: q.Get("variant")}
-	p, err := s.deps.PlanProject(r.Context(), s.cfg.CacheDir, pack, project, s.cfg.Home, opts, nil)
-	if err != nil {
-		return nil, err
+	opts := app.ApplyOptions{Profiles: append([]string{}, req.Profiles...), Variant: req.Variant}
+	return s.plan(r, func(ctx context.Context) (any, error) {
+		p, err := s.deps.PlanProject(ctx, s.cfg.CacheDir, pack, project, s.cfg.Home, opts, nil)
+		if err == nil && len(p.Diagnostics) > 0 {
+			return nil, envelope.PackInvalid(p.Diagnostics, p)
+		}
+		return p, err
+	})
+}
+
+// plan runs a plan, which fetches rulesync into the cache, stages the pack
+// into a temporary directory and may run git. Only one plan runs at a
+// time: a second one is refused as busy, not queued. A plan that runs
+// longer than the plan timeout is cancelled.
+func (s *handler) plan(r *http.Request, run func(context.Context) (any, error)) (any, error) {
+	select {
+	case s.plans <- struct{}{}:
+		defer func() { <-s.plans }()
+	default:
+		return nil, &apiError{code: CodeBusy, status: http.StatusTooManyRequests, msg: "another plan is running: try again once it ends"}
 	}
-	if len(p.Diagnostics) > 0 {
-		return nil, envelope.PackInvalid(p.Diagnostics, p)
+	ctx, cancel := context.WithTimeout(r.Context(), s.cfg.PlanTimeout)
+	defer cancel()
+	data, err := run(ctx)
+	if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return nil, fmt.Errorf("the plan took longer than %s and was stopped: %w", s.cfg.PlanTimeout, err)
 	}
-	return p, nil
+	return data, err
 }
 
 // previewRestore is what restore of the query parameter id, by default the
@@ -215,32 +306,37 @@ func (s *handler) doctor(r *http.Request) (any, error) {
 	return res, nil
 }
 
-// absParam is the query parameter name, the path v, which must be
-// absolute: the server has no current directory of the user's to resolve
-// a relative one against. "" is a usage error when required.
+// absParam checks v, the parameter name, a path that must be absolute:
+// the server has no current directory of the user's to resolve a relative
+// one against. An empty v is a usage error when required.
 func absParam(v, name string, required bool) (string, error) {
 	switch {
 	case v == "" && required:
-		return "", envelope.Usage("the query parameter " + name + " is required")
+		return "", envelope.Usage("the parameter " + name + " is required")
 	case v == "":
 		return "", nil
 	case !filepath.IsAbs(v):
-		return "", envelope.Usage(fmt.Sprintf("the query parameter %s must be an absolute path, not %q", name, v))
+		return "", envelope.Usage(fmt.Sprintf("the parameter %s must be an absolute path, not %q", name, v))
 	}
 	return filepath.Clean(v), nil
 }
 
-// splitList is the values of a repeated query parameter, each of which
-// may also be a comma-separated list, as the command line's flags take
-// them; never nil.
-func splitList(values []string) []string {
-	out := []string{}
-	for _, v := range values {
-		for item := range strings.SplitSeq(v, ",") {
-			if item = strings.TrimSpace(item); item != "" {
-				out = append(out, item)
-			}
-		}
+// maxBody bounds the JSON body of a request.
+const maxBody = 64 << 10
+
+// decodeJSON decodes the body of r into v. The body must be one JSON
+// object, sent as application/json, with no field that v lacks.
+func decodeJSON(r *http.Request, v any) error {
+	if mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mt != "application/json" {
+		return envelope.Usage("the body must be JSON, with Content-Type application/json")
 	}
-	return out
+	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, maxBody))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		return envelope.Usage("the body is not the JSON this endpoint takes: " + err.Error())
+	}
+	if dec.More() {
+		return envelope.Usage("the body holds more than one JSON value")
+	}
+	return nil
 }
