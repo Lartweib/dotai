@@ -16,6 +16,7 @@ import (
 
 	"github.com/lartweib/dotai/internal/app"
 	"github.com/lartweib/dotai/internal/cli/output"
+	"github.com/lartweib/dotai/internal/server"
 )
 
 // Exit codes.
@@ -54,6 +55,11 @@ type Env struct {
 	// Prompt asks the user a yes or no question; nil when no one can
 	// answer, such as when stdin is not a terminal.
 	Prompt func(ctx context.Context, question string) (bool, error)
+	// UI is dotai ui: it serves the local web UI until ctx is done.
+	// OpenBrowser opens an address in the user's browser; nil when none
+	// can be opened.
+	UI          func(ctx context.Context, opts server.Options) error
+	OpenBrowser func(url string) error
 }
 
 // resultError is a command that failed after it produced a result that
@@ -97,7 +103,7 @@ func Run(args []string, env Env) int {
 	root.SetArgs(args)
 	root.SetOut(env.Stdout)
 	root.SetErr(env.Stderr)
-	root.AddCommand(newVersionCmd(env, &jsonOut), newValidateCmd(env, &jsonOut), newStageCmd(env, &jsonOut), newRulesyncCmd(env, &jsonOut), newInstallCmd(env, &jsonOut), newApplyCmd(env, &jsonOut), newRestoreCmd(env, &jsonOut), newDoctorCmd(env, &jsonOut), newRunCmd(env, &jsonOut, &parsed))
+	root.AddCommand(newVersionCmd(env, &jsonOut), newValidateCmd(env, &jsonOut), newStageCmd(env, &jsonOut), newRulesyncCmd(env, &jsonOut), newInstallCmd(env, &jsonOut), newApplyCmd(env, &jsonOut), newRestoreCmd(env, &jsonOut), newDoctorCmd(env, &jsonOut), newRunCmd(env, &jsonOut, &parsed), newUICmd(env, &jsonOut))
 
 	// In JSON mode help is a result like any other: one envelope whose data
 	// holds the help text.
