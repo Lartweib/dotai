@@ -24,9 +24,10 @@ import (
 type ToolPaths struct {
 	User    string // ${DOTAI_TOOLS}: the user-scope tools directory
 	Project string // ${DOTAI_PROJECT_TOOLS}: the project's tools directory
+	Home    string // ${DOTAI_HOME}: the real home directory, in either install mode
 	OS      string
 
-	UserErr, ProjectErr error
+	UserErr, ProjectErr, HomeErr error
 
 	project bool   // the settings being expanded are the project scope's
 	harness string // the harness whose settings are expanded; "" reads them as a shell does
@@ -173,7 +174,7 @@ func toolCommand(dir, name, goos, h string, quoting harness.Quoting, style pathS
 // ToolsIn returns the tools directories of a home and a project directory.
 func ToolsIn(home, project string) ToolPaths {
 	dir := filepath.FromSlash(merge.ToolsDir)
-	return ToolPaths{User: filepath.Join(home, dir), Project: filepath.Join(project, dir)}
+	return ToolPaths{User: filepath.Join(home, dir), Project: filepath.Join(project, dir), Home: home}
 }
 
 // expandPaths replaces the path variables in data when it is UTF-8 text
@@ -187,7 +188,7 @@ func expandPaths(data []byte, tools ToolPaths) ([]byte, error) {
 	for _, v := range []struct {
 		token, path string
 		err         error
-	}{{"${DOTAI_TOOLS}", tools.User, tools.UserErr}, {"${DOTAI_PROJECT_TOOLS}", tools.Project, tools.ProjectErr}} {
+	}{{"${DOTAI_TOOLS}", tools.User, tools.UserErr}, {"${DOTAI_PROJECT_TOOLS}", tools.Project, tools.ProjectErr}, {"${DOTAI_HOME}", tools.Home, tools.HomeErr}} {
 		if !bytes.Contains(data, []byte(v.token)) {
 			continue
 		}
