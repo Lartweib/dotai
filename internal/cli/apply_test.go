@@ -27,6 +27,7 @@ var projectPlan = app.ProjectPlan{
 		{Action: plan.Create, Harness: "antigravity-cli", Kind: "hooks", Source: ".agents/hooks.json", Target: "/work/site/.agents/hooks.json",
 			Keys: []plan.ProjectKey{{Path: []string{"rulesync", "SessionStart"}, Action: plan.Create}}},
 		{Action: plan.Conflict, Harness: "antigravity-cli", Kind: "rules", Source: ".agents/rules/web.md", Target: "/work/site/.agents/rules/web.md", Before: "aa", After: "bb", Keys: []plan.ProjectKey{}},
+		{Action: plan.Replace, Harness: "claudecode", Kind: "commands", Source: ".claude/commands/deploy.md", Target: "/work/site/.claude/commands/deploy.md", Before: "ff", After: "gg", Keys: []plan.ProjectKey{}},
 		{Action: plan.Create, Harness: "claudecode", Kind: "rules", Source: ".claude/rules/web.md", Target: "/work/site/.claude/rules/web.md", After: "bb", Keys: []plan.ProjectKey{}},
 		{Action: plan.Merge, Harness: "claudecode", Kind: "settings", Source: ".claude/settings.json", Target: "/work/site/.claude/settings.local.json", Before: "cc",
 			Keys: []plan.ProjectKey{{Path: []string{"permissions", "allow"}, Action: plan.Merge}, {Path: []string{"model"}, Action: plan.Unchanged}}},
