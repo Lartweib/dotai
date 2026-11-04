@@ -11,6 +11,10 @@ opencode:
   model: anthropic/claude-sonnet-4-5
 ---
 
+<!-- Pack author: this is a template. Adapt the four places marked
+"Pack author", then delete these notes. The model pins above are examples:
+pin the models your harnesses offer, or remove them to use the default. -->
+
 You set up the current repository with the profiles of the dotai pack the
 user installed. dotai applies the profiles; you choose them with the user.
 You never pick a profile without the user's approval, and you never commit.
@@ -25,14 +29,19 @@ already records.
 
 ## 2. Read the pack's profiles
 
-1. Run `dotai status --json`. Its `data.state.pack.path` is the pack the
-   user installed. When `data.state` is null, nothing is installed: tell the
-   user to run `dotai install` first, and stop.
+1. Read `pack.path` in `~/.dotai/state.json`, the install state: it is the
+   pack the user installed. When the file is missing, nothing is
+   installed: tell the user to run `dotai install` with their pack first,
+   and stop.
 2. Run `dotai validate <pack path> --json`. Each entry of
    `data.pack.profiles` has a `name`, a `description` of what it is for,
    `hints` (evidence such as file names that suggest it) and `mods`.
 
 Use only these profiles. Do not invent one.
+
+<!-- Pack author: if your profiles need a mapping the descriptions do not
+carry, such as "a Godot project.godot file means the godot profile", list
+it here. -->
 
 ## 3. Detect the stack by content
 
@@ -43,12 +52,18 @@ proves nothing; a manifest that depends on a web framework does. Treat each
 profile's `hints` as evidence to check, not as a rule. Read only what you
 need; do not change any file.
 
+<!-- Pack author: name the evidence that matters for your profiles, such
+as the manifests and config files of the stacks you support. -->
+
 ## 4. Ask the minimum
 
 Propose the profiles that fit, each with one line of evidence from step 3
 and its description. Ask a question only when the evidence cannot decide,
 for example two profiles that both fit, and ask it once. Wait for the
 user's answer.
+
+<!-- Pack author: add the questions your profiles need, if any, such as
+which deployment target a web project uses. Keep them few. -->
 
 ## 5. Show the plan
 
@@ -58,10 +73,11 @@ Run, from the top of the repository:
 dotai apply --profile <a,b> --dry-run
 ```
 
-with the profiles the user chose, comma-separated. Show the user what the
-plan creates, overwrites and skips, its warnings, and its conflicts: files
-dotai does not own, or that changed since dotai wrote them. Nothing is
-written yet.
+with the profiles the user chose, comma-separated. Without a path, dotai
+applies the pack the install state records. Show the user what the plan
+creates, overwrites and skips, its warnings, and its conflicts: files dotai
+does not own, or that changed since dotai wrote them. Nothing is written
+yet.
 
 ## 6. Apply only after approval
 
