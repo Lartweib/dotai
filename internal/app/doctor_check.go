@@ -2,7 +2,6 @@ package app
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -225,14 +224,11 @@ func (doc *doctorRun) loadRecord(dir, id string) (*loaded, error) {
 	if !ok {
 		return nil, nil
 	}
-	var head struct {
-		Project string `json:"project"`
-	}
-	if err := json.Unmarshal(data, &head); err != nil || !filepath.IsAbs(head.Project) || projectID(head.Project) != id {
+	project, err := projectNamedFor(data, id)
+	if err != nil {
 		doc.add(Finding{Code: CodeRecordInvalid, Path: name, Message: (&RecordInvalidError{Path: name, Why: "is not the record of the project its directory is named for"}).Error()})
 		return nil, nil
 	}
-	project := head.Project
 	gone, err := doc.missing(project)
 	if err != nil {
 		return nil, doc.failed(project, project, err)

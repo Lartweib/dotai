@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -71,10 +70,10 @@ func ListBackups(home string) (Backups, error) {
 }
 
 func listBackups(ctx context.Context, d installFS, home string) (Backups, error) {
-	if !filepath.IsAbs(home) {
-		return Backups{}, fmt.Errorf("home directory %q is not absolute", home)
+	home, err := requireAbs(home)
+	if err != nil {
+		return Backups{}, err
 	}
-	home = filepath.Clean(home)
 	out := Backups{Home: []BackupInfo{}, Projects: []ProjectBackups{}}
 	head := ""
 	if s, err := readState(d, home); err == nil && s != nil {
@@ -193,7 +192,7 @@ func projectBackupList(ctx context.Context, d installFS, home, dir, id string) P
 		b := backupHead(root, bid)
 		data, err := readManifest(d, b.Path)
 		if err == nil && p.Project == "" {
-			p.Project = manifestProject(data, id)
+			p.Project, _ = projectNamedFor(data, id)
 		}
 		var m backup.ProjectManifest
 		if err == nil {
@@ -213,16 +212,4 @@ func projectBackupList(ctx context.Context, d installFS, home, dir, id string) P
 		p.Backups = append(p.Backups, b)
 	}
 	return p
-}
-
-// manifestProject is the project the project manifest data names, "" when
-// it names none that the directory id is for.
-func manifestProject(data []byte, id string) string {
-	var head struct {
-		Project string `json:"project"`
-	}
-	if json.Unmarshal(data, &head) != nil || !filepath.IsAbs(head.Project) || projectID(head.Project) != id {
-		return ""
-	}
-	return head.Project
 }

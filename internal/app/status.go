@@ -47,10 +47,10 @@ func ReadStatus(home string) (Status, error) {
 }
 
 func readStatus(ctx context.Context, d installFS, home string) (Status, error) {
-	if !filepath.IsAbs(home) {
-		return Status{}, fmt.Errorf("home directory %q is not absolute", home)
+	home, err := requireAbs(home)
+	if err != nil {
+		return Status{}, err
 	}
-	home = filepath.Clean(home)
 	st := Status{
 		StatePath:    filepath.Join(home, dotaiDir, stateFile),
 		ProjectsPath: filepath.Join(home, dotaiDir, projectsFile),
@@ -114,23 +114,35 @@ func readRecords(ctx context.Context, d installFS, home string) ([]ProjectStatus
 	return out, nil
 }
 
-// decodeRecord decodes the record data of the project directory id: its
-// project, and the record when it is valid.
-func decodeRecord(data []byte, id string) (string, *state.Project, error) {
+// projectNamedFor returns the project that data, a project record or a
+// project backup manifest, names in its project field. It fails unless
+// the project is absolute and id is its project id, the name of the
+// directory under ~/.dotai/projects that data was read from.
+func projectNamedFor(data []byte, id string) (string, error) {
 	var head struct {
 		Project string `json:"project"`
 	}
 	if err := json.Unmarshal(data, &head); err != nil {
-		return "", nil, fmt.Errorf("project record: %w", err)
+		return "", err
 	}
 	if !filepath.IsAbs(head.Project) || projectID(head.Project) != id {
-		return "", nil, errors.New("the record is not the one of the project its directory is named for")
+		return "", errors.New("it is not the one of the project its directory is named for")
 	}
-	r, err := state.DecodeProject(data, head.Project)
+	return head.Project, nil
+}
+
+// decodeRecord decodes data, the record in the project directory id, and
+// returns its project, and the record when it is valid.
+func decodeRecord(data []byte, id string) (string, *state.Project, error) {
+	project, err := projectNamedFor(data, id)
 	if err != nil {
-		return head.Project, nil, err
+		return "", nil, fmt.Errorf("project record: %w", err)
 	}
-	return head.Project, &r, nil
+	r, err := state.DecodeProject(data, project)
+	if err != nil {
+		return project, nil, err
+	}
+	return project, &r, nil
 }
 
 // listDir lists the directory dir, not followed when it is a link, in name
