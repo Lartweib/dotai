@@ -267,3 +267,10 @@ func RestoreOptsWith(ctx context.Context, d executeFS, home, id string, opts Res
 func RestoreProjectOptsWith(ctx context.Context, d executeFS, g gitPort, project, home string, opts ProjectRestoreOptions, overwrite func(ProjectRestoreResult) (bool, error)) (ProjectRestoreResult, error) {
 	return restoreProject(ctx, d, g, project, home, opts, overwrite)
 }
+
+// CopyPackWith is CopyPack calling afterFile after each file it copies,
+// whose error stops the copy, and beforeRename before the copy takes its
+// name.
+func CopyPackWith(ctx context.Context, from, to string, afterFile func(n int) error, beforeRename func()) (CopyResult, error) {
+	return copyPack(ctx, from, to, copyHooks{afterFile: afterFile, beforeRename: beforeRename})
+}

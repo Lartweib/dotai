@@ -59,7 +59,7 @@ func (s *handler) copyPack(r *http.Request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return s.act(r, "pack copy", func(context.Context) (any, error) { return s.deps.CopyPack(from, to) })
+	return s.act(r, "pack copy", func(ctx context.Context) (any, error) { return s.deps.CopyPack(ctx, from, to) })
 }
 
 // packSummary lists what each layer of the pack at the query parameter

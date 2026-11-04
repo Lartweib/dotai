@@ -31,6 +31,9 @@ func BadName(seg string) bool {
 // maxFileSize is the largest file the engine reads from a pack.
 const maxFileSize = 1 << 20
 
+// MaxFileSize is the largest file a pack may hold, 1 MiB.
+const MaxFileSize = maxFileSize
+
 // lstat describes name without following symbolic links. link is the first
 // path element, from the root, that is a symbolic link; when it is set,
 // info describes that link and nothing behind it is touched.

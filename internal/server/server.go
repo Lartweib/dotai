@@ -46,7 +46,7 @@ type Deps struct {
 	ListPacks             func(home string) (app.PackList, error)
 	ImportPack            func(home, dir string) (app.PackList, error)
 	RemovePack            func(home, dir string) (app.PackList, error)
-	CopyPack              func(from, to string) (app.CopyResult, error)
+	CopyPack              func(ctx context.Context, from, to string) (app.CopyResult, error)
 	SummarizePack         func(dir string) (app.PackContents, error)
 }
 

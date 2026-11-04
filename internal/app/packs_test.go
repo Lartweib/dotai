@@ -1,10 +1,12 @@
 package app_test
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -130,7 +132,7 @@ func TestCopyPackCopiesFilesWithoutGitOrImport(t *testing.T) {
 		t.Fatal(err)
 	}
 	to := filepath.Join(filepath.Dir(from), "minimal-pack-copy")
-	res, err := app.CopyPack(from, to)
+	res, err := app.CopyPack(context.Background(), from, to)
 	if err != nil {
 		t.Fatalf("CopyPack() error = %v", err)
 	}
@@ -169,15 +171,16 @@ func TestCopyPackRefusesATargetThatExistsOrHasNoParent(t *testing.T) {
 		"exists":    from,
 		"no parent": filepath.Join(t.TempDir(), "missing", "copy"),
 		"relative":  "copy",
+		"inside":    filepath.Join(from, "base", "copy"),
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := app.CopyPack(from, to)
+			_, err := app.CopyPack(context.Background(), from, to)
 			if !errors.As(err, new(*app.CopyRefusedError)) && !errors.As(err, new(*app.UsageError)) {
 				t.Errorf("error = %v, want a refusal", err)
 			}
 		})
 	}
-	if _, err := app.CopyPack(filepath.Join(t.TempDir(), "nothing"), filepath.Join(t.TempDir(), "copy")); !errors.As(err, new(*app.UsageError)) {
+	if _, err := app.CopyPack(context.Background(), filepath.Join(t.TempDir(), "nothing"), filepath.Join(t.TempDir(), "copy")); !errors.As(err, new(*app.UsageError)) {
 		t.Errorf("copying a missing pack = %v, want a usage error", err)
 	}
 }
@@ -188,7 +191,7 @@ func TestCopyPackRefusesALinkAndLeavesNoCopy(t *testing.T) {
 		t.Skipf("no symbolic links here: %v", err)
 	}
 	to := filepath.Join(t.TempDir(), "copy")
-	if _, err := app.CopyPack(from, to); !errors.As(err, new(*app.CopyRefusedError)) {
+	if _, err := app.CopyPack(context.Background(), from, to); !errors.As(err, new(*app.CopyRefusedError)) {
 		t.Errorf("error = %v, want a CopyRefusedError", err)
 	}
 	if _, err := os.Stat(to); !errors.Is(err, os.ErrNotExist) {
@@ -226,5 +229,140 @@ func TestSummarizePackListsEachLayerByType(t *testing.T) {
 	}
 	if o := sum.Onboarding; o == nil || o.Layer != "base" || o.Path != "base/.rulesync/subagents/onboarding.md" || o.Content != string(want) {
 		t.Errorf("onboarding = %+v, want the base's onboarding subagent", o)
+	}
+}
+
+// siblings lists the entries of dir, to find what a copy left there.
+func siblings(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	return names
+}
+
+func TestCopyPackRefusesWhatIsNotAPack(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "notes.md"), []byte("# notes\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.CopyPack(context.Background(), dir, filepath.Join(t.TempDir(), "copy")); !errors.As(err, new(*app.UsageError)) {
+		t.Errorf("copying a directory without a manifest = %v, want a usage error", err)
+	}
+}
+
+func TestCopyPackThatFailsPartwayLeavesNothing(t *testing.T) {
+	from := packCopy(t)
+	parent := filepath.Dir(from)
+	to := filepath.Join(parent, "copy")
+	stop := errors.New("stopped")
+	_, err := app.CopyPackWith(context.Background(), from, to, func(n int) error {
+		if n == 3 {
+			return stop
+		}
+		return nil
+	}, nil)
+	if !errors.Is(err, stop) {
+		t.Fatalf("error = %v, want the error of the third file", err)
+	}
+	if got := siblings(t, parent); !reflect.DeepEqual(got, []string{"minimal-pack"}) {
+		t.Errorf("after a failed copy the parent holds %v, want the pack alone", got)
+	}
+}
+
+func TestCopyPackStopsWhenItsContextEnds(t *testing.T) {
+	from := packCopy(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	to := filepath.Join(filepath.Dir(from), "copy")
+	if _, err := app.CopyPack(ctx, from, to); !errors.Is(err, context.Canceled) {
+		t.Errorf("error = %v, want context.Canceled", err)
+	}
+	if got := siblings(t, filepath.Dir(from)); !reflect.DeepEqual(got, []string{"minimal-pack"}) {
+		t.Errorf("a cancelled copy left %v", got)
+	}
+}
+
+func TestCopyPackRefusesATargetCreatedWhileItCopies(t *testing.T) {
+	from := packCopy(t)
+	parent := filepath.Dir(from)
+	to := filepath.Join(parent, "copy")
+	_, err := app.CopyPackWith(context.Background(), from, to, nil, func() {
+		if err := os.Mkdir(to, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !errors.As(err, new(*app.CopyRefusedError)) {
+		t.Errorf("error = %v, want a CopyRefusedError", err)
+	}
+	if got := siblings(t, parent); !reflect.DeepEqual(got, []string{"copy", "minimal-pack"}) {
+		t.Errorf("the parent holds %v, want the pack and the other program's directory", got)
+	}
+	if got := siblings(t, to); len(got) != 0 {
+		t.Errorf("the copy wrote into the other program's directory: %v", got)
+	}
+}
+
+func TestCopyPackSkipsAGitFile(t *testing.T) {
+	from := packCopy(t)
+	if err := os.WriteFile(filepath.Join(from, ".git"), []byte("gitdir: /elsewhere\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	to := filepath.Join(filepath.Dir(from), "copy")
+	if _, err := app.CopyPack(context.Background(), from, to); err != nil {
+		t.Fatalf("CopyPack() error = %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(to, ".git")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the copy holds the .git file: %v", err)
+	}
+}
+
+func TestCopyPackKeepsTheModesOfDirectories(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no directory permissions of this kind")
+	}
+	from := packCopy(t)
+	if err := os.Chmod(filepath.Join(from, "base"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	to := filepath.Join(filepath.Dir(from), "copy")
+	if _, err := app.CopyPack(context.Background(), from, to); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(filepath.Join(to, "base")); err != nil || info.Mode().Perm() != 0o700 {
+		t.Errorf("base in the copy = %v, %v, want 0700", info.Mode().Perm(), err)
+	}
+}
+
+func TestCopyPackRefusesAFileLargerThanAPackHolds(t *testing.T) {
+	from := packCopy(t)
+	if err := os.WriteFile(filepath.Join(from, "base", "big.bin"), make([]byte, 1<<20+1), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	to := filepath.Join(filepath.Dir(from), "copy")
+	if _, err := app.CopyPack(context.Background(), from, to); !errors.As(err, new(*app.CopyRefusedError)) {
+		t.Errorf("error = %v, want a CopyRefusedError", err)
+	}
+	if _, err := os.Stat(to); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a refused copy left %s", to)
+	}
+}
+
+func TestSummarizePackSuggestsAFreeSiblingForACopy(t *testing.T) {
+	dir := packCopy(t)
+	sum, err := app.SummarizePack(dir)
+	if err != nil || sum.CopyTarget != filepath.Join(filepath.Dir(dir), "minimal-pack-copy") {
+		t.Fatalf("copy target = %q, %v", sum.CopyTarget, err)
+	}
+	if err := os.Mkdir(sum.CopyTarget, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := app.SummarizePack(dir); again.CopyTarget != filepath.Join(filepath.Dir(dir), "minimal-pack-copy-2") {
+		t.Errorf("copy target with the first taken = %q", again.CopyTarget)
 	}
 }

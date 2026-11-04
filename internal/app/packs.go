@@ -225,82 +225,171 @@ type CopyResult struct {
 	Files int    `json:"files"`
 }
 
-// CopyPack copies the pack in from to the new directory to, whose parent
-// must exist, so that the user can edit the copy. It copies regular files
-// and directories, skips .git, and refuses a symbolic link or any other
-// kind of file before it writes anything, as a pack holds none. A copy
-// that fails partway removes what it created. It does not import the copy.
-func CopyPack(from, to string) (CopyResult, error) {
+// The bounds of a copy of a pack: a pack's own file limit for each file,
+// and, for the whole copy, far more than a pack of rules and skills needs,
+// so that a copy of the wrong directory stops early.
+const (
+	maxCopyFiles = 10000
+	maxCopyBytes = 64 << 20
+)
+
+// copyHooks lets a test stop a copy after a file or act before the copy
+// takes its name.
+type copyHooks struct {
+	afterFile    func(n int) error
+	beforeRename func()
+}
+
+// packEntryCopy is a directory or a file of a copy, by its path from the pack.
+type packEntryCopy struct {
+	rel  string
+	mode fs.FileMode
+}
+
+// CopyPack copies the pack in from, which must have a manifest dotai can
+// read, to the new directory to, whose parent must exist and which must not
+// be inside the pack, so that the user can edit the copy. It copies regular
+// files and directories with their permissions, skips .git, whether a
+// directory or the file of a worktree, and refuses a symbolic link or any
+// other kind of file, a file larger than a pack may hold, and more than
+// maxCopyFiles files or maxCopyBytes bytes, before it writes anything. It
+// copies into a new directory next to to and renames it to to at the end,
+// so that a copy that stops partway, or whose ctx ends, leaves nothing at
+// to; that directory is removed when the copy fails. A to that another
+// program creates meanwhile is refused, not replaced (on Linux, an empty
+// directory created in the instant before the rename is replaced). It does
+// not import the copy.
+func CopyPack(ctx context.Context, from, to string) (CopyResult, error) {
+	return copyPack(ctx, from, to, copyHooks{})
+}
+
+func copyPack(ctx context.Context, from, to string, hooks copyHooks) (CopyResult, error) {
 	from, err := packDir(from)
 	if err != nil {
 		return CopyResult{}, err
+	}
+	if p, _, err := pack.LoadWith(os.DirFS(from), rulesync.Versions()); err != nil || p == nil {
+		return CopyResult{}, &UsageError{msg: fmt.Sprintf("%s is not a pack dotai can read: it needs a dotai.yaml manifest (run dotai validate)", from)}
 	}
 	if !filepath.IsAbs(to) {
 		return CopyResult{}, &UsageError{msg: fmt.Sprintf("the copy path %q is not absolute", to)}
 	}
 	to = filepath.Clean(to)
+	if rel, err := filepath.Rel(from, to); err == nil && (rel == "." || filepath.IsLocal(rel)) {
+		return CopyResult{}, &CopyRefusedError{msg: fmt.Sprintf("%s is inside the pack %s: name a directory outside it", to, from)}
+	}
 	if _, err := os.Lstat(to); err == nil {
 		return CopyResult{}, &CopyRefusedError{msg: fmt.Sprintf("%s already exists: name a new directory for the copy", to)}
 	}
-	if info, err := os.Stat(filepath.Dir(to)); err != nil || !info.IsDir() {
+	parent := filepath.Dir(to)
+	if info, err := os.Stat(parent); err != nil || !info.IsDir() {
 		return CopyResult{}, &CopyRefusedError{msg: fmt.Sprintf("the parent directory of %s does not exist", to)}
 	}
-	if rel, err := filepath.Rel(from, to); err == nil && filepath.IsLocal(rel) {
-		return CopyResult{}, &CopyRefusedError{msg: fmt.Sprintf("%s is inside the pack %s", to, from)}
+	dirs, files, err := copyList(from)
+	if err != nil {
+		return CopyResult{}, err
 	}
-	var dirs, files []string
+	tmp, err := os.MkdirTemp(parent, "."+filepath.Base(to)+".copy-")
+	if err != nil {
+		return CopyResult{}, err
+	}
+	if err := copyInto(ctx, from, tmp, dirs, files, hooks); err != nil {
+		return CopyResult{}, errors.Join(err, os.RemoveAll(tmp))
+	}
+	if hooks.beforeRename != nil {
+		hooks.beforeRename()
+	}
+	refused := &CopyRefusedError{msg: fmt.Sprintf("%s was created while the copy ran: name a new directory for the copy", to)}
+	if _, err := os.Lstat(to); err == nil {
+		return CopyResult{}, errors.Join(refused, os.RemoveAll(tmp))
+	}
+	if err := os.Rename(tmp, to); err != nil {
+		if _, lerr := os.Lstat(to); lerr == nil {
+			return CopyResult{}, errors.Join(refused, os.RemoveAll(tmp))
+		}
+		return CopyResult{}, errors.Join(err, os.RemoveAll(tmp))
+	}
+	return CopyResult{From: from, To: to, Files: len(files)}, nil
+}
+
+// copyList walks the pack and lists what a copy writes, refusing what a
+// pack never holds and what is larger than a copy takes.
+func copyList(from string) (dirs, files []packEntryCopy, err error) {
+	var total int64
 	err = filepath.WalkDir(from, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		rel, _ := filepath.Rel(from, p)
+		if d.Name() == ".git" && rel != "." {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
 		switch {
-		case d.IsDir() && d.Name() == ".git" && rel != ".":
-			return filepath.SkipDir
 		case d.IsDir():
-			dirs = append(dirs, rel)
+			dirs = append(dirs, packEntryCopy{rel, info.Mode().Perm()})
 		case d.Type().IsRegular():
-			files = append(files, rel)
+			if info.Size() > pack.MaxFileSize {
+				return &CopyRefusedError{msg: fmt.Sprintf("%s is larger than 1 MiB, more than a pack may hold", p)}
+			}
+			total += info.Size()
+			files = append(files, packEntryCopy{rel, info.Mode().Perm()})
+			if len(files) > maxCopyFiles || total > maxCopyBytes {
+				return &CopyRefusedError{msg: fmt.Sprintf("%s holds more than %d files or %d MiB, more than a copy of a pack takes", from, maxCopyFiles, maxCopyBytes>>20)}
+			}
 		default:
 			return &CopyRefusedError{msg: fmt.Sprintf("%s is not a regular file or a directory: a pack holds no links", p)}
 		}
 		return nil
 	})
-	if err != nil {
-		return CopyResult{}, err
-	}
-	if err := os.Mkdir(to, 0o755); err != nil {
-		return CopyResult{}, err
-	}
-	if err := copyTree(from, to, dirs, files); err != nil {
-		return CopyResult{}, errors.Join(err, os.RemoveAll(to))
-	}
-	return CopyResult{From: from, To: to, Files: len(files)}, nil
+	return dirs, files, err
 }
 
-func copyTree(from, to string, dirs, files []string) error {
+// copyInto copies the listed directories and files into tmp, checking ctx
+// before each file, then gives each directory its permissions, the
+// deepest first, so that none is closed before what goes in it.
+func copyInto(ctx context.Context, from, tmp string, dirs, files []packEntryCopy, hooks copyHooks) error {
 	for _, d := range dirs {
-		if d != "." {
-			if err := os.Mkdir(filepath.Join(to, d), 0o755); err != nil {
+		if d.rel != "." {
+			if err := os.Mkdir(filepath.Join(tmp, d.rel), 0o700); err != nil {
 				return err
 			}
 		}
 	}
-	for _, f := range files {
-		if err := copyPackFile(filepath.Join(from, f), filepath.Join(to, f)); err != nil {
+	for i, f := range files {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := copyPackFile(filepath.Join(from, f.rel), filepath.Join(tmp, f.rel), f.mode); err != nil {
+			return err
+		}
+		if hooks.afterFile != nil {
+			if err := hooks.afterFile(i + 1); err != nil {
+				return err
+			}
+		}
+	}
+	for i := len(dirs) - 1; i >= 0; i-- {
+		if err := os.Chmod(filepath.Join(tmp, dirs[i].rel), dirs[i].mode|0o200); err != nil {
 			return err
 		}
 	}
-	return nil
+	return ctx.Err()
 }
 
-func copyPackFile(src, dst string) error {
-	in, info, err := openRegular(src)
+func copyPackFile(src, dst string, mode fs.FileMode) error {
+	in, _, err := openRegular(src)
 	if err != nil {
 		return err
 	}
 	defer in.Close()
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, info.Mode().Perm()|0o200)
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode|0o200)
 	if err != nil {
 		return err
 	}
@@ -321,6 +410,10 @@ type PackContents struct {
 	// Onboarding is the pack's onboarding agent (decision 0008): the first
 	// subagent named onboarding, in layer order; nil when it has none.
 	Onboarding *AgentSource `json:"onboarding"`
+	// CopyTarget is where a copy of the pack goes unless the user names
+	// another directory: <name>-copy next to the pack, or -copy-2 and on
+	// when that exists.
+	CopyTarget string `json:"copyTarget"`
 }
 
 // AgentSource is the source of a subagent: the layer that defines it, its
@@ -375,7 +468,7 @@ func SummarizePack(dir string) (PackContents, error) {
 	if p == nil {
 		return PackContents{}, &UsageError{msg: fmt.Sprintf("the manifest of %s cannot be read: run dotai validate", dir)}
 	}
-	out := PackContents{Name: p.Manifest.Name, Version: p.Manifest.Version, Layers: []LayerOutline{}, Mods: []string{}}
+	out := PackContents{Name: p.Manifest.Name, Version: p.Manifest.Version, Layers: []LayerOutline{}, Mods: []string{}, CopyTarget: copyTarget(dir, p.Manifest.Name)}
 	for _, m := range p.Mods {
 		out.Mods = append(out.Mods, m.Name)
 	}
@@ -426,4 +519,23 @@ func SummarizePack(dir string) (PackContents, error) {
 		out.Layers = append(out.Layers, LayerOutline{Kind: string(l.Kind), Name: l.Name, Path: l.Path, Contents: c})
 	}
 	return out, nil
+}
+
+// copyTarget is the first of <name>-copy, <name>-copy-2 and on next to the
+// pack in dir that does not exist, "" when none of the first hundred is free.
+func copyTarget(dir, name string) string {
+	if name == "" {
+		name = filepath.Base(dir)
+	}
+	parent := filepath.Dir(filepath.Clean(dir))
+	for i := 1; i <= 100; i++ {
+		target := filepath.Join(parent, name+"-copy")
+		if i > 1 {
+			target += fmt.Sprintf("-%d", i)
+		}
+		if _, err := os.Lstat(target); errors.Is(err, fs.ErrNotExist) {
+			return target
+		}
+	}
+	return ""
 }
