@@ -64,7 +64,7 @@ func TestDoctorReportsInstalledFilesEditedByHandOrRemoved(t *testing.T) {
 	if err := os.Remove(gone); err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, settings, "{\"model\": \"haiku\", \"theme\": \"dark\"}\n")
+	harnessWrites(t, settings, map[string]any{"model": "haiku", "theme": "dark"})
 	before := snapshot(t, home)
 	res := runDoctor(t, &fakeGit{}, home, false)
 	want := []string{"file-changed " + edited, "key-changed " + settings + " model", "file-missing " + gone}

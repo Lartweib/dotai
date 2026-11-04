@@ -442,9 +442,7 @@ func TestBuildProjectNamesSameNameClashes(t *testing.T) {
 		"scope-clash opencode skill lint " + userSkill,
 		"scope-clash opencode agent webdev " + ocAgent,
 		// OpenCode also reads the skill the plan installs for Claude Code
-		// and agy.
-		"read-twice opencode skill lint " + filepath.Join(in.Project, ".claude", "skills", "lint"),
-		"read-twice opencode skill lint " + filepath.Join(in.Project, ".agents", "skills", "lint"),
+		// and agy, but lists it once, its own copy winning: no warning.
 		"no-local-slot antigravity-cli settings ",
 	}
 	if !reflect.DeepEqual(got, want) {

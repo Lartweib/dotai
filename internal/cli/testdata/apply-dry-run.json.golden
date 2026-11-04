@@ -82,6 +82,16 @@
         "keys": []
       },
       {
+        "action": "replace",
+        "harness": "claudecode",
+        "kind": "commands",
+        "source": ".claude/commands/deploy.md",
+        "target": "/work/site/.claude/commands/deploy.md",
+        "before": "ff",
+        "after": "gg",
+        "keys": []
+      },
+      {
         "action": "create",
         "harness": "claudecode",
         "kind": "rules",

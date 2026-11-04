@@ -90,14 +90,24 @@ type UserItems struct {
 	ProjectWins bool
 }
 
+// Rename is a file of the project staging tree that the engine renames
+// after rulesync renders it, giving it a name of its own: From, a slash
+// path in the tree, becomes To, with its one occurrence of Old, matched
+// exactly, replaced by New. A file without exactly one Old is an error, so
+// that a rulesync that renders another form is caught.
+type Rename struct {
+	From, To string
+	Old, New string
+}
+
 // ProjectLayout is a harness's project scope (decision 0041): where each
 // file rulesync renders in a project installs; Imports, a rules file of the
 // project the harness does not load alone, which the pack's own rules file
 // imports (Import, with <pack> for the pack's name, holding ImportLine)
 // unless one of ImportFiles already does; the MCP servers it keeps outside
 // the project; the kinds it has no local slot for; where same-name user
-// items live; and the project skills directories of other harnesses it
-// reads too. Paths are slash paths.
+// items live; and the files it renames in the staging tree. Paths are
+// slash paths.
 type ProjectLayout struct {
 	Paths       []ProjectPath
 	Imports     string
@@ -107,7 +117,7 @@ type ProjectLayout struct {
 	MCP         *HomeKeys
 	NoSlot      []ProjectKind
 	UserItems   []UserItems
-	AlsoReads   []string
+	Renames     []Rename
 }
 
 // ProjectTarget is where a staged project file installs: Target, relative
@@ -205,7 +215,7 @@ func (l ProjectLayout) clone() ProjectLayout {
 		m := *l.MCP
 		l.MCP = &m
 	}
-	l.NoSlot, l.AlsoReads = slices.Clone(l.NoSlot), slices.Clone(l.AlsoReads)
+	l.NoSlot, l.Renames = slices.Clone(l.NoSlot), slices.Clone(l.Renames)
 	l.ImportFiles = slices.Clone(l.ImportFiles)
 	for i := range l.ImportFiles {
 		l.ImportFiles[i].Lines = slices.Clone(l.ImportFiles[i].Lines)
@@ -295,11 +305,19 @@ var (
 		},
 		// OpenCode has no mods.
 		NoSlot: []ProjectKind{ProjectMods},
+		// rulesync names the hooks plugin the same at both scopes, its file
+		// and, for OpenCode 2, its id, the form rulesync 41.0.0 writes;
+		// OpenCode keeps one plugin per name, so the project's would hide
+		// the user's (HARNESS-NOTES).
+		Renames: []Rename{{From: ".opencode/plugins/rulesync-hooks.js", To: ".opencode/plugins/rulesync-hooks-project.js",
+			Old: `id: "rulesync-hooks",`, New: `id: "rulesync-hooks-project",`}},
+		// OpenCode reads the project's .claude/skills and .agents/skills too,
+		// but lists a skill of the same name once, the .opencode/skills copy
+		// winning (HARNESS-NOTES), so a skill installed for every harness
+		// needs no warning.
 		UserItems: []UserItems{
 			{Kind: ProjectSkills, Dirs: []string{".config/opencode/skills", ".agents/skills", ".claude/skills", IsolatedDir + "/opencode/config/opencode/skills"}, ProjectWins: true},
 			{Kind: ProjectAgents, Dirs: []string{".config/opencode/agents", IsolatedDir + "/opencode/config/opencode/agents"}, ProjectWins: true},
 		},
-		// OpenCode collects .claude and .agents of every directory too.
-		AlsoReads: []string{".claude/skills/", ".agents/skills/"},
 	}
 )

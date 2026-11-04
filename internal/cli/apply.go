@@ -217,8 +217,8 @@ func writeProjectPlan(w io.Writer, p app.ProjectPlan, color bool, footer string)
 	for _, r := range p.Refusals {
 		fmt.Fprintf(&b, "  %s\n", r.Message)
 	}
-	fmt.Fprintf(&b, "\n%d create, %d merge, %d remove, %d unchanged, %d conflict, %d skipped · ",
-		count[plan.Create]+count[plan.Replace], count[plan.Merge], count[plan.Remove], count[plan.Unchanged], count[plan.Conflict], len(p.Skipped))
+	fmt.Fprintf(&b, "\n%d create, %d replace, %d merge, %d remove, %d unchanged, %d conflict, %d skipped · ",
+		count[plan.Create], count[plan.Replace], count[plan.Merge], count[plan.Remove], count[plan.Unchanged], count[plan.Conflict], len(p.Skipped))
 	b.WriteString(footer)
 	_, err := io.WriteString(w, b.String())
 	return err

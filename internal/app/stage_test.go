@@ -251,12 +251,14 @@ func TestStageFailureLeavesOutUntouched(t *testing.T) {
 
 // fakeRulesync stands in for fetching and running rulesync. It records
 // its runs and, unless quiet, writes one CLAUDE.md per scope where rulesync
-// writes the root rule of claudecode, and settings, when set, as the user
-// scope's .claude/settings.json.
+// writes the root rule of claudecode, settings, when set, as the user
+// scope's .claude/settings.json, and files, scope-prefixed slash paths and
+// their contents, into their scope.
 type fakeRulesync struct {
 	t                *testing.T
 	quiet            bool
 	settings         string
+	files            map[string]string
 	tools            app.ToolPaths
 	fetchErr, runErr error
 	runs             []rulesyncRun
@@ -293,6 +295,11 @@ func (f *fakeRulesync) run(_ context.Context, bin rulesync.Result, targets []str
 		}
 		if f.settings != "" && j.Global {
 			writeFile(f.t, filepath.Join(j.Dir, ".claude", "settings.json"), f.settings)
+		}
+		for name, data := range f.files {
+			if rest, ok := strings.CutPrefix(name, filepath.Base(j.Dir)+"/"); ok {
+				writeFile(f.t, filepath.Join(j.Dir, filepath.FromSlash(rest)), data)
+			}
 		}
 	}
 	return nil
@@ -521,5 +528,77 @@ func TestStageRendersSettingsWithoutOtherFiles(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(out, want.Scope, filepath.FromSlash(want.Path))); err != nil {
 			t.Errorf("settings file missing: %v", err)
 		}
+	}
+}
+
+// openCodePlugin41 is the OpenCode plugin rulesync 41.0.0 renders from
+// hooks, the same at both scopes but for the commands.
+func openCodePlugin41(t *testing.T) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("testdata", "rulesync-41.0.0", "opencode-project-plugin.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+// TestStageGivesTheProjectOpenCodePluginItsOwnName checks that the project
+// scope's OpenCode plugin is renamed and gets an id of its own, so that it
+// loads next to the user scope's, which rulesync names the same, and that
+// the user scope's is left as rulesync wrote it.
+func TestStageGivesTheProjectOpenCodePluginItsOwnName(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "staging")
+	plugin := openCodePlugin41(t)
+	f := &fakeRulesync{t: t, files: map[string]string{
+		"project/.opencode/plugins/rulesync-hooks.js":     plugin,
+		"user/.config/opencode/plugins/rulesync-hooks.js": plugin,
+	}}
+	res, err := f.stage(examplePack, out, app.Selection{Profiles: []string{"web"}}, false)
+	if err != nil || len(res.Diagnostics) > 0 {
+		t.Fatalf("Stage() = %+v, %v", res.Diagnostics, err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "project", ".opencode", "plugins", "rulesync-hooks.js")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the project plugin is still staged under rulesync's name: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(out, "project", ".opencode", "plugins", "rulesync-hooks-project.js"))
+	want := strings.Replace(plugin, `id: "rulesync-hooks",`, `id: "rulesync-hooks-project",`, 1)
+	if err != nil || string(got) != want || want == plugin {
+		t.Errorf("project plugin = %q, %v, want %q", got, err, want)
+	}
+	if got, err := os.ReadFile(filepath.Join(out, "user", ".config", "opencode", "plugins", "rulesync-hooks.js")); err != nil || string(got) != plugin {
+		t.Errorf("user plugin = %q, %v, want it as rulesync wrote it", got, err)
+	}
+	if !slices.ContainsFunc(res.Files, func(f app.StagedFile) bool {
+		return reflect.DeepEqual(f, app.StagedFile{Scope: app.ScopeProject, Path: ".opencode/plugins/rulesync-hooks-project.js", Generator: app.GeneratorRulesync})
+	}) || slices.ContainsFunc(res.Files, func(f app.StagedFile) bool {
+		return f.Scope == app.ScopeProject && f.Path == ".opencode/plugins/rulesync-hooks.js"
+	}) {
+		t.Errorf("files = %+v, want the project plugin under its own name only", res.Files)
+	}
+}
+
+// TestStageRefusesAnOpenCodePluginItCannotRename checks that a project
+// plugin without exactly one id of the form rulesync 41.0.0 writes fails
+// the stage and writes nothing, so a rulesync that renders another form is
+// caught rather than installed with a clashing id.
+func TestStageRefusesAnOpenCodePluginItCannotRename(t *testing.T) {
+	plugin := openCodePlugin41(t)
+	for name, data := range map[string]string{
+		"no id":    strings.Replace(plugin, `id: "rulesync-hooks",`, `name: "rulesync-hooks",`, 1),
+		"other id": strings.Replace(plugin, `id: "rulesync-hooks",`, `id: "rulesync-hooks-v2",`, 1),
+		"two ids":  plugin + "\nexport const other = {\n  id: \"rulesync-hooks\",\n};\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			out := filepath.Join(t.TempDir(), "staging")
+			f := &fakeRulesync{t: t, files: map[string]string{"project/.opencode/plugins/rulesync-hooks.js": data}}
+			_, err := f.stage(examplePack, out, app.Selection{Profiles: []string{"web"}}, false)
+			if err == nil || !strings.Contains(err.Error(), ".opencode/plugins/rulesync-hooks.js") ||
+				!strings.Contains(err.Error(), `id: "rulesync-hooks",`) || !strings.Contains(err.Error(), "41.0.0") {
+				t.Fatalf("Stage() error = %v, want one that names the plugin, the id it looks for and the rulesync", err)
+			}
+			if _, err := os.Stat(out); !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("out was written: %v", err)
+			}
+		})
 	}
 }

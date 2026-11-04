@@ -56,10 +56,16 @@ const batchUnsafe = "&|<>^%\"!\r\n"
 // that cmd.exe would read is refused. Apart from the lock and the empty
 // directory of a pointer that must exist, it writes nothing.
 func PlanRun(home, id string, args []string) (RunPlan, error) {
-	return planRun(osInstallFS{}, exec.LookPath, runtime.GOOS, home, id, args, os.Environ())
+	cwd, err := os.Getwd()
+	if err != nil {
+		cwd = ""
+	}
+	return planRun(osInstallFS{}, exec.LookPath, runtime.GOOS, home, cwd, id, args, os.Environ())
 }
 
-func planRun(d executeFS, lookPath func(string) (string, error), goos, home, id string, args, environ []string) (p RunPlan, err error) {
+// planRun is PlanRun from the working directory cwd, "" when it is
+// unknown: the leaks of the walk-up above it are then shown whole.
+func planRun(d executeFS, lookPath func(string) (string, error), goos, home, cwd, id string, args, environ []string) (p RunPlan, err error) {
 	a, err := launchable(id)
 	if err != nil {
 		return RunPlan{}, err
@@ -112,6 +118,16 @@ func planRun(d executeFS, lookPath func(string) (string, error), goos, home, id 
 	}
 	root := filepath.Join(home, filepath.FromSlash(harness.IsolatedDir))
 	h := harnessPlan(harness.Isolated, home, a, goos, s.SharedSkills)
+	launch := harness.Launch{GOOS: goos, Shared: s.SharedSkills, UnderHome: true, Exists: func(string) bool { return true },
+		Exclusion: homeExclusion(d, home, h.Dir, a)}
+	if cwd != "" {
+		launch.UnderHome = underHome(goos, home, cwd)
+		launch.Exists = func(rel string) bool {
+			_, err := d.Lstat(filepath.Join(home, filepath.FromSlash(rel)))
+			return err == nil
+		}
+	}
+	h.Leaks = a.Isolation.LeaksAt(launch)
 	dirs := []string{root, h.Dir}
 	if a.Install != "" {
 		dir := h.Dir
@@ -132,9 +148,12 @@ func planRun(d executeFS, lookPath func(string) (string, error), goos, home, id 
 		return RunPlan{}, err
 	}
 	p = RunPlan{Harness: h, Command: a.Command, Program: program, Args: []string{}, Env: []string{}, Vars: []string{}, Notes: []string{}, Warnings: []string{}}
-	set, drop := map[string]bool{}, map[string]bool{}
+	set, drop, credentials := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for _, name := range a.Isolation.Drop {
 		drop[envKey(goos, name)] = true
+	}
+	for _, name := range a.Isolation.Credentials {
+		credentials[envKey(goos, name)] = true
 	}
 	for _, ptr := range h.Pointers {
 		if ptr.Mechanism == string(harness.Flag) {
@@ -159,7 +178,7 @@ func planRun(d executeFS, lookPath func(string) (string, error), goos, home, id 
 	}
 	args, p.Notes, p.Warnings = addFlags(a.Isolation.Flags, args, isDir)
 	p.Args = append(p.Args, args...)
-	var dropped []string
+	var dropped, logins []string
 	for _, kv := range environ {
 		name, _, _ := strings.Cut(kv, "=")
 		switch key := envKey(goos, name); {
@@ -167,10 +186,17 @@ func planRun(d executeFS, lookPath func(string) (string, error), goos, home, id 
 			dropped = append(dropped, name)
 		case !set[key]:
 			p.Env = append(p.Env, kv)
+			if credentials[key] {
+				logins = append(logins, name)
+			}
 		}
 	}
 	if len(dropped) > 0 {
-		p.Notes = append(p.Notes, fmt.Sprintf("removed %s from the environment, since each points %s at another configuration", strings.Join(dropped, ", "), a.ID))
+		p.Notes = append(p.Notes, fmt.Sprintf("removed %s from the environment, since %s", strings.Join(dropped, ", "), a.Isolation.DropNote))
+	}
+	// Names only: a value is a secret.
+	if len(logins) > 0 {
+		p.Warnings = append(p.Warnings, fmt.Sprintf("%s, which log in or choose a provider or an endpoint, are set in your environment and passed on: %s uses them rather than the isolated login", strings.Join(logins, ", "), a.ID))
 	}
 	for _, ptr := range h.Pointers {
 		if ptr.Mechanism == string(harness.Env) {

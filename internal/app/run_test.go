@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -463,6 +464,45 @@ func TestPlanRunAddsStandalone(t *testing.T) {
 	}
 }
 
+// TestPlanRunDropsClaudeCodeSessionAndPluginVariables checks that the
+// variables that would load the user's own plugins or shell setup, or
+// carry a parent Claude Code session into the isolated one, are removed and
+// named in a note, and that the credential variables are kept and named,
+// without their values, in a warning.
+func TestPlanRunDropsClaudeCodeSessionAndPluginVariables(t *testing.T) {
+	home := runHome(t, app.ModeIsolated, []string{"claudecode"}, nil)
+	dropped := []string{"CLAUDE_CODE_PLUGIN_DIRS=/p", "CLAUDE_CODE_PLUGIN_SEED_DIR=/s", "CLAUDE_CODE_PLUGIN_CACHE_DIR=/c", "CLAUDE_ENV_FILE=/e.sh",
+		"CLAUDE_CODE_SESSION_ID=abc", "claudecode=1", "CLAUDE_CODE_CHILD_SESSION=1"}
+	kept := []string{"CLAUDE_CODE_OAUTH_TOKEN=secret-oauth", "ANTHROPIC_API_KEY=secret-key", "CLAUDE_CODE_USE_BEDROCK=1", "AWS_BEARER_TOKEN_BEDROCK=secret-bearer",
+		"ANTHROPIC_BASE_URL=https://gateway.example", "ANTHROPIC_CUSTOM_HEADERS=X-Secret: s", "KEEP=1"}
+	p, err := app.PlanRunWith(home, "claudecode", nil, append(slices.Clone(dropped), kept...), lookPathAt(home), "windows")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kv := range dropped {
+		if slices.Contains(p.Env, kv) {
+			t.Errorf("Env has %q, want it removed", kv)
+		}
+	}
+	for _, kv := range kept {
+		if !slices.Contains(p.Env, kv) {
+			t.Errorf("Env = %q, want %q kept", p.Env, kv)
+		}
+	}
+	if len(p.Notes) != 1 || !strings.Contains(p.Notes[0], "CLAUDE_CODE_PLUGIN_DIRS, CLAUDE_CODE_PLUGIN_SEED_DIR, CLAUDE_CODE_PLUGIN_CACHE_DIR, CLAUDE_ENV_FILE, CLAUDE_CODE_SESSION_ID, claudecode, CLAUDE_CODE_CHILD_SESSION") {
+		t.Errorf("Notes = %q, want one naming the removed variables", p.Notes)
+	}
+	if len(p.Warnings) != 1 || !strings.Contains(p.Warnings[0], "CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY, CLAUDE_CODE_USE_BEDROCK, AWS_BEARER_TOKEN_BEDROCK, ANTHROPIC_BASE_URL, ANTHROPIC_CUSTOM_HEADERS") ||
+		strings.Contains(p.Warnings[0], "gateway.example") || strings.Contains(p.Warnings[0], "X-Secret") ||
+		strings.Contains(p.Warnings[0], "ANTHROPIC_AUTH_TOKEN") || strings.Contains(p.Warnings[0], "secret") {
+		t.Errorf("Warnings = %q, want one naming the credential variables that are set, without their values", p.Warnings)
+	}
+	p, err = app.PlanRunWith(home, "claudecode", nil, []string{"KEEP=1"}, lookPathAt(home), "linux")
+	if err != nil || len(p.Notes) != 0 || len(p.Warnings) != 0 {
+		t.Errorf("without them: Notes = %q, Warnings = %q, %v, want none", p.Notes, p.Warnings, err)
+	}
+}
+
 // TestPlanRunDropsVariablesThatPointOpenCodeElsewhere checks that an
 // inherited configuration or database of OpenCode's is removed, in any
 // case on Windows, and named in a note.
@@ -592,5 +632,153 @@ func TestPlanRunOpenCodeWithSharedSkills(t *testing.T) {
 	}
 	if _, err := os.Lstat(filepath.Join(dir, "home")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the empty home was made: %v, want it left out", err)
+	}
+}
+
+// TestPlanRunOpenCodeNamesOnlyTheWalkUpItReaches checks that the leak of
+// OpenCode's walk-up is shown only for a working directory under the home
+// directory, and names only the files of the home directory it reaches
+// that exist.
+func TestPlanRunOpenCodeNamesOnlyTheWalkUpItReaches(t *testing.T) {
+	walkUp := func(leaks []string) []string {
+		var out []string
+		for _, l := range leaks {
+			if strings.Contains(l, "every directory above") {
+				out = append(out, l)
+			}
+		}
+		return out
+	}
+	home := runHome(t, app.ModeIsolated, []string{"opencode"}, nil)
+	under := filepath.Join(home, "work", "site")
+	if err := os.MkdirAll(under, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p, err := app.PlanRunAt(home, t.TempDir(), "opencode", []string{"run", "hi"}, nil, lookPathAt(home), "linux")
+	if err != nil || len(walkUp(p.Harness.Leaks)) != 0 {
+		t.Errorf("outside the home directory: leaks = %q, %v, want no walk-up leak", p.Harness.Leaks, err)
+	}
+	p, err = app.PlanRunAt(home, under, "opencode", []string{"run", "hi"}, nil, lookPathAt(home), "linux")
+	if err != nil || len(walkUp(p.Harness.Leaks)) != 0 {
+		t.Errorf("under a home without those files: leaks = %q, %v, want no walk-up leak", p.Harness.Leaks, err)
+	}
+	if err := os.MkdirAll(at(home, ".agents/skills"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"AGENTS.md, .agents and .opencode load from the working directory and every directory above it, so under your home directory these still load: ~/.agents/skills"}
+	p, err = app.PlanRunAt(home, under, "opencode", []string{"run", "hi"}, nil, lookPathAt(home), "linux")
+	if got := walkUp(p.Harness.Leaks); err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("under a home with ~/.agents/skills: walk-up leaks = %q, %v, want %q", got, err, want)
+	}
+	writeFile(t, at(home, "AGENTS.md"), "# mine\n")
+	want = []string{"AGENTS.md, .agents and .opencode load from the working directory and every directory above it, so under your home directory these still load: ~/.agents/skills and ~/AGENTS.md"}
+	p, err = app.PlanRunAt(home, home, "opencode", []string{"run", "hi"}, nil, lookPathAt(home), "linux")
+	if got := walkUp(p.Harness.Leaks); err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("in the home directory: walk-up leaks = %q, %v, want %q", got, err, want)
+	}
+}
+
+// TestUnderHome checks the working directory test of dotai run: below the
+// home directory or the home directory itself, without case only on
+// Windows and macOS, never on another drive, and through a link.
+func TestUnderHome(t *testing.T) {
+	for _, tt := range []struct {
+		name, goos, home, cwd string
+		want                  bool
+	}{
+		{"the home directory", "linux", "/home/ana", "/home/ana", true},
+		{"below it", "linux", "/home/ana", "/home/ana/work/site", true},
+		{"a sibling with the same prefix", "linux", "/home/ana", "/home/anabel", false},
+		{"above it", "linux", "/home/ana", "/home", false},
+		{"other case on Linux", "linux", "/home/ana", "/home/Ana/work", false},
+		{"other case on macOS", "darwin", "/Users/ana", "/users/ANA/work", true},
+		{"other case on Windows", "windows", `C:\Users\Ana`, `c:\users\ana\work`, true},
+		{"another drive", "windows", `C:\Users\Ana`, `D:\Users\Ana\work`, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if runtime.GOOS != "windows" && strings.Contains(tt.home, `\`) {
+				t.Skip("Windows paths")
+			}
+			if got := app.UnderHome(tt.goos, filepath.FromSlash(tt.home), filepath.FromSlash(tt.cwd)); got != tt.want {
+				t.Errorf("UnderHome(%s, %s, %s) = %v, want %v", tt.goos, tt.home, tt.cwd, got, tt.want)
+			}
+		})
+	}
+	home, other := t.TempDir(), t.TempDir()
+	link := filepath.Join(other, "link")
+	if err := os.Symlink(home, link); err != nil {
+		t.Skipf("no link: %v", err)
+	}
+	if !app.UnderHome(runtime.GOOS, home, link) {
+		t.Errorf("a link to the home directory is not under it")
+	}
+}
+
+// TestPlanRunSaysWhetherTheHomeInstructionsAreExcluded checks that the
+// leak of Claude Code's walk-up says the home directory's instruction
+// files are excluded only when the isolated settings list every pattern
+// an install writes, and otherwise that they still load and to install
+// again, as after an install from before claudeMdExcludes.
+func TestPlanRunSaysWhetherTheHomeInstructionsAreExcluded(t *testing.T) {
+	home := runHome(t, app.ModeIsolated, []string{"claudecode"}, nil)
+	settings := at(home, ".dotai/isolated/claude/settings.json")
+	patterns, ok := app.HomePatterns(app.HomeForms(home), []string{"CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md", ".claude/rules/**"})
+	if !ok {
+		t.Fatal("no patterns")
+	}
+	list := func(p []string) string {
+		data, err := json.Marshal(map[string]any{"model": "sonnet", "claudeMdExcludes": p})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	for _, tt := range []struct {
+		name, settings string // "" for no settings file
+		excluded       bool
+	}{
+		{"no settings file", "", false},
+		{"settings without the key", `{"model": "sonnet"}`, false},
+		{"some patterns only", list(patterns[:2]), false},
+		{"not JSON", "{", false},
+		{"every pattern, with the pack's", list(append([]string{"**/vendor/CLAUDE.md"}, patterns...)), true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := os.Remove(settings); err != nil && !errors.Is(err, os.ErrNotExist) {
+				t.Fatal(err)
+			}
+			if tt.settings != "" {
+				writeFile(t, settings, tt.settings)
+			}
+			p, err := app.PlanRunWith(home, "claudecode", nil, nil, lookPathAt(home), "linux")
+			if err != nil || len(p.Harness.Leaks) == 0 {
+				t.Fatalf("PlanRun() = %+v, %v", p.Harness.Leaks, err)
+			}
+			leak := p.Harness.Leaks[0]
+			if got := strings.Contains(leak, "which the isolated settings exclude with claudeMdExcludes"); got != tt.excluded {
+				t.Errorf("leak = %q, want excluded %v", leak, tt.excluded)
+			}
+			if !tt.excluded && !strings.Contains(leak, "run dotai install again") {
+				t.Errorf("leak = %q, want it to say to install again", leak)
+			}
+		})
+	}
+}
+
+// TestPlanRunNamesAGlobHomeAsTheCause checks that for a home directory
+// whose path holds a glob character the leak gives that cause, not an
+// install that cannot help.
+func TestPlanRunNamesAGlobHomeAsTheCause(t *testing.T) {
+	base := runHome(t, app.ModeIsolated, []string{"claudecode"}, nil)
+	home := filepath.Join(t.TempDir(), "user[1]")
+	if err := os.CopyFS(home, os.DirFS(base)); err != nil {
+		t.Fatal(err)
+	}
+	p, err := app.PlanRunWith(home, "claudecode", nil, nil, lookPathAt(home), "linux")
+	if err != nil || len(p.Harness.Leaks) == 0 {
+		t.Fatalf("PlanRun() = %+v, %v", p.Harness.Leaks, err)
+	}
+	if leak := p.Harness.Leaks[0]; !strings.Contains(leak, "glob character") || strings.Contains(leak, "install again") {
+		t.Errorf("leak = %q, want the glob character as the cause", leak)
 	}
 }

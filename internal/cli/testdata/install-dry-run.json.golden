@@ -44,7 +44,7 @@
         ],
         "relogin": "unknown",
         "leaks": [
-          "~/.claude/CLAUDE.md still loads when the working directory is under the home directory"
+          "the CLAUDE.md, .claude/CLAUDE.md and CLAUDE.local.md of each directory above the working directory still load, but for your ~/CLAUDE.md, ~/CLAUDE.local.md, ~/.claude/CLAUDE.md and ~/.claude/rules, which the isolated settings exclude with claudeMdExcludes"
         ],
         "tools": []
       },

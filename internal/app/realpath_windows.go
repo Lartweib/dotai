@@ -34,10 +34,10 @@ func resolvePath(p string) string {
 	}
 	final := windows.UTF16ToString(buf[:n])
 	switch {
-	case strings.HasPrefix(final, `\?\UNC\`):
-		final = `\` + final[len(`\?\UNC\`):]
+	case strings.HasPrefix(final, `\\?\UNC\`):
+		final = `\\` + final[len(`\\?\UNC\`):]
 	default:
-		final = strings.TrimPrefix(final, `\?\`)
+		final = strings.TrimPrefix(final, `\\?\`)
 	}
 	return filepath.Clean(final)
 }

@@ -5,7 +5,7 @@ claudecode · partial isolation · may need a new login
   binary: /usr/bin/claude
   config: /home/u/.claude
   CLAUDE_CONFIG_DIR=/home/u/.dotai/isolated/claude
-  leaks: ~/.claude/CLAUDE.md still loads when the working directory is under the home directory
+  leaks: the CLAUDE.md, .claude/CLAUDE.md and CLAUDE.local.md of each directory above the working directory still load, but for your ~/CLAUDE.md, ~/CLAUDE.local.md, ~/.claude/CLAUDE.md and ~/.claude/rules, which the isolated settings exclude with claudeMdExcludes
 
 antigravity-cli · partial isolation · keeps your login
   binary: /usr/bin/agy

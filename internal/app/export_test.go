@@ -141,7 +141,22 @@ func RestoreWarnWith(ctx context.Context, d executeFS, home, id string, warn War
 // PlanRunWith is PlanRun with environ as the current environment, lookPath
 // finding the harness's executable and goos as the OS.
 func PlanRunWith(home, id string, args, environ []string, lookPath func(string) (string, error), goos string) (RunPlan, error) {
-	return planRun(osInstallFS{}, lookPath, goos, home, id, args, environ)
+	return planRun(osInstallFS{}, lookPath, goos, home, "", id, args, environ)
+}
+
+// HomePatterns are the claudeMdExcludes patterns of the forms of a home
+// directory, and HomeForms those forms.
+var (
+	HomePatterns = homePatterns
+	HomeForms    = homeForms
+)
+
+// UnderHome is the check of a working directory under the home directory.
+var UnderHome = underHome
+
+// PlanRunAt is PlanRunWith from the working directory cwd.
+func PlanRunAt(home, cwd, id string, args, environ []string, lookPath func(string) (string, error), goos string) (RunPlan, error) {
+	return planRun(osInstallFS{}, lookPath, goos, home, cwd, id, args, environ)
 }
 
 // InstallRoot is the directory a target is written through.

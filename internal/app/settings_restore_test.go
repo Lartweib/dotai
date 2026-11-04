@@ -98,7 +98,7 @@ func TestRestorePutsBackAKeyThePackDropped(t *testing.T) {
 			t.Fatal(err)
 		}
 		target := at(home, claudeSettings)
-		if got := settingsOf(t, target); !reflect.DeepEqual(got, map[string]any{"model": "sonnet"}) {
+		if got := settingsOf(t, target); !reflect.DeepEqual(got, isolatedClaude(home, map[string]any{"model": "sonnet"})) {
 			t.Fatalf("settings after the standalone install = %v, want the env dropped", got)
 		}
 		if readded {
@@ -115,7 +115,7 @@ func TestRestorePutsBackAKeyThePackDropped(t *testing.T) {
 		if _, err := restore(d, home, "", func(app.RestoreResult) (bool, error) { return true, nil }); err != nil {
 			t.Fatalf("Restore() error = %v", err)
 		}
-		want := map[string]any{"model": "opus", "env": map[string]any{"DOTAI_TERMINAL": "tmux"}}
+		want := isolatedClaude(home, map[string]any{"model": "opus", "env": map[string]any{"DOTAI_TERMINAL": "tmux"}})
 		if got := settingsOf(t, target); !reflect.DeepEqual(got, want) {
 			t.Errorf("settings (written again %v) = %v, want %v", readded, got, want)
 		}
