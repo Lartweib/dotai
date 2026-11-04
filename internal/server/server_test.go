@@ -500,7 +500,7 @@ func TestOnlyOnePlanRunsAtATime(t *testing.T) {
 
 func TestAPlanThatRunsTooLongIsStopped(t *testing.T) {
 	cfg := testConfig(t)
-	cfg.PlanTimeout = 20 * time.Millisecond
+	cfg.OperationTimeout = 20 * time.Millisecond
 	deps := fakeDeps()
 	deps.PlanInstall = func(ctx context.Context, _, _, _ string, _ app.InstallOptions, _ app.Progress) (app.InstallPlan, error) {
 		<-ctx.Done()

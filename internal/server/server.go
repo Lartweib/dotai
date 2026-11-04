@@ -72,23 +72,23 @@ func AppDeps(p app.Ports) Deps {
 // carry; CodeSpent, when it is not nil, is called once the code is
 // traded. Context is the life of the server (context.Background when it is
 // nil): an action is cancelled only when it ends, never by its request.
-// PlanTimeout stops a plan or an action that runs longer
-// (defaultPlanTimeout when it is 0), and Now is the clock (time.Now when it is nil).
+// OperationTimeout stops a plan or an action that runs longer
+// (defaultOperationTimeout when it is 0), and Now is the clock (time.Now when it is nil).
 type Config struct {
-	Home, CacheDir string
-	Port           int
-	Code           string
-	CodeExpires    time.Time
-	Session        string
-	CodeSpent      func()
-	PlanTimeout    time.Duration
-	Now            func() time.Time
-	Context        context.Context
+	Home, CacheDir   string
+	Port             int
+	Code             string
+	CodeExpires      time.Time
+	Session          string
+	CodeSpent        func()
+	OperationTimeout time.Duration
+	Now              func() time.Time
+	Context          context.Context
 }
 
-// defaultPlanTimeout bounds a plan or an action, which may download
+// defaultOperationTimeout bounds a plan or an action, which may download
 // rulesync first.
-const defaultPlanTimeout = 5 * time.Minute
+const defaultOperationTimeout = 5 * time.Minute
 
 // Error codes of the API besides those of the command line
 // (internal/envelope): a request the guard refuses, an unknown path, a
@@ -152,8 +152,8 @@ func newUI(cfg Config, deps Deps, web fs.FS) *ui {
 	if cfg.Context == nil {
 		cfg.Context = context.Background()
 	}
-	if cfg.PlanTimeout == 0 {
-		cfg.PlanTimeout = defaultPlanTimeout
+	if cfg.OperationTimeout == 0 {
+		cfg.OperationTimeout = defaultOperationTimeout
 	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
@@ -269,7 +269,7 @@ func (s *handler) planInstall(r *http.Request) (any, error) {
 		return nil, err
 	}
 	opts := req.options()
-	return s.plan(r, func(ctx context.Context) (any, error) {
+	return s.plan(r, "install plan", func(ctx context.Context) (any, error) {
 		p, err := s.deps.PlanInstall(ctx, s.cfg.CacheDir, pack, s.cfg.Home, opts, nil)
 		if err != nil {
 			return nil, err
@@ -277,7 +277,7 @@ func (s *handler) planInstall(r *http.Request) (any, error) {
 		if len(p.Diagnostics) > 0 {
 			return nil, envelope.PackInvalid(p.Diagnostics, p)
 		}
-		return withDigest(p)
+		return installView(p)
 	})
 }
 
@@ -307,7 +307,7 @@ func (s *handler) planProject(r *http.Request) (any, error) {
 		return nil, err
 	}
 	opts := req.options()
-	return s.plan(r, func(ctx context.Context) (any, error) {
+	return s.plan(r, "apply plan", func(ctx context.Context) (any, error) {
 		p, err := s.deps.PlanProject(ctx, s.cfg.CacheDir, pack, project, s.cfg.Home, opts, nil)
 		if err != nil {
 			return nil, err
@@ -315,14 +315,14 @@ func (s *handler) planProject(r *http.Request) (any, error) {
 		if len(p.Diagnostics) > 0 {
 			return nil, envelope.PackInvalid(p.Diagnostics, p)
 		}
-		return withDigest(p)
+		return projectView(p)
 	})
 }
 
-// plan runs a plan, which fetches rulesync into the cache, stages the pack
+// plan runs a plan, what, which fetches rulesync into the cache, stages the pack
 // into a temporary directory and may run git, as one operation.
-func (s *handler) plan(r *http.Request, run func(context.Context) (any, error)) (any, error) {
-	return s.operate(r.Context(), "plan", run)
+func (s *handler) plan(r *http.Request, what string, run func(context.Context) (any, error)) (any, error) {
+	return s.operate(r.Context(), what, run)
 }
 
 // act runs an action, what, which writes: on a context of its own that its
@@ -350,11 +350,11 @@ func (s *handler) operate(parent context.Context, what string, run func(context.
 	default:
 		return nil, &apiError{code: CodeBusy, status: http.StatusTooManyRequests, msg: "another plan or action is running: try again once it ends"}
 	}
-	ctx, cancel := context.WithTimeout(parent, s.cfg.PlanTimeout)
+	ctx, cancel := context.WithTimeout(parent, s.cfg.OperationTimeout)
 	defer cancel()
 	data, err := run(ctx)
 	if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return nil, fmt.Errorf("the %s took longer than %s and was stopped: %w", what, s.cfg.PlanTimeout, err)
+		return nil, fmt.Errorf("the %s took longer than %s and was stopped: %w", what, s.cfg.OperationTimeout, err)
 	}
 	return data, err
 }
@@ -366,7 +366,7 @@ func (s *handler) previewRestore(r *http.Request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return withDigest(res)
+	return restorePreview(res)
 }
 
 // previewProjectRestore previews restore --project in the project at the
@@ -380,7 +380,7 @@ func (s *handler) previewProjectRestore(r *http.Request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return withDigest(res)
+	return projectRestorePreview(res)
 }
 
 // doctor runs dotai doctor without --fix. Problems make an invalid
@@ -391,7 +391,7 @@ func (s *handler) doctor(r *http.Request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, err := withDigest(res)
+	data, err := doctorFindings(res)
 	if err != nil {
 		return nil, err
 	}

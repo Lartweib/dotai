@@ -76,7 +76,7 @@ func (s *handler) install(r *http.Request) (any, error) {
 		return nil, err
 	}
 	opts := req.options()
-	opts.Confirm = confirm[app.InstallPlan](req.Digest)
+	opts.Confirm = confirm(req.Digest, installView)
 	return s.act(r, "install", func(ctx context.Context) (any, error) {
 		res, err := s.deps.Install(ctx, s.cfg.CacheDir, pack, s.cfg.Home, opts, nil, nil, yes[app.InstallPlan](req.confirmation))
 		if err != nil {
@@ -111,7 +111,7 @@ func (s *handler) apply(r *http.Request) (any, error) {
 		return nil, err
 	}
 	opts := req.options()
-	opts.Confirm = confirm[app.ProjectPlan](req.Digest)
+	opts.Confirm = confirm(req.Digest, projectView)
 	return s.act(r, "apply", func(ctx context.Context) (any, error) {
 		res, err := s.deps.Apply(ctx, s.cfg.CacheDir, pack, project, s.cfg.Home, opts, nil, yes[app.ProjectPlan](req.confirmation))
 		if err != nil {
@@ -137,7 +137,7 @@ func (s *handler) restore(r *http.Request) (any, error) {
 	if err := req.check(); err != nil {
 		return nil, err
 	}
-	opts := app.RestoreOptions{Confirm: confirm[app.RestoreResult](req.Digest)}
+	opts := app.RestoreOptions{Confirm: confirm(req.Digest, restorePreview)}
 	return s.act(r, "restore", func(ctx context.Context) (any, error) {
 		return s.deps.Restore(ctx, s.cfg.Home, req.ID, opts, nil, yes[app.RestoreResult](req.confirmation))
 	})
@@ -160,8 +160,8 @@ func (s *handler) restoreProject(r *http.Request) (any, error) {
 	if err := req.check(); err != nil {
 		return nil, err
 	}
-	opts := app.ProjectRestoreOptions{Confirm: confirm[app.ProjectRestoreResult](req.Digest)}
-	return s.act(r, "restore", func(ctx context.Context) (any, error) {
+	opts := app.ProjectRestoreOptions{Confirm: confirm(req.Digest, projectRestorePreview)}
+	return s.act(r, "project restore", func(ctx context.Context) (any, error) {
 		return s.deps.RestoreProject(ctx, project, s.cfg.Home, opts, yes[app.ProjectRestoreResult](req.confirmation))
 	})
 }
@@ -179,8 +179,8 @@ func (s *handler) fix(r *http.Request) (any, error) {
 	if err := (confirmation{Digest: req.Digest}).check(); err != nil {
 		return nil, err
 	}
-	opts := app.DoctorOptions{Fix: true, Confirm: confirm[app.DoctorResult](req.Digest)}
-	return s.act(r, "fix", func(ctx context.Context) (any, error) {
+	opts := app.DoctorOptions{Fix: true, Confirm: confirm(req.Digest, doctorFindings)}
+	return s.act(r, "doctor fix", func(ctx context.Context) (any, error) {
 		res, err := s.deps.Doctor(ctx, s.cfg.Home, opts)
 		if err != nil && res.Findings != nil {
 			// A fix that failed: what was found and fixed before it

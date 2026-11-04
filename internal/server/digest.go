@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+
+	"github.com/lartweib/dotai/internal/app"
 )
 
 // The confirm of an action (decision 0043): a plan or a preview carries
@@ -17,59 +19,83 @@ import (
 // stops there with CodePlanChanged and the new plan, so that the user
 // carries out only a plan they saw.
 
-// canonical is the JSON of v as the API sends it, without HTML escaping.
-func canonical(v any) ([]byte, error) {
+// digest returns the digest of v: "sha256:" and the SHA-256 in hex of its
+// JSON, as the API sends it. Two plans with the same JSON have the same
+// digest.
+func digest(v any) (string, error) {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
 	if err := enc.Encode(v); err != nil {
-		return nil, err
-	}
-	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
-}
-
-// Digest returns the digest of v: "sha256:" and the SHA-256 in hex of its
-// JSON. Two plans with the same JSON have the same digest.
-func Digest(v any) (string, error) {
-	b, err := canonical(v)
-	if err != nil {
 		return "", err
 	}
-	sum := sha256.Sum256(b)
+	sum := sha256.Sum256(bytes.TrimSuffix(buf.Bytes(), []byte("\n")))
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
-// withDigest returns v, which encodes as a JSON object, with its digest
-// added as the field digest.
-func withDigest(v any) (json.RawMessage, error) {
-	b, err := canonical(v)
-	if err != nil {
-		return nil, err
+// The plans and previews as the API sends them: the data of the command,
+// with the digest of that data and whether the page can carry it out.
+type (
+	installPlanView struct {
+		app.InstallPlan
+		Digest string `json:"digest"`
 	}
-	d, err := Digest(v)
-	if err != nil {
-		return nil, err
+	projectPlanView struct {
+		app.ProjectPlan
+		Digest string `json:"digest"`
 	}
-	field := `"digest":"` + d + `"}`
-	if len(b) > 2 {
-		field = "," + field
+	restoreView struct {
+		app.RestoreResult
+		Digest string `json:"digest"`
 	}
-	return append(b[:len(b)-1:len(b)-1], field...), nil
+	projectRestoreView struct {
+		app.ProjectRestoreResult
+		Digest string `json:"digest"`
+	}
+	doctorView struct {
+		app.DoctorResult
+		Digest string `json:"digest"`
+	}
+)
+
+func installView(p app.InstallPlan) (any, error) {
+	d, err := digest(p)
+	return installPlanView{p, d}, err
+}
+
+func projectView(p app.ProjectPlan) (any, error) {
+	d, err := digest(p)
+	return projectPlanView{p, d}, err
+}
+
+func restorePreview(r app.RestoreResult) (any, error) {
+	d, err := digest(r)
+	return restoreView{r, d}, err
+}
+
+func projectRestorePreview(r app.ProjectRestoreResult) (any, error) {
+	d, err := digest(r)
+	return projectRestoreView{r, d}, err
+}
+
+func doctorFindings(r app.DoctorResult) (any, error) {
+	d, err := digest(r)
+	return doctorView{r, d}, err
 }
 
 // confirm returns the Confirm of an action whose user saw the plan of the
-// digest want: it refuses any other plan with CodePlanChanged, the new
-// plan and its digest in the envelope's data.
-func confirm[T any](want string) func(T) error {
+// digest want: it refuses any other plan with CodePlanChanged and the new
+// plan as view gives it, with its own digest, in the envelope's data.
+func confirm[T any](want string, view func(T) (any, error)) func(T) error {
 	return func(v T) error {
-		got, err := Digest(v)
+		got, err := digest(v)
 		if err != nil {
 			return err
 		}
 		if got == want {
 			return nil
 		}
-		data, err := withDigest(v)
+		data, err := view(v)
 		if err != nil {
 			return err
 		}
