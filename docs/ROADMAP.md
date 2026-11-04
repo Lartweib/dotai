@@ -46,7 +46,7 @@ The UI is a thin layer over the same use cases as the CLI ([0026](decisions/0026
 | # | Pull request | What can be seen or tried |
 |---|---|---|
 | 13 | `dotai ui`, read-only ([0043](decisions/0043-local-web-ui.md)) | The installed state, the project records, the backups, the plan of an install or an apply, a restore preview and the `doctor` result in the browser |
-| 14 | UI actions | Install, apply profiles and restore from the UI; each action shows its plan and asks for confirmation |
+| 14 | UI boards and actions ([0043](decisions/0043-local-web-ui.md)) | The packs, the merged tree per harness, the install plan, the projects, the backups and the `doctor` findings as boards; install, apply, restore, restore of a project and `doctor --fix` from the UI, each shown as its plan first and carried out only as that plan, by its digest |
 
 Follow-ups after v1, in priority order:
 
