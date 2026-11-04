@@ -355,13 +355,17 @@ func TestLeaksAt(t *testing.T) {
 			}
 		})
 	}
-	excluded := claude.LeaksAt(harness.Launch{GOOS: "linux", Excluded: true})
+	excluded := claude.LeaksAt(harness.Launch{GOOS: "linux", Exclusion: harness.Excluded})
 	if len(excluded) == 0 || !strings.Contains(excluded[0], "but for your ~/CLAUDE.md, ~/CLAUDE.local.md, ~/.claude/CLAUDE.md and ~/.claude/rules, which the isolated settings exclude with claudeMdExcludes") {
 		t.Errorf("leaks with the instructions excluded = %q", excluded)
 	}
 	missing := claude.LeaksAt(harness.Launch{GOOS: "linux"})
 	if len(missing) == 0 || !strings.Contains(missing[0], "do not exclude them with claudeMdExcludes, so run dotai install again") {
 		t.Errorf("leaks with the instructions not excluded = %q", missing)
+	}
+	glob := claude.LeaksAt(harness.Launch{GOOS: "linux", Exclusion: harness.Unnameable})
+	if len(glob) == 0 || !strings.Contains(glob[0], "holds a glob character, so no claudeMdExcludes pattern can name them") || strings.Contains(glob[0], "install again") {
+		t.Errorf("leaks for a home with a glob character = %q, want the cause and no advice to install again", glob)
 	}
 	if got := oc.LeaksAt(harness.Launch{GOOS: "linux", Exists: only()}); slices.ContainsFunc(got, func(l string) bool { return strings.Contains(l, "%") }) {
 		t.Errorf("leaks = %q, want every template filled", got)

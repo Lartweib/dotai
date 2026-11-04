@@ -764,3 +764,21 @@ func TestPlanRunSaysWhetherTheHomeInstructionsAreExcluded(t *testing.T) {
 		})
 	}
 }
+
+// TestPlanRunNamesAGlobHomeAsTheCause checks that for a home directory
+// whose path holds a glob character the leak gives that cause, not an
+// install that cannot help.
+func TestPlanRunNamesAGlobHomeAsTheCause(t *testing.T) {
+	base := runHome(t, app.ModeIsolated, []string{"claudecode"}, nil)
+	home := filepath.Join(t.TempDir(), "user[1]")
+	if err := os.CopyFS(home, os.DirFS(base)); err != nil {
+		t.Fatal(err)
+	}
+	p, err := app.PlanRunWith(home, "claudecode", nil, nil, lookPathAt(home), "linux")
+	if err != nil || len(p.Harness.Leaks) == 0 {
+		t.Fatalf("PlanRun() = %+v, %v", p.Harness.Leaks, err)
+	}
+	if leak := p.Harness.Leaks[0]; !strings.Contains(leak, "glob character") || strings.Contains(leak, "install again") {
+		t.Errorf("leak = %q, want the glob character as the cause", leak)
+	}
+}

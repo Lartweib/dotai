@@ -126,11 +126,27 @@ func (h HomeInstructions) names() string {
 	return joinAnd(out)
 }
 
-// Leak is the leak of the walk-up, with the home directory's files
-// excluded by Key or not.
-func (h HomeInstructions) Leak(excluded bool) string {
-	if excluded {
+// Exclusion is whether the isolated settings exclude the home directory's
+// HomeInstructions.
+type Exclusion int
+
+// Exclusion values. NotExcluded, the zero value, is an install that did
+// not write the patterns, such as one from before Key; Unnameable a home
+// directory whose path holds a glob character, which no pattern can name.
+const (
+	NotExcluded Exclusion = iota
+	Excluded
+	Unnameable
+)
+
+// Leak is the leak of the walk-up, with the home directory's files as e
+// says.
+func (h HomeInstructions) Leak(e Exclusion) string {
+	switch e {
+	case Excluded:
 		return fmt.Sprintf("%s, but for your %s, which the isolated settings exclude with %s", h.Others, h.names(), h.Key)
+	case Unnameable:
+		return fmt.Sprintf("%s, and so do your %s: the path of your home directory holds a glob character, so no %s pattern can name them", h.Others, h.names(), h.Key)
 	}
 	return fmt.Sprintf("%s, and so do your %s: the isolated settings do not exclude them with %s, so run dotai install again", h.Others, h.names(), h.Key)
 }
@@ -171,7 +187,7 @@ type Launch struct {
 	Shared    bool
 	UnderHome bool
 	Exists    func(rel string) bool
-	Excluded  bool
+	Exclusion Exclusion
 }
 
 // Var is an environment variable that dotai run sets to a fixed value.
@@ -219,7 +235,7 @@ func (i Isolation) ReloginOn(goos string) Relogin {
 // the Instructions excluded, and each walk-up leak with all its paths.
 // Never nil.
 func (i Isolation) LeaksOn(goos string, shared bool) []string {
-	return i.LeaksAt(Launch{GOOS: goos, Shared: shared, UnderHome: true, Exists: func(string) bool { return true }, Excluded: true})
+	return i.LeaksAt(Launch{GOOS: goos, Shared: shared, UnderHome: true, Exists: func(string) bool { return true }, Exclusion: Excluded})
 }
 
 // LeaksAt is the text of each leak for the launch l, in order: the leak of
@@ -230,7 +246,7 @@ func (i Isolation) LeaksOn(goos string, shared bool) []string {
 func (i Isolation) LeaksAt(l Launch) []string {
 	out := []string{}
 	if i.Instructions != nil {
-		out = append(out, i.Instructions.Leak(l.Excluded))
+		out = append(out, i.Instructions.Leak(l.Exclusion))
 	}
 	for _, leak := range i.Leaks {
 		if leak.GOOS != "" && leak.GOOS != l.GOOS || !leak.Skills.applies(l.Shared) {
