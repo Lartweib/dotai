@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// Options are the choices of a run of dotai ui: the absolute home and
+// Options holds the choices of a run of dotai ui: the absolute home and
 // rulesync cache directories the use cases receive, and the port, 0 for a
 // free one. Run calls Ready once the server listens, with the address to
 // open, which carries the one-time code; Ready may be nil.

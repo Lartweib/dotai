@@ -6,12 +6,12 @@ import (
 	"io/fs"
 )
 
-// errReadOnly is a write a preview tried: a preview never writes.
+// errReadOnly refuses a write that a preview tried: a preview never writes.
 var errReadOnly = errors.New("a preview writes nothing")
 
-// readOnlyFS is d with every write refused, so that a preview, which plans
-// through the same code as the operation it previews, cannot write even
-// by mistake.
+// readOnlyFS wraps an executeFS and refuses every write, so that a
+// preview, which plans through the same code as the operation it
+// previews, cannot write even by mistake.
 type readOnlyFS struct{ executeFS }
 
 func (readOnlyFS) StagingDir() (string, error)                         { return "", errReadOnly }
@@ -35,17 +35,17 @@ func (readOnlyFS) Mkdir(string, fs.FileMode) error                       { retur
 func (readOnlyFS) MkdirAll(string, fs.FileMode) error                    { return errReadOnly }
 func (readOnlyFS) Lock(string) (func() error, error)                     { return nil, errReadOnly }
 
-// PreviewRestore is what dotai restore of the backup id, "" for the last
-// install, would do in the absolute home directory home, planned as
-// Restore plans it, without writing anything: the installs it undoes,
-// each write, and the conflicts, which a restore overwrites only with
-// consent, listed instead of refused, and whether no install is left
-// after it (Uninstalled). Backup is nil, since no backup is taken. It
+// PreviewRestore plans what dotai restore of the backup id ("" for the
+// last install) would do in the absolute home directory home, through the
+// same code as Restore, and writes nothing. The result lists the installs
+// the restore undoes, each write, the conflicts, which a restore
+// overwrites only with consent, and whether no install is left after it
+// (Uninstalled); Backup is nil, since no backup is taken. PreviewRestore
 // refuses what Restore refuses before it asks, such as a name that is not
-// a backup id or a home with no install state, and does not check the
-// running harnesses, which Harnesses names. A journal a restore would
-// settle first is not settled: a warning says so, and the plan is the one
-// from the disk as it is.
+// a backup id or a home with no install state. It does not check the
+// running harnesses, which Harnesses names. It does not settle a journal
+// that a restore would settle first: a warning says so, and the plan
+// follows the disk as it is.
 func PreviewRestore(ctx context.Context, home, id string) (RestoreResult, error) {
 	return previewRestore(ctx, readOnlyFS{osInstallFS{}}, home, id)
 }
@@ -70,14 +70,14 @@ func previewRestore(ctx context.Context, d executeFS, home, id string) (RestoreR
 	return res, nil
 }
 
-// PreviewProjectRestore is what dotai restore --project would do for the
-// project of the current directory cwd and the user whose home directory
-// is home, planned as RestoreProject plans it, without writing anything:
-// each write, the exclude block it takes out, and the conflicts, which it
-// overwrites only with consent, listed instead of refused. Backup is nil.
-// A journal of the project that a restore would roll back first is not
-// rolled back: a warning says so, and the plan is the one from the record
-// as it is.
+// PreviewProjectRestore plans what dotai restore --project would do for
+// the project of the current directory cwd and the user whose home
+// directory is home, through the same code as RestoreProject, and writes
+// nothing. The result lists each write, the exclude block the restore
+// takes out, and the conflicts, which it overwrites only with consent;
+// Backup is nil. PreviewProjectRestore does not roll back a journal that
+// a restore would roll back first: a warning says so, and the plan
+// follows the record as it is.
 func PreviewProjectRestore(ctx context.Context, cwd, home string) (ProjectRestoreResult, error) {
 	return previewProjectRestore(ctx, readOnlyFS{osInstallFS{}}, osGit{}, cwd, home)
 }

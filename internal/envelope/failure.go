@@ -50,8 +50,8 @@ func Classify(err error) (code string, data any) {
 	return code, data
 }
 
-// FromError is the failure envelope of command for err, with the code and
-// the data of Classify.
+// FromError returns the failure envelope of command for err, with the
+// code and the data that Classify gives.
 func FromError(command string, err error) Envelope {
 	code, data := Classify(err)
 	e := Failure(command, code, err.Error())

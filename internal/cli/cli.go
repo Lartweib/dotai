@@ -61,9 +61,10 @@ type Env struct {
 	OpenBrowser func(url string) error
 }
 
-// UIOptions are the choices of dotai ui that Env.UI receives: the absolute
-// home and rulesync cache directories, the port (0 picks a free one), and
-// Ready, which UI calls once it listens, with the address to open.
+// UIOptions holds the choices of dotai ui that Env.UI receives: the
+// absolute home and rulesync cache directories, the port (0 picks a free
+// one), and Ready, which UI calls once it listens, with the address to
+// open.
 type UIOptions struct {
 	Home, CacheDir string
 	Port           int

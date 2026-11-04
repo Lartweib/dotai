@@ -12,9 +12,10 @@ import (
 	"github.com/lartweib/dotai/internal/backup"
 )
 
-// Backups is every backup dotai keeps in a home directory: those of the
-// installs and restores of the user scope under ~/.dotai/backups, and
-// those of each project under ~/.dotai/projects. Lists are never nil.
+// Backups lists every backup dotai keeps in a home directory: the
+// backups of the installs and restores of the user scope under
+// ~/.dotai/backups, and the backups of each project under
+// ~/.dotai/projects. Its lists are never nil.
 type Backups struct {
 	Home     []BackupInfo     `json:"home"`
 	Projects []ProjectBackups `json:"projects"`
@@ -32,9 +33,9 @@ type ProjectBackups struct {
 	Backups []BackupInfo `json:"backups"`
 }
 
-// BackupInfo is one backup: its id, directory, operation and time, read
-// from its id, and whether its manifest is one dotai writes, Error saying
-// why not. A home backup also tells what its operation installed, whether
+// BackupInfo describes one backup: its id, directory, operation and time,
+// read from its id, and whether its manifest is one dotai writes, with
+// Error saying why not. A home backup also tells what its operation installed, whether
 // a restore undid it and whether it is the backup the install state names,
 // the one a plain restore undoes. Targets is what it covers, sorted: the
 // files and entries its operation wrote, moved or rewrote by key, never
@@ -103,7 +104,7 @@ func listBackups(ctx context.Context, d installFS, home string) (Backups, error)
 	return out, nil
 }
 
-// backupIDs is the names in root that are backup ids, newest first.
+// backupIDs returns the names in root that are backup ids, newest first.
 func backupIDs(d installFS, root string) ([]string, error) {
 	names, err := listDir(d, root)
 	if err != nil {
@@ -119,7 +120,7 @@ func backupIDs(d installFS, root string) ([]string, error) {
 	return ids, nil
 }
 
-// backupHead is the BackupInfo of the backup id in root from its id alone.
+// backupHead describes the backup id in root from its id alone.
 func backupHead(root, id string) BackupInfo {
 	t, _ := backup.ParseID(id)
 	op, _ := backup.Operation(id)

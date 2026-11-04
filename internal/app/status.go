@@ -12,12 +12,12 @@ import (
 	"github.com/lartweib/dotai/internal/state"
 )
 
-// Status is what dotai recorded in a home directory: the install state at
-// StatePath, nil when there is no install, and each project it applied to,
-// from the records under ~/.dotai/projects and the list of projects at
-// ProjectsPath. What cannot be read is reported, StateError for the state
-// and ProjectsError for the list, "" when it was read, and the rest is
-// still read. Projects is never nil.
+// Status describes what dotai recorded in a home directory: the install
+// state at StatePath, nil when there is no install, and each project
+// dotai applied to, from the records under ~/.dotai/projects and the list
+// of projects at ProjectsPath. StateError and ProjectsError say why the
+// state or the list could not be read, and are "" when it was read; the
+// rest is still read. Projects is never nil.
 type Status struct {
 	StatePath     string          `json:"statePath"`
 	State         *state.State    `json:"state"`
@@ -27,10 +27,10 @@ type Status struct {
 	Projects      []ProjectStatus `json:"projects"`
 }
 
-// ProjectStatus is one project dotai applied to: its path, "" when its
-// record does not say, the path of its record and the record, nil when it
-// is missing or cannot be read, Error saying why, and whether the list of
-// projects names it.
+// ProjectStatus describes one project dotai applied to: its path, "" when
+// the record does not say, the path of its record and the record, nil
+// when it is missing or cannot be read, with Error saying why, and whether
+// the list of projects names it.
 type ProjectStatus struct {
 	Project    string         `json:"project"`
 	RecordPath string         `json:"recordPath"`

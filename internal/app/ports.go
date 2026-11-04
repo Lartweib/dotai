@@ -55,8 +55,8 @@ func (p Ports) Restore(ctx context.Context, home, id string, opts RestoreOptions
 	return restore(ctx, osInstallFS{}, p.host(), home, id, opts, warn, overwrite)
 }
 
-// PlanProject is the package's PlanProject through p, asking the git on
-// PATH.
+// PlanProject runs the package's PlanProject through p, and asks the git
+// on PATH.
 func (p Ports) PlanProject(ctx context.Context, cacheDir, dir, cwd, home string, opts ApplyOptions, progress Progress) (ProjectPlan, error) {
 	return planProject(ctx, osInstallFS{}, p.host(), osGit{}, p.fetch(), p.run(), cacheDir, dir, cwd, home, opts, progress)
 }

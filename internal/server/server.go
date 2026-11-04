@@ -24,9 +24,9 @@ import (
 	"github.com/lartweib/dotai/internal/envelope"
 )
 
-// Deps are the use cases the API calls, as cli.Env holds them for the
-// command line, so that a test can fake each one. AppDeps gives the real
-// ones.
+// Deps holds the use cases the API calls, as cli.Env holds them for the
+// command line, so that a test can fake each one. AppDeps returns the
+// real ones.
 type Deps struct {
 	Version               func() app.VersionInfo
 	Status                func(home string) (app.Status, error)
@@ -38,8 +38,8 @@ type Deps struct {
 	Doctor                func(ctx context.Context, home string, opts app.DoctorOptions) (app.DoctorResult, error)
 }
 
-// AppDeps are the use cases of internal/app, fetching and running rulesync
-// and listing processes through p.
+// AppDeps returns the use cases of internal/app, which fetch and run
+// rulesync and list processes through p.
 func AppDeps(p app.Ports) Deps {
 	return Deps{
 		Version:               app.Version,
@@ -91,8 +91,8 @@ var serverCodes = []string{CodeForbidden, CodeUnauthorized, CodeNotFound, CodeMe
 // that reach no endpoint.
 const command = "ui"
 
-// apiError is a failure of the API itself, with its own code and HTTP
-// status, such as a refused session exchange or a busy plan.
+// apiError reports a failure of the API itself, with its own code and
+// HTTP status, such as a refused session exchange or a busy plan.
 type apiError struct {
 	code   string
 	status int
@@ -162,9 +162,9 @@ type handler struct {
 	plans   chan struct{}
 }
 
-// endpoint is one path of the API: the command its envelope names, as the
-// command line names it, the one method it takes, and what it runs, which
-// gives the envelope's data.
+// endpoint describes one path of the API: the command its envelope names,
+// as the command line names it, the one method it takes, and the function
+// it runs, which returns the envelope's data.
 type endpoint struct {
 	command string
 	method  string
@@ -192,9 +192,9 @@ func (s *handler) status(*http.Request) (any, error) { return s.deps.Status(s.cf
 
 func (s *handler) backups(*http.Request) (any, error) { return s.deps.Backups(s.cfg.Home) }
 
-// installRequest is the body of a plan of an install: the absolute path
-// of the pack and the options of install --dry-run. Harnesses is nil for
-// the saved selection.
+// installRequest holds the body of a plan of an install: the absolute
+// path of the pack and the options of install --dry-run. Harnesses is nil
+// for the saved selection.
 type installRequest struct {
 	Pack      string   `json:"pack"`
 	Variant   string   `json:"variant"`
@@ -222,7 +222,7 @@ func (s *handler) planInstall(r *http.Request) (any, error) {
 	})
 }
 
-// applyRequest is the body of a plan of a project apply: the project
+// applyRequest holds the body of a plan of a project apply: the project
 // directory, which the command would run in, the pack, by default the one
 // the project or the install state names, and the options of apply
 // --dry-run. Both paths are absolute.
@@ -277,14 +277,14 @@ func (s *handler) plan(r *http.Request, run func(context.Context) (any, error)) 
 	return data, err
 }
 
-// previewRestore is what restore of the query parameter id, by default the
-// last install, would do.
+// previewRestore previews the restore of the query parameter id, by
+// default the last install.
 func (s *handler) previewRestore(r *http.Request) (any, error) {
 	return s.deps.PreviewRestore(r.Context(), s.cfg.Home, r.URL.Query().Get("id"))
 }
 
-// previewProjectRestore is what restore --project would do in the project
-// at the query parameter project.
+// previewProjectRestore previews restore --project in the project at the
+// query parameter project.
 func (s *handler) previewProjectRestore(r *http.Request) (any, error) {
 	project, err := absParam(r.URL.Query().Get("project"), "project", true)
 	if err != nil {
@@ -293,8 +293,8 @@ func (s *handler) previewProjectRestore(r *http.Request) (any, error) {
 	return s.deps.PreviewProjectRestore(r.Context(), project, s.cfg.Home)
 }
 
-// doctor is dotai doctor without --fix: problems are an invalid outcome
-// with the result, as with the command line.
+// doctor runs dotai doctor without --fix. Problems make an invalid
+// outcome with the result, as on the command line.
 func (s *handler) doctor(r *http.Request) (any, error) {
 	res, err := s.deps.Doctor(r.Context(), s.cfg.Home, app.DoctorOptions{})
 	if err != nil {
