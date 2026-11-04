@@ -56,10 +56,16 @@ const batchUnsafe = "&|<>^%\"!\r\n"
 // that cmd.exe would read is refused. Apart from the lock and the empty
 // directory of a pointer that must exist, it writes nothing.
 func PlanRun(home, id string, args []string) (RunPlan, error) {
-	return planRun(osInstallFS{}, exec.LookPath, runtime.GOOS, home, id, args, os.Environ())
+	cwd, err := os.Getwd()
+	if err != nil {
+		cwd = ""
+	}
+	return planRun(osInstallFS{}, exec.LookPath, runtime.GOOS, home, cwd, id, args, os.Environ())
 }
 
-func planRun(d executeFS, lookPath func(string) (string, error), goos, home, id string, args, environ []string) (p RunPlan, err error) {
+// planRun is PlanRun from the working directory cwd, "" when it is
+// unknown: the leaks of the walk-up above it are then shown whole.
+func planRun(d executeFS, lookPath func(string) (string, error), goos, home, cwd, id string, args, environ []string) (p RunPlan, err error) {
 	a, err := launchable(id)
 	if err != nil {
 		return RunPlan{}, err
@@ -112,6 +118,13 @@ func planRun(d executeFS, lookPath func(string) (string, error), goos, home, id 
 	}
 	root := filepath.Join(home, filepath.FromSlash(harness.IsolatedDir))
 	h := harnessPlan(harness.Isolated, home, a, goos, s.SharedSkills)
+	if cwd != "" {
+		exists := func(rel string) bool {
+			_, err := d.Lstat(filepath.Join(home, filepath.FromSlash(rel)))
+			return err == nil
+		}
+		h.Leaks = a.Isolation.LeaksAt(goos, s.SharedSkills, underHome(goos, home, cwd), exists)
+	}
 	dirs := []string{root, h.Dir}
 	if a.Install != "" {
 		dir := h.Dir
@@ -353,6 +366,17 @@ func launchable(id string) (harness.Adapter, error) {
 		return harness.Adapter{}, &UsageError{fmt.Sprintf("dotai run %s is not supported yet: only %s can be launched isolated for now", id, strings.Join(supported, ", "))}
 	}
 	return all[i], nil
+}
+
+// underHome reports whether cwd is home or a directory below it, both
+// resolved through their links, without case on Windows and macOS.
+func underHome(goos, home, cwd string) bool {
+	h, c := realPath(home), realPath(cwd)
+	if goos == "windows" || goos == "darwin" {
+		h, c = strings.ToLower(h), strings.ToLower(c)
+	}
+	rel, err := filepath.Rel(h, c)
+	return err == nil && (rel == "." || filepath.IsLocal(rel))
 }
 
 // envKey is the name of an environment variable as goos compares it:

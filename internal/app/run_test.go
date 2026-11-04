@@ -631,3 +631,46 @@ func TestPlanRunOpenCodeWithSharedSkills(t *testing.T) {
 		t.Errorf("the empty home was made: %v, want it left out", err)
 	}
 }
+
+// TestPlanRunOpenCodeNamesOnlyTheWalkUpItReaches checks that the leak of
+// OpenCode's walk-up is shown only for a working directory under the home
+// directory, and names only the files of the home directory it reaches
+// that exist.
+func TestPlanRunOpenCodeNamesOnlyTheWalkUpItReaches(t *testing.T) {
+	walkUp := func(leaks []string) []string {
+		var out []string
+		for _, l := range leaks {
+			if strings.Contains(l, "every directory above") {
+				out = append(out, l)
+			}
+		}
+		return out
+	}
+	home := runHome(t, app.ModeIsolated, []string{"opencode"}, nil)
+	under := filepath.Join(home, "work", "site")
+	if err := os.MkdirAll(under, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p, err := app.PlanRunAt(home, t.TempDir(), "opencode", []string{"run", "hi"}, nil, lookPathAt(home), "linux")
+	if err != nil || len(walkUp(p.Harness.Leaks)) != 0 {
+		t.Errorf("outside the home directory: leaks = %q, %v, want no walk-up leak", p.Harness.Leaks, err)
+	}
+	p, err = app.PlanRunAt(home, under, "opencode", []string{"run", "hi"}, nil, lookPathAt(home), "linux")
+	if err != nil || len(walkUp(p.Harness.Leaks)) != 0 {
+		t.Errorf("under a home without those files: leaks = %q, %v, want no walk-up leak", p.Harness.Leaks, err)
+	}
+	if err := os.MkdirAll(at(home, ".agents/skills"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"the working directory is under your home directory, and OpenCode loads AGENTS.md, .agents and .opencode from every directory above it, so your ~/.agents/skills loads"}
+	p, err = app.PlanRunAt(home, under, "opencode", []string{"run", "hi"}, nil, lookPathAt(home), "linux")
+	if got := walkUp(p.Harness.Leaks); err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("under a home with ~/.agents/skills: walk-up leaks = %q, %v, want %q", got, err, want)
+	}
+	writeFile(t, at(home, "AGENTS.md"), "# mine\n")
+	want = []string{"the working directory is under your home directory, and OpenCode loads AGENTS.md, .agents and .opencode from every directory above it, so your ~/.agents/skills and ~/AGENTS.md load"}
+	p, err = app.PlanRunAt(home, home, "opencode", []string{"run", "hi"}, nil, lookPathAt(home), "linux")
+	if got := walkUp(p.Harness.Leaks); err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("in the home directory: walk-up leaks = %q, %v, want %q", got, err, want)
+	}
+}

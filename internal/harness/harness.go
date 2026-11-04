@@ -90,11 +90,17 @@ const (
 
 // Leak is something the user's own setup still provides in the isolated
 // mode, text for people, on the OS GOOS only, or on every OS when GOOS is
-// empty, and for the installs Skills names.
+// empty, and for the installs Skills names. A leak with WalkUp comes from
+// the directories above the working directory: WalkUp are the slash paths,
+// relative to the home directory, that it reaches there, and Here its text
+// once the working directory is known, with %s for those of them that
+// exist (see LeaksAt).
 type Leak struct {
 	Text   string
 	GOOS   string
 	Skills Sharing
+	WalkUp []string
+	Here   string
 }
 
 // Isolation is what decision 0018 records for a harness's isolated mode.
@@ -168,6 +174,46 @@ func (i Isolation) LeaksOn(goos string, shared bool) []string {
 		}
 	}
 	return out
+}
+
+// LeaksAt is LeaksOn for a launch from a known working directory: a leak
+// of the walk-up is left out unless underHome, the working directory is
+// the home directory or below it, and some of its WalkUp paths exist, and
+// then names only those, as ~/<path>. exists reports a path of WalkUp.
+func (i Isolation) LeaksAt(goos string, shared, underHome bool, exists func(rel string) bool) []string {
+	out := []string{}
+	for _, l := range i.Leaks {
+		if l.GOOS != "" && l.GOOS != goos || !l.Skills.applies(shared) {
+			continue
+		}
+		if len(l.WalkUp) == 0 {
+			out = append(out, l.Text)
+			continue
+		}
+		var found []string
+		for _, rel := range l.WalkUp {
+			if underHome && exists(rel) {
+				found = append(found, "~/"+rel)
+			}
+		}
+		if len(found) == 0 {
+			continue
+		}
+		verb := "loads"
+		if len(found) > 1 {
+			verb = "load"
+		}
+		out = append(out, fmt.Sprintf(l.Here, joinAnd(found)+" "+verb))
+	}
+	return out
+}
+
+// joinAnd is items joined with commas and a final "and".
+func joinAnd(items []string) string {
+	if len(items) < 2 {
+		return strings.Join(items, "")
+	}
+	return strings.Join(items[:len(items)-1], ", ") + " and " + items[len(items)-1]
 }
 
 // PointersFor is the pointers of an install whose variant shares the
@@ -256,6 +302,9 @@ const (
 	copiedSkills = "your skills in ~/.agents/skills are copied into the isolated install, as the variant shares them; a skill added or changed there shows up after the next install"
 )
 
+// walkUpHere is the Here of OpenCode's walk-up leaks.
+const walkUpHere = "the working directory is under your home directory, and OpenCode loads AGENTS.md, .agents and .opencode from every directory above it, so your %s"
+
 var adapters = []Adapter{
 	{
 		ID: "claudecode", Target: "claudecode", Dir: "claude", Staging: ".claude", Settings: "settings.json", Command: "claude",
@@ -326,8 +375,10 @@ var adapters = []Adapter{
 			Leaks: []Leak{
 				{Text: "provider credentials do not carry over"},
 				{Text: "OpenCode runs with your home directory, as the variant shares skills: your ~/.agents/skills loads, and so does anything else OpenCode reads there", Skills: SkillsShared},
-				{Text: "AGENTS.md, .agents and .opencode load from the working directory and every directory above it, so under your home directory your ~/.agents/skills, ~/.opencode and ~/AGENTS.md still load", Skills: SkillsClosed},
-				{Text: "AGENTS.md, .agents and .opencode load from the working directory and every directory above it, so under your home directory your ~/.opencode and ~/AGENTS.md still load", Skills: SkillsShared},
+				{Text: "AGENTS.md, .agents and .opencode load from the working directory and every directory above it, so under your home directory your ~/.agents/skills, ~/.opencode and ~/AGENTS.md still load", Skills: SkillsClosed,
+					WalkUp: []string{".agents/skills", ".opencode", "AGENTS.md"}, Here: walkUpHere},
+				{Text: "AGENTS.md, .agents and .opencode load from the working directory and every directory above it, so under your home directory your ~/.opencode and ~/AGENTS.md still load", Skills: SkillsShared,
+					WalkUp: []string{".opencode", "AGENTS.md"}, Here: walkUpHere},
 				{Text: "OPENCODE_TEST_HOME, which OpenCode does not document, hides ~/.agents/skills only outside your home directory, and a later OpenCode may drop it", Skills: SkillsClosed},
 				{Text: "with --server, OpenCode reaches a server that runs with its own configuration"},
 				{Text: "a command that does not take --standalone, such as debug config, starts a background service on the port of your own OpenCode service and leaves it running"},
@@ -386,6 +437,9 @@ func All() []Adapter {
 		out[i].Project = out[i].Project.clone()
 		out[i].Isolation.Relogin = maps.Clone(out[i].Isolation.Relogin)
 		out[i].Isolation.Leaks = slices.Clone(out[i].Isolation.Leaks)
+		for j := range out[i].Isolation.Leaks {
+			out[i].Isolation.Leaks[j].WalkUp = slices.Clone(out[i].Isolation.Leaks[j].WalkUp)
+		}
 		out[i].Isolation.Pointers = slices.Clone(out[i].Isolation.Pointers)
 		out[i].Isolation.Vars = slices.Clone(out[i].Isolation.Vars)
 		out[i].Isolation.Flags = slices.Clone(out[i].Isolation.Flags)
