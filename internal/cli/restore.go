@@ -14,7 +14,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/lartweib/dotai/internal/app"
-	"github.com/lartweib/dotai/internal/cli/output"
+	"github.com/lartweib/dotai/internal/envelope"
 	"github.com/lartweib/dotai/internal/plan"
 )
 
@@ -94,7 +94,7 @@ func newRestoreCmd(env Env, jsonOut *bool) *cobra.Command {
 			return err
 		}
 		if *jsonOut {
-			return output.Write(env.Stdout, output.Success(commandName(cmd), res))
+			return envelope.Write(env.Stdout, envelope.Success(commandName(cmd), res))
 		}
 		if err := writeRestore(env.Stdout, res, color); err != nil {
 			return err
@@ -142,7 +142,7 @@ func runRestoreProject(ctx context.Context, cmd *cobra.Command, env Env, jsonOut
 		return err
 	}
 	if jsonOut {
-		return output.Write(env.Stdout, output.Success(commandName(cmd), res))
+		return envelope.Write(env.Stdout, envelope.Success(commandName(cmd), res))
 	}
 	if err := writeProjectRestore(env.Stdout, res, color); err != nil {
 		return err

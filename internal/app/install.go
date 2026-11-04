@@ -257,10 +257,10 @@ type planned struct {
 // then returns. A staging that cannot be removed is a *stagingError, on
 // its own when nothing else failed.
 func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run runFunc, cacheDir, dir, home string, opts InstallOptions, progress Progress, then func(planned) error) (err error) {
-	if !filepath.IsAbs(home) {
-		return fmt.Errorf("home directory %q is not absolute", home)
+	home, err = requireAbs(home)
+	if err != nil {
+		return err
 	}
-	home = filepath.Clean(home)
 	// The mode comes first, so that the plan of a pack with problems has
 	// it too, and a mode the install cannot use stops it before anything
 	// is staged.

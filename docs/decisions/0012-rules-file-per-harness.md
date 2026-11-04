@@ -32,7 +32,7 @@ The sources do not record other alternatives. Recommendation 6.4.1 of that resea
 
 - Good: each harness reads its documented file, so nothing depends on undocumented behavior.
 - Accepted cost: Claude Code and the other harnesses receive different output files; `dotai doctor` has to detect whether they drift from the source.
-- Pending: live test of `AGENTS.md` loading (internal research on harness surfaces, not published, §7, rows 1 and 2; [OPEN-QUESTIONS](../OPEN-QUESTIONS.md)).
+- Pending: test live that agy and OpenCode load `AGENTS.md` as their documentation says (internal research on harness surfaces, not published, §7, rows 1 and 2).
 
 ## Evidence
 

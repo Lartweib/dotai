@@ -251,3 +251,9 @@ func RecordPath(home, project string) string { return recordPath(home, project) 
 func DoctorWith(ctx context.Context, d executeFS, g gitPort, home string, opts DoctorOptions) (DoctorResult, error) {
 	return doctor(ctx, d, g, home, opts)
 }
+
+// PreviewProjectRestoreWith is PreviewProjectRestore reading through d,
+// with every write refused, and asking git through g.
+func PreviewProjectRestoreWith(ctx context.Context, d executeFS, g gitPort, cwd, home string) (ProjectRestoreResult, error) {
+	return previewProjectRestore(ctx, readOnlyFS{d}, g, cwd, home)
+}

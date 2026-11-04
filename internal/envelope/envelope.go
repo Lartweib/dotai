@@ -1,6 +1,6 @@
-// Package output defines the versioned JSON envelope that every command
+// Package envelope defines the versioned JSON envelope that every command
 // prints with --json. See docs/CLI-JSON.md.
-package output
+package envelope
 
 import (
 	"bytes"
@@ -34,6 +34,14 @@ const (
 	// of the project never writes, refused before anything was written.
 	CodeRecordInvalid = "record-invalid"
 )
+
+// Codes lists every error code above, so that an adapter that maps each
+// one, such as the web UI to an HTTP status, can check that it maps them
+// all.
+var Codes = []string{
+	CodeUsage, CodeInternal, CodeInvalid, CodeConsent, CodeRefused, CodeRunning,
+	CodeProjectRefused, CodeApplyRefused, CodeRecordInvalid,
+}
 
 // Envelope is the single JSON document a command prints with --json.
 // A success always carries "data" (an empty object when there is no

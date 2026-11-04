@@ -204,10 +204,10 @@ type Consent = func(InstallPlan) (bool, error)
 type Warn = func(text string)
 
 func install(ctx context.Context, d executeFS, h host, fetch fetchFunc, run runFunc, cacheDir, dir, home string, opts InstallOptions, progress Progress, warn Warn, consent Consent) (InstallResult, error) {
-	if !filepath.IsAbs(home) {
-		return InstallResult{}, fmt.Errorf("home directory %q is not absolute", home)
+	home, err := requireAbs(home)
+	if err != nil {
+		return InstallResult{}, err
 	}
-	home = filepath.Clean(home)
 	packPath, err := filepath.Abs(dir)
 	if err != nil {
 		return InstallResult{}, err

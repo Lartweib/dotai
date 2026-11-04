@@ -14,7 +14,7 @@ import (
 	"github.com/lartweib/dotai/internal/app"
 	"github.com/lartweib/dotai/internal/backup"
 	"github.com/lartweib/dotai/internal/cli"
-	"github.com/lartweib/dotai/internal/cli/output"
+	"github.com/lartweib/dotai/internal/envelope"
 	"github.com/lartweib/dotai/internal/plan"
 )
 
@@ -232,7 +232,7 @@ func TestRunRestoreConflicts(t *testing.T) {
 				return
 			}
 			if strings.Contains(tt.args[len(tt.args)-1], "json") {
-				if e := decodeOne(t, stdout.Bytes()); e.OK || e.Error == nil || e.Error.Code != output.CodeInternal || !strings.Contains(e.Error.Message, tt.wantErr) {
+				if e := decodeOne(t, stdout.Bytes()); e.OK || e.Error == nil || e.Error.Code != envelope.CodeInternal || !strings.Contains(e.Error.Message, tt.wantErr) {
 					t.Errorf("envelope = %+v, want an internal error with %q", e, tt.wantErr)
 				}
 				var e struct {
@@ -323,7 +323,7 @@ func TestRunRestoreUsageErrors(t *testing.T) {
 	if code := cli.Run([]string{"restore", "a", "b", "--json"}, env); code != cli.ExitUsage {
 		t.Errorf("exit code = %d, want %d", code, cli.ExitUsage)
 	}
-	if e := decodeOne(t, stdout.Bytes()); e.OK || e.Command != "restore" || e.Error == nil || e.Error.Code != output.CodeUsage {
+	if e := decodeOne(t, stdout.Bytes()); e.OK || e.Command != "restore" || e.Error == nil || e.Error.Code != envelope.CodeUsage {
 		t.Errorf("envelope = %+v, want a usage error", e)
 	}
 }

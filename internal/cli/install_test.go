@@ -12,7 +12,7 @@ import (
 
 	"github.com/lartweib/dotai/internal/app"
 	"github.com/lartweib/dotai/internal/cli"
-	"github.com/lartweib/dotai/internal/cli/output"
+	"github.com/lartweib/dotai/internal/envelope"
 	"github.com/lartweib/dotai/internal/plan"
 )
 
@@ -148,7 +148,7 @@ func TestRunInstallUsageErrors(t *testing.T) {
 			if code := cli.Run(tt.args, env); code != cli.ExitUsage {
 				t.Errorf("exit code = %d, want %d", code, cli.ExitUsage)
 			}
-			if e := decodeOne(t, stdout.Bytes()); e.OK || e.Command != "install" || e.Error == nil || e.Error.Code != output.CodeUsage || !strings.Contains(e.Error.Message, tt.want) {
+			if e := decodeOne(t, stdout.Bytes()); e.OK || e.Command != "install" || e.Error == nil || e.Error.Code != envelope.CodeUsage || !strings.Contains(e.Error.Message, tt.want) {
 				t.Errorf("envelope = %+v, want a usage error about %s", e, tt.want)
 			}
 		})
@@ -183,7 +183,7 @@ func TestRunInstallInvalidPack(t *testing.T) {
 			t.Errorf("stdout = %q, want the diagnostics report", stdout.String())
 		}
 		if jsonOut {
-			if e := decodeOne(t, stdout.Bytes()); e.OK || e.Error == nil || e.Error.Code != output.CodeInvalid {
+			if e := decodeOne(t, stdout.Bytes()); e.OK || e.Error == nil || e.Error.Code != envelope.CodeInvalid {
 				t.Errorf("envelope = %+v, want invalid", e)
 			}
 		}
@@ -335,7 +335,7 @@ func TestRunInstallInvalidPackWithoutDryRun(t *testing.T) {
 	if code := cli.Run([]string{"install", "p", "--variant", "nope", "--json"}, env); code != cli.ExitInvalid || stderr.Len() != 0 {
 		t.Errorf("exit code = %d, stderr = %q, want %d and empty", code, stderr.String(), cli.ExitInvalid)
 	}
-	if e := decodeOne(t, stdout.Bytes()); e.OK || e.Error == nil || e.Error.Code != output.CodeInvalid {
+	if e := decodeOne(t, stdout.Bytes()); e.OK || e.Error == nil || e.Error.Code != envelope.CodeInvalid {
 		t.Errorf("envelope = %+v, want invalid", e)
 	}
 }

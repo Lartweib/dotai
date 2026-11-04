@@ -1,4 +1,4 @@
-package output_test
+package envelope_test
 
 import (
 	"bytes"
@@ -9,7 +9,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/lartweib/dotai/internal/cli/output"
+	"github.com/lartweib/dotai/internal/envelope"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")
@@ -17,24 +17,24 @@ var update = flag.Bool("update", false, "rewrite golden files")
 func TestWrite(t *testing.T) {
 	tests := []struct {
 		name     string
-		envelope output.Envelope
+		envelope envelope.Envelope
 		golden   string
 	}{
 		{
 			name:     "success carries data and no error",
-			envelope: output.Success("version", map[string]string{"version": "1.2.3"}),
+			envelope: envelope.Success("version", map[string]string{"version": "1.2.3"}),
 			golden:   "success.json.golden",
 		},
 		{
 			name:     "failure carries error and no data",
-			envelope: output.Failure("dotai", output.CodeUsage, `unknown command "nope" for "dotai"`),
+			envelope: envelope.Failure("dotai", envelope.CodeUsage, `unknown command "nope" for "dotai"`),
 			golden:   "failure.json.golden",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var buf bytes.Buffer
-			if err := output.Write(&buf, tt.envelope); err != nil {
+			if err := envelope.Write(&buf, tt.envelope); err != nil {
 				t.Fatalf("Write() error = %v", err)
 			}
 			assertGolden(t, filepath.Join("testdata", tt.golden), buf.Bytes())
@@ -45,12 +45,12 @@ func TestWrite(t *testing.T) {
 func TestEnvelopeShape(t *testing.T) {
 	tests := []struct {
 		name     string
-		envelope output.Envelope
+		envelope envelope.Envelope
 		want     map[string]any
 	}{
 		{
 			name:     "success without data has an empty data object",
-			envelope: output.Success("version", nil),
+			envelope: envelope.Success("version", nil),
 			want: map[string]any{
 				"schema": "dotai.cli/v1", "command": "version", "ok": true,
 				"data": map[string]any{},
@@ -58,7 +58,7 @@ func TestEnvelopeShape(t *testing.T) {
 		},
 		{
 			name:     "success with data",
-			envelope: output.Success("version", map[string]string{"version": "1.2.3"}),
+			envelope: envelope.Success("version", map[string]string{"version": "1.2.3"}),
 			want: map[string]any{
 				"schema": "dotai.cli/v1", "command": "version", "ok": true,
 				"data": map[string]any{"version": "1.2.3"},
@@ -66,7 +66,7 @@ func TestEnvelopeShape(t *testing.T) {
 		},
 		{
 			name:     "failure with a result carries data and error",
-			envelope: output.Invalid("validate", "pack is invalid", map[string]bool{"valid": false}),
+			envelope: envelope.Invalid("validate", "pack is invalid", map[string]bool{"valid": false}),
 			want: map[string]any{
 				"schema": "dotai.cli/v1", "command": "validate", "ok": false,
 				"data":  map[string]any{"valid": false},
@@ -75,7 +75,7 @@ func TestEnvelopeShape(t *testing.T) {
 		},
 		{
 			name:     "failure has error and no data",
-			envelope: output.Failure("version", output.CodeInternal, "boom"),
+			envelope: envelope.Failure("version", envelope.CodeInternal, "boom"),
 			want: map[string]any{
 				"schema": "dotai.cli/v1", "command": "version", "ok": false,
 				"error": map[string]any{"code": "internal", "message": "boom"},
@@ -85,7 +85,7 @@ func TestEnvelopeShape(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var buf bytes.Buffer
-			if err := output.Write(&buf, tt.envelope); err != nil {
+			if err := envelope.Write(&buf, tt.envelope); err != nil {
 				t.Fatalf("Write() error = %v", err)
 			}
 			var got map[string]any
