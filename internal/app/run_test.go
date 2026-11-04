@@ -722,7 +722,7 @@ func TestUnderHome(t *testing.T) {
 func TestPlanRunSaysWhetherTheHomeInstructionsAreExcluded(t *testing.T) {
 	home := runHome(t, app.ModeIsolated, []string{"claudecode"}, nil)
 	settings := at(home, ".dotai/isolated/claude/settings.json")
-	patterns, ok := app.HomePatterns([]string{filepath.ToSlash(home)}, []string{"CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md", ".claude/rules/**"})
+	patterns, ok := app.HomePatterns(app.HomeForms(home), []string{"CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md", ".claude/rules/**"})
 	if !ok {
 		t.Fatal("no patterns")
 	}

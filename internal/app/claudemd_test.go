@@ -14,9 +14,18 @@ import (
 )
 
 // homeExcludes are the claudeMdExcludes an isolated install writes for
-// home: the instructions Claude Code finds in the real home directory.
+// home: the instructions Claude Code finds in the real home directory, for
+// each form of it (app.HomeForms), so that a temporary home reached
+// through a link or an 8.3 short name, as on macOS and CI runners, gets
+// both.
 func homeExcludes(home string) []any {
-	h := filepath.ToSlash(home)
+	return claudePatterns(app.HomeForms(home)...)
+}
+
+// homeExcludesOf are the claudeMdExcludes of one form of a home directory,
+// with forward slashes.
+func homeExcludesOf(form string) []any {
+	h := filepath.ToSlash(form)
 	return []any{h + "/CLAUDE.md", h + "/CLAUDE.local.md", h + "/.claude/CLAUDE.md", h + "/.claude/rules/**"}
 }
 
@@ -55,7 +64,8 @@ func TestInstallExcludesTheHomeInstructionsFromIsolatedClaudeCode(t *testing.T) 
 func TestInstallMergesThePackClaudeMdExcludes(t *testing.T) {
 	home, _ := installHome(t)
 	dir := copyPack(t)
-	own := filepath.ToSlash(home) + "/CLAUDE.md"
+	// The pattern of the first form, so the union keeps the order of homeExcludes.
+	own := homeExcludes(home)[0].(string)
 	editPack(t, dir, "base/dotai/settings.yaml", "  model: sonnet\n", "  model: sonnet\n  claudeMdExcludes: [\"**/vendor/CLAUDE.md\", \""+own+"\"]\n")
 	if _, err := installVariant(t, newClockFS(t), dir, "", home); err != nil {
 		t.Fatalf("Install() error = %v", err)
@@ -112,7 +122,7 @@ func TestPlanReplaceWritesNoClaudeMdExcludes(t *testing.T) {
 func claudePatterns(forms ...string) []any {
 	var out []any
 	for _, f := range forms {
-		out = append(out, homeExcludes(f)...)
+		out = append(out, homeExcludesOf(f)...)
 	}
 	return out
 }
@@ -135,9 +145,14 @@ func TestInstallExcludesTheHomeInItsOnDiskCase(t *testing.T) {
 	if _, err := installVariant(t, newClockFS(t), examplePack, "", home); err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
-	got := settingsOf(t, at(home, claudeSettings))["claudeMdExcludes"]
-	if want := claudePatterns(onDisk, home); !reflect.DeepEqual(got, want) {
+	got, _ := settingsOf(t, at(home, claudeSettings))["claudeMdExcludes"].([]any)
+	if want := homeExcludes(home); !reflect.DeepEqual(got, want) {
 		t.Errorf("claudeMdExcludes = %v, want %v", got, want)
+	}
+	// The on-disk form first, then the home as given, whatever form of the
+	// temporary directory it is under.
+	if len(got) != 8 || !strings.HasSuffix(got[0].(string), "/Home/CLAUDE.md") || !strings.HasSuffix(got[4].(string), "/home/CLAUDE.md") {
+		t.Errorf("claudeMdExcludes = %v, want the home in its on-disk case, then as given", got)
 	}
 }
 
