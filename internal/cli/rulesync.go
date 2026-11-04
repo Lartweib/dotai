@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/lartweib/dotai/internal/app"
-	"github.com/lartweib/dotai/internal/cli/output"
+	"github.com/lartweib/dotai/internal/envelope"
 )
 
 func newRulesyncCmd(env Env, jsonOut *bool) *cobra.Command {
@@ -42,7 +42,7 @@ func newRulesyncCmd(env Env, jsonOut *bool) *cobra.Command {
 			return rejectPack(env, *jsonOut, *format, res.Pack, res.Diagnostics, res)
 		}
 		if *jsonOut {
-			return output.Write(env.Stdout, output.Success(commandName(cmd), res))
+			return envelope.Write(env.Stdout, envelope.Success(commandName(cmd), res))
 		}
 		how := "downloaded"
 		if res.Cached {
@@ -63,7 +63,7 @@ func interruptible(cmd *cobra.Command) (context.Context, context.CancelFunc) {
 }
 
 // downloadProgress announces a rulesync download on stderr; it is nil for
-// JSON output.
+// JSON envelope.
 func downloadProgress(env Env, jsonOut bool) app.Progress {
 	if jsonOut {
 		return nil

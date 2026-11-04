@@ -1,4 +1,4 @@
-package output
+package envelope
 
 import (
 	"errors"
@@ -9,8 +9,8 @@ import (
 // Classify maps err, an error of the use cases in internal/app, to the
 // error code of its envelope and the data that explains it, such as the
 // plan a refusal carries, nil when there is none. An error it does not
-// know is CodeInternal. Both the command line and the local web UI report
-// errors through it, so that the two give the same codes.
+// know is CodeInternal. The command line and the local web UI both report
+// errors through it, so that they give the same codes.
 func Classify(err error) (code string, data any) {
 	code = CodeInternal
 	var (
@@ -21,10 +21,13 @@ func Classify(err error) (code string, data any) {
 		project      *app.ProjectRefusedError
 		applyConsent *app.ApplyConsentError
 		applyRefused *app.ApplyRefusedError
+		invalid      *InvalidError
 	)
 	switch {
-	case errors.As(err, &usage):
+	case errors.As(err, &usage), errors.As(err, new(*UsageError)):
 		code = CodeUsage
+	case errors.As(err, &invalid):
+		code, data = CodeInvalid, invalid.Data
 	case errors.As(err, &consent):
 		code, data = CodeConsent, consent.Plan
 	case errors.As(err, &refused):

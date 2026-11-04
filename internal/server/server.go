@@ -2,7 +2,7 @@
 // server bound to 127.0.0.1 that serves the frontend embedded in the
 // binary and a JSON API whose handlers call the use cases in internal/app
 // directly, never the command line, and answer with the envelope of
-// internal/cli/output, as --json does. It is a presentation layer only:
+// internal/envelope, as --json does. It is a presentation layer only:
 // it holds no logic of its own. Every request must name the server by its
 // own host and, when it carries an Origin, come from the server's own
 // origin; every request but the first, which trades the token of the URL
@@ -18,7 +18,7 @@ import (
 	"strings"
 
 	"github.com/lartweib/dotai/internal/app"
-	"github.com/lartweib/dotai/internal/cli/output"
+	"github.com/lartweib/dotai/internal/envelope"
 )
 
 // Deps are the use cases the API calls, as cli.Env holds them for the
@@ -61,7 +61,7 @@ type Config struct {
 }
 
 // Error codes of the API besides those of the command line
-// (internal/cli/output): a request refused by the guard, an unknown path,
+// (internal/envelope): a request refused by the guard, an unknown path,
 // and a method the path does not take.
 const (
 	CodeForbidden        = "forbidden"
@@ -92,12 +92,12 @@ func New(cfg Config, deps Deps, web fs.FS) http.Handler {
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		e, ok := api[r.URL.Path]
 		if !ok {
-			writeEnvelope(w, http.StatusNotFound, output.Failure(command, CodeNotFound, "no endpoint "+r.URL.Path))
+			writeEnvelope(w, http.StatusNotFound, envelope.Failure(command, CodeNotFound, "no endpoint "+r.URL.Path))
 			return
 		}
 		if r.Method != http.MethodGet {
 			w.Header().Set("Allow", http.MethodGet)
-			writeEnvelope(w, http.StatusMethodNotAllowed, output.Failure(e.command, CodeMethodNotAllowed, r.Method+" is not allowed on "+r.URL.Path+": it is read-only, use GET"))
+			writeEnvelope(w, http.StatusMethodNotAllowed, envelope.Failure(e.command, CodeMethodNotAllowed, r.Method+" is not allowed on "+r.URL.Path+": it is read-only, use GET"))
 			return
 		}
 		data, err := e.run(r)
@@ -105,7 +105,7 @@ func New(cfg Config, deps Deps, web fs.FS) http.Handler {
 			writeFailure(w, e.command, err)
 			return
 		}
-		writeEnvelope(w, http.StatusOK, output.Success(e.command, data))
+		writeEnvelope(w, http.StatusOK, envelope.Success(e.command, data))
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
@@ -154,7 +154,7 @@ func (s *handler) planInstall(r *http.Request) (any, error) {
 		return nil, err
 	}
 	if len(p.Diagnostics) > 0 {
-		return nil, invalidPack(p.Diagnostics, p)
+		return nil, envelope.PackInvalid(p.Diagnostics, p)
 	}
 	return p, nil
 }
@@ -178,7 +178,7 @@ func (s *handler) planProject(r *http.Request) (any, error) {
 		return nil, err
 	}
 	if len(p.Diagnostics) > 0 {
-		return nil, invalidPack(p.Diagnostics, p)
+		return nil, envelope.PackInvalid(p.Diagnostics, p)
 	}
 	return p, nil
 }
@@ -206,8 +206,8 @@ func (s *handler) doctor(r *http.Request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if n := res.Problems(); n > 0 {
-		return nil, &invalidError{msg: "doctor found " + plural(n, "problem"), data: res}
+	if err := envelope.DoctorProblems(res); err != nil {
+		return nil, err
 	}
 	return res, nil
 }
@@ -218,11 +218,11 @@ func (s *handler) doctor(r *http.Request) (any, error) {
 func absParam(v, name string, required bool) (string, error) {
 	switch {
 	case v == "" && required:
-		return "", &usageError{"the query parameter " + name + " is required"}
+		return "", envelope.Usage("the query parameter " + name + " is required")
 	case v == "":
 		return "", nil
 	case !filepath.IsAbs(v):
-		return "", &usageError{fmt.Sprintf("the query parameter %s must be an absolute path, not %q", name, v)}
+		return "", envelope.Usage(fmt.Sprintf("the query parameter %s must be an absolute path, not %q", name, v))
 	}
 	return filepath.Clean(v), nil
 }
@@ -240,18 +240,4 @@ func splitList(values []string) []string {
 		}
 	}
 	return out
-}
-
-// invalidPack is the invalid outcome of a plan of a pack with problems,
-// with the message the command line gives.
-func invalidPack(diags []app.Diagnostic, data any) error {
-	return &invalidError{msg: fmt.Sprintf("pack is invalid: %d problem(s)", len(diags)), data: data}
-}
-
-// plural is n and noun, with an s unless n is 1.
-func plural(n int, noun string) string {
-	if n == 1 {
-		return "1 " + noun
-	}
-	return fmt.Sprintf("%d %ss", n, noun)
 }

@@ -14,7 +14,7 @@ import (
 
 	"github.com/lartweib/dotai/internal/app"
 	"github.com/lartweib/dotai/internal/cli"
-	"github.com/lartweib/dotai/internal/cli/output"
+	"github.com/lartweib/dotai/internal/envelope"
 )
 
 // testEnv runs the real use cases, except Install: a test that installs
@@ -240,7 +240,7 @@ func TestRunStageOutInsidePack(t *testing.T) {
 	if code != cli.ExitUsage {
 		t.Errorf("exit code = %d, want %d", code, cli.ExitUsage)
 	}
-	if e := decodeOne(t, stdout.Bytes()); e.OK || e.Error == nil || e.Error.Code != output.CodeUsage || !strings.Contains(e.Error.Message, "inside the pack") {
+	if e := decodeOne(t, stdout.Bytes()); e.OK || e.Error == nil || e.Error.Code != envelope.CodeUsage || !strings.Contains(e.Error.Message, "inside the pack") {
 		t.Errorf("envelope = %+v, want a usage error", e)
 	}
 }
@@ -253,7 +253,7 @@ func TestRunStageInvalidPack(t *testing.T) {
 	if code != cli.ExitInvalid {
 		t.Errorf("exit code = %d, want %d", code, cli.ExitInvalid)
 	}
-	if e := decodeOne(t, stdout.Bytes()); e.OK || e.Error == nil || e.Error.Code != output.CodeInvalid {
+	if e := decodeOne(t, stdout.Bytes()); e.OK || e.Error == nil || e.Error.Code != envelope.CodeInvalid {
 		t.Errorf("envelope = %+v, want invalid", e)
 	}
 	if _, err := os.Stat(out); !os.IsNotExist(err) {
@@ -326,7 +326,7 @@ func TestRunValidateUnreadableManifest(t *testing.T) {
 	if code != cli.ExitInternal {
 		t.Errorf("exit code = %d, want %d", code, cli.ExitInternal)
 	}
-	if e := decodeOne(t, stdout.Bytes()); e.OK || e.Error == nil || e.Error.Code != output.CodeInternal {
+	if e := decodeOne(t, stdout.Bytes()); e.OK || e.Error == nil || e.Error.Code != envelope.CodeInternal {
 		t.Errorf("envelope = %+v, want internal error", e)
 	}
 }
@@ -338,7 +338,7 @@ func TestRunValidateMissingDirectory(t *testing.T) {
 	if code != cli.ExitInternal {
 		t.Errorf("exit code = %d, want %d", code, cli.ExitInternal)
 	}
-	if e := decodeOne(t, stdout.Bytes()); e.OK || e.Command != "validate" || e.Error == nil || e.Error.Code != output.CodeInternal {
+	if e := decodeOne(t, stdout.Bytes()); e.OK || e.Command != "validate" || e.Error == nil || e.Error.Code != envelope.CodeInternal {
 		t.Errorf("envelope = %+v, want internal error", e)
 	}
 }
@@ -351,7 +351,7 @@ func TestRunUsageErrorWhenJSONValueIsInvalid(t *testing.T) {
 		t.Errorf("exit code = %d, want %d", code, cli.ExitUsage)
 	}
 	e := decodeOne(t, stdout.Bytes())
-	if e.OK || e.Error == nil || e.Error.Code != output.CodeUsage {
+	if e.OK || e.Error == nil || e.Error.Code != envelope.CodeUsage {
 		t.Errorf("envelope = %+v, want usage error", e)
 	}
 	if stderr.Len() != 0 {
@@ -393,7 +393,7 @@ func TestRunHelpInJSONMode(t *testing.T) {
 			if dec.More() {
 				t.Errorf("stdout has more than one JSON document")
 			}
-			if e.Schema != output.Schema || e.Command != tt.wantCommand || !e.OK {
+			if e.Schema != envelope.Schema || e.Command != tt.wantCommand || !e.OK {
 				t.Errorf("envelope = %+v, want ok for %q", e, tt.wantCommand)
 			}
 			if !strings.Contains(e.Data.Help, "Usage:") {
@@ -445,7 +445,7 @@ func TestRunInternalError(t *testing.T) {
 			t.Errorf("exit code = %d, want %d", code, cli.ExitInternal)
 		}
 		e := decodeOne(t, stdout.Bytes())
-		if e.OK || e.Command != "version" || e.Error == nil || e.Error.Code != output.CodeInternal ||
+		if e.OK || e.Command != "version" || e.Error == nil || e.Error.Code != envelope.CodeInternal ||
 			!strings.Contains(e.Error.Message, "disk full") {
 			t.Errorf("envelope = %+v, want internal error", e)
 		}
@@ -455,15 +455,15 @@ func TestRunInternalError(t *testing.T) {
 	})
 }
 
-type envelope struct {
-	OK      bool          `json:"ok"`
-	Command string        `json:"command"`
-	Error   *output.Error `json:"error"`
+type decoded struct {
+	OK      bool            `json:"ok"`
+	Command string          `json:"command"`
+	Error   *envelope.Error `json:"error"`
 }
 
-func decodeOne(t *testing.T, b []byte) envelope {
+func decodeOne(t *testing.T, b []byte) decoded {
 	t.Helper()
-	var e envelope
+	var e decoded
 	dec := json.NewDecoder(bytes.NewReader(b))
 	if err := dec.Decode(&e); err != nil {
 		t.Fatalf("stdout %q is not an envelope: %v", b, err)

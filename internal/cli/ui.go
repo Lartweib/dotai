@@ -6,8 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/lartweib/dotai/internal/cli/output"
-	"github.com/lartweib/dotai/internal/server"
+	"github.com/lartweib/dotai/internal/envelope"
 )
 
 func newUICmd(env Env, jsonOut *bool) *cobra.Command {
@@ -46,7 +45,7 @@ func newUICmd(env Env, jsonOut *bool) *cobra.Command {
 		ready := func(url string) error {
 			if *jsonOut {
 				printed = true
-				if err := output.Write(env.Stdout, output.Success(commandName(cmd), map[string]string{"url": url})); err != nil {
+				if err := envelope.Write(env.Stdout, envelope.Success(commandName(cmd), map[string]string{"url": url})); err != nil {
 					return err
 				}
 			} else if _, err := fmt.Fprintf(env.Stdout, "dotai ui is running at %s\nPress Ctrl+C to stop it.\n", url); err != nil {
@@ -60,7 +59,7 @@ func newUICmd(env Env, jsonOut *bool) *cobra.Command {
 			}
 			return nil
 		}
-		err = env.UI(ctx, server.Options{Home: home, CacheDir: cache, Port: port, Ready: ready})
+		err = env.UI(ctx, UIOptions{Home: home, CacheDir: cache, Port: port, Ready: ready})
 		if err != nil && printed {
 			// stdout already holds the one envelope of this run.
 			fmt.Fprintf(env.Stderr, "Error: %v\n", err)

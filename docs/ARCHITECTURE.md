@@ -78,10 +78,12 @@ flowchart LR
 Decided in [0028](decisions/0028-plan-centric-hexagonal-engine.md). Every command builds a plan (the exact file and key operations), then backs up its targets and executes it; `--dry-run`, `--json` and `doctor` read the same plan.
 
 ```
-cmd/dotai/        main only; calls cli.Run
+cmd/dotai/        main only; wires cli.Run, and server.Run as dotai ui
 internal/
   cli/            cobra commands: flags only; calls app
-    output/       versioned --json envelope (CLI-JSON.md)
+  server/         dotai ui: local HTTP API and embedded frontend; calls app
+  envelope/       versioned --json envelope, error codes and shared outcomes
+                  (CLI-JSON.md); used by cli and server
   app/            use cases: install, apply, validate, doctor, restore
   pack/           manifest, layers, dotai: blocks (no I/O, fs.FS)
   merge/          layer merge rules, staging per scope (pure)
@@ -92,6 +94,8 @@ internal/
   rulesync/       pinned binary: download, checksum, run
   platform/       filesystem, processes, env, OS paths
 ```
+
+`cli` and `server` are two adapters over `app`: neither imports the other, and both report results and errors through `envelope`, so that a command and its endpoint give the same `data` and error codes ([0043](decisions/0043-local-web-ui.md), proposed). `main` connects them: `cli` reaches the server only through a function in its `Env`.
 
 JSON and JSONC key edits use `tailscale/hujson` plus a small own edit layer in `plan`, which keeps comments, key order and line endings ([0028](decisions/0028-plan-centric-hexagonal-engine.md)).
 

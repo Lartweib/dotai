@@ -1,6 +1,6 @@
-// Package output defines the versioned JSON envelope that every command
+// Package envelope defines the versioned JSON envelope that every command
 // prints with --json. See docs/CLI-JSON.md.
-package output
+package envelope
 
 import (
 	"bytes"

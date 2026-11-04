@@ -13,7 +13,7 @@ import (
 	"testing/fstest"
 
 	"github.com/lartweib/dotai/internal/app"
-	"github.com/lartweib/dotai/internal/cli/output"
+	"github.com/lartweib/dotai/internal/envelope"
 	"github.com/lartweib/dotai/internal/server"
 )
 
@@ -73,13 +73,13 @@ func serve(h http.Handler, r *http.Request) *httptest.ResponseRecorder {
 	return w
 }
 
-// envelope decodes the body of w as an envelope, with its data raw.
-func envelope(t *testing.T, w *httptest.ResponseRecorder) (e struct {
+// decode decodes the body of w as an envelope, with its data raw.
+func decode(t *testing.T, w *httptest.ResponseRecorder) (e struct {
 	Schema  string          `json:"schema"`
 	Command string          `json:"command"`
 	OK      bool            `json:"ok"`
 	Data    json.RawMessage `json:"data"`
-	Error   *output.Error   `json:"error"`
+	Error   *envelope.Error `json:"error"`
 },
 ) {
 	t.Helper()
@@ -89,8 +89,8 @@ func envelope(t *testing.T, w *httptest.ResponseRecorder) (e struct {
 	if err := json.Unmarshal(w.Body.Bytes(), &e); err != nil {
 		t.Fatalf("body %s is not an envelope: %v", w.Body, err)
 	}
-	if e.Schema != output.Schema {
-		t.Errorf("schema = %q, want %q", e.Schema, output.Schema)
+	if e.Schema != envelope.Schema {
+		t.Errorf("schema = %q, want %q", e.Schema, envelope.Schema)
 	}
 	return e
 }
@@ -101,7 +101,7 @@ func wantFailure(t *testing.T, w *httptest.ResponseRecorder, status int, code st
 	if w.Code != status {
 		t.Errorf("status = %d, want %d; body %s", w.Code, status, w.Body)
 	}
-	e := envelope(t, w)
+	e := decode(t, w)
 	if e.OK || e.Error == nil || e.Error.Code != code || e.Error.Message == "" {
 		t.Errorf("envelope = %+v, want a failure %q with a message", e, code)
 	}
@@ -272,13 +272,13 @@ func TestTheEndpointsAnswerWithTheEnvelope(t *testing.T) {
 			t.Errorf("GET %s = %d, Cache-Control %q, want 200, not cached; body %s", target, w.Code, w.Header().Get("Cache-Control"), w.Body)
 			continue
 		}
-		e := envelope(t, w)
+		e := decode(t, w)
 		if !e.OK || e.Command != command || e.Error != nil || len(e.Data) == 0 || e.Data[0] != '{' {
 			t.Errorf("GET %s = %+v, want a success of %q with an object", target, e, command)
 		}
 	}
 	var v app.VersionInfo
-	if err := json.Unmarshal(envelope(t, serve(h, request("GET", "/api/version", testToken))).Data, &v); err != nil || v.Version != "1.2.3" {
+	if err := json.Unmarshal(decode(t, serve(h, request("GET", "/api/version", testToken))).Data, &v); err != nil || v.Version != "1.2.3" {
 		t.Errorf("version data = %+v, %v, want the version", v, err)
 	}
 	wantFailure(t, serve(h, request("GET", "/api/nope", testToken)), http.StatusNotFound, server.CodeNotFound)
@@ -313,8 +313,8 @@ func TestPlanInstallTakesItsOptionsFromTheQuery(t *testing.T) {
 	if w := serve(h, request("GET", "/api/install/plan?pack="+abs("pack"), testToken)); w.Code != http.StatusOK || gotOpts.Harnesses != nil {
 		t.Errorf("without harness: status %d, harnesses %#v, want nil, the saved selection", w.Code, gotOpts.Harnesses)
 	}
-	wantFailure(t, serve(h, request("GET", "/api/install/plan", testToken)), http.StatusBadRequest, output.CodeUsage)
-	wantFailure(t, serve(h, request("GET", "/api/install/plan?pack=relative/pack", testToken)), http.StatusBadRequest, output.CodeUsage)
+	wantFailure(t, serve(h, request("GET", "/api/install/plan", testToken)), http.StatusBadRequest, envelope.CodeUsage)
+	wantFailure(t, serve(h, request("GET", "/api/install/plan?pack=relative/pack", testToken)), http.StatusBadRequest, envelope.CodeUsage)
 }
 
 func TestPlanProjectTakesItsOptionsFromTheQuery(t *testing.T) {
@@ -334,8 +334,8 @@ func TestPlanProjectTakesItsOptionsFromTheQuery(t *testing.T) {
 	if gotDir != "" || gotCwd != abs("repo") || !reflect.DeepEqual(gotOpts, want) {
 		t.Errorf("PlanProject(%q, %q, %+v), want no pack, the project and %+v", gotDir, gotCwd, gotOpts, want)
 	}
-	wantFailure(t, serve(h, request("GET", "/api/apply/plan", testToken)), http.StatusBadRequest, output.CodeUsage)
-	wantFailure(t, serve(h, request("GET", "/api/apply/plan?project="+abs("repo")+"&pack=rel", testToken)), http.StatusBadRequest, output.CodeUsage)
+	wantFailure(t, serve(h, request("GET", "/api/apply/plan", testToken)), http.StatusBadRequest, envelope.CodeUsage)
+	wantFailure(t, serve(h, request("GET", "/api/apply/plan?project="+abs("repo")+"&pack=rel", testToken)), http.StatusBadRequest, envelope.CodeUsage)
 }
 
 func TestAPackWithProblemsIsInvalidWithItsPlan(t *testing.T) {
@@ -344,9 +344,9 @@ func TestAPackWithProblemsIsInvalidWithItsPlan(t *testing.T) {
 		return app.InstallPlan{Diagnostics: []app.Diagnostic{{Code: "path-unmapped"}}}, nil
 	}
 	w := serve(server.New(testConfig(t), deps, testWeb), request("GET", "/api/install/plan?pack="+abs("pack"), testToken))
-	wantFailure(t, w, http.StatusUnprocessableEntity, output.CodeInvalid)
+	wantFailure(t, w, http.StatusUnprocessableEntity, envelope.CodeInvalid)
 	var p app.InstallPlan
-	if err := json.Unmarshal(envelope(t, w).Data, &p); err != nil || len(p.Diagnostics) != 1 {
+	if err := json.Unmarshal(decode(t, w).Data, &p); err != nil || len(p.Diagnostics) != 1 {
 		t.Errorf("data = %+v, %v, want the plan with its diagnostics", p, err)
 	}
 }
@@ -360,10 +360,10 @@ func TestErrorsGetTheCodesOfTheCommandLine(t *testing.T) {
 		code   string
 		data   bool
 	}{
-		{"internal", errors.New("boom"), http.StatusInternalServerError, output.CodeInternal, false},
-		{"consent", &app.ConsentError{Plan: app.InstallPlan{Mode: app.ModeReplace}}, http.StatusConflict, output.CodeConsent, true},
-		{"refused", &app.RefusedError{Plan: app.InstallPlan{Mode: app.ModeReplace}}, http.StatusConflict, output.CodeRefused, true},
-		{"usage", usage, http.StatusBadRequest, output.CodeUsage, false},
+		{"internal", errors.New("boom"), http.StatusInternalServerError, envelope.CodeInternal, false},
+		{"consent", &app.ConsentError{Plan: app.InstallPlan{Mode: app.ModeReplace}}, http.StatusConflict, envelope.CodeConsent, true},
+		{"refused", &app.RefusedError{Plan: app.InstallPlan{Mode: app.ModeReplace}}, http.StatusConflict, envelope.CodeRefused, true},
+		{"usage", usage, http.StatusBadRequest, envelope.CodeUsage, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -373,7 +373,7 @@ func TestErrorsGetTheCodesOfTheCommandLine(t *testing.T) {
 			}
 			w := serve(server.New(testConfig(t), deps, testWeb), request("GET", "/api/install/plan?pack="+abs("pack"), testToken))
 			wantFailure(t, w, tt.status, tt.code)
-			if e := envelope(t, w); (len(e.Data) > 0) != tt.data || e.Command != "install" {
+			if e := decode(t, w); (len(e.Data) > 0) != tt.data || e.Command != "install" {
 				t.Errorf("envelope = %+v, want data %v for install", e, tt.data)
 			}
 		})
@@ -400,11 +400,11 @@ func TestTheRestorePreviewsTakeTheirQuery(t *testing.T) {
 		t.Errorf("restore preview = %d with id %q, want the id passed", w.Code, gotID)
 	}
 	w := serve(h, request("GET", "/api/restore/project/preview?project="+abs("repo"), testToken))
-	wantFailure(t, w, http.StatusInternalServerError, output.CodeInternal)
-	if gotCwd != abs("repo") || !strings.Contains(string(envelope(t, w).Data), `"conflicts"`) {
+	wantFailure(t, w, http.StatusInternalServerError, envelope.CodeInternal)
+	if gotCwd != abs("repo") || !strings.Contains(string(decode(t, w).Data), `"conflicts"`) {
 		t.Errorf("project preview of %q = %s, want the conflicts", gotCwd, w.Body)
 	}
-	wantFailure(t, serve(h, request("GET", "/api/restore/project/preview", testToken)), http.StatusBadRequest, output.CodeUsage)
+	wantFailure(t, serve(h, request("GET", "/api/restore/project/preview", testToken)), http.StatusBadRequest, envelope.CodeUsage)
 }
 
 func TestDoctorProblemsAreInvalidWithTheResult(t *testing.T) {
@@ -415,8 +415,8 @@ func TestDoctorProblemsAreInvalidWithTheResult(t *testing.T) {
 		return app.DoctorResult{Findings: []app.Finding{{Code: app.CodeExcludeMissing}, {Code: app.CodeExcludeMissing, Fixed: true}}}, nil
 	}
 	w := serve(server.New(testConfig(t), deps, testWeb), request("GET", "/api/doctor", testToken))
-	wantFailure(t, w, http.StatusUnprocessableEntity, output.CodeInvalid)
-	if e := envelope(t, w); gotFix || e.Error.Message != "doctor found 1 problem" || !strings.Contains(string(e.Data), "exclude-missing") {
+	wantFailure(t, w, http.StatusUnprocessableEntity, envelope.CodeInvalid)
+	if e := decode(t, w); gotFix || e.Error.Message != "doctor found 1 problem" || !strings.Contains(string(e.Data), "exclude-missing") {
 		t.Errorf("doctor = %+v, fix %v, want one problem with the findings, without --fix", e, gotFix)
 	}
 }

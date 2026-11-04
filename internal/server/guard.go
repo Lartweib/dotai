@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/lartweib/dotai/internal/cli/output"
+	"github.com/lartweib/dotai/internal/envelope"
 )
 
 // NewToken is a random token for one run of the server: 32 bytes from
@@ -112,7 +112,7 @@ func isAPI(r *http.Request) bool { return strings.HasPrefix(r.URL.Path, "/api/")
 // plain text elsewhere, where a person reads it in the browser.
 func refuse(w http.ResponseWriter, r *http.Request, status int, code, msg string) {
 	if isAPI(r) {
-		writeEnvelope(w, status, output.Failure(command, code, msg))
+		writeEnvelope(w, status, envelope.Failure(command, code, msg))
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")

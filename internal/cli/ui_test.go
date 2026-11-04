@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/lartweib/dotai/internal/cli"
-	"github.com/lartweib/dotai/internal/server"
 )
 
 const uiURL = "http://127.0.0.1:4321/?token=abc"
@@ -19,7 +18,7 @@ const uiURL = "http://127.0.0.1:4321/?token=abc"
 // options, and the addresses the browser was asked to open.
 type uiRun struct {
 	started bool
-	opts    server.Options
+	opts    cli.UIOptions
 	opened  []string
 }
 
@@ -27,7 +26,7 @@ type uiRun struct {
 // uiURL and returns err, recording what it was given in run.
 func uiEnv(stdout, stderr *bytes.Buffer, run *uiRun, err error) cli.Env {
 	env := testEnv(stdout, stderr)
-	env.UI = func(ctx context.Context, opts server.Options) error {
+	env.UI = func(ctx context.Context, opts cli.UIOptions) error {
 		run.started, run.opts = true, opts
 		if ctx == nil {
 			return errors.New("no context")
@@ -126,7 +125,7 @@ func TestRunUIFailureIsAnError(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	var run uiRun
 	env := uiEnv(&stdout, &stderr, &run, nil)
-	env.UI = func(context.Context, server.Options) error { return errors.New("address already in use") }
+	env.UI = func(context.Context, cli.UIOptions) error { return errors.New("address already in use") }
 	if code := cli.Run([]string{"ui", "--port", "8123"}, env); code != cli.ExitInternal || !strings.Contains(stderr.String(), "address already in use") {
 		t.Errorf("exit code = %d, stderr %q, want the failure", code, stderr.String())
 	}

@@ -70,12 +70,12 @@ func TestTheAppEndpointsReadATemporaryHome(t *testing.T) {
 			t.Errorf("GET %s = %d, want 200; body %s", target, w.Code, w.Body)
 			continue
 		}
-		if e := envelope(t, w); !e.OK {
+		if e := decode(t, w); !e.OK {
 			t.Errorf("GET %s = %+v, want a success", target, e)
 		}
 	}
 	var st app.Status
-	if err := json.Unmarshal(envelope(t, serve(h, request("GET", "/api/status", testToken))).Data, &st); err != nil || st.State != nil || st.StatePath != filepath.Join(cfg.Home, ".dotai", "state.json") {
+	if err := json.Unmarshal(decode(t, serve(h, request("GET", "/api/status", testToken))).Data, &st); err != nil || st.State != nil || st.StatePath != filepath.Join(cfg.Home, ".dotai", "state.json") {
 		t.Errorf("status = %+v, %v, want no install in the temporary home", st, err)
 	}
 	w := serve(h, request("GET", "/api/restore/preview", testToken))
@@ -97,7 +97,7 @@ func TestPlanInstallThroughTheAppPlansTheExamplePack(t *testing.T) {
 		t.Fatalf("plan install = %d; body %s", w.Code, w.Body)
 	}
 	var p app.InstallPlan
-	if err := json.Unmarshal(envelope(t, w).Data, &p); err != nil || p.Pack == nil || p.Pack.Name != "minimal-pack" || p.Mode != app.ModeIsolated {
+	if err := json.Unmarshal(decode(t, w).Data, &p); err != nil || p.Pack == nil || p.Pack.Name != "minimal-pack" || p.Mode != app.ModeIsolated {
 		t.Errorf("plan = %+v, %v, want the isolated plan of minimal-pack", p, err)
 	}
 	if _, err := os.Lstat(filepath.Join(cfg.Home, ".dotai")); !os.IsNotExist(err) {
