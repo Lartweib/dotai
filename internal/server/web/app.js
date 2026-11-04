@@ -80,16 +80,20 @@ export function setCount(id, n) {
 }
 
 let rendering = 0;
+let leaving = null; // aborts the requests of the board shown
 
 async function render() {
   const r = route();
   const root = document.getElementById("view");
   const turn = ++rendering;
+  if (leaving) leaving.abort();
+  leaving = new AbortController();
+  const signal = leaving.signal;
   renderNav();
   root.className = "view";
   mount(root);
   try {
-    await routes[r.name].view.render(root, { arg: r.arg, setCount, stale: () => turn !== rendering, refresh, again: render });
+    await routes[r.name].view.render(root, { arg: r.arg, setCount, signal, stale: () => turn !== rendering, refresh, again: render });
   } catch (err) {
     if (turn === rendering) mount(root, h("div", { class: "detail" }, notice("bad", "error", err.message)));
   }
@@ -98,7 +102,7 @@ async function render() {
 // refresh reloads the shared state after an action and counts again.
 export async function refresh() {
   await loadStatus();
-  document.getElementById("home").textContent = tilde(shared.home + "/.dotai");
+  if (shared.status) document.getElementById("home").textContent = tilde(shared.status.statePath);
   counts.packs = recentPacks().length;
   counts.projects = shared.status ? shared.status.projects.length : 0;
   renderNav();

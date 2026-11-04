@@ -5,7 +5,8 @@
 // their digest.
 
 import { busy, h, kv, mount, notice, plural, sec } from "./dom.js";
-import { api, harnessName, post, tilde } from "./store.js";
+import { guard } from "./flows.js";
+import { act, api, harnessName, tilde } from "./store.js";
 
 // What to do next, by code: copy for people, not a rule of the engine.
 const next = {
@@ -32,16 +33,19 @@ export async function render(root, ctx) {
   const detail = h("section", { class: "detail", "aria-label": "Selected finding" });
   mount(root, list, detail);
   mount(list, busy("Checking what dotai wrote against the disk..."));
-  const res = await api("/api/doctor");
+  const res = await api("/api/doctor", { signal: ctx.signal });
   if (ctx.stale()) return;
   if (!res.data || !res.data.findings) {
     mount(list, notice("bad", res.error.code, res.error.message));
     return;
   }
-  draw(list, detail, res.data, ctx, null);
+  draw(list, detail, res.data, ctx, null, now());
 }
 
-function draw(list, detail, d, ctx, msg) {
+// now is the time of a doctor run, as the list shows it.
+const now = () => new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+
+function draw(list, detail, d, ctx, msg, checked) {
   const findings = d.findings.map((f, i) => ({ ...f, i }));
   const open = findings.filter((f) => !f.fixed);
   const fixable = open.filter((f) => f.fixable);
@@ -53,25 +57,36 @@ function draw(list, detail, d, ctx, msg) {
   }
   let cur = findings[0];
   const out = h("div");
-  const fix = h("button", { class: "btn primary", type: "button", disabled: fixable.length === 0, text: "Fix exclude entries" });
+  const fix = h("button", { class: "btn primary", type: "button", text: "Fix exclude entries" });
+  const g = guard(fix, () => fixable.length > 0 && !!d.digest);
+  g.sync();
   fix.addEventListener("click", async () => {
-    fix.disabled = true;
     mount(out, busy("Fixing..."));
-    const r = await post("/api/doctor/fix", { digest: d.digest });
-    if (r.error && r.error.code === "plan-changed") {
-      draw(list, detail, r.data, ctx, notice("bad", r.error.code, r.error.message));
+    const r = await g.run(() => act("/api/doctor/fix", { digest: d.digest }));
+    if (!r || ctx.stale()) return;
+    if (!r.ok && r.error.code === "plan-changed") {
+      draw(list, detail, r.data, ctx, notice("bad", r.error.code, r.error.message), now());
       return;
     }
-    if (r.data && r.data.findings) {
-      await ctx.refresh();
-      const fixed = r.data.findings.filter((f) => f.fixed).length;
-      const again = await api("/api/doctor");
-      if (again.data && again.data.findings) {
-        draw(list, detail, again.data, ctx, notice("good", "fixed", "Fixed " + plural(fixed, "finding") + ", each after a backup in its project's backups."));
-        return;
-      }
+    // A fix that ran, all of it or partway, gives the findings it got to.
+    const ran = r.data && r.data.findings;
+    const fixed = ran ? r.data.findings.filter((f) => f.fixed).length : 0;
+    const told = r.ok || (r.error.code === "invalid" && ran)
+      ? notice("good", "fixed", "Fixed " + plural(fixed, "finding") + ", each after a backup in its project's backups.")
+      : notice("bad", r.error.code, r.error.message + (ran ? " Fixed " + plural(fixed, "finding") + " before it stopped." : ""));
+    if (!ran) {
+      mount(out, told);
+      return;
     }
-    mount(out, notice("bad", r.error.code, r.error.message));
+    await ctx.refresh();
+    if (ctx.stale()) return;
+    const again = await api("/api/doctor", { signal: ctx.signal });
+    if (ctx.stale()) return;
+    if (again.data && again.data.findings) {
+      draw(list, detail, again.data, ctx, told, now());
+      return;
+    }
+    mount(out, told, notice("bad", again.error.code, again.error.message));
   });
 
   const rows = () => [...groups].map(([label, fs]) => h("div", {},
@@ -88,7 +103,7 @@ function draw(list, detail, d, ctx, msg) {
     mount(list,
       h("div", { class: "listhead stack" },
         h("div", { class: "row" }, h("h1", { class: "h-list", id: "dr-h", text: "Doctor" }),
-          h("span", { class: "t-cap", text: plural(open.length, "problem") + " · " + fixable.length + " fixable · checked " + new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) })),
+          h("span", { class: "t-cap", text: plural(open.length, "problem") + " · " + fixable.length + " fixable · checked " + checked })),
         h("div", { class: "row" }, fix, h("button", { class: "btn quiet", type: "button", onclick: () => ctx.again(), text: "Check again" })),
         h("p", { class: "t-cap", text: fixable.length ? "Fix exclude entries rewrites the project's block in " + plural(new Set(fixable.map((f) => f.project)).size, "exclude file") + ", after a backup of each." : "Nothing here is fixable by doctor." }),
         msg, out),

@@ -2,12 +2,12 @@
 // route, then the install of exactly that plan. The plan carries the
 // digest of what it shows; the install sends it back, and the server
 // refuses with plan-changed, and the new plan, when the plan is no longer
-// the same (decision 0043).
+// the same (decision 0043). Whether the plan is blocked and whether it
+// needs consent come with the plan.
 
 import { busy, h, lm, mount, notice, op, plural, sec, warning } from "./dom.js";
-import { harnessName, installed, isInstalled, loadPack, post, selectedPack, tilde } from "./store.js";
-
-const actionWords = { create: "create", replace: "overwrite", remove: "remove", unchanged: "keep" };
+import { guard, rel, word } from "./flows.js";
+import { act, harnessName, installed, isInstalled, loadPack, post, selectedPack, shared, tilde } from "./store.js";
 
 export async function render(root, ctx) {
   const pack = ctx.arg || selectedPack();
@@ -24,13 +24,13 @@ export async function render(root, ctx) {
 
   const replan = async (msg) => {
     mount(root, busy("Planning the install: dotai stages the pack and runs rulesync, nothing is written..."));
-    const res = await post("/api/install/plan", { pack, mode: state.mode, variant: state.variant });
+    const res = await post("/api/install/plan", { pack, mode: state.mode, variant: state.variant }, ctx.signal);
     if (ctx.stale()) return;
     show(res, msg);
   };
 
   const show = (res, msg) => {
-    if (!res.ok && !(res.data && res.data.ops)) {
+    if (!res.data || !res.data.ops) {
       mount(root, h("div", { class: "col wide intro" }, crumbs(pack, summary), notice("bad", res.error.code, res.error.message),
         h("div", { class: "row" }, h("button", { class: "btn", type: "button", onclick: () => replan(), text: "Plan again" }))));
       return;
@@ -38,26 +38,28 @@ export async function render(root, ctx) {
     const p = res.data;
     state.mode = p.mode;
     state.variant = p.variant;
-    const replace = p.mode === "replace";
-    const blocked = p.refusals.length > 0 || p.diagnostics.length > 0;
-    const out = h("div", { class: "confirmbar-out" });
-    const consent = h("input", { type: "checkbox", onchange: () => { state.consent = consent.checked; sync(); } });
+    const out = h("div");
+    const consent = h("input", { type: "checkbox" });
     consent.checked = state.consent;
     const go = h("button", { class: "btn primary", type: "button", text: "Install" });
     const says = h("p", { class: "t-cap" });
+    // A plan with diagnostics comes without a digest: the page cannot act on it.
+    const g = guard(go, () => !!p.digest && !p.blocked && (!p.consent || state.consent));
     const sync = () => {
-      go.disabled = blocked || !p.digest || (replace && !state.consent);
-      says.textContent = blocked ? "The plan has problems or refusals: install refuses it."
-        : replace && !state.consent ? "Install waits for your consent above."
+      g.sync();
+      says.textContent = p.blocked || !p.digest ? "The plan has problems or refusals: install refuses it."
+        : p.consent && !state.consent ? "Install waits for your consent above."
           : "Install takes the backup, then writes into " + roots(p) + ".";
     };
+    consent.addEventListener("change", () => { state.consent = consent.checked; sync(); });
     sync();
     go.addEventListener("click", async () => {
-      go.disabled = true;
       mount(out, busy("Installing..."));
-      const r = await post("/api/install", { pack, mode: p.mode, variant: p.variant, digest: p.digest, yes: state.consent });
+      const r = await g.run(() => act("/api/install", { pack, mode: p.mode, variant: p.variant, digest: p.digest, yes: state.consent }));
+      if (!r || ctx.stale()) return;
       if (r.ok) {
         await ctx.refresh();
+        if (ctx.stale()) return;
         mount(root, done(pack, summary, r.data));
         return;
       }
@@ -67,10 +69,10 @@ export async function render(root, ctx) {
         return;
       }
       mount(out, notice("bad", r.error.code, r.error.message + running(r.data)));
-      sync();
     });
 
     const variants = summary ? summary.variants : [];
+    const backups = shared.status ? tilde(shared.status.backupsPath) : "the backups directory";
     mount(root,
       h("div", { class: "col wide intro" },
         crumbs(pack, summary, "install plan, nothing written yet"),
@@ -87,12 +89,12 @@ export async function render(root, ctx) {
         sections(p),
         sec("Warnings", warnings(p)),
         sec("Backup", h("div", { class: "sc stack" },
-          h("div", { class: "well" }, h("p", { class: "mono t-path", text: tilde(shared(p)) + "/.dotai/backups/<time>_install" }),
-            h("p", { class: "body", text: replace ? "Wiped entries move into the backup as they are, links and timestamps kept. Overwritten files and the keys it deletes are copied first. The first replace install pins its backup: it holds your configuration from before dotai."
+          h("div", { class: "well" }, h("p", { class: "mono t-path", text: backups + "/<time>_install" }),
+            h("p", { class: "body", text: p.mode === "replace" ? "Wiped entries move into the backup as they are, links and timestamps kept. Overwritten files and the keys it deletes are copied first. The first replace install pins its backup: it holds your configuration from before dotai."
               : "Copies of the files it overwrites and removes, and the install state from before." })),
           h("p", { class: "t-cap", text: "The id is the UTC time of the install with milliseconds, set when it starts. Restore on the Backups board undoes it." }))),
         h("div", { class: "confirmbar" },
-          replace ? h("label", { class: "check" }, consent, h("span", { text: "I read the plan. Move what dotai does not own into the backup." })) : null,
+          p.consent ? h("label", { class: "check" }, consent, h("span", { text: "I read the plan. Move what dotai does not own into the backup." })) : null,
           h("div", { class: "row" }, go, h("a", { class: "btn quiet", href: "#/packs", text: "Cancel" })),
           says, out)));
   };
@@ -117,7 +119,6 @@ function modes(current, pick) {
 }
 
 const managed = (p) => p.harnesses.filter((x) => x.managed);
-const shared = (p) => (p.mode === "replace" ? p.root : p.root.replace(/[\\/]\.dotai[\\/]isolated$/, ""));
 const roots = (p) => managed(p).map((x) => tilde(x.dir)).join(", ") || tilde(p.root);
 
 function replacedNote(p) {
@@ -128,39 +129,31 @@ function replacedNote(p) {
   return "";
 }
 
-// rel is target relative to dir, with forward slashes, or target itself.
-export function rel(dir, target) {
-  const d = (dir || "").replace(/\\/g, "/").replace(/\/$/, "");
-  const t = (target || "").replace(/\\/g, "/");
-  return d && t.toLowerCase().startsWith(d.toLowerCase() + "/") ? t.slice(d.length + 1) : tilde(target);
-}
-
 function sections(p) {
   const groups = managed(p).map((x) => ({ id: x.id, name: harnessName(x.id), dir: x.dir }));
-  const tools = p.ops.filter((o) => !o.harness);
-  if (tools.length) groups.push({ id: "", name: "Tools", dir: tools[0].target.replace(/[\\/][^\\/]+$/, "") });
+  if (p.ops.some((o) => !o.harness)) groups.push({ id: "", name: harnessName(""), dir: "" });
   return groups.map((g) => {
     const ops = p.ops.filter((o) => (o.harness || "") === g.id);
     const keep = ops.filter((o) => o.action === "unchanged").map((o) => rel(g.dir, o.target));
     const rows = [
-      ...ops.filter((o) => o.action !== "unchanged").map((o) => op(actionWords[o.action] || o.action, rel(g.dir, o.target), "", keysOf(o))),
-      ...p.wipes.filter((w) => w.harness === g.id).map((w) => op("wipe", rel(g.dir, w.path) + (w.kind === "dir" ? "/" : ""), "", w.collateral || "Moves into the backup.")),
-      ...p.wipeKeys.filter((k) => k.harness === g.id).map((k) => op("wipe", tilde(k.file) + " · " + k.key.join("."), "", "A key of a file dotai splits by key.")),
-      keep.length ? op("keep", keep.join(" · ")) : null,
+      ...ops.filter((o) => o.action !== "unchanged").map((o) => op(word(o.action), rel(g.dir, o.target), "", keysOf(o))),
+      ...p.wipes.filter((w) => w.harness === g.id).map((w) => op(word("wipe"), rel(g.dir, w.path) + (w.kind === "dir" ? "/" : ""), "", w.collateral || "Moves into the backup.")),
+      ...p.wipeKeys.filter((k) => k.harness === g.id).map((k) => op(word("wipe"), tilde(k.file) + " · " + k.key.join("."), "", "A key of a file dotai splits by key.")),
+      keep.length ? op(word("unchanged"), keep.join(" · ")) : null,
     ];
     return h("section", { class: "sec", "aria-label": g.name }, h("h2", { text: g.name }),
-      h("div", { class: "sc" }, h("p", { class: "t-path", text: tilde(g.dir) }), h("ul", {}, rows.length ? rows : h("li", { class: "quietp", text: "Nothing to write." }))));
+      h("div", { class: "sc" }, g.dir ? h("p", { class: "t-path", text: tilde(g.dir) }) : null, h("ul", {}, rows.length ? rows : h("li", { class: "quietp", text: "Nothing to write." }))));
   });
 }
 
 function keysOf(o) {
   if (!o.keys || o.keys.length === 0) return "";
-  return "Keys " + o.keys.map((k) => k.key + (k.action !== "create" ? " (" + (actionWords[k.action] || k.action) + ")" : "")).join(", ") + ".";
+  return "Keys " + o.keys.map((k) => k.key + (k.action !== "create" ? " (" + word(k.action) + ")" : "")).join(", ") + ".";
 }
 
 function counts(p) {
   const n = (a) => p.ops.filter((o) => o.action === a).length;
-  const parts = [[n("create"), "to create"], [n("replace"), "to overwrite"], [n("remove"), "to remove"]].filter(([c]) => c).map(([c, w]) => c + " " + w);
+  const parts = ["create", "replace", "remove"].filter((a) => n(a)).map((a) => n(a) + " to " + word(a));
   if (p.wipes.length || p.wipeKeys.length) parts.push(plural(p.wipes.length, "entry", "entries") + " and " + plural(p.wipeKeys.length, "key") + " to wipe");
   if (n("unchanged")) parts.push(n("unchanged") + " to keep");
   return parts.join(" · ") || "Nothing to write.";
@@ -173,15 +166,15 @@ function warnings(p) {
     ...p.harnesses.filter((x) => x.managed && x.leaks.length).map((x) => warning("still-shared", harnessName(x.id) + ": " + x.leaks.join("; ") + ".")),
     ...p.notices.map((n) => warning("notice", n)),
   ];
-  if (p.mode === "replace" && (p.wipes.length || p.wipeKeys.length)) {
-    list.unshift(warning("consent-required", "The replace install moves into its backup what dotai does not own: " + plural(p.wipes.length, "entry", "entries") + " it wipes and " + plural(p.wipeKeys.length, "key") + " it deletes. It refuses while a harness it writes into runs."));
+  if (p.consent) {
+    list.unshift(warning("consent-required", "The install moves into its backup what dotai does not own: " + plural(p.wipes.length, "entry", "entries") + " it wipes and " + plural(p.wipeKeys.length, "key") + " it deletes, and the files it overwrites."));
   }
   return list.length ? h("ul", {}, list) : h("p", { class: "quietp", text: "No warnings. dotai run starts a harness against the isolated install." });
 }
 
 function running(data) {
-  if (!data || !data.running) return "";
-  return data.running.length ? " Running: " + data.running.map((r) => r.name + " " + r.pid).join(", ") + "." : "";
+  if (!data || !data.running || !data.running.length) return "";
+  return " Running: " + data.running.map((r) => r.name + " " + r.pid).join(", ") + ".";
 }
 
 function done(pack, summary, res) {

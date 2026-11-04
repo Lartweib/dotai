@@ -9,8 +9,10 @@ const selectedKey = "dotai.pack";
 const projectsKey = "dotai.projects";
 
 // api calls the API with the session token and returns the envelope with
-// the HTTP status: { ok, status, data, error }. A network failure is a
-// failure envelope too, so that a page has one shape to show.
+// the HTTP status: { ok, status, data, error }. Every failure has that
+// shape too: "aborted" when the page left the board, "session" when the
+// session ended, "network" when dotai ui did not answer and "bad-response"
+// when the answer is not an envelope.
 export async function api(path, options = {}) {
   const headers = { ...(options.headers || {}), Authorization: "Bearer " + sessionStorage.getItem(tokenKey) };
   let body = options.body;
@@ -18,18 +20,40 @@ export async function api(path, options = {}) {
     body = JSON.stringify(body);
     headers["Content-Type"] = "application/json";
   }
+  let res;
   try {
-    const res = await fetch(path, { ...options, headers, body });
-    const env = await res.json();
-    return { ...env, status: res.status };
+    res = await fetch(path, { ...options, headers, body });
   } catch (err) {
-    return { ok: false, status: 0, error: { code: "network", message: "dotai ui did not answer: " + err.message } };
+    if (err.name === "AbortError") return failure(0, "aborted", "The request was stopped.");
+    return failure(0, "network", "dotai ui did not answer: " + err.message + ". Check that it still runs.");
+  }
+  if (res.status === 401) {
+    return failure(401, "session", "The session ended: restart dotai ui and open the address it prints.");
+  }
+  try {
+    return { ...(await res.json()), status: res.status };
+  } catch {
+    return failure(res.status, "bad-response", "dotai ui answered " + res.status + " with something other than its envelope.");
   }
 }
 
-export const post = (path, body) => api(path, { method: "POST", body });
+function failure(status, code, message) {
+  return { ok: false, status, error: { code, message } };
+}
+
+export const post = (path, body, signal) => api(path, { method: "POST", body, signal });
 
 export const query = (path, params) => path + "?" + new URLSearchParams(params).toString();
+
+// act sends an action, which writes. When no envelope comes back, the
+// action may have run all the same: the message says where to look.
+export async function act(path, body) {
+  const res = await post(path, body);
+  if (res.error && (res.error.code === "network" || res.error.code === "bad-response")) {
+    res.error.message += " The action may have run: check the Backups and Doctor boards before you try again.";
+  }
+  return res;
+}
 
 function read(key, fallback) {
   try {
@@ -73,40 +97,41 @@ export const selectPack = (path) => write(selectedKey, path);
 // isAbsolute accepts the absolute paths of every OS, as the API wants them.
 export const isAbsolute = (p) => /^(\/|[A-Za-z]:[\\/]|\\\\)/.test(p);
 
-// The state every page reads, loaded once and again after an action.
-export const shared = { status: null, packs: new Map(), home: "" };
+// The state every page reads, loaded once and again after an action: the
+// status, the packs read this visit and the names of the harnesses.
+export const shared = { status: null, packs: new Map(), harnesses: new Map() };
 
 export async function loadStatus() {
-  const res = await api("/api/status");
+  const [res, hs] = await Promise.all([api("/api/status"), shared.harnesses.size ? null : api("/api/harnesses")]);
   shared.status = res.ok ? res.data : null;
-  if (res.ok && res.data.statePath) {
-    shared.home = res.data.statePath.replace(/[\\/]\.dotai[\\/]state\.json$/, "");
-  }
+  if (hs && hs.ok) for (const x of hs.data.harnesses) shared.harnesses.set(x.id, x.name);
   return res;
 }
+
+export const home = () => (shared.status ? shared.status.home : "");
 
 // loadPack validates the pack at path, once per visit unless fresh.
 export async function loadPack(path, fresh) {
   if (!fresh && shared.packs.has(path)) return shared.packs.get(path);
   const res = await api(query("/api/pack", { path }));
-  shared.packs.set(path, res);
+  if (res.ok || !["aborted", "network", "session", "bad-response"].includes(res.error.code)) shared.packs.set(path, res);
   return res;
 }
 
+const slash = (s) => (s || "").replace(/\\/g, "/").replace(/\/$/, "");
+
 // tilde shortens a path under the home directory to ~/..., for reading.
 export function tilde(p) {
-  const home = shared.home;
-  if (!p || !home) return p || "";
-  const norm = (s) => s.replace(/\\/g, "/");
-  const np = norm(p);
-  const nh = norm(home).replace(/\/$/, "");
-  if (np === nh) return "~";
-  if (np.toLowerCase().startsWith(nh.toLowerCase() + "/")) return "~" + np.slice(nh.length);
+  const h = slash(home());
+  if (!p || !h) return p || "";
+  const np = slash(p);
+  if (np.toLowerCase() === h.toLowerCase()) return "~";
+  if (np.toLowerCase().startsWith(h.toLowerCase() + "/")) return "~" + np.slice(h.length);
   return p;
 }
 
-// installed is the install state's pack, or null when there is none.
-export const installed = () => shared.status?.state || null;
+// installed is the install state, or null when there is none.
+export const installed = () => (shared.status && shared.status.state) || null;
 
 // isInstalled reports whether the pack at path is the one installed.
 export function isInstalled(path) {
@@ -114,8 +139,8 @@ export function isInstalled(path) {
   return !!s && samePath(s.pack.path, path);
 }
 
-export const samePath = (a, b) => (a || "").replace(/\\/g, "/").replace(/\/$/, "").toLowerCase() === (b || "").replace(/\\/g, "/").replace(/\/$/, "").toLowerCase();
+export const samePath = (a, b) => slash(a).toLowerCase() === slash(b).toLowerCase();
 
-const harnessNames = { claudecode: "Claude Code", "antigravity-cli": "agy", opencode: "OpenCode" };
-
-export const harnessName = (id) => (id ? harnessNames[id] || id : "Tools");
+// harnessName is the name dotai gives the harness id, the id itself for
+// one it does not name, and "Tools" for the tools directory.
+export const harnessName = (id) => (id ? shared.harnesses.get(id) || id : "Tools");

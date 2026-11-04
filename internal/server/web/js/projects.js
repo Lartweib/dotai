@@ -3,12 +3,9 @@
 // planned, by the plan's digest. A project restores as a whole, through
 // the same preview and confirm as on the Backups board.
 
-import { busy, h, kv, lm, mount, notice, op, plural, sec, warning, when } from "./dom.js";
-import { harnessName, isAbsolute, loadPack, post, query, recentPacks, recentProjects, rememberProject, selectedPack, shared, tilde, api } from "./store.js";
-import { rel } from "./plan.js";
-import { confirmFlow } from "./backups.js";
-
-const actionWords = { create: "create", replace: "overwrite", merge: "merge", conflict: "conflict", remove: "remove", unchanged: "keep" };
+import { busy, h, kv, lm, mount, notice, op, sec, warning, when } from "./dom.js";
+import { confirmFlow, guard, rel, restoreProjectFlow, word } from "./flows.js";
+import { act, harnessName, isAbsolute, loadPack, post, recentPacks, recentProjects, rememberProject, selectedPack, shared, tilde } from "./store.js";
 
 export async function render(root, ctx) {
   const list = h("section", { class: "listpane", "aria-labelledby": "pr-h" });
@@ -70,16 +67,7 @@ async function showProject(detail, project, st, ctx) {
       rec ? h("div", { class: "sec" }, h("h2", { text: "Restore" }), restoreArea) : null));
   if (rec) {
     mount(restoreArea, h("p", { class: "body", text: "Restore undoes every apply recorded here, so the project is as before the first apply." }),
-      h("div", { class: "row" }, h("button", { class: "btn", type: "button", text: "Preview restore of the project", onclick: () => confirmFlow(restoreArea, {
-        load: () => api(query("/api/restore/project/preview", { project })),
-        lead: () => "Every apply recorded here is undone: the project, its exclude file and the keys dotai owns are as before the first apply.",
-        rows: (r) => [...r.ops.map((o) => op(o.conflict ? "conflict" : o.action === "replace" ? "overwrite" : o.action, rel(project, o.target))),
-          r.exclude.file ? op("replace", tilde(r.exclude.file), "the project's block leaves it") : null],
-        label: "Restore project",
-        says: "Runs dotai restore --project for " + tilde(project) + ", after a backup of what it writes.",
-        execute: (r, yes) => post("/api/restore/project", { project, digest: r.digest, yes }),
-        ctx,
-      }) })));
+      h("div", { class: "row" }, h("button", { class: "btn", type: "button", text: "Preview restore of the project", onclick: () => confirmFlow(restoreArea, restoreProjectFlow(project, ctx)) })));
   }
   if (!packs.length) {
     mount(area, h("p", { class: "body", text: "Add a pack on the Packs board first: its profiles are what an apply writes." }));
@@ -91,6 +79,7 @@ async function showProject(detail, project, st, ctx) {
 async function pickProfiles(area, project, packs, packPath, chosen, ctx) {
   mount(area, busy("Reading the pack..."));
   const info = await loadPack(packPath);
+  if (ctx.stale()) return;
   const pack = info.data && info.data.pack;
   const select = h("select", { class: "input", "aria-label": "Pack", onchange: () => pickProfiles(area, project, packs, select.value, [], ctx) },
     packs.map((p) => h("option", { value: p, selected: p === packPath, text: tilde(p) })));
@@ -116,7 +105,8 @@ async function pickProfiles(area, project, packs, packPath, chosen, ctx) {
 
 async function planApply(out, req, ctx, msg) {
   mount(out, busy("Planning the apply: dotai stages the pack, runs rulesync and asks git, nothing is written..."));
-  const res = await post("/api/apply/plan", req);
+  const res = await post("/api/apply/plan", req, ctx.signal);
+  if (ctx.stale()) return;
   if (!res.data || !res.data.ops) {
     mount(out, notice("bad", res.error.code, res.error.message));
     return;
@@ -125,21 +115,21 @@ async function planApply(out, req, ctx, msg) {
 }
 
 function showPlan(out, req, p, ctx, msg) {
-  const conflicts = p.ops.filter((o) => o.action === "conflict" || (o.keys || []).some((k) => k.action === "conflict"));
-  const blocked = p.refusals.length > 0 || p.diagnostics.length > 0;
   const yes = h("input", { type: "checkbox" });
   const go = h("button", { class: "btn primary", type: "button", text: "Apply" });
   const result = h("div");
-  const sync = () => { go.disabled = blocked || (conflicts.length > 0 && !yes.checked); };
-  yes.addEventListener("change", sync);
-  sync();
+  // A plan with diagnostics comes without a digest: the page cannot act on it.
+  const g = guard(go, () => !!p.digest && !p.blocked && (!p.consent || yes.checked));
+  yes.addEventListener("change", g.sync);
+  g.sync();
   go.addEventListener("click", async () => {
-    go.disabled = true;
     mount(result, busy("Applying..."));
-    const r = await post("/api/apply", { ...req, digest: p.digest, yes: yes.checked });
+    const r = await g.run(() => act("/api/apply", { ...req, digest: p.digest, yes: yes.checked }));
+    if (!r || ctx.stale()) return;
     if (r.ok) {
       rememberProject(req.project);
       await ctx.refresh();
+      if (ctx.stale()) return;
       mount(out, notice("good", "applied", r.data.backup ? "Applied. The backup " + r.data.backup.id + " holds what the apply overwrote." : "Applied: nothing needed writing."),
         h("div", { class: "row" }, h("button", { class: "btn", type: "button", onclick: () => ctx.again(), text: "Show the project" })));
       return;
@@ -149,10 +139,7 @@ function showPlan(out, req, p, ctx, msg) {
       return;
     }
     mount(result, notice("bad", r.error.code, r.error.message));
-    sync();
   });
-  const notes = [...p.diagnostics.map((d) => warning(d.code, d.message)), ...p.refusals.map((w) => warning(w.code, w.message)), ...p.warnings.map((w) => warning(w.code, w.message)),
-    ...p.skipped.map((x) => warning("skipped", x.item + ": " + x.reason)), ...p.notices.map((n) => warning("notice", n))];
   const harnesses = [...p.harnesses, ""];
   mount(out, msg || null,
     h("p", { class: "t-cap", text: [p.firstApply ? "first apply" : "applied before", "variant " + p.variant, p.profiles.join(", ")].join(" · ") }),
@@ -161,15 +148,15 @@ function showPlan(out, req, p, ctx, msg) {
       if (!ops.length) return null;
       const keep = ops.filter((o) => o.action === "unchanged").map((o) => rel(p.project, o.target));
       return h("section", { class: "sec" }, h("h2", { text: id ? harnessName(id) : "Project" }), h("div", { class: "sc" }, h("ul", {},
-        ops.filter((o) => o.action !== "unchanged").map((o) => op(actionWords[o.action] || o.action, rel(p.project, o.target), "",
-          (o.keys || []).length ? "Keys " + o.keys.map((k) => k.key.join(".") + " (" + (actionWords[k.action] || k.action) + ")").join(", ") + "." : "")),
-        keep.length ? op("keep", keep.join(" · ")) : null)));
+        ops.filter((o) => o.action !== "unchanged").map((o) => op(word(o.action), rel(p.project, o.target), "",
+          (o.keys || []).length ? "Keys " + o.keys.map((k) => k.key.join(".") + " (" + word(k.action) + ")").join(", ") + "." : "")),
+        keep.length ? op(word("unchanged"), keep.join(" · ")) : null)));
     }),
     p.exclude.entries.length ? sec("Exclude", h("p", { class: "t-path", text: p.exclude.file ? tilde(p.exclude.file) : "no git repository: the entries wait until there is one" }), h("pre", { class: "src", text: p.exclude.entries.join("\n") })) : null,
     sec("Warnings", notes.length ? h("ul", {}, notes) : h("p", { class: "quietp", text: "No warnings." })),
     h("div", { class: "confirmbar" },
-      conflicts.length ? h("label", { class: "check" }, yes, h("span", { text: "Overwrite the " + plural(conflicts.length, "conflict") + ": what dotai does not own or what changed since it wrote it. The backup keeps what they hold." })) : null,
+      p.consent ? h("label", { class: "check" }, yes, h("span", { text: "Overwrite the conflicts: what dotai does not own or what changed since it wrote it. The backup keeps what they hold." })) : null,
       h("div", { class: "row" }, go),
-      h("p", { class: "t-cap", text: blocked ? "The plan has problems or refusals: apply refuses it." : "Apply takes a backup in the project's backups, then writes." }),
+      h("p", { class: "t-cap", text: p.blocked || !p.digest ? "The plan has problems or refusals: apply refuses it." : "Apply takes a backup in the project's backups, then writes." }),
       result));
 }
