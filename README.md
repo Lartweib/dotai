@@ -29,7 +29,6 @@ From source, with Go installed: `go install github.com/lartweib/dotai/cmd/dotai@
 - [Pack format](docs/PACK-FORMAT.md)
 - [CLI JSON output](docs/CLI-JSON.md)
 - [Decision records](docs/decisions/README.md)
-- [Open questions](docs/OPEN-QUESTIONS.md)
 - [Harness notes](docs/HARNESS-NOTES.md)
 - [Roadmap](docs/ROADMAP.md)
 

@@ -61,7 +61,6 @@ Records were renumbered on 2026-10-26, when the records about the reference pack
 
 ## See also
 
-- [OPEN-QUESTIONS.md](../OPEN-QUESTIONS.md): open questions that are not decisions yet.
 - [ARCHITECTURE.md](../ARCHITECTURE.md): the engine's planned architecture.
 - [PACK-FORMAT.md](../PACK-FORMAT.md): the pack contract.
 - [ROADMAP.md](../ROADMAP.md): the delivery plan, one deliverable per pull request.
