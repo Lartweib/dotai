@@ -1,0 +1,71 @@
+package output_test
+
+import (
+	"errors"
+	"fmt"
+	"reflect"
+	"testing"
+
+	"github.com/lartweib/dotai/internal/app"
+	"github.com/lartweib/dotai/internal/cli/output"
+)
+
+func TestClassify(t *testing.T) {
+	installPlan := app.InstallPlan{Mode: "replace"}
+	projectPlan := app.ProjectPlan{Project: "/work/repo"}
+	conflicts := []app.RestoreConflict{{Target: "/home/u/.claude/CLAUDE.md", Backup: "20261029T101500.000Z_install"}}
+	tests := []struct {
+		name     string
+		err      error
+		wantCode string
+		wantData any
+	}{
+		{name: "unknown error is internal", err: errors.New("boom"), wantCode: output.CodeInternal},
+		{name: "usage", err: &app.UsageError{}, wantCode: output.CodeUsage},
+		{name: "consent carries the install plan", err: &app.ConsentError{Plan: installPlan}, wantCode: output.CodeConsent, wantData: installPlan},
+		{name: "refused carries the install plan", err: &app.RefusedError{Plan: installPlan}, wantCode: output.CodeRefused, wantData: installPlan},
+		{
+			name:     "running carries the harnesses and an empty process list",
+			err:      &app.RunningError{Harnesses: []string{"claudecode"}},
+			wantCode: output.CodeRunning,
+			wantData: map[string]any{"harnesses": []string{"claudecode"}, "running": []app.RunningHarness{}},
+		},
+		{name: "project refused", err: &app.ProjectRefusedError{}, wantCode: output.CodeProjectRefused},
+		{name: "apply consent carries the project plan", err: &app.ApplyConsentError{Plan: projectPlan}, wantCode: output.CodeConsent, wantData: projectPlan},
+		{name: "apply refused carries the project plan", err: &app.ApplyRefusedError{Plan: projectPlan}, wantCode: output.CodeApplyRefused, wantData: projectPlan},
+		{name: "record invalid", err: &app.RecordInvalidError{Path: "/home/u/.dotai/projects/x/record.json"}, wantCode: output.CodeRecordInvalid},
+		{
+			name:     "restore conflicts are internal and carry the conflicts",
+			err:      &app.ConflictError{Conflicts: conflicts},
+			wantCode: output.CodeInternal,
+			wantData: map[string]any{"conflicts": conflicts},
+		},
+		{name: "wrapped errors are found", err: fmt.Errorf("wrapped: %w", &app.ConsentError{Plan: installPlan}), wantCode: output.CodeConsent, wantData: installPlan},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			code, data := output.Classify(tt.err)
+			if code != tt.wantCode {
+				t.Errorf("Classify() code = %q, want %q", code, tt.wantCode)
+			}
+			if !reflect.DeepEqual(data, tt.wantData) {
+				t.Errorf("Classify() data = %#v, want %#v", data, tt.wantData)
+			}
+		})
+	}
+}
+
+func TestFromError(t *testing.T) {
+	plan := app.InstallPlan{Mode: "replace"}
+	err := &app.ConsentError{Plan: plan}
+	e := output.FromError("install", err)
+	if e.OK || e.Schema != output.Schema || e.Command != "install" {
+		t.Fatalf("FromError() = %+v, want a failure of install", e)
+	}
+	if e.Error == nil || e.Error.Code != output.CodeConsent || e.Error.Message != err.Error() {
+		t.Errorf("FromError() error = %+v, want code %q and the error's message", e.Error, output.CodeConsent)
+	}
+	if !reflect.DeepEqual(e.Data, plan) {
+		t.Errorf("FromError() data = %#v, want the plan", e.Data)
+	}
+}

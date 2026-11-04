@@ -123,32 +123,22 @@ func Run(args []string, env Env) int {
 		return exitCode.code
 	}
 
-	code, exit := output.CodeInternal, ExitInternal
+	// The use cases' errors map to codes as in the web UI; a usage error
+	// before the command started and an invalid input are the CLI's own.
+	code, data := output.Classify(err) // data explains a refusal, in the envelope
 	var invalid *invalidError
-	var usage *app.UsageError
-	var data any // what explains a refusal, in the envelope
-	consent, refused, running := (*app.ConsentError)(nil), (*app.RefusedError)(nil), (*app.RunningError)(nil)
-	project := (*app.ProjectRefusedError)(nil)
-	applyConsent, applyRefused := (*app.ApplyConsentError)(nil), (*app.ApplyRefusedError)(nil)
 	switch {
-	case !started, errors.As(err, &usage):
-		code, exit = output.CodeUsage, ExitUsage
+	case !started:
+		code, data = output.CodeUsage, nil
 	case errors.As(err, &invalid):
-		code, exit = output.CodeInvalid, ExitInvalid
-	case errors.As(err, &consent):
-		code, data = output.CodeConsent, consent.Plan
-	case errors.As(err, &refused):
-		code, data = output.CodeRefused, refused.Plan
-	case errors.As(err, &running):
-		code, data = output.CodeRunning, map[string]any{"harnesses": running.Harnesses, "running": runningList(running.Running)}
-	case errors.As(err, &project):
-		code = output.CodeProjectRefused
-	case errors.As(err, &applyConsent):
-		code, data = output.CodeConsent, applyConsent.Plan
-	case errors.As(err, &applyRefused):
-		code, data = output.CodeApplyRefused, applyRefused.Plan
-	case errors.As(err, new(*app.RecordInvalidError)):
-		code = output.CodeRecordInvalid
+		code = output.CodeInvalid
+	}
+	exit := ExitInternal
+	switch code {
+	case output.CodeUsage:
+		exit = ExitUsage
+	case output.CodeInvalid:
+		exit = ExitInvalid
 	}
 	if re, ok := errors.AsType[*resultError](err); ok && data == nil {
 		data = re.data
@@ -156,9 +146,6 @@ func Run(args []string, env Env) int {
 	if parsed && jsonOut || !parsed && jsonRequested(root, args) {
 		e := output.Failure(commandName(cmd), code, err.Error())
 		e.Data = data
-		if conflict, ok := errors.AsType[*app.ConflictError](err); ok {
-			e.Data = map[string]any{"conflicts": conflict.Conflicts}
-		}
 		if invalid != nil {
 			e = output.Invalid(commandName(cmd), err.Error(), invalid.data)
 		}
@@ -173,14 +160,6 @@ func Run(args []string, env Env) int {
 		fmt.Fprintln(env.Stderr, "Run 'dotai --help' for usage.")
 	}
 	return exit
-}
-
-// runningList is never nil, so that it is [] in an envelope.
-func runningList(r []app.RunningHarness) []app.RunningHarness {
-	if r == nil {
-		return []app.RunningHarness{}
-	}
-	return r
 }
 
 func newVersionCmd(env Env, jsonOut *bool) *cobra.Command {
