@@ -70,6 +70,9 @@ const (
 	CodeMethodNotAllowed = "method-not-allowed"
 )
 
+// serverCodes lists the codes above.
+var serverCodes = []string{CodeForbidden, CodeUnauthorized, CodeNotFound, CodeMethodNotAllowed}
+
 // command names the envelopes of the requests that reach no endpoint.
 const command = "ui"
 

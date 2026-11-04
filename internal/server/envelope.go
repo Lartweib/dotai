@@ -14,17 +14,19 @@ func writeFailure(w http.ResponseWriter, command string, err error) {
 	writeEnvelope(w, statusOf(e.Error.Code), e)
 }
 
-// statusOf is the HTTP status of an envelope's error code: the request is
-// wrong, the input it names is not valid, the operation refuses as the
-// command line does, or the server failed.
+// statusOf gives the HTTP status of an envelope's error code: 400 for a
+// wrong request, 422 for input that is not valid, 409 for a refusal of the
+// command line, the status of each code of the server, and 500 for a
+// failure or a code it does not know.
 func statusOf(code string) int {
 	switch code {
 	case envelope.CodeUsage:
 		return http.StatusBadRequest
 	case envelope.CodeInvalid:
 		return http.StatusUnprocessableEntity
-	case envelope.CodeInternal:
-		return http.StatusInternalServerError
+	case envelope.CodeConsent, envelope.CodeRefused, envelope.CodeRunning,
+		envelope.CodeProjectRefused, envelope.CodeApplyRefused, envelope.CodeRecordInvalid:
+		return http.StatusConflict
 	case CodeForbidden:
 		return http.StatusForbidden
 	case CodeUnauthorized:
@@ -34,7 +36,7 @@ func statusOf(code string) int {
 	case CodeMethodNotAllowed:
 		return http.StatusMethodNotAllowed
 	}
-	return http.StatusConflict // a refusal, such as consent-required
+	return http.StatusInternalServerError
 }
 
 // writeEnvelope writes e as the JSON body of a response of status, never
