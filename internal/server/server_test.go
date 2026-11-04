@@ -595,3 +595,29 @@ func TestDoctorProblemsAreInvalidWithTheResult(t *testing.T) {
 		t.Errorf("doctor = %+v, fix %v, want one problem with the findings, without --fix", e, gotFix)
 	}
 }
+
+func TestTheEmbeddedFrontendLoadsUnderItsPolicy(t *testing.T) {
+	h := server.New(testConfig(t), fakeDeps(), server.Web())
+	page := serve(h, request("GET", "/", "")).Body.String()
+	if strings.Contains(page, "style=") || strings.Contains(page, "<style") || strings.Contains(page, "<script>") {
+		t.Errorf("index.html has inline styles or scripts, which the policy blocks")
+	}
+	types := map[string]string{
+		"/styles.css": "text/css", "/app.js": "javascript", "/js/dom.js": "javascript", "/js/store.js": "javascript",
+		"/js/packs.js": "javascript", "/js/tree.js": "javascript", "/js/plan.js": "javascript", "/js/projects.js": "javascript",
+		"/js/backups.js": "javascript", "/js/doctor.js": "javascript", "/fonts/schibsted-grotesk-latin-400-normal.woff2": "font/woff2",
+		"/fonts/spline-sans-mono-latin-400-normal.woff2": "font/woff2",
+	}
+	for path, want := range types {
+		w := serve(h, request("GET", path, ""))
+		if w.Code != http.StatusOK || !strings.Contains(w.Header().Get("Content-Type"), want) {
+			t.Errorf("GET %s = %d %q, want 200 and %s", path, w.Code, w.Header().Get("Content-Type"), want)
+		}
+		if strings.HasSuffix(path, ".js") && (strings.Contains(w.Body.String(), "innerHTML") || strings.Contains(w.Body.String(), "eval(")) {
+			t.Errorf("%s writes HTML or evaluates code", path)
+		}
+	}
+	if csp := serve(h, request("GET", "/", "")).Header().Get("Content-Security-Policy"); !strings.HasPrefix(csp, "default-src 'self';") {
+		t.Errorf("Content-Security-Policy = %q, want only the server's own origin", csp)
+	}
+}
