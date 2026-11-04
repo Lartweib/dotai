@@ -123,7 +123,7 @@ func planRun(d executeFS, lookPath func(string) (string, error), goos, home, cwd
 			_, err := d.Lstat(filepath.Join(home, filepath.FromSlash(rel)))
 			return err == nil
 		}
-		h.Leaks = a.Isolation.LeaksAt(goos, s.SharedSkills, underHome(goos, home, cwd), exists)
+		h.Leaks = a.Isolation.LeaksAt(harness.Launch{GOOS: goos, Shared: s.SharedSkills, UnderHome: underHome(goos, home, cwd), Exists: exists, Excluded: true})
 	}
 	dirs := []string{root, h.Dir}
 	if a.Install != "" {
@@ -366,17 +366,6 @@ func launchable(id string) (harness.Adapter, error) {
 		return harness.Adapter{}, &UsageError{fmt.Sprintf("dotai run %s is not supported yet: only %s can be launched isolated for now", id, strings.Join(supported, ", "))}
 	}
 	return all[i], nil
-}
-
-// underHome reports whether cwd is home or a directory below it, both
-// resolved through their links, without case on Windows and macOS.
-func underHome(goos, home, cwd string) bool {
-	h, c := realPath(home), realPath(cwd)
-	if goos == "windows" || goos == "darwin" {
-		h, c = strings.ToLower(h), strings.ToLower(c)
-	}
-	rel, err := filepath.Rel(h, c)
-	return err == nil && (rel == "." || filepath.IsLocal(rel))
 }
 
 // envKey is the name of an environment variable as goos compares it:

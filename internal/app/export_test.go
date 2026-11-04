@@ -144,6 +144,9 @@ func PlanRunWith(home, id string, args, environ []string, lookPath func(string) 
 	return planRun(osInstallFS{}, lookPath, goos, home, "", id, args, environ)
 }
 
+// UnderHome is the check of a working directory under the home directory.
+var UnderHome = underHome
+
 // PlanRunAt is PlanRunWith from the working directory cwd.
 func PlanRunAt(home, cwd, id string, args, environ []string, lookPath func(string) (string, error), goos string) (RunPlan, error) {
 	return planRun(osInstallFS{}, lookPath, goos, home, cwd, id, args, environ)

@@ -662,15 +662,51 @@ func TestPlanRunOpenCodeNamesOnlyTheWalkUpItReaches(t *testing.T) {
 	if err := os.MkdirAll(at(home, ".agents/skills"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"the working directory is under your home directory, and OpenCode loads AGENTS.md, .agents and .opencode from every directory above it, so your ~/.agents/skills loads"}
+	want := []string{"AGENTS.md, .agents and .opencode load from the working directory and every directory above it, so under your home directory these still load: ~/.agents/skills"}
 	p, err = app.PlanRunAt(home, under, "opencode", []string{"run", "hi"}, nil, lookPathAt(home), "linux")
 	if got := walkUp(p.Harness.Leaks); err != nil || !reflect.DeepEqual(got, want) {
 		t.Errorf("under a home with ~/.agents/skills: walk-up leaks = %q, %v, want %q", got, err, want)
 	}
 	writeFile(t, at(home, "AGENTS.md"), "# mine\n")
-	want = []string{"the working directory is under your home directory, and OpenCode loads AGENTS.md, .agents and .opencode from every directory above it, so your ~/.agents/skills and ~/AGENTS.md load"}
+	want = []string{"AGENTS.md, .agents and .opencode load from the working directory and every directory above it, so under your home directory these still load: ~/.agents/skills and ~/AGENTS.md"}
 	p, err = app.PlanRunAt(home, home, "opencode", []string{"run", "hi"}, nil, lookPathAt(home), "linux")
 	if got := walkUp(p.Harness.Leaks); err != nil || !reflect.DeepEqual(got, want) {
 		t.Errorf("in the home directory: walk-up leaks = %q, %v, want %q", got, err, want)
+	}
+}
+
+// TestUnderHome checks the working directory test of dotai run: below the
+// home directory or the home directory itself, without case only on
+// Windows and macOS, never on another drive, and through a link.
+func TestUnderHome(t *testing.T) {
+	for _, tt := range []struct {
+		name, goos, home, cwd string
+		want                  bool
+	}{
+		{"the home directory", "linux", "/home/ana", "/home/ana", true},
+		{"below it", "linux", "/home/ana", "/home/ana/work/site", true},
+		{"a sibling with the same prefix", "linux", "/home/ana", "/home/anabel", false},
+		{"above it", "linux", "/home/ana", "/home", false},
+		{"other case on Linux", "linux", "/home/ana", "/home/Ana/work", false},
+		{"other case on macOS", "darwin", "/Users/ana", "/users/ANA/work", true},
+		{"other case on Windows", "windows", `C:\Users\Ana`, `c:\users\ana\work`, true},
+		{"another drive", "windows", `C:\Users\Ana`, `D:\Users\Ana\work`, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if runtime.GOOS != "windows" && strings.Contains(tt.home, `\`) {
+				t.Skip("Windows paths")
+			}
+			if got := app.UnderHome(tt.goos, filepath.FromSlash(tt.home), filepath.FromSlash(tt.cwd)); got != tt.want {
+				t.Errorf("UnderHome(%s, %s, %s) = %v, want %v", tt.goos, tt.home, tt.cwd, got, tt.want)
+			}
+		})
+	}
+	home, other := t.TempDir(), t.TempDir()
+	link := filepath.Join(other, "link")
+	if err := os.Symlink(home, link); err != nil {
+		t.Skipf("no link: %v", err)
+	}
+	if !app.UnderHome(runtime.GOOS, home, link) {
+		t.Errorf("a link to the home directory is not under it")
 	}
 }

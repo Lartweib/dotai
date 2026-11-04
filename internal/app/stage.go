@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/lartweib/dotai/internal/harness"
 	"github.com/lartweib/dotai/internal/merge"
 	"github.com/lartweib/dotai/internal/pack"
 	"github.com/lartweib/dotai/internal/rulesync"
@@ -191,10 +192,12 @@ func stage(ctx context.Context, w stageFS, fetch fetchFunc, run runFunc, cacheDi
 				return nil, err
 			}
 		}
-		if slices.Contains(harnesses, "opencode") {
-			if err := renameProjectPlugin(w, filepath.Join(tmp, ScopeProject), p.Manifest.Rulesync); err != nil {
-				return nil, err
-			}
+		adapters, err := harness.Lookup(harnesses)
+		if err != nil {
+			return nil, err
+		}
+		if err := renameProjectFiles(w, filepath.Join(tmp, ScopeProject), adapters, p.Manifest.Rulesync); err != nil {
+			return nil, err
 		}
 		var rendered []StagedFile
 		for _, t := range []struct {

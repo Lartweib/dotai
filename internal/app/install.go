@@ -328,14 +328,16 @@ func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run run
 	shared := slices.Contains(s.Pack.SharedSkills, res.Variant)
 	tree := filepath.Join(out, ScopeUser)
 	// Only the isolated mode: in the replace mode the real home directory
-	// is Claude Code's own (decision 0038).
-	if mode == ModeIsolated && slices.Contains(s.Harnesses, "claudecode") {
-		notice, err := excludeHomeInstructions(d, tree, home)
-		if err != nil {
-			return err
-		}
-		if notice != "" {
-			res.Notices = append(res.Notices, notice)
+	// is the harness's own (decision 0038).
+	if mode == ModeIsolated {
+		for _, a := range adapters {
+			notice, err := excludeHomeInstructions(d, tree, home, a)
+			if err != nil {
+				return err
+			}
+			if notice != "" {
+				res.Notices = append(res.Notices, notice)
+			}
 		}
 	}
 	var rp replacePlan

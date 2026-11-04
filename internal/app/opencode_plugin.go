@@ -6,39 +6,41 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
+
+	"github.com/lartweib/dotai/internal/harness"
 )
 
-// rulesync names the OpenCode plugin it renders from hooks the same at
-// both scopes: the file name and, for OpenCode 2, the plugin id. OpenCode
-// keeps one plugin per name, so the project's would hide the user's; the
-// project scope's is renamed and given an id of its own. The id is the one
-// rulesync 41.0.0 writes, matched exactly, so that a rulesync that writes
-// another form fails the stage rather than installing a clashing plugin.
-const (
-	openCodePlugin          = ".opencode/plugins/rulesync-hooks.js"
-	openCodeProjectPlugin   = ".opencode/plugins/rulesync-hooks-project.js"
-	openCodePluginID        = `id: "rulesync-hooks",`
-	openCodeProjectPluginID = `id: "rulesync-hooks-project",`
-)
+// renameProjectFiles carries out the Renames of the project layout of
+// each adapter in the project staging tree dir, where rulesync rendered
+// them: a file that is missing is skipped, and one without exactly one Old
+// fails the stage, naming version, the rulesync that rendered it.
+func renameProjectFiles(w stageFS, dir string, adapters []harness.Adapter, version string) error {
+	for _, a := range adapters {
+		for _, r := range a.Project.Renames {
+			if err := renameStaged(w, dir, r, version); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
 
-// renameProjectPlugin moves the OpenCode plugin rulesync rendered into the
-// project staging tree dir, if any, to its project name with the project
-// id. version is the rulesync that rendered it, for the error.
-func renameProjectPlugin(w stageFS, dir, version string) error {
-	data, err := w.ReadFile(dir, openCodePlugin)
+// renameStaged carries out r in dir.
+func renameStaged(w stageFS, dir string, r harness.Rename, version string) error {
+	data, err := w.ReadFile(dir, r.From)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	if n := bytes.Count(data, []byte(openCodePluginID)); n != 1 {
-		return fmt.Errorf("project/%s, rendered by rulesync %s, holds %s %d times, not once: dotai cannot give the project plugin an id of its own, "+
-			"and OpenCode would load only one of the user and project plugins; this rulesync renders a form dotai does not know", openCodePlugin, version, openCodePluginID, n)
+	if n := bytes.Count(data, []byte(r.Old)); n != 1 {
+		return fmt.Errorf("%s/%s, rendered by rulesync %s, holds %s %d times, not once: dotai cannot give it a name of its own as %s, "+
+			"so it would clash with the file of the same name at user scope; this rulesync renders a form dotai does not know", ScopeProject, r.From, version, r.Old, n, r.To)
 	}
-	data = bytes.Replace(data, []byte(openCodePluginID), []byte(openCodeProjectPluginID), 1)
-	if err := w.WriteFile(dir, openCodeProjectPlugin, data, 0o644); err != nil {
+	data = bytes.Replace(data, []byte(r.Old), []byte(r.New), 1)
+	if err := w.WriteFile(dir, r.To, data, 0o644); err != nil {
 		return err
 	}
-	return w.RemoveAll(filepath.Join(dir, filepath.FromSlash(openCodePlugin)))
+	return w.RemoveAll(filepath.Join(dir, filepath.FromSlash(r.From)))
 }

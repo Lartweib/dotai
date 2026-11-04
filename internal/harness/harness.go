@@ -92,15 +92,47 @@ const (
 // mode, text for people, on the OS GOOS only, or on every OS when GOOS is
 // empty, and for the installs Skills names. A leak with WalkUp comes from
 // the directories above the working directory: WalkUp are the slash paths,
-// relative to the home directory, that it reaches there, and Here its text
-// once the working directory is known, with %s for those of them that
-// exist (see LeaksAt).
+// relative to the home directory, that it reaches there, and Text holds
+// one %s, which becomes those of them that apply, each as ~/<path>,
+// joined with commas and a final "and" (see LeaksAt). Text must read
+// whether that is one path or several, as in "these still load: %s".
 type Leak struct {
 	Text   string
 	GOOS   string
 	Skills Sharing
 	WalkUp []string
-	Here   string
+}
+
+// HomeInstructions are the instruction files of the real home directory
+// that a harness finds by walking up from a working directory under it,
+// past its configuration pointer, and that its settings can exclude: Paths
+// are glob patterns relative to the home directory, with forward slashes,
+// and Key is the key of the isolated settings file that lists absolute
+// glob patterns of files to skip. An isolated install owns Key there and
+// lists Paths under the home directory. Others names the files the walk-up
+// still loads, text for people.
+type HomeInstructions struct {
+	Key    string
+	Paths  []string
+	Others string
+}
+
+// names are Paths as a leak names them: ~/<path>, without a trailing /**.
+func (h HomeInstructions) names() string {
+	var out []string
+	for _, p := range h.Paths {
+		out = append(out, "~/"+strings.TrimSuffix(p, "/**"))
+	}
+	return joinAnd(out)
+}
+
+// Leak is the leak of the walk-up, with the home directory's files
+// excluded by Key or not.
+func (h HomeInstructions) Leak(excluded bool) string {
+	if excluded {
+		return fmt.Sprintf("%s, but for your %s, which the isolated settings exclude with %s", h.Others, h.names(), h.Key)
+	}
+	return fmt.Sprintf("%s, and so do your %s: the isolated settings do not exclude them with %s, so run dotai install again", h.Others, h.names(), h.Key)
 }
 
 // Isolation is what decision 0018 records for a harness's isolated mode.
@@ -122,6 +154,22 @@ type Isolation struct {
 	// Credentials are variables of the user's environment that log the
 	// harness in, which dotai run passes on and names in a warning.
 	Credentials []string
+	// Instructions are the home directory's instruction files that the
+	// isolated mode excludes, nil for a harness that does not need it.
+	Instructions *HomeInstructions
+}
+
+// Launch is what dotai run knows of a launch, for LeaksAt: the OS, whether
+// the install's variant shares skills, whether the working directory is
+// the home directory or below it, which WalkUp paths exist under the home
+// directory, and whether the isolated settings exclude the home
+// directory's Instructions.
+type Launch struct {
+	GOOS      string
+	Shared    bool
+	UnderHome bool
+	Exists    func(rel string) bool
+	Excluded  bool
 }
 
 // Var is an environment variable that dotai run sets to a fixed value.
@@ -165,45 +213,40 @@ func (i Isolation) ReloginOn(goos string) Relogin {
 }
 
 // LeaksOn is the text of each leak on goos, in order, for an install
-// whose variant shares the user's skills or not; never nil.
+// whose variant shares the user's skills or not, as an install shows them:
+// the Instructions excluded, and each walk-up leak with all its paths.
+// Never nil.
 func (i Isolation) LeaksOn(goos string, shared bool) []string {
-	out := []string{}
-	for _, l := range i.Leaks {
-		if (l.GOOS == "" || l.GOOS == goos) && l.Skills.applies(shared) {
-			out = append(out, l.Text)
-		}
-	}
-	return out
+	return i.LeaksAt(Launch{GOOS: goos, Shared: shared, UnderHome: true, Exists: func(string) bool { return true }, Excluded: true})
 }
 
-// LeaksAt is LeaksOn for a launch from a known working directory: a leak
-// of the walk-up is left out unless underHome, the working directory is
-// the home directory or below it, and some of its WalkUp paths exist, and
-// then names only those, as ~/<path>. exists reports a path of WalkUp.
-func (i Isolation) LeaksAt(goos string, shared, underHome bool, exists func(rel string) bool) []string {
+// LeaksAt is the text of each leak for the launch l, in order: the leak of
+// the Instructions, excluded or not, then each leak of the OS and the
+// install, a walk-up leak left out unless the working directory is under
+// the home directory and some of its WalkUp paths exist, and then naming
+// only those. Never nil.
+func (i Isolation) LeaksAt(l Launch) []string {
 	out := []string{}
-	for _, l := range i.Leaks {
-		if l.GOOS != "" && l.GOOS != goos || !l.Skills.applies(shared) {
+	if i.Instructions != nil {
+		out = append(out, i.Instructions.Leak(l.Excluded))
+	}
+	for _, leak := range i.Leaks {
+		if leak.GOOS != "" && leak.GOOS != l.GOOS || !leak.Skills.applies(l.Shared) {
 			continue
 		}
-		if len(l.WalkUp) == 0 {
-			out = append(out, l.Text)
+		if len(leak.WalkUp) == 0 {
+			out = append(out, leak.Text)
 			continue
 		}
 		var found []string
-		for _, rel := range l.WalkUp {
-			if underHome && exists(rel) {
+		for _, rel := range leak.WalkUp {
+			if l.UnderHome && l.Exists(rel) {
 				found = append(found, "~/"+rel)
 			}
 		}
-		if len(found) == 0 {
-			continue
+		if len(found) > 0 {
+			out = append(out, fmt.Sprintf(leak.Text, joinAnd(found)))
 		}
-		verb := "loads"
-		if len(found) > 1 {
-			verb = "load"
-		}
-		out = append(out, fmt.Sprintf(l.Here, joinAnd(found)+" "+verb))
 	}
 	return out
 }
@@ -302,8 +345,8 @@ const (
 	copiedSkills = "your skills in ~/.agents/skills are copied into the isolated install, as the variant shares them; a skill added or changed there shows up after the next install"
 )
 
-// walkUpHere is the Here of OpenCode's walk-up leaks.
-const walkUpHere = "the working directory is under your home directory, and OpenCode loads AGENTS.md, .agents and .opencode from every directory above it, so your %s"
+// walkUp is the Text of OpenCode's walk-up leaks.
+const walkUp = "AGENTS.md, .agents and .opencode load from the working directory and every directory above it, so under your home directory these still load: %s"
 
 var adapters = []Adapter{
 	{
@@ -317,11 +360,12 @@ var adapters = []Adapter{
 			// Decision 0018 verified the new login on Windows only, where the
 			// credentials live in the configuration directory.
 			Relogin: map[string]Relogin{"windows": ReloginYes},
+			// Claude Code walks up from the working directory for its
+			// instructions, past CLAUDE_CONFIG_DIR, and claudeMdExcludes
+			// skips them by absolute path (HARNESS-NOTES).
+			Instructions: &HomeInstructions{Key: "claudeMdExcludes", Paths: []string{"CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md", ".claude/rules/**"},
+				Others: "the CLAUDE.md, .claude/CLAUDE.md and CLAUDE.local.md of each directory above the working directory still load"},
 			Leaks: []Leak{
-				// Claude Code walks up from the working directory for its
-				// instructions, past CLAUDE_CONFIG_DIR; an isolated install
-				// excludes the home directory's (HARNESS-NOTES).
-				{Text: "the CLAUDE.md, .claude/CLAUDE.md and CLAUDE.local.md of each directory above the working directory still load, but for your ~/CLAUDE.md, ~/CLAUDE.local.md, ~/.claude/CLAUDE.md and ~/.claude/rules, which the isolated settings exclude with claudeMdExcludes"},
 				{Text: "on Windows, that claudeMdExcludes matches these paths in the form dotai writes them, with forward slashes, is not verified", GOOS: "windows"},
 				{Text: "credentials live in the configuration directory, so you must log in again", GOOS: "windows"},
 				{Text: linkedSkills, Skills: SkillsShared},
@@ -375,10 +419,8 @@ var adapters = []Adapter{
 			Leaks: []Leak{
 				{Text: "provider credentials do not carry over"},
 				{Text: "OpenCode runs with your home directory, as the variant shares skills: your ~/.agents/skills loads, and so does anything else OpenCode reads there", Skills: SkillsShared},
-				{Text: "AGENTS.md, .agents and .opencode load from the working directory and every directory above it, so under your home directory your ~/.agents/skills, ~/.opencode and ~/AGENTS.md still load", Skills: SkillsClosed,
-					WalkUp: []string{".agents/skills", ".opencode", "AGENTS.md"}, Here: walkUpHere},
-				{Text: "AGENTS.md, .agents and .opencode load from the working directory and every directory above it, so under your home directory your ~/.opencode and ~/AGENTS.md still load", Skills: SkillsShared,
-					WalkUp: []string{".opencode", "AGENTS.md"}, Here: walkUpHere},
+				{Text: walkUp, Skills: SkillsClosed, WalkUp: []string{".agents/skills", ".opencode", "AGENTS.md"}},
+				{Text: walkUp, Skills: SkillsShared, WalkUp: []string{".opencode", "AGENTS.md"}},
 				{Text: "OPENCODE_TEST_HOME, which OpenCode does not document, hides ~/.agents/skills only outside your home directory, and a later OpenCode may drop it", Skills: SkillsClosed},
 				{Text: "with --server, OpenCode reaches a server that runs with its own configuration"},
 				{Text: "a command that does not take --standalone, such as debug config, starts a background service on the port of your own OpenCode service and leaves it running"},
@@ -439,6 +481,11 @@ func All() []Adapter {
 		out[i].Isolation.Leaks = slices.Clone(out[i].Isolation.Leaks)
 		for j := range out[i].Isolation.Leaks {
 			out[i].Isolation.Leaks[j].WalkUp = slices.Clone(out[i].Isolation.Leaks[j].WalkUp)
+		}
+		if h := out[i].Isolation.Instructions; h != nil {
+			c := *h
+			c.Paths = slices.Clone(h.Paths)
+			out[i].Isolation.Instructions = &c
 		}
 		out[i].Isolation.Pointers = slices.Clone(out[i].Isolation.Pointers)
 		out[i].Isolation.Vars = slices.Clone(out[i].Isolation.Vars)
