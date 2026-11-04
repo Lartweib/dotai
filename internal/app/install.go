@@ -79,11 +79,16 @@ type InstallPlan struct {
 // install state records, or isolated when there is none. IgnoreRunning
 // skips the check that refuses a replace install while a harness it
 // resets is running (decision 0038).
+//
+// Confirm, when it is not nil, is asked first with the plan, before any
+// refusal, consent, lock or write: an error stops the install, which
+// writes nothing, so that a caller carries out only the plan its user saw.
 type InstallOptions struct {
 	Variant       string
 	Harnesses     []string
 	Mode          string
 	IgnoreRunning bool
+	Confirm       func(InstallPlan) error
 }
 
 // HarnessPlan is one harness of the pack: whether the pack requires it,

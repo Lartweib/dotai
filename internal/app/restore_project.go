@@ -78,11 +78,19 @@ type ExcludeRestore struct {
 // it overwrites or deletes, everything in .dotai/ included, is copied into
 // a backup of its own, and a journal is written into the record; a failure
 // rolls back from that backup. The record goes last, then .dotai/.
-func RestoreProject(ctx context.Context, cwd, home string, overwrite func(ProjectRestoreResult) (bool, error)) (ProjectRestoreResult, error) {
-	return restoreProject(ctx, osInstallFS{}, osGit{}, cwd, home, overwrite)
+func RestoreProject(ctx context.Context, cwd, home string, opts ProjectRestoreOptions, overwrite func(ProjectRestoreResult) (bool, error)) (ProjectRestoreResult, error) {
+	return restoreProject(ctx, osInstallFS{}, osGit{}, cwd, home, opts, overwrite)
 }
 
-func restoreProject(ctx context.Context, d executeFS, g gitPort, cwd, home string, overwrite func(ProjectRestoreResult) (bool, error)) (ProjectRestoreResult, error) {
+// ProjectRestoreOptions are the choices of a restore of a project:
+// Confirm, when it is not nil, is asked first with the plan, as
+// PreviewProjectRestore gives it, before overwrite, the lock or any write:
+// an error stops the restore, which writes nothing more.
+type ProjectRestoreOptions struct {
+	Confirm func(ProjectRestoreResult) error
+}
+
+func restoreProject(ctx context.Context, d executeFS, g gitPort, cwd, home string, opts ProjectRestoreOptions, overwrite func(ProjectRestoreResult) (bool, error)) (ProjectRestoreResult, error) {
 	cwd, home, err := projectRestoreArgs(cwd, home)
 	if err != nil {
 		return ProjectRestoreResult{}, err
@@ -95,6 +103,11 @@ func restoreProject(ctx context.Context, d executeFS, g gitPort, cwd, home strin
 		return ProjectRestoreResult{}, err
 	}
 	ru, sc, r, res := p.ru, p.sc, p.record, p.res
+	if opts.Confirm != nil {
+		if err := opts.Confirm(res); err != nil {
+			return ProjectRestoreResult{}, err
+		}
+	}
 	if len(res.Conflicts) > 0 {
 		ok := false
 		if overwrite != nil {

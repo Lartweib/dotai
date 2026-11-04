@@ -223,9 +223,13 @@ func Restore(ctx context.Context, home, id string, opts RestoreOptions, warn War
 }
 
 // RestoreOptions are the choices of a restore besides the backup:
-// IgnoreRunning skips the running-harness check.
+// IgnoreRunning skips the running-harness check, and Confirm, when it is
+// not nil, is asked first with the plan, as PreviewRestore gives it,
+// before the running-harness check, overwrite, the lock or any write: an
+// error stops the restore, which writes nothing more.
 type RestoreOptions struct {
 	IgnoreRunning bool
+	Confirm       func(RestoreResult) error
 }
 
 func restore(ctx context.Context, d executeFS, h host, home, id string, opts RestoreOptions, warn Warn, overwrite func(RestoreResult) (bool, error)) (RestoreResult, error) {
@@ -242,6 +246,11 @@ func restore(ctx context.Context, d executeFS, h host, home, id string, opts Res
 	}
 	r, s, res, statePath := p.r, p.state, p.res, p.statePath
 	splits := splitsOf(r.splits)
+	if opts.Confirm != nil {
+		if err := opts.Confirm(res); err != nil {
+			return RestoreResult{}, err
+		}
+	}
 	if !opts.IgnoreRunning {
 		if err := running(h, "restore", replaceHarnesses(home, res)); err != nil {
 			return RestoreResult{}, err

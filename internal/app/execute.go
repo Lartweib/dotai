@@ -218,6 +218,11 @@ func install(ctx context.Context, d executeFS, h host, fetch fetchFunc, run runF
 	var res InstallResult
 	err = withPlan(ctx, d, h, fetch, run, cacheDir, dir, home, opts, progress, func(p planned) error {
 		res = InstallResult{InstallPlan: p.plan, Warnings: []string{}}
+		if opts.Confirm != nil {
+			if err := opts.Confirm(p.plan); err != nil {
+				return err
+			}
+		}
 		if len(p.plan.Diagnostics) > 0 {
 			return nil
 		}

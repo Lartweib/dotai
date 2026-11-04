@@ -219,7 +219,7 @@ func ApplyWith(ctx context.Context, d executeFS, g gitPort, fetch fetchFunc, run
 // RestoreProjectWith is RestoreProject writing through d and asking git
 // through g.
 func RestoreProjectWith(ctx context.Context, d executeFS, g gitPort, project, home string, overwrite func(ProjectRestoreResult) (bool, error)) (ProjectRestoreResult, error) {
-	return restoreProject(ctx, d, g, project, home, overwrite)
+	return restoreProject(ctx, d, g, project, home, ProjectRestoreOptions{}, overwrite)
 }
 
 // ApplyWithRulesync is Apply asking git through g, with the real rulesync
@@ -241,4 +241,14 @@ func DoctorWith(ctx context.Context, d executeFS, g gitPort, home string, opts D
 // with every write refused, and asking git through g.
 func PreviewProjectRestoreWith(ctx context.Context, d executeFS, g gitPort, cwd, home string) (ProjectRestoreResult, error) {
 	return previewProjectRestore(ctx, readOnlyFS{d}, g, cwd, home)
+}
+
+// RestoreOptsWith is Restore through d with opts.
+func RestoreOptsWith(ctx context.Context, d executeFS, home, id string, opts RestoreOptions, overwrite func(RestoreResult) (bool, error)) (RestoreResult, error) {
+	return restore(ctx, d, host{}, home, id, opts, nil, overwrite)
+}
+
+// RestoreProjectOptsWith is RestoreProjectWith with opts.
+func RestoreProjectOptsWith(ctx context.Context, d executeFS, g gitPort, project, home string, opts ProjectRestoreOptions, overwrite func(ProjectRestoreResult) (bool, error)) (ProjectRestoreResult, error) {
+	return restoreProject(ctx, d, g, project, home, opts, overwrite)
 }

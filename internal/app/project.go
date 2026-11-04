@@ -60,10 +60,13 @@ type ExcludePlan struct {
 
 // ApplyOptions are the choices of a project apply: the profiles, and the
 // variant of the user scope, which the install state records when it is
-// empty, or else the pack's default.
+// empty, or else the pack's default. Confirm, when it is not nil, is
+// asked first with the plan, before any refusal, consent, lock or write:
+// an error stops the apply, which writes nothing.
 type ApplyOptions struct {
 	Profiles []string
 	Variant  string
+	Confirm  func(ProjectPlan) error
 }
 
 // ProjectRefusedError is a project directory where the project scope would
