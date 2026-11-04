@@ -622,3 +622,18 @@ func TestTheEmbeddedFrontendLoadsUnderItsPolicy(t *testing.T) {
 		t.Errorf("Content-Security-Policy = %q, want only the server's own origin", csp)
 	}
 }
+
+func TestTheFrontendOpensFromThePageOnDisk(t *testing.T) {
+	h := server.New(testConfig(t), fakeDeps(), testWeb)
+	// The launcher page, a file, sends the browser here: a navigation
+	// from another site, which only the API refuses.
+	r := request("GET", "/", "")
+	r.Header.Set("Sec-Fetch-Site", "cross-site")
+	r.Header.Set("Sec-Fetch-Mode", "navigate")
+	if w := serve(h, r); w.Code != http.StatusOK {
+		t.Errorf("navigation from the launcher page = %d, want 200", w.Code)
+	}
+	r = request("GET", "/api/version", testToken)
+	r.Header.Set("Sec-Fetch-Site", "cross-site")
+	wantFailure(t, serve(h, r), http.StatusForbidden, server.CodeForbidden)
+}
