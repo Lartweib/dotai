@@ -6,7 +6,8 @@
 // sessionStorage, which belongs to this origin and this tab. Every API
 // request sends the token as an Authorization: Bearer header (js/store.js).
 
-import { h, icon, mount, notice } from "./js/dom.js";
+import { failure, h, icon, mount } from "./js/dom.js";
+import { languages, lang, setLang, t } from "./js/i18n.js";
 import { api, loadStatus, recentPacks, shared, tilde } from "./js/store.js";
 import * as packs from "./js/packs.js";
 import * as tree from "./js/tree.js";
@@ -35,7 +36,7 @@ async function exchange(code) {
   });
   const envelope = await res.json();
   if (!envelope.ok) {
-    throw new Error(envelope.error.message);
+    throw envelope.error;
   }
   sessionStorage.setItem(tokenKey, envelope.data.token);
 }
@@ -50,13 +51,7 @@ const routes = {
   doctor: { view: doctor, nav: "doctor" },
 };
 
-const navItems = [
-  ["packs", "Packs"],
-  ["tree", "Installed"],
-  ["projects", "Projects"],
-  ["backups", "Backups"],
-  ["doctor", "Doctor"],
-];
+const navItems = ["packs", "tree", "projects", "backups", "doctor"];
 
 const counts = {};
 
@@ -67,10 +62,11 @@ function route() {
 
 function renderNav() {
   const current = routes[route().name].nav;
-  mount(document.getElementById("nav"), navItems.map(([id, label]) =>
+  mount(document.getElementById("nav"), navItems.map((id) =>
     h("li", {}, h("a", { class: "nav-e", href: "#/" + id, "aria-current": id === current ? "page" : null },
-      icon(id), label,
-      counts[id] !== undefined ? h("span", { class: id === "doctor" && counts[id] > 0 ? "n you" : "n", text: String(counts[id]) }) : null))));
+      icon(id), h("span", { class: "nl", text: t("nav." + id) }),
+      counts[id] !== undefined ? h("span", { class: id === "doctor" && counts[id] > 0 ? "n you" : "n", text: String(counts[id]),
+        "aria-label": t("nav.count." + id, { n: counts[id] }) }) : null))));
 }
 
 // setCount sets the number a board shows in the navigation.
@@ -91,18 +87,20 @@ async function render() {
   const signal = leaving.signal;
   renderNav();
   root.className = "view";
+  root.setAttribute("aria-labelledby", r.name + "-h");
   mount(root);
   try {
     await routes[r.name].view.render(root, { arg: r.arg, setCount, signal, stale: () => turn !== rendering, refresh, again: render });
   } catch (err) {
-    if (turn === rendering) mount(root, h("div", { class: "detail" }, notice("bad", "error", err.message)));
+    if (turn === rendering) mount(root, h("div", { class: "detail solo" }, failure({ code: "internal", message: err.message })));
   }
+  if (turn === rendering) document.title = t(r.name + ".title") + " · dotai";
 }
 
 // refresh reloads the shared state after an action and counts again.
 export async function refresh() {
   await loadStatus();
-  if (shared.status) document.getElementById("home").textContent = tilde(shared.status.statePath);
+  paintHome();
   counts.packs = recentPacks().length;
   counts.projects = shared.status ? shared.status.projects.length : 0;
   renderNav();
@@ -111,25 +109,36 @@ export async function refresh() {
   });
 }
 
+// paintHome shows where dotai keeps its state: the directory of state.json.
+function paintHome() {
+  const el = document.getElementById("home");
+  if (!shared.status) return;
+  const dir = tilde(shared.status.statePath).replace(/[\\/][^\\/]*$/, "");
+  el.textContent = dir;
+  el.title = t("shell.homeTitle", { path: shared.status.statePath.replace(/[\\/][^\\/]*$/, "") });
+}
+
+const dark = () => {
+  const th = document.documentElement.dataset.theme;
+  return th ? th === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+};
+
+function paintTheme() {
+  const btn = document.getElementById("theme");
+  btn.setAttribute("aria-label", t(dark() ? "shell.toLight" : "shell.toDark"));
+  btn.title = btn.getAttribute("aria-label");
+  mount(btn, icon(dark() ? "sun" : "moon", 16));
+}
+
 function setupTheme() {
   const btn = document.getElementById("theme");
-  const stored = () => {
-    try {
-      return localStorage.getItem(themeKey);
-    } catch {
-      return null;
-    }
-  };
-  const dark = () => {
-    const t = document.documentElement.dataset.theme;
-    return t ? t === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
-  };
-  const paint = () => {
-    btn.setAttribute("aria-label", dark() ? "Switch to light theme" : "Switch to dark theme");
-    mount(btn, icon(dark() ? "sun" : "moon", 16));
-  };
-  const t = stored();
-  if (t === "dark" || t === "light") document.documentElement.dataset.theme = t;
+  let stored = null;
+  try {
+    stored = localStorage.getItem(themeKey);
+  } catch {
+    // No storage: the theme follows the system.
+  }
+  if (stored === "dark" || stored === "light") document.documentElement.dataset.theme = stored;
   btn.addEventListener("click", () => {
     const next = dark() ? "light" : "dark";
     document.documentElement.dataset.theme = next;
@@ -138,30 +147,51 @@ function setupTheme() {
     } catch {
       // The choice lasts for this visit only.
     }
-    paint();
+    paintTheme();
   });
-  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", paint);
-  paint();
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", paintTheme);
+}
+
+// paintShell writes the words of the header in the chosen language.
+function paintShell() {
+  document.getElementById("brand").setAttribute("aria-label", t("shell.brand"));
+  document.getElementById("side").setAttribute("aria-label", t("shell.sections"));
+  const group = document.getElementById("langs");
+  group.setAttribute("aria-label", t("shell.language"));
+  mount(group, languages.map((l) => h("button", { class: "lang", type: "button", lang: l.id, title: l.name, "aria-pressed": String(l.id === lang()), text: l.short,
+    onclick: () => {
+      if (l.id === lang()) return;
+      setLang(l.id);
+      paintShell();
+      paintHome();
+      renderNav();
+      render();
+    } })));
+  paintTheme();
 }
 
 async function start() {
   setupTheme();
+  paintShell();
   const root = document.getElementById("view");
+  mount(root, h("p", { class: "busy", role: "status", text: t("shell.connecting") }));
   try {
     const code = codeFromAddress();
     if (code) {
       await exchange(code);
     }
     if (!sessionStorage.getItem(tokenKey)) {
-      throw new Error("no session: open the address dotai ui printed");
+      throw { code: "no-session", message: "" };
     }
     const version = await api("/api/version");
     if (!version.ok) {
-      throw new Error(version.error.message);
+      throw version.error;
     }
     document.getElementById("version").textContent = "dotai " + version.data.version;
   } catch (err) {
-    mount(root, h("div", { class: "detail" }, notice("bad", "session", err.message)));
+    mount(root, h("div", { class: "detail solo" }, h("div", { class: "col intro" },
+      h("h1", { class: "h-detail", text: t("shell.noSessionTitle") }),
+      failure(err && err.code ? err : { code: "network", message: String(err && err.message) }))));
     return;
   }
   await refresh();

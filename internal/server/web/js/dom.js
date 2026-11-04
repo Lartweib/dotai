@@ -1,6 +1,8 @@
-// Small DOM helpers. Every page is built with h(), which sets text with
-// textContent, never HTML, so that a path or a message from the API can
-// never become markup.
+// Small DOM helpers and the shared pieces of the boards. Every page is
+// built with h(), which sets text with textContent, never HTML, so that a
+// path or a message from the API can never become markup.
+
+import { errorText, t } from "./i18n.js";
 
 export function h(tag, props, ...kids) {
   const el = document.createElement(tag);
@@ -70,21 +72,38 @@ const paths = {
   moon: "M12.9 9.6 A5.25 5.25 0 1 1 6.4 3.1 A4.25 4.25 0 0 0 12.9 9.6 Z",
 };
 
+
 // Shared pieces of the boards.
 
-export function sec(title, ...body) {
-  return h("div", { class: "sec" }, h("h2", { text: title }), h("div", { class: "sc" }, ...body));
+// boardHead opens a board: its title and what it is for, in plain words.
+export function boardHead(id, ...extra) {
+  return h("header", { class: "boardhead" },
+    h("h1", { class: "h-board", id: id + "-h", text: t(id + ".title") }),
+    h("p", { class: "lead", text: t(id + ".lead") }),
+    ...extra);
 }
 
-export function kv(pairs, mono) {
-  return h("dl", { class: mono ? "kv mono" : "kv" },
-    pairs.filter(([, v]) => v !== undefined && v !== null && v !== "").map(([k, v]) =>
-      [h("dt", { text: k }), h("dd", { text: v })]));
+// sec is a section of a detail pane: a heading, an optional hint that
+// explains its term, and its body.
+export function sec(title, hintText, ...body) {
+  return h("section", { class: "sec" }, h("h2", { text: title }),
+    h("div", { class: "sc" }, hintText ? hint(hintText) : null, ...body));
 }
 
+export const hint = (text) => h("p", { class: "hint", text });
+
+// kv is a list of labels and values; a pair [label, value, true] shows its
+// value in the mono face, for paths, ids and codes.
+export function kv(pairs) {
+  return h("dl", { class: "kv" },
+    pairs.filter(([, v]) => v !== undefined && v !== null && v !== "").map(([k, v, mono]) =>
+      [h("dt", { text: k }), h("dd", { class: mono ? "mono" : null }, v)]));
+}
+
+// op is one line of a plan: what it does, to which path.
 export function op(action, path, note, why) {
   return h("li", { class: "op" },
-    h("span", { class: "tag", "data-a": action, text: action }),
+    h("span", { class: "tag", "data-a": action, text: t("action." + action) }),
     h("span", { class: "p", text: path }),
     note ? h("span", { class: "n", text: note }) : null,
     why ? h("span", { class: "why", text: why }) : null);
@@ -92,16 +111,32 @@ export function op(action, path, note, why) {
 
 export function warning(code, text) {
   return h("li", { class: "wn" }, icon("warn", 16),
-    h("span", {}, h("span", { class: "code", text: code }), h("br"), h("span", { class: "msg", text: text })));
+    h("span", { class: "wt" }, code ? h("span", { class: "code", text: code }) : null, h("span", { class: "msg", text })));
 }
 
-export function notice(kind, code, text) {
+// notice is a message box: kind is "", "bad" or "good".
+export function notice(kind, text, code, detail) {
   return h("div", { class: "notice " + (kind || ""), role: kind === "bad" ? "alert" : "status" },
-    code ? h("span", { class: "code", text: code }) : null, text);
+    code ? h("span", { class: "code", text: code }) : null,
+    h("span", { class: "msg", text }),
+    detail ? h("span", { class: "detail", text: detail }) : null);
+}
+
+// failure shows an API error in the chosen language, with what the
+// server said when it adds to it.
+export function failure(error) {
+  const e = errorText(error);
+  return notice("bad", e.text, error && error.code, e.detail);
 }
 
 export function busy(text) {
   return h("p", { class: "busy", role: "status", text });
+}
+
+// actions is the row of buttons of a form, with the note that explains
+// the first one.
+export function actions(buttons, note) {
+  return h("div", { class: "actions" }, h("div", { class: "btns" }, buttons), note ? h("p", { class: "help", text: note }) : null);
 }
 
 // layerHue gives a layer chip a stable hue from its name.
@@ -114,15 +149,4 @@ export function layerHue(name) {
 
 export function lm(name) {
   return h("span", { class: "lm", "data-h": layerHue(name), text: name });
-}
-
-// when formats a time for a list row, in the viewer's zone.
-export function when(iso) {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime()) || d.getFullYear() < 2000) return "";
-  return d.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-}
-
-export function plural(n, one, many) {
-  return n === 1 ? "1 " + one : n + " " + (many || one + "s");
 }

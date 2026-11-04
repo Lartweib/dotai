@@ -3,28 +3,19 @@
 // then confirm of a restore. The boards import these from here, never
 // from each other.
 
-import { busy, h, mount, notice, op, plural, warning } from "./dom.js";
+import { actions, busy, failure, h, mount, notice, op, warning } from "./dom.js";
+import { t } from "./i18n.js";
 import { act, api, query, tilde } from "./store.js";
 
-// actionWords are the words the boards show for the actions of the plans.
-export const actionWords = {
-  create: "create",
-  replace: "overwrite",
-  remove: "remove",
-  unchanged: "keep",
-  merge: "merge",
-  conflict: "conflict",
-  wipe: "wipe",
-};
-
-export const word = (action) => actionWords[action] || action;
+// word is the word the boards show for an action of a plan.
+export const word = (action) => t("action." + action);
 
 // rel is target relative to dir, with forward slashes, or target as it
 // reads from the home directory when it is not inside dir.
 export function rel(dir, target) {
   const d = (dir || "").replace(/\\/g, "/").replace(/\/$/, "");
-  const t = (target || "").replace(/\\/g, "/");
-  return d && t.toLowerCase().startsWith(d.toLowerCase() + "/") ? t.slice(d.length + 1) : tilde(target);
+  const p = (target || "").replace(/\\/g, "/");
+  return d && p.toLowerCase().startsWith(d.toLowerCase() + "/") ? p.slice(d.length + 1) : tilde(target);
 }
 
 // guard is an action button that its own request disables: allowed says
@@ -55,11 +46,11 @@ export function guard(button, allowed) {
 // preview that changed before the restore wrote anything is shown again,
 // new.
 export async function confirmFlow(el, f, msg) {
-  mount(el, busy("Previewing, nothing is written..."));
+  mount(el, busy(t("restore.previewing")));
   const res = await f.load();
   if (f.ctx.stale()) return;
   if (!res.ok) {
-    mount(el, notice("bad", res.error.code, res.error.message), conflictList(res.data && res.data.conflicts));
+    mount(el, failure(res.error), conflictList(res.data && res.data.conflicts));
     return;
   }
   showPreview(el, f, res.data, msg);
@@ -68,43 +59,43 @@ export async function confirmFlow(el, f, msg) {
 function showPreview(el, f, r, msg) {
   const conflicts = r.conflicts || [];
   const yes = h("input", { type: "checkbox" });
-  const out = h("div");
+  const out = h("div", { class: "out" });
   const go = h("button", { class: "btn primary", type: "button", text: f.label });
   const g = guard(go, () => conflicts.length === 0 || yes.checked);
   yes.addEventListener("change", g.sync);
   g.sync();
   go.addEventListener("click", async () => {
-    mount(out, busy("Restoring..."));
+    mount(out, busy(t("restore.running")));
     const res = await g.run(() => f.execute(r, yes.checked));
     if (!res || f.ctx.stale()) return;
     if (res.ok) {
       await f.ctx.refresh();
       if (f.ctx.stale()) return;
-      mount(el, notice("good", "restored", res.data.backup ? "Done. The backup " + res.data.backup.id + " holds what the restore overwrote or removed." : "Done. The restore wrote no file."),
-        (res.data.warnings || []).length ? h("ul", {}, res.data.warnings.map((w) => warning("warning", w))) : null,
-        h("div", { class: "row" }, h("button", { class: "btn", type: "button", onclick: () => f.ctx.again(), text: "Show the board again" })));
+      mount(el, notice("good", res.data.backup ? t("restore.done", { id: res.data.backup.id }) : t("restore.doneNothing")),
+        (res.data.warnings || []).length ? h("ul", { class: "list" }, res.data.warnings.map((w) => warning("", w))) : null,
+        actions([h("button", { class: "btn", type: "button", onclick: () => f.ctx.again(), text: t("common.showAgain") })]));
       return;
     }
     if (res.error.code === "plan-changed") {
-      showPreview(el, f, res.data, notice("bad", res.error.code, res.error.message));
+      showPreview(el, f, res.data, failure(res.error));
       return;
     }
-    mount(out, notice("bad", res.error.code, res.error.message), conflictList(res.data && res.data.conflicts));
+    mount(out, failure(res.error), conflictList(res.data && res.data.conflicts));
   });
   const rows = f.rows(r).filter(Boolean);
-  mount(el, msg || null,
+  mount(el, h("div", { class: "stack" }, msg || null,
     h("p", { class: "body", text: f.lead(r) }),
-    h("ul", {}, rows.length ? rows : h("li", { class: "quietp", text: "Nothing to write." })),
-    (r.warnings || []).length ? h("ul", {}, r.warnings.map((w) => warning("warning", w))) : null,
-    conflicts.length ? h("div", { class: "well" }, h("p", { class: "t-label", text: plural(conflicts.length, "conflict") }), conflictList(conflicts)) : null,
-    conflicts.length ? h("label", { class: "check" }, yes, h("span", { text: "Overwrite the conflicts. The restore copies each one into its own backup first." })) : null,
-    h("div", { class: "row" }, go), h("p", { class: "t-cap", text: f.says }), out);
+    h("ul", { class: "list" }, rows.length ? rows : h("li", { class: "quietp", text: t("common.nothingToWrite") })),
+    (r.warnings || []).length ? h("ul", { class: "list" }, r.warnings.map((w) => warning("", w))) : null,
+    conflicts.length ? h("div", { class: "well" }, h("p", { class: "t-label", text: t("restore.conflicts", { n: conflicts.length }) }), conflictList(conflicts)) : null,
+    conflicts.length ? h("label", { class: "check" }, yes, h("span", { text: t("restore.overwrite") })) : null,
+    actions([go], f.says), out));
 }
 
 function conflictList(conflicts) {
   if (!conflicts || conflicts.length === 0) return null;
-  return h("ul", {}, conflicts.map((c) => warning(c.key ? "key-changed" : "file-changed",
-    tilde(c.target) + (c.key ? " · " + c.key : "") + ": changed since dotai wrote it.")));
+  return h("ul", { class: "list" }, conflicts.map((c) => warning(c.key ? "key-changed" : "file-changed",
+    t("restore.conflict", { path: tilde(c.target) + (c.key ? " · " + c.key : "") }))));
 }
 
 // restoreHomeFlow is the preview then confirm of dotai restore of the
@@ -112,14 +103,14 @@ function conflictList(conflicts) {
 export function restoreHomeFlow(id, ctx) {
   return {
     load: () => api(query("/api/restore/preview", { id }), { signal: ctx.signal }),
-    lead: (r) => "Restore undoes " + plural(r.undone.length, "install") + (r.uninstalled ? ", and no install is left after it." : ", and puts back the install before them."),
+    lead: (r) => t(r.uninstalled ? "restore.homeLeadNone" : "restore.homeLead", { n: r.undone.length }),
     rows: (r) => [
-      ...r.ops.map((o) => op(word(o.action), tilde(o.target))),
-      ...r.wipes.map((w) => op(word("create"), tilde(w.path), "moved back from the backup")),
-      ...r.wipeKeys.map((k) => op(word("replace"), tilde(k.file) + " · " + k.key.join("."), "key put back")),
+      ...r.ops.map((o) => op(o.action, tilde(o.target))),
+      ...r.wipes.map((w) => op("create", tilde(w.path), t("restore.movedBack"))),
+      ...r.wipeKeys.map((k) => op("replace", tilde(k.file) + " · " + k.key.join("."), t("restore.keyBack"))),
     ],
-    label: "Restore",
-    says: "Restore first takes a backup of its own, <time>_restore, of every file it removes or overwrites.",
+    label: t("restore.go"),
+    says: t("restore.homeSays"),
     execute: (r, yes) => act("/api/restore", { id, digest: r.digest, yes }),
     ctx,
   };
@@ -130,13 +121,13 @@ export function restoreHomeFlow(id, ctx) {
 export function restoreProjectFlow(project, ctx) {
   return {
     load: () => api(query("/api/restore/project/preview", { project }), { signal: ctx.signal }),
-    lead: () => "A project is restored as a whole: every apply recorded there is undone, so the project, its exclude file and the keys dotai owns are as before the first apply.",
+    lead: () => t("restore.projectLead"),
     rows: (r) => [
-      ...r.ops.map((o) => op(o.conflict ? word("conflict") : word(o.action), rel(project, o.target))),
-      r.exclude.file ? op(word("replace"), tilde(r.exclude.file), "the project's block leaves it") : null,
+      ...r.ops.map((o) => op(o.conflict ? "conflict" : o.action, rel(project, o.target))),
+      r.exclude.file ? op("replace", tilde(r.exclude.file), t("restore.excludeLeaves")) : null,
     ],
-    label: "Restore project",
-    says: "Runs dotai restore --project for " + tilde(project) + ", after a backup of what it writes.",
+    label: t("restore.goProject"),
+    says: t("restore.projectSays", { path: tilde(project) }),
     execute: (r, yes) => act("/api/restore/project", { project, digest: r.digest, yes }),
     ctx,
   };

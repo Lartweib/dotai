@@ -3,6 +3,8 @@
 // 0043): the user types the path of a pack, and the page remembers the
 // recent ones in localStorage, in this browser only.
 
+import { t } from "./i18n.js";
+
 const tokenKey = "dotai.session";
 const packsKey = "dotai.packs";
 const selectedKey = "dotai.pack";
@@ -12,7 +14,8 @@ const projectsKey = "dotai.projects";
 // the HTTP status: { ok, status, data, error }. Every failure has that
 // shape too: "aborted" when the page left the board, "session" when the
 // session ended, "network" when dotai ui did not answer and "bad-response"
-// when the answer is not an envelope.
+// when the answer is not an envelope. Their words are in js/i18n.js; the
+// message of these four is only a detail.
 export async function api(path, options = {}) {
   const headers = { ...(options.headers || {}), Authorization: "Bearer " + sessionStorage.getItem(tokenKey) };
   let body = options.body;
@@ -24,16 +27,16 @@ export async function api(path, options = {}) {
   try {
     res = await fetch(path, { ...options, headers, body });
   } catch (err) {
-    if (err.name === "AbortError") return failure(0, "aborted", "The request was stopped.");
-    return failure(0, "network", "dotai ui did not answer: " + err.message + ". Check that it still runs.");
+    if (err.name === "AbortError") return failure(0, "aborted", "");
+    return failure(0, "network", err.message);
   }
   if (res.status === 401) {
-    return failure(401, "session", "The session ended: restart dotai ui and open the address it prints.");
+    return failure(401, "session", "");
   }
   try {
     return { ...(await res.json()), status: res.status };
   } catch {
-    return failure(res.status, "bad-response", "dotai ui answered " + res.status + " with something other than its envelope.");
+    return failure(res.status, "bad-response", "HTTP " + res.status);
   }
 }
 
@@ -46,11 +49,12 @@ export const post = (path, body, signal) => api(path, { method: "POST", body, si
 export const query = (path, params) => path + "?" + new URLSearchParams(params).toString();
 
 // act sends an action, which writes. When no envelope comes back, the
-// action may have run all the same: the message says where to look.
+// action may have run all the same: maybeRan tells the message to say
+// where to look.
 export async function act(path, body) {
   const res = await post(path, body);
   if (res.error && (res.error.code === "network" || res.error.code === "bad-response")) {
-    res.error.message += " The action may have run: check the Backups and Doctor boards before you try again.";
+    res.error.maybeRan = true;
   }
   return res;
 }
@@ -142,5 +146,5 @@ export function isInstalled(path) {
 export const samePath = (a, b) => slash(a).toLowerCase() === slash(b).toLowerCase();
 
 // harnessName is the name dotai gives the harness id, the id itself for
-// one it does not name, and "Tools" for the tools directory.
-export const harnessName = (id) => (id ? shared.harnesses.get(id) || id : "Tools");
+// one it does not name, and the tools directory without one.
+export const harnessName = (id) => (id ? shared.harnesses.get(id) || id : t("common.tools"));
