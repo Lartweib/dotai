@@ -95,7 +95,7 @@ variants:
 
 Profiles are flat and combinable: a project has zero or more of them (for example `--profile web,astro-cloudflare`). There are no sub-profiles. A stack-specific profile exists only when the stack repeats across projects; what is specific to one project goes in that project's own rules.
 
-Profiles are chosen by the onboarding agent after it analyzes the project and asks the user ([0008](decisions/0008-onboarding-by-detection-and-base-profile.md)), or by hand. The engine never picks one. The project records its profiles so later sessions do not ask again.
+Profiles are chosen by the onboarding agent after it analyzes the project and asks the user ([0008](decisions/0008-onboarding-by-detection-and-base-profile.md)), or by hand. The engine never picks one. The project records its profiles so later sessions do not ask again. The example pack ships a generic onboarding agent, `examples/minimal-pack/base/.rulesync/subagents/onboarding.md`, a subagent of the base, so that the install puts it at user level: it reads the marker `.dotai/state.json`, reads the profiles with `dotai validate --json`, detects the stack by content, proposes profiles, shows `dotai apply --profile <a,b> --dry-run`, and applies only after the user approves. A pack copies it and adapts it to its profiles; the web UI shows the onboarding agent of the selected pack, the first subagent named `onboarding`.
 
 ## Applying a pack
 
