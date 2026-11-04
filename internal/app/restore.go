@@ -224,9 +224,11 @@ func Restore(ctx context.Context, home, id string, opts RestoreOptions, warn War
 
 // RestoreOptions are the choices of a restore besides the backup:
 // IgnoreRunning skips the running-harness check, and Confirm, when it is
-// not nil, is asked first with the plan, as PreviewRestore gives it,
-// before the running-harness check, overwrite, the lock or any write: an
-// error stops the restore, which writes nothing more.
+// not nil, is asked with the plan, as PreviewRestore gives it. The restore
+// first completes the recovery of a move across volumes that an earlier
+// install or restore cut short, and plans after that; Confirm is asked
+// before the running-harness check, overwrite, the lock or any write of
+// the plan: an error stops the restore, which writes nothing of the plan.
 type RestoreOptions struct {
 	IgnoreRunning bool
 	Confirm       func(RestoreResult) error

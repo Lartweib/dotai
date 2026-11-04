@@ -169,3 +169,23 @@ func TestDoctorFixAsksConfirmWithWhatItFoundBeforeItFixes(t *testing.T) {
 		t.Errorf("Doctor() = %v", err)
 	}
 }
+
+func TestApplyCompletesTheRecoveryOfAnInterruptedApplyBeforeConfirm(t *testing.T) {
+	project, home, g := applyRepo(t)
+	before := files(t, project)
+	if _, err := applyWith(t, &failRecordFS{clockFS: newClockFS(t), project: project}, g, profileTree, project, home, nil); err == nil {
+		t.Fatal("Apply() through a failing record succeeded, want an interrupted apply")
+	}
+	f := &treeRulesync{t: t, tree: profileTree}
+	opts := app.ApplyOptions{Profiles: []string{"web"}, Confirm: func(app.ProjectPlan) error { return errChanged }}
+	if _, err := app.ApplyWith(context.Background(), newClockFS(t), g, f.fetch, f.run, examplePack, project, home, opts, yes); !errors.Is(err, errChanged) {
+		t.Fatalf("Apply() error = %v, want the error of Confirm", err)
+	}
+	// The interrupted apply is rolled back, and nothing of the new plan is written.
+	if after := files(t, project); !reflect.DeepEqual(after, before) {
+		t.Errorf("project = %v, want it as before the interrupted apply %v", after, before)
+	}
+	if _, err := planProject(t, g, examplePack, project, home); err != nil {
+		t.Errorf("dry run after the recovery = %v, want no journal left", err)
+	}
+}

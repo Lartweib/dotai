@@ -83,9 +83,11 @@ func RestoreProject(ctx context.Context, cwd, home string, opts ProjectRestoreOp
 }
 
 // ProjectRestoreOptions are the choices of a restore of a project:
-// Confirm, when it is not nil, is asked first with the plan, as
-// PreviewProjectRestore gives it, before overwrite, the lock or any write:
-// an error stops the restore, which writes nothing more.
+// Confirm, when it is not nil, is asked with the plan, as
+// PreviewProjectRestore gives it. The restore first rolls back the journal
+// an apply or a restore of the project left, and plans after that;
+// Confirm is asked before overwrite, the lock or any write of the plan: an
+// error stops the restore, which writes nothing of the plan.
 type ProjectRestoreOptions struct {
 	Confirm func(ProjectRestoreResult) error
 }

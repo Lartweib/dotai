@@ -61,8 +61,10 @@ type ExcludePlan struct {
 // ApplyOptions are the choices of a project apply: the profiles, and the
 // variant of the user scope, which the install state records when it is
 // empty, or else the pack's default. Confirm, when it is not nil, is
-// asked first with the plan, before any refusal, consent, lock or write:
-// an error stops the apply, which writes nothing.
+// asked with the plan. The apply first rolls back the journal an apply or
+// a restore of the project left, as the command line does, and plans
+// after that; Confirm is asked before any refusal, consent, lock or write
+// of the plan: an error stops the apply, which writes nothing of the plan.
 type ApplyOptions struct {
 	Profiles []string
 	Variant  string

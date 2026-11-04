@@ -10,8 +10,10 @@ import (
 
 // The confirm of an action (decision 0043): a plan or a preview carries
 // the digest of what it shows, and the action that carries it out takes
-// that digest back. The use case asks Confirm with the plan it is about
-// to carry out, before it writes; an action whose plan has another digest
+// that digest back. The use case first completes the recovery of an
+// earlier operation that stopped midway, as the command line does, then
+// plans and asks Confirm with the plan it is about to carry out, before it
+// writes anything of the plan; an action whose plan has another digest
 // stops there with CodePlanChanged and the new plan, so that the user
 // carries out only a plan they saw.
 

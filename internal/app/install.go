@@ -80,9 +80,13 @@ type InstallPlan struct {
 // skips the check that refuses a replace install while a harness it
 // resets is running (decision 0038).
 //
-// Confirm, when it is not nil, is asked first with the plan, before any
-// refusal, consent, lock or write: an error stops the install, which
-// writes nothing, so that a caller carries out only the plan its user saw.
+// Confirm, when it is not nil, is asked with the plan, so that a caller
+// carries out only the plan its user saw. The install first completes the
+// recovery of a move across volumes that an earlier install or restore
+// cut short, as the command line does, so that the plan reflects the disk
+// as it is then; Confirm is asked after that and before any refusal,
+// consent, lock or write of the plan: an error stops the install, which
+// writes nothing of the plan.
 type InstallOptions struct {
 	Variant       string
 	Harnesses     []string
