@@ -19,7 +19,7 @@ func newUICmd(env Env, jsonOut *bool) *cobra.Command {
 			"in the browser unless --no-open. The address carries a one-time code, good for two minutes, that the page trades\n" +
 			"for the session token of this run; open it once, and restart dotai ui for a new one. Every request must name the\n" +
 			"server by 127.0.0.1 or localhost and come from its own page. The UI shows the state, the backups, the plans and\n" +
-			"doctor; it writes nothing in the home directory or a project. A plan, as with --dry-run, fetches rulesync into\n" +
+			"doctor, and installs, applies, restores and fixes, each only as the plan it showed first. A plan, as with --dry-run, fetches rulesync into\n" +
 			"the cache, stages into a temporary directory and runs git in the project. It runs until Ctrl+C. With --json it\n" +
 			"prints one envelope, whose data has the url, once it listens.",
 		// Checked with the arguments, so a port out of range is a usage error.
