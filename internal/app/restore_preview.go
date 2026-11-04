@@ -3,11 +3,7 @@ package app
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io/fs"
-	"path/filepath"
-
-	"github.com/lartweib/dotai/internal/backup"
 )
 
 // errReadOnly is a write a preview tried: a preview never writes.
@@ -55,36 +51,19 @@ func PreviewRestore(ctx context.Context, home, id string) (RestoreResult, error)
 }
 
 func previewRestore(ctx context.Context, d executeFS, home, id string) (RestoreResult, error) {
-	if !filepath.IsAbs(home) {
-		return RestoreResult{}, fmt.Errorf("home directory %q is not absolute", home)
-	}
-	home = filepath.Clean(home)
-	if _, ok := backup.ParseID(id); id != "" && !ok {
-		return RestoreResult{}, &UsageError{fmt.Sprintf("%q is not a backup id, such as 20261029T101500.000Z_install", id)}
-	}
-	ru := runner{ctx: ctx, d: d, home: home}
-	crossings, err := ru.readCrossings()
+	home, err := restoreArgs(home, id)
 	if err != nil {
 		return RestoreResult{}, err
 	}
-	s, err := readState(d, home)
+	crossings, err := runner{ctx: ctx, d: d, home: home}.readCrossings()
 	if err != nil {
 		return RestoreResult{}, err
 	}
-	statePath := filepath.Join(home, dotaiDir, stateFile)
-	if s == nil {
-		return RestoreResult{}, fmt.Errorf("nothing to restore: there is no install state %s", statePath)
-	}
-	r := restorer{runner: runner{ctx: ctx, d: d, home: home, p: planned{
-		prev: s, tree: filepath.Join(home, dotaiDir, backupsDir), ignoreExec: !d.ExecBit(),
-	}}}
-	res, chain, err := r.planned(*s, id)
+	p, err := planRestore(ctx, d, home, id)
 	if err != nil {
 		return RestoreResult{}, err
 	}
-	// As the restore's write finds it: no install is left before the
-	// oldest one undone.
-	res.Uninstalled = len(chain) > 0 && chain[len(chain)-1].prior == nil
+	res := p.res
 	if len(crossings) > 0 {
 		res.Warnings = append(res.Warnings, "a move across volumes was cut short: the restore settles it first, and this preview plans from the disk as it is now")
 	}
@@ -104,28 +83,16 @@ func PreviewProjectRestore(ctx context.Context, cwd, home string) (ProjectRestor
 }
 
 func previewProjectRestore(ctx context.Context, d executeFS, g gitPort, cwd, home string) (ProjectRestoreResult, error) {
-	if !filepath.IsAbs(home) || !filepath.IsAbs(cwd) {
-		return ProjectRestoreResult{}, fmt.Errorf("home directory %q and current directory %q must be absolute", home, cwd)
-	}
-	home, cwd = filepath.Clean(home), filepath.Clean(cwd)
-	project, mcpKey, repo, err := findProject(ctx, g, cwd, home)
+	cwd, home, err := projectRestoreArgs(cwd, home)
 	if err != nil {
 		return ProjectRestoreResult{}, err
 	}
-	sc := scopeOf(home, project, mcpKey, repo)
-	r, err := readRecord(ctx, d, sc)
+	p, err := planRestoreOfProject(ctx, d, g, cwd, home)
 	if err != nil {
 		return ProjectRestoreResult{}, err
 	}
-	if r == nil {
-		return ProjectRestoreResult{}, fmt.Errorf("nothing to restore: %s has no project record %s", project, recordPath(home, project))
-	}
-	ru := runner{ctx: ctx, d: d, home: home, p: planned{ignoreExec: !d.ExecBit()}}
-	res, _, err := ru.planProjectRestore(*r, sc)
-	if err != nil {
-		return ProjectRestoreResult{}, err
-	}
-	if r.Pending != nil {
+	res := p.res
+	if p.record.Pending != nil {
 		res.Warnings = append(res.Warnings, "an apply or a restore of this project stopped midway: the restore rolls it back first, and this preview plans from the record as it is now")
 	}
 	return res, nil

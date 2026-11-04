@@ -83,30 +83,18 @@ func RestoreProject(ctx context.Context, cwd, home string, overwrite func(Projec
 }
 
 func restoreProject(ctx context.Context, d executeFS, g gitPort, cwd, home string, overwrite func(ProjectRestoreResult) (bool, error)) (ProjectRestoreResult, error) {
-	if !filepath.IsAbs(home) || !filepath.IsAbs(cwd) {
-		return ProjectRestoreResult{}, fmt.Errorf("home directory %q and current directory %q must be absolute", home, cwd)
+	cwd, home, err := projectRestoreArgs(cwd, home)
+	if err != nil {
+		return ProjectRestoreResult{}, err
 	}
-	home, cwd = filepath.Clean(home), filepath.Clean(cwd)
 	if err := settleProject(ctx, d, g, cwd, home); err != nil {
 		return ProjectRestoreResult{}, err
 	}
-	project, mcpKey, repo, err := findProject(ctx, g, cwd, home)
+	p, err := planRestoreOfProject(ctx, d, g, cwd, home)
 	if err != nil {
 		return ProjectRestoreResult{}, err
 	}
-	sc := scopeOf(home, project, mcpKey, repo)
-	r, err := readRecord(ctx, d, sc)
-	if err != nil {
-		return ProjectRestoreResult{}, err
-	}
-	if r == nil {
-		return ProjectRestoreResult{}, fmt.Errorf("nothing to restore: %s has no project record %s", project, recordPath(home, project))
-	}
-	ru := runner{ctx: ctx, d: d, home: home, p: planned{ignoreExec: !d.ExecBit()}}
-	res, _, err := ru.planProjectRestore(*r, sc)
-	if err != nil {
-		return ProjectRestoreResult{}, err
-	}
+	ru, sc, r, res := p.ru, p.sc, p.record, p.res
 	if len(res.Conflicts) > 0 {
 		ok := false
 		if overwrite != nil {
@@ -139,6 +127,50 @@ func restoreProject(ctx context.Context, d executeFS, g gitPort, cwd, home strin
 		return ProjectRestoreResult{}, err
 	}
 	return res, nil
+}
+
+// projectRestoreArgs checks the current and home directories of a restore
+// of a project, as RestoreProject and PreviewProjectRestore both take
+// them, and returns them cleaned.
+func projectRestoreArgs(cwd, home string) (string, string, error) {
+	if !filepath.IsAbs(home) || !filepath.IsAbs(cwd) {
+		return "", "", fmt.Errorf("home directory %q and current directory %q must be absolute", home, cwd)
+	}
+	return filepath.Clean(cwd), filepath.Clean(home), nil
+}
+
+// projectRestorePlan holds a restore of a project planned from its
+// record: the runner and the scope that planned it, the record, and the
+// plan.
+type projectRestorePlan struct {
+	ru     runner
+	sc     recordScope
+	record *state.Project
+	res    ProjectRestoreResult
+}
+
+// planRestoreOfProject plans the restore of the project of cwd from its
+// record, as both RestoreProject and PreviewProjectRestore plan it, so
+// that a preview shows what the restore does. It writes nothing.
+func planRestoreOfProject(ctx context.Context, d executeFS, g gitPort, cwd, home string) (projectRestorePlan, error) {
+	project, mcpKey, repo, err := findProject(ctx, g, cwd, home)
+	if err != nil {
+		return projectRestorePlan{}, err
+	}
+	sc := scopeOf(home, project, mcpKey, repo)
+	r, err := readRecord(ctx, d, sc)
+	if err != nil {
+		return projectRestorePlan{}, err
+	}
+	if r == nil {
+		return projectRestorePlan{}, fmt.Errorf("nothing to restore: %s has no project record %s", project, recordPath(home, project))
+	}
+	ru := runner{ctx: ctx, d: d, home: home, p: planned{ignoreExec: !d.ExecBit()}}
+	res, _, err := ru.planProjectRestore(*r, sc)
+	if err != nil {
+		return projectRestorePlan{}, err
+	}
+	return projectRestorePlan{ru: ru, sc: sc, record: r, res: res}, nil
 }
 
 // planProjectRestore plans the restore of the project of the record r, as

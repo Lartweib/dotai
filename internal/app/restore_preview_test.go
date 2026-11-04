@@ -98,3 +98,66 @@ func TestPreviewProjectRestoreWithoutARecord(t *testing.T) {
 		t.Errorf("PreviewProjectRestore() error = %v, want nothing to restore", err)
 	}
 }
+
+// wantParity previews the restore of id in home, then carries it out with
+// consent, and checks that the preview planned what the restore did.
+func wantParity(t *testing.T, home, id string, wantUninstalled bool) {
+	t.Helper()
+	preview, err := app.PreviewRestore(context.Background(), home, id)
+	if err != nil {
+		t.Fatalf("PreviewRestore(%q) error = %v", id, err)
+	}
+	res, err := restore(newClockFS(t), home, id, func(app.RestoreResult) (bool, error) { return true, nil })
+	if err != nil {
+		t.Fatalf("Restore(%q) error = %v", id, err)
+	}
+	if !reflect.DeepEqual(preview.Ops, res.Ops) || !reflect.DeepEqual(preview.Conflicts, res.Conflicts) ||
+		!reflect.DeepEqual(preview.Undone, res.Undone) || !reflect.DeepEqual(preview.Wipes, res.Wipes) || !reflect.DeepEqual(preview.WipeKeys, res.WipeKeys) {
+		t.Errorf("PreviewRestore(%q) = %+v\nwant what the restore did %+v", id, preview, res)
+	}
+	if preview.Uninstalled != res.Uninstalled || res.Uninstalled != wantUninstalled {
+		t.Errorf("uninstalled: preview %v, restore %v, want %v", preview.Uninstalled, res.Uninstalled, wantUninstalled)
+	}
+}
+
+func TestPreviewRestorePlansWhatRestoreDoesWhenAnInstallIsLeft(t *testing.T) {
+	home, _ := installHome(t)
+	d := newClockFS(t)
+	for _, variant := range []string{"standalone", "tmux"} {
+		if _, err := app.InstallWith(context.Background(), d, quiet(t).fetch, quiet(t).run, examplePack, variant, home); err != nil {
+			t.Fatal(err)
+		}
+	}
+	wantParity(t, home, "", false)
+}
+
+func TestPreviewRestorePlansWhatRestoreDoesForAnIDMidChain(t *testing.T) {
+	home, _ := installHome(t)
+	d := newClockFS(t)
+	var ids []string
+	for _, variant := range []string{"standalone", "tmux", "standalone"} {
+		res, err := app.InstallWith(context.Background(), d, quiet(t).fetch, quiet(t).run, examplePack, variant, home)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, res.Backup.ID)
+	}
+	writeFile(t, at(home, ".dotai/tools/hello.sh"), "echo mine\n")
+	wantParity(t, home, ids[1], false)
+}
+
+func TestPreviewRestorePlansWhatRestoreDoesBackToTheFirstInstall(t *testing.T) {
+	home, _ := installHome(t)
+	d := newClockFS(t)
+	var first string
+	for _, variant := range []string{"standalone", "tmux"} {
+		res, err := app.InstallWith(context.Background(), d, quiet(t).fetch, quiet(t).run, examplePack, variant, home)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if first == "" {
+			first = res.Backup.ID
+		}
+	}
+	wantParity(t, home, first, true)
+}
