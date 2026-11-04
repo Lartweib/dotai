@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 )
 
 // Codes of the findings of dotai doctor, besides CodeRecordInvalid,
@@ -108,10 +107,10 @@ func Doctor(ctx context.Context, home string, opts DoctorOptions) (DoctorResult,
 }
 
 func doctor(ctx context.Context, d executeFS, g gitPort, home string, opts DoctorOptions) (DoctorResult, error) {
-	if !filepath.IsAbs(home) {
-		return DoctorResult{}, fmt.Errorf("home directory %q is not absolute", home)
+	home, err := requireAbs(home)
+	if err != nil {
+		return DoctorResult{}, err
 	}
-	home = filepath.Clean(home)
 	doc := doctorRun{runner: runner{ctx: ctx, d: d, home: home, p: planned{ignoreExec: !d.ExecBit()}}, g: g, written: map[string][]string{},
 		res: DoctorResult{Projects: []string{}, Findings: []Finding{}, Backups: []BackupRef{}}}
 	if err := doc.checkState(); err != nil {

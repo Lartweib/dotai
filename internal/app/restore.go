@@ -229,31 +229,18 @@ type RestoreOptions struct {
 }
 
 func restore(ctx context.Context, d executeFS, h host, home, id string, opts RestoreOptions, warn Warn, overwrite func(RestoreResult) (bool, error)) (RestoreResult, error) {
-	if !filepath.IsAbs(home) {
-		return RestoreResult{}, fmt.Errorf("home directory %q is not absolute", home)
-	}
-	home = filepath.Clean(home)
-	if _, ok := backup.ParseID(id); id != "" && !ok {
-		return RestoreResult{}, &UsageError{fmt.Sprintf("%q is not a backup id, such as 20261029T101500.000Z_install", id)}
+	home, err := restoreArgs(home, id)
+	if err != nil {
+		return RestoreResult{}, err
 	}
 	if err := settleCrossings(runner{ctx: ctx, d: d, home: home}); err != nil {
 		return RestoreResult{}, err
 	}
-	s, err := readState(d, home)
+	p, err := planRestore(ctx, d, home, id)
 	if err != nil {
 		return RestoreResult{}, err
 	}
-	statePath := filepath.Join(home, dotaiDir, stateFile)
-	if s == nil {
-		return RestoreResult{}, fmt.Errorf("nothing to restore: there is no install state %s", statePath)
-	}
-	r := restorer{runner: runner{ctx: ctx, d: d, home: home, p: planned{
-		prev: s, tree: filepath.Join(home, dotaiDir, backupsDir), ignoreExec: !d.ExecBit(),
-	}}}
-	res, _, err := r.planned(*s, id)
-	if err != nil {
-		return RestoreResult{}, err
-	}
+	r, s, res, statePath := p.r, p.state, p.res, p.statePath
 	splits := splitsOf(r.splits)
 	if !opts.IgnoreRunning {
 		if err := running(h, "restore", replaceHarnesses(home, res)); err != nil {
@@ -295,6 +282,53 @@ func restore(ctx context.Context, d executeFS, h host, home, id string, opts Res
 		return RestoreResult{}, err
 	}
 	return res, nil
+}
+
+// restoreArgs checks the home directory and the backup id of a restore,
+// as Restore and PreviewRestore both take them, and returns home cleaned.
+func restoreArgs(home, id string) (string, error) {
+	home, err := requireAbs(home)
+	if err != nil {
+		return "", err
+	}
+	if _, ok := backup.ParseID(id); id != "" && !ok {
+		return "", &UsageError{fmt.Sprintf("%q is not a backup id, such as 20261029T101500.000Z_install", id)}
+	}
+	return home, nil
+}
+
+// restorePlan holds a restore planned from the install state: the
+// restorer that planned it, the state it starts from and its path, and the
+// plan.
+type restorePlan struct {
+	r         *restorer
+	state     *state.State
+	statePath string
+	res       RestoreResult
+}
+
+// planRestore plans the restore of id in home from the install state, as
+// both Restore and PreviewRestore plan it, so that a preview shows what
+// the restore does. Uninstalled is set when no install is left before the
+// oldest install undone. It writes nothing.
+func planRestore(ctx context.Context, d executeFS, home, id string) (restorePlan, error) {
+	s, err := readState(d, home)
+	if err != nil {
+		return restorePlan{}, err
+	}
+	statePath := filepath.Join(home, dotaiDir, stateFile)
+	if s == nil {
+		return restorePlan{}, fmt.Errorf("nothing to restore: there is no install state %s", statePath)
+	}
+	r := &restorer{runner: runner{ctx: ctx, d: d, home: home, p: planned{
+		prev: s, tree: filepath.Join(home, dotaiDir, backupsDir), ignoreExec: !d.ExecBit(),
+	}}}
+	res, chain, err := r.planned(*s, id)
+	if err != nil {
+		return restorePlan{}, err
+	}
+	res.Uninstalled = len(chain) > 0 && chain[len(chain)-1].prior == nil
+	return restorePlan{r: r, state: s, statePath: statePath, res: res}, nil
 }
 
 // restorer carries out a restore; its planned holds the state it starts

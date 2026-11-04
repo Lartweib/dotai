@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/lartweib/dotai/internal/app"
-	"github.com/lartweib/dotai/internal/cli/output"
+	"github.com/lartweib/dotai/internal/envelope"
 	"github.com/lartweib/dotai/internal/plan"
 )
 
@@ -75,7 +75,7 @@ func newApplyCmd(env Env, jsonOut *bool) *cobra.Command {
 				return rejectPack(env, *jsonOut, *format, res.Pack, res.Diagnostics, res)
 			}
 			if *jsonOut {
-				return output.Write(env.Stdout, output.Success(commandName(cmd), res))
+				return envelope.Write(env.Stdout, envelope.Success(commandName(cmd), res))
 			}
 			return writeProjectPlan(env.Stdout, res, useColor(env.Stdout), "dry run, nothing was written\n")
 		}
@@ -117,7 +117,7 @@ func newApplyCmd(env Env, jsonOut *bool) *cobra.Command {
 			return rejectPack(env, *jsonOut, *format, res.Pack, res.Diagnostics, res)
 		}
 		if *jsonOut {
-			return output.Write(env.Stdout, output.Success(commandName(cmd), res))
+			return envelope.Write(env.Stdout, envelope.Success(commandName(cmd), res))
 		}
 		footer := "applied, not the first apply in this project\n"
 		if res.FirstApply {

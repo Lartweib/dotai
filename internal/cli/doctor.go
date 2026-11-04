@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/lartweib/dotai/internal/app"
-	"github.com/lartweib/dotai/internal/cli/output"
+	"github.com/lartweib/dotai/internal/envelope"
 )
 
 func newDoctorCmd(env Env, jsonOut *bool) *cobra.Command {
@@ -52,17 +52,14 @@ func newDoctorCmd(env Env, jsonOut *bool) *cobra.Command {
 		}
 		problems := res.Problems()
 		if *jsonOut && problems == 0 {
-			return output.Write(env.Stdout, output.Success(commandName(cmd), res))
+			return envelope.Write(env.Stdout, envelope.Success(commandName(cmd), res))
 		}
 		if !*jsonOut {
 			if err := writeDoctor(env.Stdout, res, useColor(env.Stdout)); err != nil {
 				return err
 			}
 		}
-		if problems == 0 {
-			return nil
-		}
-		return &invalidError{msg: fmt.Sprintf("doctor found %s", plural(problems, "problem")), data: res}
+		return envelope.DoctorProblems(res)
 	}
 	return cmd
 }

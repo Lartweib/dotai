@@ -67,10 +67,10 @@ func planRun(d executeFS, lookPath func(string) (string, error), goos, home, id 
 	if err := checkFlags(a, args); err != nil {
 		return RunPlan{}, err
 	}
-	if !filepath.IsAbs(home) {
-		return RunPlan{}, fmt.Errorf("home directory %q is not absolute", home)
+	home, err = requireAbs(home)
+	if err != nil {
+		return RunPlan{}, err
 	}
-	home = filepath.Clean(home)
 	statePath := filepath.Join(home, dotaiDir, stateFile)
 	// Read once without the lock, so that a home without an install gets
 	// no lock either.

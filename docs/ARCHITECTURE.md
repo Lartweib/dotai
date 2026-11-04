@@ -4,7 +4,7 @@
 - **verified-at:** 2026-10-26
 - **covers:** [0004](decisions/0004-installer-language-and-shape.md) (partial), [0007](decisions/0007-always-on-context-budget.md) (proposed), [0008](decisions/0008-onboarding-by-detection-and-base-profile.md), [0010](decisions/0010-engine-and-pack-separated.md), [0011](decisions/0011-mods-always-project-scoped.md), [0012](decisions/0012-rules-file-per-harness.md), [0013](decisions/0013-renderer-merges-by-key.md), [0016](decisions/0016-review-via-external-tracker.md), [0017](decisions/0017-pack-variants-as-layers.md), [0018](decisions/0018-install-modes-and-mandatory-backup.md), [0019](decisions/0019-v1-harness-targets.md), [0020](decisions/0020-v1-scope-engine-and-pack.md), [0021](decisions/0021-go-engine-orchestrates-rulesync.md), [0022](decisions/0022-pack-format-and-manifest.md), [0023](decisions/0023-flat-profiles-and-layer-merge-rules.md), [0024](decisions/0024-models-declared-per-harness-no-tiers.md), [0025](decisions/0025-settings-as-per-harness-passthrough.md), [0026](decisions/0026-json-cli-and-ui-after-v1.md), [0027](decisions/0027-loose-files-and-plugins-only-for-mods.md), [0028](decisions/0028-plan-centric-hexagonal-engine.md), [0034](decisions/0034-replace-mode-in-v1.md), [0038](decisions/0038-replace-mode-resets-harness-to-fresh-install.md), [0039](decisions/0039-base-layer-installs-skills-at-user-level.md)
 
-This document is a map, not an atlas. The why lives in the [decision records](decisions/README.md) and the pack contract in [PACK-FORMAT.md](PACK-FORMAT.md). Anything not yet decided is marked as pending and points to [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md). Anything not stated by a source document is marked `(inferred)`.
+This document is a map, not an atlas. The why lives in the [decision records](decisions/README.md) and the pack contract in [PACK-FORMAT.md](PACK-FORMAT.md). Anything not yet decided is marked as pending. Anything not stated by a source document is marked `(inferred)`.
 
 The runtime of the reference pack (delegation, hooks, review, task router) is described in its own repository: [RUNTIME.md](../../dotai-lartweib-pack/docs/RUNTIME.md).
 
@@ -53,7 +53,7 @@ There is no code yet. Decided so far: the shape ([0004](decisions/0004-installer
 - **Rules file per harness:** `CLAUDE.md` for Claude Code and `AGENTS.md` for agy and OpenCode, from the same source ([0012](decisions/0012-rules-file-per-harness.md)).
 - **Emission in Claude Code:** skills, commands, agents, hooks and MCP as loose files; mods as project-scoped plugins under `.claude/skills/<mod>/`, copied whole from the pack's `mods/<mod>/` ([0027](decisions/0027-loose-files-and-plugins-only-for-mods.md), [PACK-FORMAT](PACK-FORMAT.md#mods)); `permissions`, `env` and `statusLine` in settings, merged by key with an ownership record and without deleting foreign entries ([0013](decisions/0013-renderer-merges-by-key.md)).
 - `dotai apply --harness claude|opencode|agy --profile <profile> [--project .]`; to use another pack, for example `--pack <source>` ([0010](decisions/0010-engine-and-pack-separated.md); exact form pending).
-- Every command offers `--json` output; a UI (local web page or terminal) comes after v1 as a thin layer over the same functions ([0026](decisions/0026-json-cli-and-ui-after-v1.md)).
+- Every command offers `--json` output ([0026](decisions/0026-json-cli-and-ui-after-v1.md)). A local web UI, `dotai ui`, is planned for v1 (proposed in [0043](decisions/0043-local-web-ui.md); 0026 had placed a UI after v1). It is a thin layer over the same functions: a local web page, served on `127.0.0.1` by `internal/server`, an adapter beside `internal/cli` that calls `internal/app` and answers with the same envelope ([0043](decisions/0043-local-web-ui.md)).
 - `dotai doctor`: diffs the generated output against the source. It is planned to also measure the first-request budget and fail if it exceeds the cap the pack declares ([0007](decisions/0007-always-on-context-budget.md), proposed).
 - `dotai decision` (numbers decisions and regenerates the decision index) and `dotai skills get <x>`: a skill can ship as a stub whose `SKILL.md` holds only the description and loads its full guide from the binary, so the always-on cost is only the description and the guide does not drift from the code (the pattern Orca uses with `orca skills get <x>`). Exact subcommands: pending design.
 
@@ -78,10 +78,12 @@ flowchart LR
 Decided in [0028](decisions/0028-plan-centric-hexagonal-engine.md). Every command builds a plan (the exact file and key operations), then backs up its targets and executes it; `--dry-run`, `--json` and `doctor` read the same plan.
 
 ```
-cmd/dotai/        main only; calls cli.Run
+cmd/dotai/        main only; wires cli.Run, and server.Run as dotai ui
 internal/
   cli/            cobra commands: flags only; calls app
-    output/       versioned --json envelope (CLI-JSON.md)
+  server/         dotai ui: local HTTP API and embedded frontend; calls app
+  envelope/       versioned --json envelope, error codes and shared outcomes
+                  (CLI-JSON.md); used by cli and server
   app/            use cases: install, apply, validate, doctor, restore
   pack/           manifest, layers, dotai: blocks (no I/O, fs.FS)
   merge/          layer merge rules, staging per scope (pure)
@@ -92,6 +94,8 @@ internal/
   rulesync/       pinned binary: download, checksum, run
   platform/       filesystem, processes, env, OS paths
 ```
+
+`cli` and `server` are two adapters over `app`: neither imports the other, and both report results and errors through `envelope`, so that a command and its endpoint give the same `data` and error codes ([0043](decisions/0043-local-web-ui.md), proposed). `main` connects them: `cli` reaches the server only through a function in its `Env`.
 
 JSON and JSONC key edits use `tailscale/hujson` plus a small own edit layer in `plan`, which keeps comments, key order and line endings ([0028](decisions/0028-plan-centric-hexagonal-engine.md)).
 
@@ -141,7 +145,7 @@ dotai does not control these surfaces: it uses them and can break if they change
 | **rulesync** | Pinned binary that renders rules, commands, subagents, skills, MCP, hooks and permissions into staging; per-target frontmatter blocks; strips the `dotai:` block | [0021](decisions/0021-go-engine-orchestrates-rulesync.md). Version pinned per pack in `dotai.yaml` ([0022](decisions/0022-pack-format-and-manifest.md)) |
 | **Claude Code** | `CLAUDE.md`, plugins (skills, commands, agents, hooks, MCP, mods), `settings.json` (`permissions`, `env`, `statusLine`, hooks), `.mcp.json`. `claude agents` (agents view, in preview) and its `--json` output, which prints active sessions as a JSON array (verified with `claude agents --help`, Claude Code 2.1.309, 2026-10-23) | [0012](decisions/0012-rules-file-per-harness.md), [0013](decisions/0013-renderer-merges-by-key.md), [0025](decisions/0025-settings-as-per-harness-passthrough.md). New mods API with unassessed stability |
 | **agy** | `AGENTS.md`, `.agents/rules/`, skills, plugins, MCP configuration, user settings | [0012](decisions/0012-rules-file-per-harness.md), [0025](decisions/0025-settings-as-per-harness-passthrough.md). agy hooks unverified |
-| **OpenCode** | Minimal and occasional target | [0019](decisions/0019-v1-harness-targets.md). Evaluate Pi as an alternative harness: [OPEN-QUESTIONS, question 1](OPEN-QUESTIONS.md) |
+| **OpenCode** | Minimal and occasional target | [0019](decisions/0019-v1-harness-targets.md). Pending: whether to evaluate Pi as an alternative harness is not decided |
 
 ## Maintenance
 

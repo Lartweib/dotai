@@ -11,7 +11,7 @@ import (
 
 	"github.com/lartweib/dotai/internal/app"
 	"github.com/lartweib/dotai/internal/cli"
-	"github.com/lartweib/dotai/internal/cli/output"
+	"github.com/lartweib/dotai/internal/envelope"
 	"github.com/lartweib/dotai/internal/plan"
 )
 
@@ -112,7 +112,7 @@ func TestRunApplyUsageErrors(t *testing.T) {
 			if code := cli.Run(tt.args, env); code != cli.ExitUsage {
 				t.Errorf("exit code = %d, want %d", code, cli.ExitUsage)
 			}
-			if e := decodeOne(t, stdout.Bytes()); e.OK || e.Command != "apply" || e.Error == nil || e.Error.Code != output.CodeUsage || !strings.Contains(e.Error.Message, tt.want) {
+			if e := decodeOne(t, stdout.Bytes()); e.OK || e.Command != "apply" || e.Error == nil || e.Error.Code != envelope.CodeUsage || !strings.Contains(e.Error.Message, tt.want) {
 				t.Errorf("envelope = %+v, want a usage error about %s", e, tt.want)
 			}
 		})
@@ -128,7 +128,7 @@ func TestRunApplyRefusesTheHomeDirectory(t *testing.T) {
 	if code := cli.Run([]string{"apply", "--profile", "web", "--dry-run", "--json"}, env); code != cli.ExitInternal {
 		t.Errorf("exit code = %d, want %d", code, cli.ExitInternal)
 	}
-	if e := decodeOne(t, stdout.Bytes()); e.OK || e.Error == nil || e.Error.Code != output.CodeProjectRefused || !strings.Contains(e.Error.Message, "/home/u is the home directory") {
+	if e := decodeOne(t, stdout.Bytes()); e.OK || e.Error == nil || e.Error.Code != envelope.CodeProjectRefused || !strings.Contains(e.Error.Message, "/home/u is the home directory") {
 		t.Errorf("envelope = %+v, want project-refused", e)
 	}
 }
@@ -207,8 +207,8 @@ func TestRunApplyRefusals(t *testing.T) {
 		err  error
 		code string
 	}{
-		{name: "consent", err: &app.ApplyConsentError{Plan: projectPlan, Files: 1}, code: output.CodeConsent},
-		{name: "refused", err: &app.ApplyRefusedError{Plan: refused}, code: output.CodeApplyRefused},
+		{name: "consent", err: &app.ApplyConsentError{Plan: projectPlan, Files: 1}, code: envelope.CodeConsent},
+		{name: "refused", err: &app.ApplyRefusedError{Plan: refused}, code: envelope.CodeApplyRefused},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			var stdout bytes.Buffer
@@ -276,7 +276,7 @@ func TestRunApplyRefusesAnInvalidRecord(t *testing.T) {
 	if code := cli.Run([]string{"apply", "--profile", "web", "--json"}, env); code != cli.ExitInternal {
 		t.Errorf("exit code = %d, want %d", code, cli.ExitInternal)
 	}
-	if e := decodeOne(t, stdout.Bytes()); e.Error == nil || e.Error.Code != output.CodeRecordInvalid {
+	if e := decodeOne(t, stdout.Bytes()); e.Error == nil || e.Error.Code != envelope.CodeRecordInvalid {
 		t.Errorf("envelope = %+v, want record-invalid", e)
 	}
 }

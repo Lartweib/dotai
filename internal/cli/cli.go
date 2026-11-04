@@ -1,6 +1,6 @@
 // Package cli wires the dotai commands. It only parses flags, calls the use
 // cases in internal/app and prints their results as text or as the JSON
-// envelope of internal/cli/output.
+// envelope of internal/cli/envelope.
 package cli
 
 import (
@@ -15,7 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/lartweib/dotai/internal/app"
-	"github.com/lartweib/dotai/internal/cli/output"
+	"github.com/lartweib/dotai/internal/envelope"
 )
 
 // Exit codes.
@@ -54,6 +54,21 @@ type Env struct {
 	// Prompt asks the user a yes or no question; nil when no one can
 	// answer, such as when stdin is not a terminal.
 	Prompt func(ctx context.Context, question string) (bool, error)
+	// UI is dotai ui: it serves the local web UI until ctx is done.
+	// OpenBrowser opens an address in the user's browser; it is nil when
+	// no browser can be opened.
+	UI          func(ctx context.Context, opts UIOptions) error
+	OpenBrowser func(url string) error
+}
+
+// UIOptions holds the choices of dotai ui that Env.UI receives: the
+// absolute home and rulesync cache directories, the port (0 picks a free
+// one), and Ready, which UI calls once it listens, with the address to
+// open.
+type UIOptions struct {
+	Home, CacheDir string
+	Port           int
+	Ready          func(url string) error
 }
 
 // resultError is a command that failed after it produced a result that
@@ -66,15 +81,6 @@ type resultError struct {
 
 func (e *resultError) Error() string { return e.err.Error() }
 func (e *resultError) Unwrap() error { return e.err }
-
-// invalidError is a command outcome that rejects its input, such as a pack
-// with errors. data is the result that explains why.
-type invalidError struct {
-	msg  string
-	data any
-}
-
-func (e *invalidError) Error() string { return e.msg }
 
 // Run executes dotai with args (without the program name) and returns the
 // process exit code.
@@ -97,7 +103,7 @@ func Run(args []string, env Env) int {
 	root.SetArgs(args)
 	root.SetOut(env.Stdout)
 	root.SetErr(env.Stderr)
-	root.AddCommand(newVersionCmd(env, &jsonOut), newValidateCmd(env, &jsonOut), newStageCmd(env, &jsonOut), newRulesyncCmd(env, &jsonOut), newInstallCmd(env, &jsonOut), newApplyCmd(env, &jsonOut), newRestoreCmd(env, &jsonOut), newDoctorCmd(env, &jsonOut), newRunCmd(env, &jsonOut, &parsed))
+	root.AddCommand(newVersionCmd(env, &jsonOut), newValidateCmd(env, &jsonOut), newStageCmd(env, &jsonOut), newRulesyncCmd(env, &jsonOut), newInstallCmd(env, &jsonOut), newApplyCmd(env, &jsonOut), newRestoreCmd(env, &jsonOut), newDoctorCmd(env, &jsonOut), newRunCmd(env, &jsonOut, &parsed), newUICmd(env, &jsonOut))
 
 	// In JSON mode help is a result like any other: one envelope whose data
 	// holds the help text.
@@ -111,7 +117,7 @@ func Run(args []string, env Env) int {
 		root.SetOut(&buf)
 		textHelp(cmd, a)
 		root.SetOut(env.Stdout)
-		_ = output.Write(env.Stdout, output.Success(commandName(cmd), map[string]string{"help": buf.String()}))
+		_ = envelope.Write(env.Stdout, envelope.Success(commandName(cmd), map[string]string{"help": buf.String()}))
 	})
 
 	cmd, err := root.ExecuteC()
@@ -123,49 +129,29 @@ func Run(args []string, env Env) int {
 		return exitCode.code
 	}
 
-	code, exit := output.CodeInternal, ExitInternal
-	var invalid *invalidError
-	var usage *app.UsageError
-	var data any // what explains a refusal, in the envelope
-	consent, refused, running := (*app.ConsentError)(nil), (*app.RefusedError)(nil), (*app.RunningError)(nil)
-	project := (*app.ProjectRefusedError)(nil)
-	applyConsent, applyRefused := (*app.ApplyConsentError)(nil), (*app.ApplyRefusedError)(nil)
-	switch {
-	case !started, errors.As(err, &usage):
-		code, exit = output.CodeUsage, ExitUsage
-	case errors.As(err, &invalid):
-		code, exit = output.CodeInvalid, ExitInvalid
-	case errors.As(err, &consent):
-		code, data = output.CodeConsent, consent.Plan
-	case errors.As(err, &refused):
-		code, data = output.CodeRefused, refused.Plan
-	case errors.As(err, &running):
-		code, data = output.CodeRunning, map[string]any{"harnesses": running.Harnesses, "running": runningList(running.Running)}
-	case errors.As(err, &project):
-		code = output.CodeProjectRefused
-	case errors.As(err, &applyConsent):
-		code, data = output.CodeConsent, applyConsent.Plan
-	case errors.As(err, &applyRefused):
-		code, data = output.CodeApplyRefused, applyRefused.Plan
-	case errors.As(err, new(*app.RecordInvalidError)):
-		code = output.CodeRecordInvalid
+	// The errors map to codes as in the web UI; only a usage error before
+	// the command started is the CLI's own.
+	code, data := envelope.Classify(err) // data explains a refusal, in the envelope
+	if !started {
+		code, data = envelope.CodeUsage, nil
+	}
+	exit := ExitInternal
+	switch code {
+	case envelope.CodeUsage:
+		exit = ExitUsage
+	case envelope.CodeInvalid:
+		exit = ExitInvalid
 	}
 	if re, ok := errors.AsType[*resultError](err); ok && data == nil {
 		data = re.data
 	}
 	if parsed && jsonOut || !parsed && jsonRequested(root, args) {
-		e := output.Failure(commandName(cmd), code, err.Error())
+		e := envelope.Failure(commandName(cmd), code, err.Error())
 		e.Data = data
-		if conflict, ok := errors.AsType[*app.ConflictError](err); ok {
-			e.Data = map[string]any{"conflicts": conflict.Conflicts}
-		}
-		if invalid != nil {
-			e = output.Invalid(commandName(cmd), err.Error(), invalid.data)
-		}
-		_ = output.Write(env.Stdout, e)
+		_ = envelope.Write(env.Stdout, e)
 		return exit
 	}
-	if invalid != nil {
+	if _, invalid := errors.AsType[*envelope.InvalidError](err); invalid && started {
 		return exit // the report on stdout already explains it
 	}
 	fmt.Fprintf(env.Stderr, "Error: %v\n", err)
@@ -173,14 +159,6 @@ func Run(args []string, env Env) int {
 		fmt.Fprintln(env.Stderr, "Run 'dotai --help' for usage.")
 	}
 	return exit
-}
-
-// runningList is never nil, so that it is [] in an envelope.
-func runningList(r []app.RunningHarness) []app.RunningHarness {
-	if r == nil {
-		return []app.RunningHarness{}
-	}
-	return r
 }
 
 func newVersionCmd(env Env, jsonOut *bool) *cobra.Command {
@@ -191,7 +169,7 @@ func newVersionCmd(env Env, jsonOut *bool) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			v := env.Version()
 			if *jsonOut {
-				return output.Write(env.Stdout, output.Success(commandName(cmd), v))
+				return envelope.Write(env.Stdout, envelope.Success(commandName(cmd), v))
 			}
 			_, err := fmt.Fprintf(env.Stdout,
 				"dotai %s\ncommit:   %s\nbuilt:    %s\ngo:       %s\nplatform: %s/%s\n",
@@ -226,7 +204,7 @@ func newValidateCmd(env Env, jsonOut *bool) *cobra.Command {
 			return err
 		}
 		if *jsonOut {
-			return output.Write(env.Stdout, output.Success(commandName(cmd), res))
+			return envelope.Write(env.Stdout, envelope.Success(commandName(cmd), res))
 		}
 		if res.Pack == nil {
 			return errors.New("validation returned no pack")
@@ -275,7 +253,7 @@ func newStageCmd(env Env, jsonOut *bool) *cobra.Command {
 			return rejectPack(env, *jsonOut, *format, res.Pack, res.Diagnostics, res)
 		}
 		if *jsonOut {
-			return output.Write(env.Stdout, output.Success(commandName(cmd), res))
+			return envelope.Write(env.Stdout, envelope.Success(commandName(cmd), res))
 		}
 		for _, f := range res.Files {
 			if _, err := fmt.Fprintf(env.Stdout, "%s/%s  %s\n", f.Scope, f.Path, cmp.Or(f.Layer, f.Generator)); err != nil {
@@ -345,7 +323,7 @@ func rejectPack(env Env, jsonOut bool, format formatValue, p *app.PackSummary, d
 			return err
 		}
 	}
-	return &invalidError{msg: fmt.Sprintf("pack is invalid: %d problem(s)", len(diags)), data: data}
+	return envelope.PackInvalid(diags, data)
 }
 
 // commandName is the command path without the program name; the root

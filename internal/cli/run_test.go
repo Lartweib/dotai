@@ -9,7 +9,7 @@ import (
 
 	"github.com/lartweib/dotai/internal/app"
 	"github.com/lartweib/dotai/internal/cli"
-	"github.com/lartweib/dotai/internal/cli/output"
+	"github.com/lartweib/dotai/internal/envelope"
 )
 
 // runPlan is Claude Code's launch with fixed paths, so that the output
@@ -161,7 +161,7 @@ func TestRunRunUsageErrors(t *testing.T) {
 				return
 			}
 			e := decodeOne(t, stdout.Bytes())
-			if e.OK || e.Command != "run" || e.Error == nil || e.Error.Code != output.CodeUsage || !strings.Contains(e.Error.Message, "--json") {
+			if e.OK || e.Command != "run" || e.Error == nil || e.Error.Code != envelope.CodeUsage || !strings.Contains(e.Error.Message, "--json") {
 				t.Errorf("envelope = %+v, want a usage error about --json", e)
 			}
 		})
