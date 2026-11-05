@@ -470,6 +470,7 @@ form.well { gap: var(--s3); }
   .btns { flex-direction: column; }
   .btns > .btn, .btns > a.btn, .menu > summary.btn { width: 100%; height: 44px; }
   .menu-list { left: 0; right: 0; }
+  .repo .btns { width: 100%; }
   .actions .help { flex-basis: auto; }
   .input { max-width: none; }
 }
