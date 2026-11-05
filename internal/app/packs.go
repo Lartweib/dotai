@@ -224,6 +224,9 @@ var (
 // not answer in time, is listed with why.
 func describePacks(home string, doc packsDoc) PackList {
 	list := PackList{Path: filepath.Join(home, dotaiDir, packsFile), Packs: make([]PackEntry, len(doc.Packs))}
+	// Read once here: a pack that does not answer leaves its goroutine
+	// running after the list returns, and it must not read them later.
+	identify, wait := identifyPack, identifyWait
 	var wg sync.WaitGroup
 	for i, p := range doc.Packs {
 		list.Packs[i] = PackEntry{Path: p.Path}
@@ -240,7 +243,7 @@ func describePacks(home string, doc packsDoc) PackList {
 			}
 			done := make(chan id, 1)
 			go func() {
-				n, v, err := identifyPack(e.Path)
+				n, v, err := identify(e.Path)
 				done <- id{n, v, err}
 			}()
 			select {
@@ -250,8 +253,8 @@ func describePacks(home string, doc packsDoc) PackList {
 				} else {
 					e.Name, e.Version = r.name, r.version
 				}
-			case <-time.After(identifyWait):
-				e.Error = fmt.Sprintf("the pack did not answer within %s", identifyWait)
+			case <-time.After(wait):
+				e.Error = fmt.Sprintf("the pack did not answer within %s", wait)
 			}
 		}(&list.Packs[i])
 	}
