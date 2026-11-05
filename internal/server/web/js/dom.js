@@ -110,24 +110,34 @@ export function op(action, path, note, why) {
     why ? h("span", { class: "why", text: why }) : null);
 }
 
-export function warning(code, text) {
-  return h("li", { class: "wn" }, icon("warn", 16),
-    h("span", { class: "wt" }, code ? h("span", { class: "code", text: code }) : null, h("span", { class: "msg", text })));
+// tech folds what dotai said in its own words, in English, behind a
+// summary, for the reader who wants it.
+export function tech(detail) {
+  return detail ? h("details", { class: "tech" }, h("summary", { text: t("common.tech") }), h("p", { class: "mono-text", text: detail })) : null;
 }
 
-// notice is a message box: kind is "", "bad" or "good".
-export function notice(kind, text, code, detail) {
+// warning is one note of a plan: its title in the chosen language, from
+// its code when the page knows it, and what dotai said as the detail.
+export function warning(code, text, detail) {
+  return h("li", { class: "wn" }, icon("warn", 16),
+    h("span", { class: "wt" }, code ? h("span", { class: "label", text: t("code." + code, {}, code) }) : null,
+      text ? h("span", { class: "msg", text }) : null, tech(detail)));
+}
+
+// notice is a message box: kind is "", "bad" or "good"; extra is a
+// sentence for people, detail what dotai said.
+export function notice(kind, text, detail, extra) {
   return h("div", { class: "notice " + (kind || ""), role: kind === "bad" ? "alert" : "status" },
-    code ? h("span", { class: "code", text: code }) : null,
     h("span", { class: "msg", text }),
-    detail ? h("span", { class: "nd", text: detail }) : null);
+    extra ? h("span", { class: "nd", text: extra }) : null,
+    tech(detail));
 }
 
 // failure shows an API error in the chosen language, with what the
-// server said when it adds to it.
+// server said as its technical detail.
 export function failure(error) {
   const e = errorText(error);
-  return notice("bad", e.text, error && error.code, e.detail);
+  return notice("bad", e.text, e.detail, e.extra);
 }
 
 export function busy(text) {

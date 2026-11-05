@@ -6,7 +6,7 @@
 // people (js/i18n.js), not rules of the engine; the finding's own message
 // comes from dotai.
 
-import { actions, boardHead, busy, failure, h, kv, mount, notice, sec } from "./dom.js";
+import { actions, boardHead, busy, failure, h, kv, mount, notice, sec, tech } from "./dom.js";
 import { guard } from "./flows.js";
 import { fmtTime, t } from "./i18n.js";
 import { act, api, harnessName, tilde } from "./store.js";
@@ -42,7 +42,7 @@ function draw(list, detail, d, ctx, msg, checked) {
   }
   let cur = findings[0];
   const out = h("div", { class: "out" });
-  const fix = h("button", { class: "btn primary", type: "button", text: t("doctor.fix") });
+  const fix = h("button", { class: "btn primary", type: "button", text: t("doctor.fixN", { n: fixable.length }) });
   const g = guard(fix, () => fixable.length > 0 && !!d.digest);
   g.sync();
   fix.addEventListener("click", async () => {
@@ -86,8 +86,9 @@ function draw(list, detail, d, ctx, msg, checked) {
   const paint = () => {
     mount(list,
       h("div", { class: "listhead stack" },
-        h("p", { class: "t-meta", text: t("doctor.status", { n: open.length, f: fixable.length, time: checked }) }),
-        actions([open.length ? fix : null, h("button", { class: "btn", type: "button", onclick: () => ctx.again(), text: t("doctor.again") })].filter(Boolean),
+        h("p", { class: "t-meta" }, open.length ? t("doctor.problems", { n: open.length }) + (fixable.length ? ", " + t("doctor.canFix", { n: fixable.length }) : "") : t("doctor.noProblems"),
+          " · ", h("span", { class: "nowrap", text: t("doctor.checkedAt", { time: checked }) })),
+        actions([fixable.length ? fix : null, h("button", { class: "btn", type: "button", onclick: () => ctx.again(), text: t("doctor.again") })].filter(Boolean),
           fixable.length ? t("doctor.fixNote", { n: new Set(fixable.map((f) => f.project)).size }) : open.length ? t("doctor.nothingFixable") : ""),
         msg, out),
       findings.length ? rows() : h("p", { class: "help empty", text: t("doctor.clean") }));
@@ -116,5 +117,5 @@ function showFinding(detail, f, d) {
     h("div", { class: "col" },
       sec(t("doctor.where"), "", kv([[t("doctor.k.file"), tilde(f.path), true], [t("doctor.k.key"), (f.key || []).join("."), true], [t("doctor.k.harness"), f.harness ? harnessName(f.harness) : ""], [t("doctor.k.project"), tilde(f.project), true],
         [t("doctor.k.recorded"), f.project ? t("doctor.projectRecord") : d.state ? tilde(d.state) : "", !f.project]])),
-      sec(t("doctor.says"), t("doctor.saysHint"), h("p", { class: "quote", text: f.message }))));
+      h("div", { class: "sec-tech" }, tech(f.message))));
 }

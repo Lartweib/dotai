@@ -16,7 +16,6 @@ export async function render(root, ctx) {
   mount(root, boardHead("projects"), list, detail);
   const known = (shared.status ? shared.status.projects : []).filter((p) => p.project);
   const paths = [...new Set([...known.map((p) => p.project), ...recentProjects()])];
-  ctx.setCount("projects", known.length);
   let cur = ctx.arg || paths[0] || "";
 
   const input = h("input", { class: "input mono", id: "project-path", type: "text", placeholder: t("projects.placeholder"), autocomplete: "off", spellcheck: "false", "aria-describedby": "project-help" });
@@ -69,7 +68,7 @@ async function showProject(detail, project, st, ctx) {
       h("h2", { class: "h-detail", text: base(project) }),
       h("p", { class: "meta" }, rec ? h("span", { class: "pill you", text: t("projects.appliedPill") }) : h("span", { class: "pill state", text: t("projects.notApplied") }),
         rec ? h("span", { class: "t-meta", text: t("projects.lastApplied", { when: fmtRelative(rec.appliedAt) }) }) : null),
-      st && st.error ? notice("bad", st.error, "record") : null),
+      st && st.error ? notice("bad", t("projects.recordError"), st.error) : null),
     h("div", { class: "col" },
       rec ? sec(t("projects.appliedSec"), "", kv([
         [t("projects.k.pack"), rec.pack.name + " " + rec.pack.version],
@@ -165,10 +164,10 @@ function showPlan(out, req, p, ctx, msg) {
     mount(result, failure(r.error));
   });
   const notes = [
-    ...(p.refusals || []).map((x) => warning(x.code, x.message)),
-    ...(p.warnings || []).map((x) => warning(x.code, x.message)),
-    ...(p.notices || []).map((x) => warning("", typeof x === "string" ? x : x.message)),
-  ];
+    ...(p.refusals || []).map((x) => warning(x.code, t("note." + x.code, { harness: harnessName(x.harness), item: x.item }, ""), x.message)),
+    ...(p.warnings || []).map((x) => warning(x.code, t("note." + x.code, { harness: harnessName(x.harness), item: x.item }, ""), x.message)),
+    (p.notices || []).length ? warning("notice", t("plan.notices", { n: p.notices.length }), p.notices.map((x) => (typeof x === "string" ? x : x.message)).join("\n")) : null,
+  ].filter(Boolean);
   const harnesses = [...p.harnesses, ""];
   mount(out, h("div", { class: "planout" }, msg || null,
     h("p", { class: "summary", text: t(p.firstApply ? "projects.firstApply" : "projects.appliedBefore", { variant: p.variant, profiles: p.profiles.join(", ") }) }),

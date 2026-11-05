@@ -72,7 +72,7 @@ function showPreview(el, f, r, msg) {
       await f.ctx.refresh();
       if (f.ctx.stale()) return;
       mount(el, notice("good", res.data.backup ? t("restore.done", { id: res.data.backup.id }) : t("restore.doneNothing")),
-        (res.data.warnings || []).length ? h("ul", { class: "list" }, res.data.warnings.map((w) => warning("", w))) : null,
+        (res.data.warnings || []).length ? h("ul", { class: "list" }, warning("notice", t("plan.notices", { n: res.data.warnings.length }), res.data.warnings.join("\n"))) : null,
         actions([h("button", { class: "btn", type: "button", onclick: () => f.ctx.again(), text: t("common.showAgain") })]));
       return;
     }
@@ -86,7 +86,7 @@ function showPreview(el, f, r, msg) {
   mount(el, h("div", { class: "stack" }, msg || null,
     h("p", { class: "body", text: f.lead(r) }),
     h("ul", { class: "list" }, rows.length ? rows : h("li", { class: "quietp", text: t("common.nothingToWrite") })),
-    (r.warnings || []).length ? h("ul", { class: "list" }, r.warnings.map((w) => warning("", w))) : null,
+    (r.warnings || []).length ? h("ul", { class: "list" }, warning("notice", t("plan.notices", { n: r.warnings.length }), r.warnings.join("\n"))) : null,
     conflicts.length ? h("div", { class: "well" }, h("p", { class: "t-label", text: t("restore.conflicts", { n: conflicts.length }) }), conflictList(conflicts)) : null,
     conflicts.length ? h("label", { class: "check" }, yes, h("span", { text: t("restore.overwrite") })) : null,
     actions([go], f.says), out));

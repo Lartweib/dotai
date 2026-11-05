@@ -71,11 +71,13 @@ function renderNav() {
   mount(document.getElementById("nav"), navItems.map((id) =>
     h("li", {}, h("a", { class: "nav-e", href: "#/" + id, "aria-current": id === current ? "page" : null },
       icon(id), h("span", { class: "nl", text: t("nav." + id) }),
-      counts[id] !== undefined ? h("span", { class: id === "doctor" && counts[id] > 0 ? "n you" : "n", text: String(counts[id]),
+      counts[id] ? h("span", { class: id === "doctor" && counts[id] > 0 ? "n you" : "n", text: String(counts[id]),
         "aria-label": t("nav.count." + id, { n: counts[id] }) }) : null))));
 }
 
-// setCount sets the number a board shows in the navigation.
+// setCount sets the number a board shows in the navigation. refresh sets
+// them all after an action; the Doctor board sets its own, the one count
+// only its check knows. A count of zero is not shown.
 export function setCount(id, n) {
   counts[id] = n;
   renderNav();

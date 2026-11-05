@@ -6,7 +6,7 @@
 
 import { actions, boardHead, busy, failure, h, hint, kv, mount, notice, sec } from "./dom.js";
 import { confirmFlow, restoreHomeFlow, restoreProjectFlow } from "./flows.js";
-import { fmtDate, fmtRelative, t } from "./i18n.js";
+import { fmtDate, fmtRelative, lower, t } from "./i18n.js";
 import { api, harnessName, tilde } from "./store.js";
 
 export async function render(root, ctx) {
@@ -23,7 +23,6 @@ export async function render(root, ctx) {
   const groups = [{ scope: "home", label: t("backups.home"), dir: "", project: "", items: res.data.home },
     ...res.data.projects.map((p) => ({ scope: "project", label: p.project ? tilde(p.project) : t("backups.unknownProject"), dir: tilde(p.path), project: p.project, error: p.error, items: p.backups }))];
   const all = groups.flatMap((g) => g.items.map((b) => ({ b, g })));
-  ctx.setCount("backups", all.length);
   let cur = all.find((x) => x.b.id === ctx.arg) || all[0];
 
   const draw = () => {
@@ -31,12 +30,12 @@ export async function render(root, ctx) {
       h("div", { class: "listhead" }, h("span", { class: "t-meta", text: t("backups.count", { n: all.length }) }), h("span", { class: "grow" }), h("span", { class: "t-meta", text: t("backups.newest") })),
       groups.map((g) => h("div", { class: "group" },
         h("div", { class: "gh" }, h("h2", { text: g.label }), h("span", { class: "cnt", text: String(g.items.length) })),
-        g.error ? notice("bad", g.error, "unreadable") : null,
+        g.error ? notice("bad", t("backups.unreadable"), g.error) : null,
         h("ul", { class: "rows" }, g.items.length ? g.items.map((b) => h("li", {},
           h("button", { class: "rowbtn", type: "button", "aria-pressed": String(cur && cur.b === b), onclick: () => { cur = all.find((x) => x.b === b); draw(); } },
             h("span", { class: "main" },
-              h("span", { class: "title" }, h("b", { text: title(b) }), badge(b) ? h("span", { class: "pill sm state", text: badge(b) }) : null),
-              h("span", { class: "t-path", text: b.id })),
+              h("span", { class: "title" }, h("b", { text: title(b, g) }), badge(b) ? h("span", { class: "pill sm state", text: badge(b) }) : null),
+              subtitle(b) ? h("span", { class: "t-meta", text: subtitle(b) }) : null),
             h("span", { class: "when", title: fmtDate(b.createdAt), text: fmtRelative(b.createdAt) }))))
           : h("li", { class: "help empty", text: t("backups.noneHere") })))));
     show(detail, cur, ctx);
@@ -47,8 +46,17 @@ export async function render(root, ctx) {
 const named = (b) => b.pack && b.pack.name;
 const opName = (op) => t("backups.op." + op, {}, op);
 
-function title(b) {
-  return named(b) ? t("backups.titleNamed", { op: opName(b.operation), name: b.pack.name }) : opName(b.operation);
+// title says what the backup is of: the install of a pack, or the apply,
+// restore or fix in a project, by the project's folder name.
+function title(b, g) {
+  if (named(b)) return t("backups.titleNamed", { op: opName(b.operation), name: b.pack.name });
+  if (g.project) return t("backups.titleIn", { op: opName(b.operation), name: g.project.split(/[\\/]/).filter(Boolean).pop() });
+  return opName(b.operation);
+}
+
+// subtitle is the variant and the mode of a home backup.
+function subtitle(b) {
+  return [b.variant, b.mode ? lower(t("mode." + b.mode)) : ""].filter(Boolean).join(" · ");
 }
 
 function badge(b) {
@@ -73,7 +81,7 @@ function show(detail, cur, ctx) {
         h("span", { class: "t-meta", title: fmtDate(b.createdAt), text: fmtRelative(b.createdAt) })),
       h("h2", { class: "h-detail", text: headline(b, g) }),
       b.head ? hint(t("backups.currentHint")) : null,
-      b.error ? notice("bad", b.error, "invalid") : null),
+      b.error ? notice("bad", t("backups.invalidBody"), b.error) : null),
     h("div", { class: "col" },
       sec(t("backups.details"), "", kv([
         [t("backups.k.created"), fmtDate(b.createdAt)],

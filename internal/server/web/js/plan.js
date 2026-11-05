@@ -81,7 +81,7 @@ export async function render(root, ctx) {
     mount(pane,
       h("div", { class: "col wide intro" },
         crumbs(pack, summary),
-        h("h2", { class: "h-page", text: p.variant ? t("plan.titleVariant", { name: p.pack ? p.pack.name : "", variant: p.variant }) : t("plan.title", { name: p.pack ? p.pack.name : "" }) }),
+        h("h2", { class: "h-page", text: p.variant ? t("plan.headingVariant", { name: p.pack ? p.pack.name : "", variant: p.variant }) : t("plan.heading", { name: p.pack ? p.pack.name : "" }) }),
         h("p", { class: "meta" }, p.variant ? lm(p.variant) : null,
           h("span", { class: "t-meta", text: [replacedNote(p), managed(p).map((x) => harnessName(x.id)).join(", ")].filter(Boolean).join(" · ") })),
         msg || null),
@@ -92,7 +92,7 @@ export async function render(root, ctx) {
         modes(p.mode, (m) => { state.mode = m; state.consent = false; replan(); })),
       h("div", { class: "col wide" },
         h("p", { class: "summary", text: counts(p) }),
-        p.diagnostics.length ? sec(t("plan.problems"), "", h("ul", { class: "list" }, p.diagnostics.map((d) => warning(d.code, (d.file ? d.file + ": " : "") + d.message)))) : null,
+        p.diagnostics.length ? sec(t("plan.problems"), "", h("ul", { class: "list" }, p.diagnostics.map((d) => warning(d.code, d.file || "", d.message)))) : null,
         sections(p),
         sec(t("plan.warnings"), "", warnings(p)),
         sec(t("plan.backup"), t("hint.backup"),
@@ -158,20 +158,24 @@ function keysOf(o) {
 function counts(p) {
   const n = (a) => p.ops.filter((o) => o.action === a).length;
   const parts = ["create", "replace", "remove"].filter((a) => n(a)).map((a) => t("plan.count." + a, { n: n(a) }));
-  if (p.wipes.length || p.wipeKeys.length) parts.push(t("plan.count.wipe", { n: p.wipes.length, k: p.wipeKeys.length }));
+  if (p.wipes.length) parts.push(t("plan.count.wipeEntries", { n: p.wipes.length }));
+  if (p.wipeKeys.length) parts.push(t("plan.count.wipeKeys", { n: p.wipeKeys.length }));
   if (n("unchanged")) parts.push(t("plan.count.unchanged", { n: n("unchanged") }));
   return parts.join(" · ") || t("common.nothingToWrite");
 }
 
+// warnings says, per harness, one short line of what the plan warns about,
+// with what dotai said behind it.
 function warnings(p) {
+  const relogin = p.harnesses.filter((x) => x.managed && x.relogin === "yes").map((x) => harnessName(x.id));
   const list = [
-    ...p.refusals.map((r) => warning(r.code, r.message)),
-    ...p.harnesses.filter((x) => x.managed && x.relogin === "yes").map((x) => warning("relogin", t("plan.relogin", { name: harnessName(x.id) }))),
-    ...p.harnesses.filter((x) => x.managed && x.leaks.length).map((x) => warning("still-shared", harnessName(x.id) + ": " + x.leaks.join("; ") + ".")),
-    ...p.notices.map((n) => warning("", n)),
-  ];
+    ...p.refusals.map((r) => warning(r.code, t("note." + r.code, {}, ""), r.message)),
+    relogin.length ? warning("relogin", t("plan.relogin", { n: relogin.length, list: relogin.join(", ") })) : null,
+    ...p.harnesses.filter((x) => x.managed && x.leaks.length).map((x) => warning("still-shared", t("plan.stillShared", { name: harnessName(x.id) }), x.leaks.join("; ") + ".")),
+    p.notices.length ? warning("notice", t("plan.notices", { n: p.notices.length }), p.notices.join("\n")) : null,
+  ].filter(Boolean);
   if (p.consent) {
-    list.unshift(warning("consent-required", t("plan.consentWarn", { n: p.wipes.length, k: p.wipeKeys.length })));
+    list.unshift(warning("consent-required", t("plan.consentWarn", { entries: t("plan.entries", { n: p.wipes.length }), keys: t("plan.keyCount", { n: p.wipeKeys.length }) })));
   }
   return list.length ? h("ul", { class: "list" }, list) : h("p", { class: "quietp", text: t("plan.noWarnings") });
 }
@@ -186,7 +190,7 @@ function done(pack, summary, res) {
     crumbs(pack, summary, true),
     h("h2", { class: "h-page", text: t("plan.doneTitle", { name: res.pack ? res.pack.name : "" }) }),
     notice("good", res.backup ? t("plan.doneBackup", { id: res.backup.id }) : t("plan.doneNothing")),
-    res.warnings && res.warnings.length ? h("ul", { class: "list" }, res.warnings.map((w) => warning("", w))) : null,
+    res.warnings && res.warnings.length ? h("ul", { class: "list" }, warning("notice", t("plan.notices", { n: res.warnings.length }), res.warnings.join("\n"))) : null,
     actions([h("a", { class: "btn primary", href: "#/tree/" + encodeURIComponent(pack), text: t("packs.seeFiles") }),
       h("a", { class: "btn", href: "#/backups", text: t("nav.backups") }), h("a", { class: "btn quiet", href: "#/packs", text: t("nav.packs") })]));
 }

@@ -95,8 +95,11 @@ export const selectedPack = () => {
 };
 export const selectPack = (path) => write(selectedKey, path);
 
+// loadRegistry reads the registry; a registry dotai cannot read is kept
+// as registryError, for the Packs board to say so.
 export async function loadRegistry() {
   const res = await api("/api/packs");
+  shared.registryError = res.ok ? null : res.error && res.error.code === "registry-invalid" ? { ...res.error, data: res.data } : null;
   if (res.ok) shared.registry = res.data;
   return res;
 }
@@ -111,7 +114,7 @@ export const isAbsolute = (p) => /^(\/|[A-Za-z]:[\\/]|\\\\)/.test(p);
 
 // The state every page reads, loaded once and again after an action: the
 // status, the packs read this visit and the names of the harnesses.
-export const shared = { status: null, registry: null, packs: new Map(), harnesses: new Map() };
+export const shared = { status: null, registry: null, registryError: null, packs: new Map(), harnesses: new Map() };
 
 export async function loadStatus() {
   const [res, hs] = await Promise.all([api("/api/status"), shared.harnesses.size ? null : api("/api/harnesses"), loadRegistry()]);
@@ -162,6 +165,7 @@ export function isInstalled(path) {
 
 export const samePath = (a, b) => slash(a).toLowerCase() === slash(b).toLowerCase();
 
-// harnessName is the name dotai gives the harness id, the id itself for
-// one it does not name, and the tools directory without one.
-export const harnessName = (id) => (id ? shared.harnesses.get(id) || id : t("common.tools"));
+// harnessName names the harness id the same way on every board, as the
+// page's words say, falling back to the name dotai gives it; without an id
+// it names the tools directory.
+export const harnessName = (id) => (id ? t("harness." + id, {}, shared.harnesses.get(id) || id) : t("common.tools"));

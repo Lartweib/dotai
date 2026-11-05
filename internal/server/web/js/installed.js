@@ -3,9 +3,9 @@
 // (each a plan or a preview first, then confirm), and the repositories
 // where dotai apply ran, as the project records list them.
 
-import { actions, boardHead, h, hint, kv, lm, mount, sec } from "./dom.js";
+import { actions, boardHead, h, kv, lm, mount, sec } from "./dom.js";
 import { confirmFlow, restoreHomeFlow, restoreProjectFlow } from "./flows.js";
-import { fmtDate, fmtRelative, t } from "./i18n.js";
+import { fmtDate, fmtRelative, lower, t } from "./i18n.js";
 import { harnessName, installed, registry, shared, tilde } from "./store.js";
 
 const base = (p) => p.split(/[\\/]/).filter(Boolean).pop() || p;
@@ -16,13 +16,12 @@ export async function render(root, ctx) {
   const s = installed();
   const home = h("div", { class: "stack" });
   const projects = (shared.status ? shared.status.projects : []).filter((p) => p.project);
-  ctx.setCount("installed", projects.length + (s ? 1 : 0));
 
   if (s) {
     const enc = encodeURIComponent(s.pack.path);
     const undo = h("div", { class: "out" });
     mount(home,
-      h("div", { class: "meta" }, h("span", { class: "dot on" }), h("span", { class: "pill you", text: t("packs.installedMode", { mode: t("mode." + s.mode).toLocaleLowerCase() }) }),
+      h("div", { class: "meta" }, h("span", { class: "dot on" }), h("span", { class: "pill you", text: t("packs.installedMode", { mode: lower(t("mode." + s.mode)) }) }),
         h("span", { class: "t-meta", text: fmtRelative(s.installedAt) })),
       h("h2", { class: "h-page" }, s.pack.name + " ", h("span", { class: "ver", text: s.pack.version })),
       kv([
@@ -32,7 +31,6 @@ export async function render(root, ctx) {
         [t("installed.k.when"), fmtDate(s.installedAt)],
         [t("installed.k.pack"), tilde(s.pack.path), true],
       ]),
-      hint(t("mode." + s.mode + "Desc")),
       actions([
         h("a", { class: "btn primary", href: "#/plan/" + enc, text: t("installed.reinstall") }),
         h("a", { class: "btn", href: "#/tree/" + enc, text: t("packs.seeFiles") }),
@@ -69,6 +67,6 @@ function repoRow(p, ctx) {
       p.error ? h("span", { class: "err", text: p.error }) : null),
     h("div", { class: "btns" },
       h("a", { class: "btn sm", href: "#/projects/" + encodeURIComponent(p.project), text: t("installed.openRepo") }),
-      rec ? h("button", { class: "btn sm quiet", type: "button", text: t("projects.restorePreview"), onclick: () => confirmFlow(out, restoreProjectFlow(p.project, ctx)) }) : null),
+      rec ? h("button", { class: "btn sm", type: "button", text: t("projects.restorePreview"), onclick: () => confirmFlow(out, restoreProjectFlow(p.project, ctx)) }) : null),
     out);
 }

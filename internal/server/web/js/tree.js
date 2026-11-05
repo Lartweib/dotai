@@ -8,7 +8,7 @@
 
 import { boardHead, busy, failure, h, icon, mount, sec } from "./dom.js";
 import { rel, word } from "./flows.js";
-import { t } from "./i18n.js";
+import { lower, t } from "./i18n.js";
 import { harnessName, installed, isInstalled, loadPack, post, selectedPack, tilde } from "./store.js";
 
 const groups = [
@@ -62,7 +62,7 @@ export async function render(root, ctx) {
       h("div", { class: "listhead stack" },
         h("p", { class: "meta" }, h("a", { class: "t-meta", href: "#/packs", text: summary ? summary.name + " " + summary.version : tilde(pack) }),
           h("span", { class: on ? "pill sm you" : "pill sm state", text: on ? t("tree.installedNow", { variant: s.variant }) : t("tree.notInstalled") })),
-        h("p", { class: "help", text: t("tree.summary", { variant: p.variant || t("tree.noVariant"), mode: t("mode." + p.mode).toLocaleLowerCase() }) }),
+        h("p", { class: "help", text: t("tree.summary", { variant: p.variant || t("tree.noVariant"), mode: lower(t("mode." + p.mode)) }) }),
         h("div", { class: "tabs", role: "tablist", "aria-label": t("tree.harness") }, tabs.map((x) =>
           h("button", { class: "btn sm", type: "button", role: "tab", "aria-selected": String(x.id === view.harness), text: harnessName(x.id),
             onclick: () => { view.harness = x.id; view.sel = ""; draw(); } }))),
@@ -104,7 +104,7 @@ function showItem(detail, it, harness) {
       h("div", { class: "meta" }, h("span", { class: "t-meta", text: groupName(it.group) }),
         h("span", { class: "tag", "data-a": o.action, text: word(o.action) }), h("span", { class: "t-meta", text: harnessName(o.harness) })),
       h("h2", { class: "h-detail", text: leafName(it) }),
-      h("p", { class: "body", text: o.harness ? t("tree.itemLead", { action: word(o.action), name: harnessName(o.harness) }) : t("tree.itemLeadShared", { action: word(o.action) }) })),
+      h("p", { class: "body", text: t("tree.does." + o.action, { name: o.harness ? harnessName(o.harness) : t("tree.everyHarness") }, t("tree.itemLead", { action: word(o.action), name: harnessName(o.harness) })) })),
     h("div", { class: "col" },
       sec(t("tree.writesTo"), "", h("p", { class: "t-path ink", text: o.target }), o.exec ? h("p", { class: "help", text: t("tree.executable") }) : null),
       o.keys && o.keys.length ? sec(t("tree.keys"), t("hint.keys"), h("ul", { class: "list" }, o.keys.map((k) => h("li", { class: "op" }, h("span", { class: "tag", "data-a": k.action, text: word(k.action) }), h("span", { class: "p", text: k.key }))))) : null,
