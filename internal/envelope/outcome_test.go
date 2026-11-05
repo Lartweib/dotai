@@ -22,6 +22,8 @@ func TestTheSharedOutcomesClassify(t *testing.T) {
 		{"invalid pack", envelope.PackInvalid(plan.Diagnostics, plan), envelope.CodeInvalid, "pack is invalid: 2 problem(s)", plan},
 		{"invalid import", &app.PackInvalidError{Path: "/p", Result: app.ValidateResult{Diagnostics: plan.Diagnostics}}, envelope.CodeInvalid,
 			"/p is not a valid pack: dotai validate reports 2 problems", app.ValidateResult{Diagnostics: plan.Diagnostics}},
+		{"corrupt registry", &app.RegistryInvalidError{Path: "/h/.dotai/packs.json", Why: "bad"}, envelope.CodeRegistryInvalid,
+			"the pack registry /h/.dotai/packs.json cannot be read: bad; fix it or move it aside, then try again", map[string]any{"path": "/h/.dotai/packs.json"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

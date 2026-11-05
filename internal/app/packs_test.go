@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lartweib/dotai/internal/app"
 )
@@ -365,4 +367,82 @@ func TestSummarizePackSuggestsAFreeSiblingForACopy(t *testing.T) {
 	if again, _ := app.SummarizePack(dir); again.CopyTarget != filepath.Join(filepath.Dir(dir), "minimal-pack-copy-2") {
 		t.Errorf("copy target with the first taken = %q", again.CopyTarget)
 	}
+}
+
+// writeRegistry writes data as the pack registry of home.
+func writeRegistry(t *testing.T, home, data string) string {
+	t.Helper()
+	name := filepath.Join(home, ".dotai", "packs.json")
+	if err := os.MkdirAll(filepath.Dir(name), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(name, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return name
+}
+
+func TestACorruptRegistryIsRefusedWithItsPath(t *testing.T) {
+	for name, data := range map[string]string{
+		"not JSON":     "{",
+		"other schema": `{"schema":"dotai.packs/v9","packs":[]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			home, dir := t.TempDir(), packCopy(t)
+			file := writeRegistry(t, home, data)
+			for op, call := range map[string]func() error{
+				"list":   func() error { _, err := app.ListPacks(home); return err },
+				"import": func() error { _, err := app.ImportPack(home, dir); return err },
+				"remove": func() error { _, err := app.RemovePack(home, dir); return err },
+			} {
+				var bad *app.RegistryInvalidError
+				if err := call(); !errors.As(err, &bad) || bad.Path != file {
+					t.Errorf("%s = %v, want a RegistryInvalidError for %s", op, err, file)
+				}
+			}
+			if got, _ := os.ReadFile(file); string(got) != data {
+				t.Errorf("packs.json = %q, want it left as it was", got)
+			}
+		})
+	}
+}
+
+func TestARelativeEntryIsListedWithAnErrorAndCanBeRemoved(t *testing.T) {
+	home, dir := t.TempDir(), packCopy(t)
+	writeRegistry(t, home, `{"schema":"dotai.packs/v1","packs":[{"path":"relative/pack"},{"path":`+strconvQuote(dir)+`}]}`)
+	list, err := app.ListPacks(home)
+	if err != nil || len(list.Packs) != 2 || list.Packs[0].Error == "" || list.Packs[1].Name != "minimal-pack" {
+		t.Fatalf("ListPacks() = %+v, %v, want the relative entry with an error and the pack", list.Packs, err)
+	}
+	list, err = app.RemovePack(home, "relative/pack")
+	if err != nil || len(list.Packs) != 1 || list.Packs[0].Path != dir {
+		t.Errorf("RemovePack(relative) = %+v, %v, want the pack alone", list.Packs, err)
+	}
+}
+
+func TestListPacksDoesNotWaitLongForAPackThatDoesNotAnswer(t *testing.T) {
+	home, dir := t.TempDir(), packCopy(t)
+	if _, err := app.ImportPack(home, dir); err != nil {
+		t.Fatal(err)
+	}
+	release := make(chan struct{})
+	defer close(release)
+	restore := app.SetPackIdentify(func(string) (string, string, error) {
+		<-release
+		return "late", "1", nil
+	}, 50*time.Millisecond)
+	defer restore()
+	start := time.Now()
+	list, err := app.ListPacks(home)
+	if err != nil || len(list.Packs) != 1 || list.Packs[0].Error == "" {
+		t.Errorf("ListPacks() = %+v, %v, want the pack listed with an error", list.Packs, err)
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Errorf("ListPacks() took %s", d)
+	}
+}
+
+func strconvQuote(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
 }

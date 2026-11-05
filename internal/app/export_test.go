@@ -5,6 +5,7 @@ import (
 	"context"
 	"path/filepath"
 	"runtime"
+	"time"
 
 	"github.com/lartweib/dotai/internal/proc"
 )
@@ -273,4 +274,13 @@ func RestoreProjectOptsWith(ctx context.Context, d executeFS, g gitPort, project
 // name.
 func CopyPackWith(ctx context.Context, from, to string, afterFile func(n int) error, beforeRename func()) (CopyResult, error) {
 	return copyPack(ctx, from, to, copyHooks{afterFile: afterFile, beforeRename: beforeRename})
+}
+
+// SetPackIdentify makes the pack list read each pack's name and version
+// with f and wait at most wait for it, until the returned function puts
+// the real ones back.
+func SetPackIdentify(f func(dir string) (string, string, error), wait time.Duration) func() {
+	oldF, oldWait := identifyPack, identifyWait
+	identifyPack, identifyWait = f, wait
+	return func() { identifyPack, identifyWait = oldF, oldWait }
 }

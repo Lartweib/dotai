@@ -97,3 +97,31 @@ func TestPackSummaryListsTheLayersOfTheExamplePack(t *testing.T) {
 	}
 	wantFailure(t, serve(h, request("GET", "/api/pack/summary", testToken)), http.StatusBadRequest, "usage")
 }
+
+func TestACorruptRegistryAnswersRegistryInvalid(t *testing.T) {
+	cfg := appHome(t)
+	h := server.New(cfg, server.AppDeps(fakePorts), server.Web())
+	name := filepath.Join(cfg.Home, ".dotai", "packs.json")
+	if err := os.MkdirAll(filepath.Dir(name), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(name, []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	wantFailure(t, serve(h, request("GET", "/api/packs", testToken)), http.StatusConflict, "registry-invalid")
+}
+
+func TestARelativeRegistryEntryCanBeRemoved(t *testing.T) {
+	cfg := appHome(t)
+	h := server.New(cfg, server.AppDeps(fakePorts), server.Web())
+	name := filepath.Join(cfg.Home, ".dotai", "packs.json")
+	if err := os.MkdirAll(filepath.Dir(name), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(name, []byte(`{"schema":"dotai.packs/v1","packs":[{"path":"rel"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if list := packList(t, h, post("/api/packs/remove", `{"path":"rel"}`, testToken)); len(list.Packs) != 0 {
+		t.Errorf("after the removal = %+v", list.Packs)
+	}
+}

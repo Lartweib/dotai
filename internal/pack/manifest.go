@@ -1,6 +1,8 @@
 package pack
 
 import (
+	"fmt"
+	"io"
 	"io/fs"
 	"path"
 	"slices"
@@ -213,4 +215,32 @@ func layerPath(fsys fs.FS, o object) string {
 		return ""
 	}
 	return clean
+}
+
+// Identity reads only the name and the version of the manifest of the pack
+// in fsys, without loading its layers, for a list of packs.
+func Identity(fsys fs.FS) (name, version string, err error) {
+	f, err := fsys.Open(ManifestFile)
+	if err != nil {
+		return "", "", err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, maxFileSize+1))
+	if err != nil {
+		return "", "", err
+	}
+	if len(data) > maxFileSize {
+		return "", "", fmt.Errorf("%s is larger than 1 MiB", ManifestFile)
+	}
+	var id struct {
+		Name    string `yaml:"name"`
+		Version string `yaml:"version"`
+	}
+	if err := yaml.Unmarshal(data, &id); err != nil {
+		return "", "", fmt.Errorf("%s: %w", ManifestFile, err)
+	}
+	if id.Name == "" {
+		return "", "", fmt.Errorf("%s has no name", ManifestFile)
+	}
+	return id.Name, id.Version, nil
 }

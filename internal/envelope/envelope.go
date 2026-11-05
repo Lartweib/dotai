@@ -36,6 +36,9 @@ const (
 	// A copy of a pack refused before it wrote anything: its target exists
 	// or has no parent, or the pack holds a link.
 	CodeCopyRefused = "copy-refused"
+	// The pack registry, ~/.dotai/packs.json, is not JSON of its schema;
+	// it is left as it is.
+	CodeRegistryInvalid = "registry-invalid"
 )
 
 // Codes lists every error code above, so that an adapter that maps each
@@ -43,7 +46,7 @@ const (
 // all.
 var Codes = []string{
 	CodeUsage, CodeInternal, CodeInvalid, CodeConsent, CodeRefused, CodeRunning,
-	CodeProjectRefused, CodeApplyRefused, CodeRecordInvalid, CodeCopyRefused,
+	CodeProjectRefused, CodeApplyRefused, CodeRecordInvalid, CodeCopyRefused, CodeRegistryInvalid,
 }
 
 // Envelope is the single JSON document a command prints with --json.

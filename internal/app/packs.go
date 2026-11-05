@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/lartweib/dotai/internal/merge"
 	"github.com/lartweib/dotai/internal/pack"
@@ -66,6 +68,17 @@ func (e *PackInvalidError) Error() string {
 	return fmt.Sprintf("%s is not a valid pack: dotai validate reports %d problems", e.Path, len(e.Result.Diagnostics))
 }
 
+// RegistryInvalidError is a packs.json that is not JSON of PacksSchema.
+// The registry is left as it is: the user fixes or moves the file.
+type RegistryInvalidError struct {
+	Path string
+	Why  string
+}
+
+func (e *RegistryInvalidError) Error() string {
+	return fmt.Sprintf("the pack registry %s cannot be read: %s; fix it or move it aside, then try again", e.Path, e.Why)
+}
+
 // CopyRefusedError refuses a copy of a pack before it writes anything.
 type CopyRefusedError struct{ msg string }
 
@@ -119,13 +132,17 @@ func RemovePack(home, dir string) (PackList, error) {
 	if err != nil {
 		return PackList{}, err
 	}
-	if !filepath.IsAbs(dir) {
-		return PackList{}, &UsageError{msg: fmt.Sprintf("the pack path %q is not absolute", dir)}
+	if dir == "" {
+		return PackList{}, &UsageError{msg: "the pack path is empty"}
 	}
-	dir = filepath.Clean(dir)
+	// A path that is not absolute can only be an entry of a registry
+	// written by hand: it is removed as it is written.
+	if filepath.IsAbs(dir) {
+		dir = filepath.Clean(dir)
+	}
 	return editPacks(home, func(doc *packsDoc) bool {
 		n := len(doc.Packs)
-		doc.Packs = slices.DeleteFunc(doc.Packs, func(p packsItem) bool { return samePath(p.Path, dir) })
+		doc.Packs = slices.DeleteFunc(doc.Packs, func(p packsItem) bool { return p.Path == dir || samePath(p.Path, dir) })
 		return len(doc.Packs) != n
 	})
 }
@@ -178,15 +195,10 @@ func readPacks(home string) (packsDoc, error) {
 		return doc, err
 	}
 	if err := json.Unmarshal(data, &doc); err != nil {
-		return packsDoc{}, fmt.Errorf("%s: %w", name, err)
+		return packsDoc{}, &RegistryInvalidError{Path: name, Why: err.Error()}
 	}
 	if doc.Schema != PacksSchema {
-		return packsDoc{}, fmt.Errorf("%s: schema %q is not %s", name, doc.Schema, PacksSchema)
-	}
-	for _, p := range doc.Packs {
-		if !filepath.IsAbs(p.Path) {
-			return packsDoc{}, fmt.Errorf("%s: the pack path %q is not absolute", name, p.Path)
-		}
+		return packsDoc{}, &RegistryInvalidError{Path: name, Why: fmt.Sprintf("its schema %q is not %s", doc.Schema, PacksSchema)}
 	}
 	if doc.Packs == nil {
 		doc.Packs = []packsItem{}
@@ -194,26 +206,56 @@ func readPacks(home string) (packsDoc, error) {
 	return doc, nil
 }
 
-// describePacks reads the name and the version of each pack of doc.
-func describePacks(home string, doc packsDoc) PackList {
-	list := PackList{Path: filepath.Join(home, dotaiDir, packsFile), Packs: []PackEntry{}}
-	for _, p := range doc.Packs {
-		e := PackEntry{Path: p.Path}
-		fsys, err := packFS(p.Path)
-		if err == nil {
-			var pk *pack.Pack
-			if pk, _, err = pack.LoadWith(fsys, rulesync.Versions()); err == nil && pk == nil {
-				err = errors.New("its manifest dotai.yaml cannot be read")
-			}
-			if err == nil {
-				e.Name, e.Version = pk.Manifest.Name, pk.Manifest.Version
-			}
+// identifyPack reads the name and the version of the pack in dir, and
+// identifyWait bounds how long the list waits for one pack, such as one on
+// a network drive that does not answer.
+var (
+	identifyPack = func(dir string) (string, string, error) {
+		if _, err := packFS(dir); err != nil {
+			return "", "", err
 		}
-		if err != nil {
-			e.Error = err.Error()
-		}
-		list.Packs = append(list.Packs, e)
+		return pack.Identity(os.DirFS(dir))
 	}
+	identifyWait = 2 * time.Second
+)
+
+// describePacks reads the name and the version of each pack of doc, all at
+// once, each for at most identifyWait. A pack that cannot be read, or does
+// not answer in time, is listed with why.
+func describePacks(home string, doc packsDoc) PackList {
+	list := PackList{Path: filepath.Join(home, dotaiDir, packsFile), Packs: make([]PackEntry, len(doc.Packs))}
+	var wg sync.WaitGroup
+	for i, p := range doc.Packs {
+		list.Packs[i] = PackEntry{Path: p.Path}
+		if !filepath.IsAbs(p.Path) {
+			list.Packs[i].Error = fmt.Sprintf("the path %q is not absolute: remove it from the list and import the pack again", p.Path)
+			continue
+		}
+		wg.Add(1)
+		go func(e *PackEntry) {
+			defer wg.Done()
+			type id struct {
+				name, version string
+				err           error
+			}
+			done := make(chan id, 1)
+			go func() {
+				n, v, err := identifyPack(e.Path)
+				done <- id{n, v, err}
+			}()
+			select {
+			case r := <-done:
+				if r.err != nil {
+					e.Error = r.err.Error()
+				} else {
+					e.Name, e.Version = r.name, r.version
+				}
+			case <-time.After(identifyWait):
+				e.Error = fmt.Sprintf("the pack did not answer within %s", identifyWait)
+			}
+		}(&list.Packs[i])
+	}
+	wg.Wait()
 	return list
 }
 

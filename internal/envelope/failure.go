@@ -23,6 +23,7 @@ func Classify(err error) (code string, data any) {
 		applyRefused *app.ApplyRefusedError
 		invalid      *InvalidError
 		packInvalid  *app.PackInvalidError
+		registry     *app.RegistryInvalidError
 	)
 	switch {
 	case errors.As(err, &usage), errors.As(err, new(*UsageError)):
@@ -47,6 +48,8 @@ func Classify(err error) (code string, data any) {
 		code, data = CodeInvalid, packInvalid.Result
 	case errors.As(err, new(*app.CopyRefusedError)):
 		code = CodeCopyRefused
+	case errors.As(err, &registry):
+		code, data = CodeRegistryInvalid, map[string]any{"path": registry.Path}
 	}
 	// A restore refused over conflicts lists them, whatever its code.
 	if conflict, ok := errors.AsType[*app.ConflictError](err); ok {

@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"net/http"
+
+	"github.com/lartweib/dotai/internal/envelope"
 )
 
 // The pack registry of the home (~/.dotai/packs.json), the copy of a pack
@@ -34,9 +36,11 @@ func (s *handler) removePack(r *http.Request) (any, error) {
 	if err := decodeJSON(r, &req); err != nil {
 		return nil, err
 	}
-	dir, err := absParam(req.Path, "path", true)
-	if err != nil {
-		return nil, err
+	// A path that is not absolute can be an entry of a registry written by
+	// hand, which the removal drops as it is written.
+	dir := req.Path
+	if dir == "" {
+		return nil, envelope.Usage("the parameter path is required")
 	}
 	return s.act(r, "pack removal", func(context.Context) (any, error) { return s.deps.RemovePack(s.cfg.Home, dir) })
 }
