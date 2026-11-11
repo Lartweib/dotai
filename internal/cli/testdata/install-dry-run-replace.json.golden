@@ -74,7 +74,8 @@
         "beforeExec": false,
         "keys": [],
         "link": "",
-        "beforeLink": ""
+        "beforeLink": "",
+        "kind": ""
       },
       {
         "action": "create",
@@ -87,7 +88,8 @@
         "beforeExec": false,
         "keys": [],
         "link": "",
-        "beforeLink": ""
+        "beforeLink": "",
+        "kind": ""
       },
       {
         "action": "create",
@@ -100,7 +102,8 @@
         "beforeExec": false,
         "keys": [],
         "link": "",
-        "beforeLink": ""
+        "beforeLink": "",
+        "kind": ""
       }
     ],
     "wipes": [
@@ -181,6 +184,8 @@
     "notices": [
       "the optional harness opencode is skipped: it is not installed (opencode not found on PATH and no /home/u/.config/opencode directory)"
     ],
-    "diagnostics": []
+    "diagnostics": [],
+    "blocked": false,
+    "consent": false
   }
 }

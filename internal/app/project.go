@@ -47,6 +47,11 @@ type ProjectPlan struct {
 	// Claude Code loads each mod the plan installs, text for people.
 	Notices     []string     `json:"notices"`
 	Diagnostics []Diagnostic `json:"diagnostics"`
+	// Blocked says that the apply refuses the plan whatever the consent,
+	// for its diagnostics or refusals; Consent that it needs consent
+	// (--yes) for its conflicts.
+	Blocked bool `json:"blocked"`
+	Consent bool `json:"consent"`
 }
 
 // ExcludePlan is the entries of .git/info/exclude a project apply adds:
@@ -60,10 +65,15 @@ type ExcludePlan struct {
 
 // ApplyOptions are the choices of a project apply: the profiles, and the
 // variant of the user scope, which the install state records when it is
-// empty, or else the pack's default.
+// empty, or else the pack's default. Confirm, when it is not nil, is
+// asked with the plan. The apply first rolls back the journal an apply or
+// a restore of the project left, as the command line does, and plans
+// after that; Confirm is asked before any refusal, consent, lock or write
+// of the plan: an error stops the apply, which writes nothing of the plan.
 type ApplyOptions struct {
 	Profiles []string
 	Variant  string
+	Confirm  func(ProjectPlan) error
 }
 
 // ProjectRefusedError is a project directory where the project scope would
@@ -157,6 +167,13 @@ func findProject(ctx context.Context, g gitPort, cwd, home string) (project, mcp
 // project record of the earlier apply, and calls then with the plan while
 // the staging still exists; the staging is removed after then returns.
 func withProjectPlan(ctx context.Context, d installFS, h host, g gitPort, fetch fetchFunc, run runFunc, cacheDir, dir, cwd, home string, opts ApplyOptions, progress Progress, then func(projectPlanned) error) (err error) {
+	next := then
+	then = func(p projectPlanned) error {
+		p.plan.Blocked = len(p.plan.Diagnostics) > 0 || len(p.plan.Refusals) > 0
+		files, keys := conflicts(p.plan)
+		p.plan.Consent = files+keys > 0
+		return next(p)
+	}
 	if !filepath.IsAbs(home) || !filepath.IsAbs(cwd) {
 		return fmt.Errorf("home directory %q and current directory %q must be absolute", home, cwd)
 	}

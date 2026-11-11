@@ -81,7 +81,7 @@ Decided in [0028](decisions/0028-plan-centric-hexagonal-engine.md). Every comman
 cmd/dotai/        main only; wires cli.Run, and server.Run as dotai ui
 internal/
   cli/            cobra commands: flags only; calls app
-  server/         dotai ui: local HTTP API and embedded frontend; calls app
+  server/         dotai ui: local HTTP API and embedded frontend (web/: HTML, CSS, ES modules, fonts); calls app
   envelope/       versioned --json envelope, error codes and shared outcomes
                   (CLI-JSON.md); used by cli and server
   app/            use cases: install, apply, validate, doctor, restore

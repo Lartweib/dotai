@@ -136,6 +136,11 @@ func applyProject(ctx context.Context, d executeFS, h host, g gitPort, fetch fet
 	var res ApplyResult
 	err := withProjectPlan(ctx, d, h, g, fetch, run, cacheDir, dir, cwd, home, opts, progress, func(p projectPlanned) error {
 		res = ApplyResult{ProjectPlan: p.plan}
+		if opts.Confirm != nil {
+			if err := opts.Confirm(p.plan); err != nil {
+				return err
+			}
+		}
 		if len(p.plan.Diagnostics) > 0 {
 			return nil
 		}

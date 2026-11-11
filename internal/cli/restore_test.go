@@ -385,7 +385,7 @@ func TestRunRestoreProject(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 			env := testEnv(&stdout, &stderr)
-			env.RestoreProject = func(_ context.Context, gotCwd, gotHome string, overwrite func(app.ProjectRestoreResult) (bool, error)) (app.ProjectRestoreResult, error) {
+			env.RestoreProject = func(_ context.Context, gotCwd, gotHome string, _ app.ProjectRestoreOptions, overwrite func(app.ProjectRestoreResult) (bool, error)) (app.ProjectRestoreResult, error) {
 				if gotCwd != cwd || gotHome != home {
 					t.Errorf("RestoreProject(%q, %q), want the current directory and the home", gotCwd, gotHome)
 				}
@@ -412,7 +412,7 @@ func TestRunRestoreProjectUsageAndConflicts(t *testing.T) {
 	}
 	var stdout bytes.Buffer
 	env := testEnv(&stdout, &bytes.Buffer{})
-	env.RestoreProject = func(_ context.Context, _, _ string, overwrite func(app.ProjectRestoreResult) (bool, error)) (app.ProjectRestoreResult, error) {
+	env.RestoreProject = func(_ context.Context, _, _ string, _ app.ProjectRestoreOptions, overwrite func(app.ProjectRestoreResult) (bool, error)) (app.ProjectRestoreResult, error) {
 		if ok, _ := overwrite(projectRestore); !ok {
 			return app.ProjectRestoreResult{}, &app.ConflictError{Conflicts: projectRestore.Conflicts}
 		}

@@ -54,10 +54,39 @@ func fakeDeps() server.Deps {
 		PreviewProjectRestore: func(context.Context, string, string) (app.ProjectRestoreResult, error) {
 			return app.ProjectRestoreResult{}, nil
 		},
-		Doctor: func(context.Context, string, app.DoctorOptions) (app.DoctorResult, error) {
-			return app.DoctorResult{Findings: []app.Finding{}}, nil
+		Doctor: func(_ context.Context, _ string, opts app.DoctorOptions) (app.DoctorResult, error) {
+			res := app.DoctorResult{Findings: []app.Finding{}}
+			if opts.Fix && opts.Confirm != nil {
+				return app.DoctorResult{}, opts.Confirm(res)
+			}
+			return res, nil
+		},
+		Harnesses: func() []app.HarnessInfo { return []app.HarnessInfo{{ID: "claudecode", Name: "Claude Code"}} },
+		Validate: func(string, app.Selection) (app.ValidateResult, error) {
+			return app.ValidateResult{Valid: true, Pack: &app.PackSummary{Name: "minimal-pack"}}, nil
+		},
+		Install: func(_ context.Context, _, _, _ string, opts app.InstallOptions, _ app.Progress, _ app.Warn, _ app.Consent) (app.InstallResult, error) {
+			p := app.InstallPlan{Mode: app.ModeIsolated}
+			return app.InstallResult{InstallPlan: p}, confirm(opts.Confirm, p)
+		},
+		Apply: func(_ context.Context, _, _, _, _ string, opts app.ApplyOptions, _ app.Progress, _ app.ApplyConsent) (app.ApplyResult, error) {
+			return app.ApplyResult{}, confirm(opts.Confirm, app.ProjectPlan{})
+		},
+		Restore: func(_ context.Context, _, _ string, opts app.RestoreOptions, _ app.Warn, _ func(app.RestoreResult) (bool, error)) (app.RestoreResult, error) {
+			return app.RestoreResult{}, confirm(opts.Confirm, app.RestoreResult{})
+		},
+		RestoreProject: func(_ context.Context, _, _ string, opts app.ProjectRestoreOptions, _ func(app.ProjectRestoreResult) (bool, error)) (app.ProjectRestoreResult, error) {
+			return app.ProjectRestoreResult{}, confirm(opts.Confirm, app.ProjectRestoreResult{})
 		},
 	}
+}
+
+// confirm asks c with v, as the use cases do, when c is not nil.
+func confirm[T any](c func(T) error, v T) error {
+	if c == nil {
+		return nil
+	}
+	return c(v)
 }
 
 // request is a request for the test server: its Host, and the session
@@ -337,10 +366,10 @@ func TestARequestFromAnotherOriginIsRefused(t *testing.T) {
 }
 
 var getEndpoints = []string{
-	"/api/version", "/api/status", "/api/backups", "/api/restore/preview", "/api/restore/project/preview", "/api/doctor",
+	"/api/version", "/api/pack", "/api/harnesses", "/api/status", "/api/backups", "/api/restore/preview", "/api/restore/project/preview", "/api/doctor",
 }
 
-var postEndpoints = []string{"/api/install/plan", "/api/apply/plan"}
+var postEndpoints = []string{"/api/install/plan", "/api/apply/plan", "/api/install", "/api/apply", "/api/restore", "/api/restore/project", "/api/doctor/fix"}
 
 func TestEachEndpointTakesOnlyItsMethod(t *testing.T) {
 	h := server.New(testConfig(t), fakeDeps(), testWeb)
@@ -472,7 +501,7 @@ func TestOnlyOnePlanRunsAtATime(t *testing.T) {
 
 func TestAPlanThatRunsTooLongIsStopped(t *testing.T) {
 	cfg := testConfig(t)
-	cfg.PlanTimeout = 20 * time.Millisecond
+	cfg.OperationTimeout = 20 * time.Millisecond
 	deps := fakeDeps()
 	deps.PlanInstall = func(ctx context.Context, _, _, _ string, _ app.InstallOptions, _ app.Progress) (app.InstallPlan, error) {
 		<-ctx.Done()
@@ -566,4 +595,45 @@ func TestDoctorProblemsAreInvalidWithTheResult(t *testing.T) {
 	if e := decode(t, w); gotFix || e.Error.Message != "doctor found 1 problem" || !strings.Contains(string(e.Data), "exclude-missing") {
 		t.Errorf("doctor = %+v, fix %v, want one problem with the findings, without --fix", e, gotFix)
 	}
+}
+
+func TestTheEmbeddedFrontendLoadsUnderItsPolicy(t *testing.T) {
+	h := server.New(testConfig(t), fakeDeps(), server.Web())
+	page := serve(h, request("GET", "/", "")).Body.String()
+	if strings.Contains(page, "style=") || strings.Contains(page, "<style") || strings.Contains(page, "<script>") {
+		t.Errorf("index.html has inline styles or scripts, which the policy blocks")
+	}
+	types := map[string]string{
+		"/styles.css": "text/css", "/app.js": "javascript", "/js/dom.js": "javascript", "/js/store.js": "javascript",
+		"/js/packs.js": "javascript", "/js/tree.js": "javascript", "/js/plan.js": "javascript", "/js/projects.js": "javascript",
+		"/js/backups.js": "javascript", "/js/doctor.js": "javascript", "/js/flows.js": "javascript", "/js/i18n.js": "javascript", "/js/home.js": "javascript", "/js/installed.js": "javascript", "/fonts/schibsted-grotesk-latin-400-normal.woff2": "font/woff2",
+		"/fonts/spline-sans-mono-latin-400-normal.woff2": "font/woff2",
+	}
+	for path, want := range types {
+		w := serve(h, request("GET", path, ""))
+		if w.Code != http.StatusOK || !strings.Contains(w.Header().Get("Content-Type"), want) {
+			t.Errorf("GET %s = %d %q, want 200 and %s", path, w.Code, w.Header().Get("Content-Type"), want)
+		}
+		if strings.HasSuffix(path, ".js") && (strings.Contains(w.Body.String(), "innerHTML") || strings.Contains(w.Body.String(), "eval(")) {
+			t.Errorf("%s writes HTML or evaluates code", path)
+		}
+	}
+	if csp := serve(h, request("GET", "/", "")).Header().Get("Content-Security-Policy"); !strings.HasPrefix(csp, "default-src 'self';") {
+		t.Errorf("Content-Security-Policy = %q, want only the server's own origin", csp)
+	}
+}
+
+func TestTheFrontendOpensFromThePageOnDisk(t *testing.T) {
+	h := server.New(testConfig(t), fakeDeps(), testWeb)
+	// The launcher page, a file, sends the browser here: a navigation
+	// from another site, which only the API refuses.
+	r := request("GET", "/", "")
+	r.Header.Set("Sec-Fetch-Site", "cross-site")
+	r.Header.Set("Sec-Fetch-Mode", "navigate")
+	if w := serve(h, r); w.Code != http.StatusOK {
+		t.Errorf("navigation from the launcher page = %d, want 200", w.Code)
+	}
+	r = request("GET", "/api/version", testToken)
+	r.Header.Set("Sec-Fetch-Site", "cross-site")
+	wantFailure(t, serve(h, r), http.StatusForbidden, server.CodeForbidden)
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"path/filepath"
 	"runtime"
+	"time"
 
 	"github.com/lartweib/dotai/internal/proc"
 )
@@ -234,7 +235,7 @@ func ApplyWith(ctx context.Context, d executeFS, g gitPort, fetch fetchFunc, run
 // RestoreProjectWith is RestoreProject writing through d and asking git
 // through g.
 func RestoreProjectWith(ctx context.Context, d executeFS, g gitPort, project, home string, overwrite func(ProjectRestoreResult) (bool, error)) (ProjectRestoreResult, error) {
-	return restoreProject(ctx, d, g, project, home, overwrite)
+	return restoreProject(ctx, d, g, project, home, ProjectRestoreOptions{}, overwrite)
 }
 
 // ApplyWithRulesync is Apply asking git through g, with the real rulesync
@@ -256,4 +257,30 @@ func DoctorWith(ctx context.Context, d executeFS, g gitPort, home string, opts D
 // with every write refused, and asking git through g.
 func PreviewProjectRestoreWith(ctx context.Context, d executeFS, g gitPort, cwd, home string) (ProjectRestoreResult, error) {
 	return previewProjectRestore(ctx, readOnlyFS{d}, g, cwd, home)
+}
+
+// RestoreOptsWith is Restore through d with opts.
+func RestoreOptsWith(ctx context.Context, d executeFS, home, id string, opts RestoreOptions, overwrite func(RestoreResult) (bool, error)) (RestoreResult, error) {
+	return restore(ctx, d, host{}, home, id, opts, nil, overwrite)
+}
+
+// RestoreProjectOptsWith is RestoreProjectWith with opts.
+func RestoreProjectOptsWith(ctx context.Context, d executeFS, g gitPort, project, home string, opts ProjectRestoreOptions, overwrite func(ProjectRestoreResult) (bool, error)) (ProjectRestoreResult, error) {
+	return restoreProject(ctx, d, g, project, home, opts, overwrite)
+}
+
+// CopyPackWith is CopyPack calling afterFile after each file it copies,
+// whose error stops the copy, and beforeRename before the copy takes its
+// name.
+func CopyPackWith(ctx context.Context, from, to string, afterFile func(n int) error, beforeRename func()) (CopyResult, error) {
+	return copyPack(ctx, from, to, copyHooks{afterFile: afterFile, beforeRename: beforeRename})
+}
+
+// SetPackIdentify makes the pack list read each pack's name and version
+// with f and wait at most wait for it, until the returned function puts
+// the real ones back.
+func SetPackIdentify(f func(dir string) (string, string, error), wait time.Duration) func() {
+	oldF, oldWait := identifyPack, identifyWait
+	identifyPack, identifyWait = f, wait
+	return func() { identifyPack, identifyWait = oldF, oldWait }
 }

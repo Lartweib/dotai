@@ -134,7 +134,7 @@ func runRestoreProject(ctx context.Context, cmd *cobra.Command, env Env, jsonOut
 		}
 		return env.Prompt(ctx, q)
 	}
-	res, err := env.RestoreProject(ctx, cwd, home, overwrite)
+	res, err := env.RestoreProject(ctx, cwd, home, app.ProjectRestoreOptions{}, overwrite)
 	if _, ok := errors.AsType[*app.ConflictError](err); ok && asked {
 		return errors.New("the restore was cancelled: nothing was written")
 	}

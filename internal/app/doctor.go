@@ -45,9 +45,12 @@ const (
 )
 
 // DoctorOptions are the choices of dotai doctor: Fix completes the
-// exclude blocks it finds pending or missing.
+// exclude blocks it finds pending or missing. Confirm, when it is not nil
+// and Fix is set, is asked with what doctor found, as it finds it without
+// Fix, before the first fix: an error stops doctor, which fixes nothing.
 type DoctorOptions struct {
-	Fix bool
+	Fix     bool
+	Confirm func(DoctorResult) error
 }
 
 // DoctorResult is what dotai doctor found: the install state it checked,
@@ -125,6 +128,11 @@ func doctor(ctx context.Context, d executeFS, g gitPort, home string, opts Docto
 	}
 	if !opts.Fix {
 		return doc.res, nil
+	}
+	if opts.Confirm != nil {
+		if err := opts.Confirm(doc.res); err != nil {
+			return DoctorResult{}, err
+		}
 	}
 	for _, fx := range fixes {
 		if err := doc.fix(fx); err != nil {

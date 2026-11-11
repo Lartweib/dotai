@@ -116,7 +116,8 @@
         "beforeExec": false,
         "keys": [],
         "link": "",
-        "beforeLink": ""
+        "beforeLink": "",
+        "kind": ""
       },
       {
         "action": "replace",
@@ -138,7 +139,8 @@
           }
         ],
         "link": "",
-        "beforeLink": ""
+        "beforeLink": "",
+        "kind": ""
       },
       {
         "action": "remove",
@@ -151,7 +153,8 @@
         "beforeExec": false,
         "keys": [],
         "link": "",
-        "beforeLink": ""
+        "beforeLink": "",
+        "kind": ""
       },
       {
         "action": "replace",
@@ -164,7 +167,8 @@
         "beforeExec": false,
         "keys": [],
         "link": "",
-        "beforeLink": ""
+        "beforeLink": "",
+        "kind": ""
       },
       {
         "action": "create",
@@ -177,7 +181,8 @@
         "beforeExec": false,
         "keys": [],
         "link": "",
-        "beforeLink": ""
+        "beforeLink": "",
+        "kind": ""
       }
     ],
     "wipes": [],
@@ -186,6 +191,8 @@
     "refusals": [],
     "notices": [],
     "diagnostics": [],
+    "blocked": false,
+    "consent": false,
     "backup": {
       "id": "20261029T101500.000Z_install",
       "path": "/home/u/.dotai/backups/20261029T101500.000Z_install"

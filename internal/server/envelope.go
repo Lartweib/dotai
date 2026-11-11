@@ -12,12 +12,27 @@ import (
 // its code. A failure of the API itself has its own code and status.
 func writeFailure(w http.ResponseWriter, command string, err error) {
 	if ae, ok := errors.AsType[*apiError](err); ok {
-		writeEnvelope(w, ae.status, envelope.Failure(command, ae.code, ae.msg))
+		e := envelope.Failure(command, ae.code, ae.msg)
+		e.Data = ae.data
+		writeEnvelope(w, ae.status, e)
 		return
 	}
 	e := envelope.FromError(command, err)
+	if re, ok := errors.AsType[*resultError](err); ok {
+		e.Data = re.data
+	}
 	writeEnvelope(w, statusOf(e.Error.Code), e)
 }
+
+// resultError is an error of a use case that comes with the result it got
+// to before it failed, which the envelope carries as its data.
+type resultError struct {
+	err  error
+	data any
+}
+
+func (e *resultError) Error() string { return e.err.Error() }
+func (e *resultError) Unwrap() error { return e.err }
 
 // statusOf gives the HTTP status of an envelope's error code: 400 for a
 // wrong request, 422 for input that is not valid, 409 for a refusal of the
@@ -30,7 +45,7 @@ func statusOf(code string) int {
 	case envelope.CodeInvalid:
 		return http.StatusUnprocessableEntity
 	case envelope.CodeConsent, envelope.CodeRefused, envelope.CodeRunning,
-		envelope.CodeProjectRefused, envelope.CodeApplyRefused, envelope.CodeRecordInvalid:
+		envelope.CodeProjectRefused, envelope.CodeApplyRefused, envelope.CodeRecordInvalid, envelope.CodeCopyRefused, envelope.CodeRegistryInvalid:
 		return http.StatusConflict
 	case CodeForbidden:
 		return http.StatusForbidden
@@ -42,6 +57,8 @@ func statusOf(code string) int {
 		return http.StatusMethodNotAllowed
 	case CodeBusy:
 		return http.StatusTooManyRequests
+	case CodePlanChanged:
+		return http.StatusConflict
 	}
 	return http.StatusInternalServerError
 }

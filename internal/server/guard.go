@@ -34,9 +34,11 @@ const sessionPath = "/api/session"
 //
 //   - its Host is 127.0.0.1:<port> or localhost:<port>, which a page that
 //     renamed its own host to 127.0.0.1 by DNS rebinding does not send;
-//   - its Origin, when it has one, is the server's own, and its
+//   - on /api/, its Origin, when it has one, is the server's own, and its
 //     Sec-Fetch-Site, when it has one, is not another site's, so that no
-//     other page can make the browser call the API (CSRF);
+//     other page can make the browser call the API (CSRF). The frontend
+//     takes a navigation from anywhere, since the page that opens dotai ui
+//     is a file on disk;
 //   - on /api/, except the session exchange, it carries the session token
 //     in an Authorization: Bearer header. No cookie is a credential, since
 //     a browser sends a cookie of 127.0.0.1 to every port.
@@ -55,11 +57,11 @@ func guard(cfg Config, next http.Handler) http.Handler {
 			refuse(w, r, http.StatusForbidden, CodeForbidden, fmt.Sprintf("the request is for the host %q: dotai ui answers only to 127.0.0.1:%d and localhost:%d", r.Host, cfg.Port, cfg.Port))
 			return
 		}
-		if o := r.Header.Get("Origin"); o != "" && !origins[strings.ToLower(o)] {
+		if o := r.Header.Get("Origin"); isAPI(r) && o != "" && !origins[strings.ToLower(o)] {
 			refuse(w, r, http.StatusForbidden, CodeForbidden, fmt.Sprintf("the request comes from the origin %q, not from dotai ui", o))
 			return
 		}
-		if site := r.Header.Get("Sec-Fetch-Site"); site == "cross-site" || site == "same-site" {
+		if site := r.Header.Get("Sec-Fetch-Site"); isAPI(r) && (site == "cross-site" || site == "same-site") {
 			refuse(w, r, http.StatusForbidden, CodeForbidden, "the request comes from another site, not from dotai ui")
 			return
 		}

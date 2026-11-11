@@ -116,7 +116,8 @@
         "beforeExec": false,
         "keys": [],
         "link": "",
-        "beforeLink": ""
+        "beforeLink": "",
+        "kind": ""
       },
       {
         "action": "replace",
@@ -138,7 +139,8 @@
           }
         ],
         "link": "",
-        "beforeLink": ""
+        "beforeLink": "",
+        "kind": ""
       },
       {
         "action": "replace",
@@ -151,7 +153,8 @@
         "beforeExec": false,
         "keys": [],
         "link": "",
-        "beforeLink": ""
+        "beforeLink": "",
+        "kind": ""
       },
       {
         "action": "create",
@@ -164,7 +167,8 @@
         "beforeExec": false,
         "keys": [],
         "link": "",
-        "beforeLink": ""
+        "beforeLink": "",
+        "kind": ""
       }
     ],
     "wipes": [],
@@ -172,6 +176,8 @@
     "wipeKeys": [],
     "refusals": [],
     "notices": [],
-    "diagnostics": []
+    "diagnostics": [],
+    "blocked": false,
+    "consent": false
   }
 }

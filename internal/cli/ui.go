@@ -19,7 +19,7 @@ func newUICmd(env Env, jsonOut *bool) *cobra.Command {
 			"in the browser unless --no-open. The address carries a one-time code, good for two minutes, that the page trades\n" +
 			"for the session token of this run; open it once, and restart dotai ui for a new one. Every request must name the\n" +
 			"server by 127.0.0.1 or localhost and come from its own page. The UI shows the state, the backups, the plans and\n" +
-			"doctor; it writes nothing in the home directory or a project. A plan, as with --dry-run, fetches rulesync into\n" +
+			"doctor, and installs, applies, restores and fixes, each only as the plan it showed first. A plan, as with --dry-run, fetches rulesync into\n" +
 			"the cache, stages into a temporary directory and runs git in the project. It runs until Ctrl+C. With --json it\n" +
 			"prints one envelope, whose data has the url, once it listens.",
 		// Checked with the arguments, so a port out of range is a usage error.
@@ -53,15 +53,20 @@ func newUICmd(env Env, jsonOut *bool) *cobra.Command {
 			} else if _, err := fmt.Fprintf(env.Stdout, "dotai ui is running at %s\nPress Ctrl+C to stop it.\n", url); err != nil {
 				return err
 			}
-			if noOpen || env.OpenBrowser == nil {
-				return nil
-			}
-			if err := env.OpenBrowser(url); err != nil {
-				fmt.Fprintf(env.Stderr, "the browser could not be opened (%v): open the address above\n", err)
-			}
 			return nil
 		}
-		err = env.UI(ctx, UIOptions{Home: home, CacheDir: cache, Port: port, Ready: ready})
+		opts := UIOptions{Home: home, CacheDir: cache, Port: port, Ready: ready}
+		if !noOpen && env.OpenBrowser != nil {
+			// The browser gets a page that holds the code, never the code
+			// on its command line, which other users may read.
+			opts.Open = func(page string) error {
+				if err := env.OpenBrowser(page); err != nil {
+					fmt.Fprintf(env.Stderr, "the browser could not be opened (%v): open the address above\n", err)
+				}
+				return nil
+			}
+		}
+		err = env.UI(ctx, opts)
 		if err != nil && printed {
 			// stdout already holds the one envelope of this run.
 			fmt.Fprintf(env.Stderr, "Error: %v\n", err)

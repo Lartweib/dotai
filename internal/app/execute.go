@@ -27,9 +27,9 @@ import (
 // the first one (decision 0018).
 const keepBackups = 10
 
-// rollbackTimeout bounds a rollback, which runs even when the install was
-// cancelled.
-const rollbackTimeout = time.Minute
+// RollbackTimeout bounds a rollback, which runs even when the install was
+// cancelled, so that a caller that stops knows how long to wait for one.
+const RollbackTimeout = time.Minute
 
 // InstallResult is the outcome of an install: its plan, the backup taken
 // before the first write, nil when nothing was written, the path of the
@@ -218,6 +218,11 @@ func install(ctx context.Context, d executeFS, h host, fetch fetchFunc, run runF
 	var res InstallResult
 	err = withPlan(ctx, d, h, fetch, run, cacheDir, dir, home, opts, progress, func(p planned) error {
 		res = InstallResult{InstallPlan: p.plan, Warnings: []string{}}
+		if opts.Confirm != nil {
+			if err := opts.Confirm(p.plan); err != nil {
+				return err
+			}
+		}
 		if len(p.plan.Diagnostics) > 0 {
 			return nil
 		}
@@ -817,11 +822,11 @@ func (r runner) parents(target string) ([]string, error) {
 	return missing, nil
 }
 
-// detached is r with a context of its own, bounded by rollbackTimeout, so
+// detached is r with a context of its own, bounded by RollbackTimeout, so
 // that what a rollback puts back is put back even when the operation was
 // cancelled.
 func (r runner) detached() (runner, context.CancelFunc) {
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.ctx), rollbackTimeout)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.ctx), RollbackTimeout)
 	r.ctx = ctx
 	return r, cancel
 }

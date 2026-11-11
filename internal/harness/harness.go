@@ -339,6 +339,63 @@ type Adapter struct {
 	// Project is where the harness's project scope installs, local and
 	// untracked (decision 0041).
 	Project ProjectLayout
+	// Name is the harness's name, for people.
+	Name string
+	// UserKinds are the kinds of the files rulesync renders into Staging
+	// for the user scope, besides Settings and SharedSkills, by their
+	// slash path relative to Staging; a path that ends in / names a
+	// directory and every file below it (KindOf).
+	UserKinds []KindPath
+}
+
+// KindPath is a staged path of a kind of item.
+type KindPath struct {
+	Path string
+	Kind ProjectKind
+}
+
+// KindOf is the kind of item of the staged user-scope file staged, a
+// slash path inside the staging tree such as .claude/agents/reviewer.md:
+// settings for Settings, skills below SharedSkills, else as UserKinds
+// says, and "" for a file of another harness or of no kind it lists.
+func (a Adapter) KindOf(staged string) ProjectKind {
+	rel, ok := strings.CutPrefix(staged, a.Staging+"/")
+	if !ok {
+		return ""
+	}
+	if rel == a.Settings {
+		return ProjectSettings
+	}
+	if a.SharedSkills != "" && strings.HasPrefix(rel, a.SharedSkills+"/") {
+		return ProjectSkills
+	}
+	for _, k := range a.UserKinds {
+		if rel == k.Path || strings.HasSuffix(k.Path, "/") && strings.HasPrefix(rel, k.Path) {
+			return k.Kind
+		}
+	}
+	return ""
+}
+
+// StagedOf is the staged path of installed, a file the harness installed
+// in mode m, as a slash path relative to the home directory, with the
+// moves of m undone, or "" when installed is not inside InstallDir(m).
+func (a Adapter) StagedOf(m Mode, installed string) string {
+	rel, ok := strings.CutPrefix(installed, a.InstallDir(m)+"/")
+	if !ok {
+		return ""
+	}
+	for _, mv := range a.MovesIn(m) {
+		if rest, ok := strings.CutPrefix(rel, mv.To+"/"); ok {
+			rel = mv.From + "/" + rest
+			break
+		}
+		if rel == mv.To {
+			rel = mv.From
+			break
+		}
+	}
+	return a.Staging + "/" + rel
 }
 
 // Quoting is how a harness reads a command in its settings.
@@ -368,7 +425,8 @@ const walkUp = "AGENTS.md, .agents and .opencode load from the working directory
 
 var adapters = []Adapter{
 	{
-		ID: "claudecode", Target: "claudecode", Dir: "claude", Staging: ".claude", Settings: "settings.json", Command: "claude",
+		ID: "claudecode", Name: "Claude Code", Target: "claudecode", Dir: "claude", Staging: ".claude", Settings: "settings.json", Command: "claude",
+		UserKinds:    []KindPath{{"CLAUDE.md", ProjectRules}, {"rules/", ProjectRules}, {"agents/", ProjectAgents}, {"skills/", ProjectSkills}, {"commands/", ProjectCommands}},
 		SharedSkills: "skills",
 		Commands:     ShellQuoted,
 		Real:         claudeReal,
@@ -407,7 +465,8 @@ var adapters = []Adapter{
 		},
 	},
 	{
-		ID: "antigravity-cli", Target: "antigravity-cli", Dir: "gemini", Staging: ".gemini", Settings: "antigravity-cli/settings.json", Command: "agy",
+		ID: "antigravity-cli", Name: "agy", Target: "antigravity-cli", Dir: "gemini", Staging: ".gemini", Settings: "antigravity-cli/settings.json", Command: "agy",
+		UserKinds: []KindPath{{"GEMINI.md", ProjectRules}, {"config/rules/", ProjectRules}, {"config/agents/", ProjectAgents}, {"config/skills/", ProjectSkills}, {"config/commands/", ProjectCommands}},
 		// agy moves antigravity-cli/skills to config/skills on its first run
 		// and then fails to link it back on Windows, so the skills install
 		// where it reads them after the move.
@@ -429,8 +488,9 @@ var adapters = []Adapter{
 		},
 	},
 	{
-		ID: "opencode", Target: "opencode", Dir: "opencode", Staging: ".config/opencode", Install: "config/opencode", Settings: "opencode.jsonc",
-		Command: "opencode", BatchTarget: "node_modules/@opencode/cli/bin/opencode.exe",
+		ID: "opencode", Name: "OpenCode", Target: "opencode", Dir: "opencode", Staging: ".config/opencode", Install: "config/opencode", Settings: "opencode.jsonc",
+		UserKinds: []KindPath{{"AGENTS.md", ProjectRules}, {"memories/", ProjectRules}, {"agents/", ProjectAgents}, {"agent/", ProjectAgents}, {"skills/", ProjectSkills}, {"commands/", ProjectCommands}, {"command/", ProjectCommands}},
+		Command:   "opencode", BatchTarget: "node_modules/@opencode/cli/bin/opencode.exe",
 		// Not checked: OpenCode has no statusline setting.
 		Commands: ShellQuoted,
 		Real:     openCodeReal,
@@ -543,3 +603,6 @@ func Lookup(ids []string) ([]Adapter, error) {
 	}
 	return out, nil
 }
+
+// Adapters returns every adapter, in order.
+func Adapters() []Adapter { return slices.Clone(adapters) }

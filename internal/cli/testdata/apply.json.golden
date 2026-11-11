@@ -221,6 +221,8 @@
       "the mod hello loads in Claude Code 2.1.287 or later, in a terminal, only in a session started at /work/site, and only after you accept the workspace trust dialog there"
     ],
     "diagnostics": [],
+    "blocked": false,
+    "consent": false,
     "backup": {
       "id": "20261102T101500.000Z_apply",
       "path": "/home/u/.dotai/projects/0123456789abcdef/backups/20261102T101500.000Z_apply"

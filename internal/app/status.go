@@ -19,6 +19,8 @@ import (
 // state or the list could not be read, and are "" when it was read; the
 // rest is still read. Projects is never nil.
 type Status struct {
+	Home          string          `json:"home"`
+	BackupsPath   string          `json:"backupsPath"`
 	StatePath     string          `json:"statePath"`
 	State         *state.State    `json:"state"`
 	StateError    string          `json:"stateError"`
@@ -52,6 +54,8 @@ func readStatus(ctx context.Context, d installFS, home string) (Status, error) {
 		return Status{}, err
 	}
 	st := Status{
+		Home:         home,
+		BackupsPath:  filepath.Join(home, dotaiDir, backupsDir),
 		StatePath:    filepath.Join(home, dotaiDir, stateFile),
 		ProjectsPath: filepath.Join(home, dotaiDir, projectsFile),
 		Projects:     []ProjectStatus{},

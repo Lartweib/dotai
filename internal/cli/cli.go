@@ -41,7 +41,7 @@ type Env struct {
 	PlanProject func(ctx context.Context, cacheDir, dir, project, home string, opts app.ApplyOptions, progress app.Progress) (app.ProjectPlan, error)
 	// RestoreProject is dotai restore --project: it undoes the applies of
 	// the project in the current directory.
-	RestoreProject func(ctx context.Context, cwd, home string, overwrite func(app.ProjectRestoreResult) (bool, error)) (app.ProjectRestoreResult, error)
+	RestoreProject func(ctx context.Context, cwd, home string, opts app.ProjectRestoreOptions, overwrite func(app.ProjectRestoreResult) (bool, error)) (app.ProjectRestoreResult, error)
 	// Apply is dotai apply: it carries the plan of PlanProject out.
 	Apply func(ctx context.Context, cacheDir, dir, project, home string, opts app.ApplyOptions, progress app.Progress, consent app.ApplyConsent) (app.ApplyResult, error)
 	// Doctor is dotai doctor: it reports what changed outside dotai, and
@@ -63,12 +63,14 @@ type Env struct {
 
 // UIOptions holds the choices of dotai ui that Env.UI receives: the
 // absolute home and rulesync cache directories, the port (0 picks a free
-// one), and Ready, which UI calls once it listens, with the address to
-// open.
+// one), Ready, which UI calls once it listens, with the address to print,
+// and Open, nil with --no-open, which UI calls with the path of a page that
+// sends the browser to that address.
 type UIOptions struct {
 	Home, CacheDir string
 	Port           int
 	Ready          func(url string) error
+	Open           func(page string) error
 }
 
 // resultError is a command that failed after it produced a result that

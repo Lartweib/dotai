@@ -18,27 +18,36 @@ type session struct {
 	mu      sync.Mutex
 	code    string
 	expires time.Time
-	used    bool
+	spent   bool
 	token   string
 	now     func() time.Time
+	onSpent func() // called once the code is traded, nil for nothing
 }
 
 // exchange gives the session token for code, and uses code up. A wrong
 // code is refused and leaves the code good; a code used before, or one
 // that expired, is refused with what to do.
 func (s *session) exchange(code string) (string, error) {
+	token, err := s.trade(code)
+	if err == nil && s.onSpent != nil {
+		s.onSpent()
+	}
+	return token, err
+}
+
+func (s *session) trade(code string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !sameToken(code, s.code) {
 		return "", unauthorized("the code is not the one of this run of dotai ui: open the address it printed")
 	}
-	if s.used {
+	if s.spent {
 		return "", unauthorized("this link was already used; restart dotai ui to get a new one")
 	}
 	if !s.now().Before(s.expires) {
 		return "", unauthorized("this link expired; restart dotai ui to get a new one")
 	}
-	s.used = true
+	s.spent = true
 	return s.token, nil
 }
 
