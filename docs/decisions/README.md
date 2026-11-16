@@ -33,7 +33,7 @@ Records were renumbered on 2026-10-26, when the records about the reference pack
 | [0023](0023-flat-profiles-and-layer-merge-rules.md) | Flat, combinable profiles and explicit layer merge rules | accepted | 2026-10-25 |
 | [0024](0024-models-declared-per-harness-no-tiers.md) | Models declared per harness, without tiers | accepted | 2026-10-25 |
 | [0025](0025-settings-as-per-harness-passthrough.md) | Settings as per-harness blocks merged as-is | accepted | 2026-10-25 |
-| [0026](0026-json-cli-and-ui-after-v1.md) | Every command has `--json`; a UI comes after v1 | accepted | 2026-10-26 |
+| [0026](0026-json-cli-and-ui-after-v1.md) | Every command has `--json`; a UI comes after v1 (partially superseded by 0043) | accepted | 2026-10-26 |
 | [0027](0027-loose-files-and-plugins-only-for-mods.md) | Claude Code content as loose files; plugins only for mods | accepted | 2026-10-26 |
 | [0028](0028-plan-centric-hexagonal-engine.md) | A plan-centric engine with a pure domain and ports (partially superseded by 0029) | accepted | 2026-10-26 |
 | [0029](0029-rulesync-checksums-embedded-in-the-engine.md) | rulesync checksums are embedded in the engine | accepted | 2026-10-28 |
@@ -50,7 +50,7 @@ Records were renumbered on 2026-10-26, when the records about the reference pack
 | [0040](0040-list-files-merged-as-a-union.md) | Hooks and permissions merge as a union in layer order | accepted | 2026-11-01 |
 | [0041](0041-project-scope-local-and-untracked.md) | The project scope stays local: excluded from git, never in tracked files | accepted | 2026-11-02 |
 | [0042](0042-tag-driven-release-binaries.md) | Tag-driven release binaries built by a script and published with gh | proposed | 2026-11-03 |
-| [0043](0043-local-web-ui.md) | A local web UI in v1, served by `dotai ui` over the same use cases | proposed | 2026-11-04 |
+| [0043](0043-local-web-ui.md) | A local web UI in v1, served by `dotai ui` over the same use cases | accepted | 2026-11-04 |
 
 ## Superseded (history only)
 

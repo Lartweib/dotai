@@ -6,6 +6,8 @@ tags: [cli, ui, web, tui, v1]
 
 # 0026 · Every command has `--json`; a UI comes after v1
 
+> **Partially superseded by [0043](0043-local-web-ui.md) on 2026-11-16: v1 ships a local web UI, `dotai ui`.** Still in force: `--json` on every command as the contract a UI builds on, and the UI as a thin layer over the same engine functions, with no logic of its own.
+
 ## Context
 
 A visual front end would make it easier to see the installed configuration and the result of `dotai doctor`, add or remove profiles, and install a pack. Two shapes fit: a local web page opened by a command (for example `dotai ui`), or a terminal UI. A UI with its own logic would create a second way to do everything, and a local server that can write configuration is an attack surface for any page open in the browser.

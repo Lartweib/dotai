@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-11-04
 tags: [ui, web, security, cli, v1]
 ---
@@ -42,7 +42,7 @@ tags: [ui, web, security, cli, v1]
 - Accepted cost: the one-time code is printed in the terminal, which is the user's, until the page uses it or it expires two minutes later. It never appears on a command line, which other users of the machine can read: `dotai ui` writes a page that sends the browser to the address, `0600` in a new `0700` directory of the temporary directory (on Windows the user's own temporary directory), opens that page's path, and deletes it once the code is traded or when it stops. The session token never leaves the server and the page. A program that already runs as the user can read `~/.dotai` anyway.
 - Accepted cost: an action plans twice, once for the user and once to carry it out, so an action takes about as long as its plan again.
 - Good: a plan that changed between the page and the action, such as a file another program edited, is never carried out unseen.
-- Pending: once this record is accepted, it partially supersedes [0026](0026-json-cli-and-ui-after-v1.md), which placed the UI after v1.
+- Partially supersedes [0026](0026-json-cli-and-ui-after-v1.md), which placed the UI after v1.
 
 ## Evidence
 
