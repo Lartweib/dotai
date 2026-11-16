@@ -3,7 +3,7 @@
 // planned, by the plan's digest. A project restores as a whole, through
 // the same preview and confirm as on the Backups board.
 
-import { actions, boardHead, busy, failure, h, hint, kv, lm, mount, notice, op, sec, warning } from "./dom.js";
+import { actions, boardHead, busy, failure, h, hint, kv, lm, loading, mount, notice, op, sec, settle, warning } from "./dom.js";
 import { confirmFlow, guard, rel, restoreProjectFlow } from "./flows.js";
 import { fmtDate, fmtRelative, t } from "./i18n.js";
 import { act, harnessName, isAbsolute, loadPack, packPaths, post, recentProjects, rememberProject, selectedPack, shared, tilde } from "./store.js";
@@ -36,6 +36,7 @@ export async function render(root, ctx) {
     h("p", { class: "help", id: "project-help", text: t("projects.pathHelp") }), err));
 
   const draw = () => {
+    settle(list);
     mount(list,
       h("div", { class: "listhead" }, h("span", { class: "t-meta", text: t("projects.applied", { n: known.length }) })),
       h("ul", { class: "rows" }, paths.length ? paths.map((p) => {
@@ -95,7 +96,7 @@ async function showProject(detail, project, st, ctx) {
 }
 
 async function pickProfiles(area, project, packs, packPath, chosen, ctx) {
-  mount(area, busy(t("projects.reading")));
+  loading(area, t("projects.reading"));
   const info = await loadPack(packPath);
   if (ctx.stale()) return;
   const pack = info.data && info.data.pack;

@@ -450,13 +450,14 @@ form.well { gap: 12px; }
 
 /* Lanes: where a board shows a sequence (the layers of a pack, the four
    steps of Home, the levels of a merge), each item has a node, and a line
-   runs from one node down to the next. */
+   inks in from one node down to the next while a soft light breathes
+   along it. */
 .lanes, .steps, .levels { --line: 1.5px; --node: 9px; --node-x: -24px; --node-y: 32px; --gap-y: 0px; }
 .lanes, .levels { padding-left: 28px; }
 .lanes > .sec, .steps > li, .levels > li { position: relative; }
 .lanes > .sec::before, .levels > li::before { content: ""; position: absolute; left: var(--node-x); top: var(--node-y); width: var(--node); height: var(--node); border-radius: 50%; background: var(--sheet); box-shadow: 0 0 0 1.5px var(--lane); }
 .lanes > .sec:first-child::before, .levels > li:first-child::before { background: var(--lane); }
-.lanes > .sec:not(:last-child)::after, .steps > li:not(:last-child)::after, .levels > li:not(:last-child)::after { content: ""; position: absolute; left: calc(var(--node-x) + (var(--node) - var(--line)) / 2); top: calc(var(--node-y) + var(--node)); bottom: calc(-1 * (var(--gap-y) + var(--node-y))); width: var(--line); background: var(--lane); }
+.lanes > .sec:not(:last-child)::after, .steps > li:not(:last-child)::after, .levels > li:not(:last-child)::after { content: ""; position: absolute; left: calc(var(--node-x) + (var(--node) - var(--line)) / 2); top: calc(var(--node-y) + var(--node)); bottom: calc(-1 * (var(--gap-y) + var(--node-y))); width: var(--line); background: var(--lane); transform-origin: top; animation: inkdown var(--d-5) var(--o-ink) backwards, breathe 5.6s ease-in-out var(--loop); animation-delay: calc(200ms + var(--i, 0) * var(--step) * 2), 1.2s; }
 .steps { --node: 22px; --node-x: -36px; --node-y: 2px; display: flex; flex-direction: column; max-width: 68ch; padding-left: 36px; counter-reset: step; }
 .steps li { padding: 4px 0 16px; line-height: 1.55; counter-increment: step; }
 .steps li:last-child { padding-bottom: 4px; }
@@ -500,10 +501,62 @@ form.well { gap: 12px; }
 .leaf .sub { padding: 0; font: 400 11px/16px var(--fm); color: var(--ink-3); overflow-wrap: anywhere; }
 .leaf .tag { flex: none; }
 
-/* Loading */
-.busy { display: inline-flex; align-items: center; gap: 10px; padding: 14px; color: var(--ink-3); font-size: var(--t-sm); }
-.busy::before { content: ""; flex: none; width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--rule-2); border-top: 1.5px solid var(--ink-2); }
+/* Loading: a quiet line that fades in late, so a quick answer never
+   flashes it; a pane that reloads dims in place instead of collapsing,
+   inert, while the live line (#live) says what it waits for. */
+.busy { display: inline-flex; align-items: center; gap: 10px; padding: 14px; color: var(--ink-3); font-size: var(--t-sm); animation: fade var(--d-4) var(--o-drift) 160ms backwards; }
+.busy::before { content: ""; flex: none; width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--rule-2); border-top: 1.5px solid var(--ink-2); animation: spin var(--d-spin) linear var(--loop); }
 .detail > .busy { padding: 0; }
+[aria-busy="true"] { opacity: 0.55; transition: opacity var(--d-2) var(--o-drift); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* Motion. A board's head rises line by line, its panes fade in, the rows
+   of a list rise one after another (50 ms apart, the ninth and later
+   together), and a detail rises again whenever it changes. A list drawn
+   again for a new choice (.still) does not rise again. */
+.boardhead > * { animation: rise var(--d-5) var(--o-settle) backwards; }
+.boardhead > :nth-child(2) { animation-delay: 60ms; }
+.boardhead > :nth-child(3) { animation-delay: 130ms; }
+.listpane, .treepane, .detail { animation: fade var(--d-4) var(--o-drift) 120ms backwards; }
+.detail > * { animation: rise var(--d-5) var(--o-settle) backwards; }
+.detail > :nth-child(2) { animation-delay: 70ms; }
+.detail > :nth-child(n+3) { animation-delay: 140ms; }
+.rows > li, .kids > li, .repos > li, .col > .sec, .lanes > .sec, .steps > li, .levels > li { --i: 8; animation: rise var(--d-5) var(--o-settle) backwards; animation-delay: calc(100ms + var(--i) * var(--step)); }
+:is(.rows, .kids, .repos, .col, .lanes, .steps, .levels) > :nth-child(1) { --i: 0; }
+:is(.rows, .kids, .repos, .col, .lanes, .steps, .levels) > :nth-child(2) { --i: 1; }
+:is(.rows, .kids, .repos, .col, .lanes, .steps, .levels) > :nth-child(3) { --i: 2; }
+:is(.rows, .kids, .repos, .col, .lanes, .steps, .levels) > :nth-child(4) { --i: 3; }
+:is(.rows, .kids, .repos, .col, .lanes, .steps, .levels) > :nth-child(5) { --i: 4; }
+:is(.rows, .kids, .repos, .col, .lanes, .steps, .levels) > :nth-child(6) { --i: 5; }
+:is(.rows, .kids, .repos, .col, .lanes, .steps, .levels) > :nth-child(7) { --i: 6; }
+:is(.rows, .kids, .repos, .col, .lanes, .steps, .levels) > :nth-child(8) { --i: 7; }
+.still .rows > li, .still .kids > li { animation: none; }
+.fold[open] > .fold-body { animation: rise var(--d-4) var(--o-settle) backwards; }
+.menu[open] > .menu-list { animation: menu-in var(--d-2) var(--o-settle) backwards; }
+.menu.closing > .menu-list { animation: menu-out var(--d-2) var(--o-drift) forwards; }
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes inkdown { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+@keyframes breathe { 0%, 100% { box-shadow: 0 0 0 0 transparent; } 50% { box-shadow: 0 0 5px 1px color-mix(in oklch, var(--lit) 55%, transparent); } }
+@keyframes menu-in { from { opacity: 0; transform: translateY(-4px) scale(0.98); } to { opacity: 1; transform: none; } }
+@keyframes menu-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(-4px) scale(0.98); } }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Reduced motion: every animation becomes a 160 ms crossfade. Nothing
+   travels, nothing loops, and no list waits for its turn. */
+@media (prefers-reduced-motion: reduce) {
+  :root { --d-2: 160ms; --d-3: 160ms; --d-4: 160ms; --d-5: 160ms; --d-spin: 160ms; --loop: 1; --step: 0ms; }
+  @keyframes rise { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes inkdown { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes menu-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes menu-out { from { opacity: 1; } to { opacity: 0; } }
+  @keyframes spin { from { opacity: 0.4; } to { opacity: 1; } }
+  @keyframes breathe { from { opacity: 1; } to { opacity: 1; } }
+  .btn:active { transform: none; }
+  .seg::before { display: none; }
+  .lang[aria-pressed="true"] { background: var(--sheet); box-shadow: 0 0 0 1px var(--rule-2); }
+  .grp .chev { transition-property: color; }
+}
 
 /* A laptop: a narrower rail, so the list and the detail still sit side
    by side. */

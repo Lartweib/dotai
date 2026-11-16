@@ -25,10 +25,73 @@ function append(el, kids) {
   }
 }
 
-// mount replaces the children of el with kids.
+// mount replaces the children of el with kids, and ends the wait that
+// loading started.
 export function mount(el, ...kids) {
+  if (el.hasAttribute("aria-busy")) {
+    el.removeAttribute("aria-busy");
+    el.inert = false;
+    say("");
+  }
   el.replaceChildren();
   append(el, kids);
+}
+
+// loading shows that el waits for a request. An empty el shows the busy
+// line. One that already shows something keeps it, dimmed and inert, so
+// that no key can act on it, until mount replaces it: the pane does not
+// collapse and grow again. The live line of the page says what it waits
+// for.
+export function loading(el, text) {
+  if (el.childElementCount && !el.querySelector(":scope > .busy")) {
+    el.setAttribute("aria-busy", "true");
+    el.inert = true;
+    say(text);
+  } else {
+    mount(el, busy(text));
+  }
+}
+
+// say puts text in the live line (#live in index.html), which screen
+// readers read out.
+function say(text) {
+  const live = document.getElementById("live");
+  if (live) live.textContent = text;
+}
+
+// settle marks el as drawn: the rows a board draws into it again, for a
+// new choice, do not rise in again.
+export function settle(el) {
+  if (el.dataset.drawn) el.classList.add("still");
+  el.dataset.drawn = "1";
+}
+
+// menu is a button that folds out a list of items. It closes as it
+// opened, mirrored, before the list goes away.
+export function menu(label, items) {
+  const el = h("details", { class: "menu" }, h("summary", { class: "btn", "aria-label": label }, label), h("div", { class: "menu-list" }, items));
+  el.querySelector("summary").addEventListener("click", (e) => {
+    if (!el.open) return;
+    e.preventDefault();
+    closeMenu(el);
+  });
+  return el;
+}
+
+export function closeMenu(el) {
+  if (!el.open || el.classList.contains("closing")) return;
+  const list = el.querySelector(".menu-list");
+  const done = () => {
+    clearTimeout(timer);
+    list.removeEventListener("animationend", done);
+    el.classList.remove("closing");
+    el.open = false;
+  };
+  el.classList.add("closing");
+  list.addEventListener("animationend", done);
+  // When no animation runs. menu-out takes --d-2 (styles.css); the
+  // fallback waits that long and a little more.
+  const timer = setTimeout(done, (parseFloat(getComputedStyle(el).getPropertyValue("--d-2")) || 240) + 160);
 }
 
 const svgNS = "http://www.w3.org/2000/svg";

@@ -4,7 +4,7 @@
 // folder once it validates, copy makes a new folder to edit, and remove
 // only forgets the entry.
 
-import { actions, boardHead, busy, failure, h, hint, icon, kv, lm, mount, notice, sec, tech, warning } from "./dom.js";
+import { actions, boardHead, closeMenu, failure, h, hint, icon, kv, lm, loading, menu, mount, notice, sec, settle, tech, warning } from "./dom.js";
 import { fmtDate, lower, t } from "./i18n.js";
 import { act, harnessName, installed, isAbsolute, isInstalled, loadOutline, loadPack, registry, selectPack, selectedPack, setRegistry, shared, tilde } from "./store.js";
 
@@ -66,6 +66,7 @@ export async function render(root, ctx) {
 
   let shown = 0; // only the latest selection mounts its detail
   const draw = () => {
+    settle(list);
     mount(rows, packs.map((p) => packRow(p, p.path === current, () => {
       current = p.path;
       selectPack(p.path);
@@ -149,7 +150,7 @@ async function showPack(detail, entry, ctx, doImport) {
       actions([removeBtn("btn")], t("packs.removeNote")), out));
     return;
   }
-  mount(detail, busy(t("packs.reading")));
+  loading(detail, t("packs.reading"));
   const [res, outline] = await Promise.all([loadPack(path), loadOutline(path)]);
   if (ctx.stale()) return;
   const pack = res.data && res.data.pack;
@@ -165,11 +166,10 @@ async function showPack(detail, entry, ctx, doImport) {
   const enc = encodeURIComponent(path);
   const target = outline.ok ? outline.data.copyTarget : "";
   const copy = h("button", { class: "menu-item", type: "button", text: t("packs.copy"), onclick: (e) => {
-    e.currentTarget.closest("details").open = false;
+    closeMenu(e.currentTarget.closest("details"));
     copyForm(out, path, target, ctx, doImport);
   } });
-  const more = h("details", { class: "menu" }, h("summary", { class: "btn", "aria-label": t("packs.more") }, t("packs.more")),
-    h("div", { class: "menu-list" }, copy, removeBtn("menu-item")));
+  const more = menu(t("packs.more"), [copy, removeBtn("menu-item")]);
 
   const intro = h("div", { class: "col intro" },
     h("div", { class: "meta" },

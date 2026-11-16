@@ -3,7 +3,7 @@
 // then confirm of a restore. The boards import these from here, never
 // from each other.
 
-import { actions, busy, failure, h, mount, notice, op, warning } from "./dom.js";
+import { actions, busy, failure, h, loading, mount, notice, op, warning } from "./dom.js";
 import { t } from "./i18n.js";
 import { act, api, query, tilde } from "./store.js";
 
@@ -46,7 +46,7 @@ export function guard(button, allowed) {
 // preview that changed before the restore wrote anything is shown again,
 // new.
 export async function confirmFlow(el, f, msg) {
-  mount(el, busy(t("restore.previewing")));
+  loading(el, t("restore.previewing"));
   const res = await f.load();
   if (f.ctx.stale()) return;
   if (!res.ok) {
