@@ -196,18 +196,20 @@ async function showPack(detail, entry, ctx, doImport) {
       [...pack.harnesses.map((id) => harnessRow(id, false)), ...pack.optionalHarnesses.map((id) => harnessRow(id, true))]),
     hint(t("hint.harness"))),
     !outline.ok ? failure(outline.error) : null,
-    of("base").map((l) => sec(t("packs.base"), t("hint.base"), layerBody(l, [lm("base"), h("span", { class: "t-meta", text: t("packs.userScope") })]))),
-    of("variant").length ? sec(t("packs.variants"), t("hint.variant"), h("div", { class: "layers" }, of("variant").map((l) => layerBody(l, [lm(l.name),
-      l.name === pack.defaultVariant ? h("span", { class: "pill sm state", text: t("packs.default") }) : null,
-      on && s.variant === l.name ? h("span", { class: "pill sm you", text: t("packs.installed") }) : null,
-      pack.sharedSkills.includes(l.name) ? h("span", { class: "t-meta", text: t("packs.sharedSkills") }) : null])))) : null,
-    of("profile").length ? sec(t("packs.profiles"), t("hint.profile"), h("div", { class: "layers" }, of("profile").map((l) => {
-      const pr = pack.profiles.find((x) => x.name === l.name) || { description: "", hints: [] };
-      return layerBody(l, [lm(l.name), pr.description ? h("span", { class: "authored" }, h("span", { class: "by", text: t("packs.fromPack") }), pr.description) : null,
-        pr.hints.length ? h("span", { class: "t-meta full", text: t("packs.hints", { list: pr.hints.join(", ") }) }) : null]);
-    }))) : null,
-    outline.ok && outline.data.mods.length ? sec(t("packs.modsTitle"), t("hint.mod"), h("ul", { class: "fls" }, outline.data.mods.map((m) => h("li", { class: "fl" }, h("span", { class: "name mono", text: m }),
-      h("span", { class: "t-meta", text: t("packs.namedBy", { list: pack.profiles.filter((p) => p.mods.includes(m)).map((p) => p.name).join(", ") || "—" }) }))))) : null,
+    // The layers, from the base to the mods, on one lane.
+    h("div", { class: "lanes" },
+      of("base").map((l) => sec(t("packs.base"), t("hint.base"), layerBody(l, [lm("base"), h("span", { class: "t-meta", text: t("packs.userScope") })]))),
+      of("variant").length ? sec(t("packs.variants"), t("hint.variant"), h("div", { class: "layers" }, of("variant").map((l) => layerBody(l, [lm(l.name),
+        l.name === pack.defaultVariant ? h("span", { class: "pill sm state", text: t("packs.default") }) : null,
+        on && s.variant === l.name ? h("span", { class: "pill sm you", text: t("packs.installed") }) : null,
+        pack.sharedSkills.includes(l.name) ? h("span", { class: "t-meta", text: t("packs.sharedSkills") }) : null])))) : null,
+      of("profile").length ? sec(t("packs.profiles"), t("hint.profile"), h("div", { class: "layers" }, of("profile").map((l) => {
+        const pr = pack.profiles.find((x) => x.name === l.name) || { description: "", hints: [] };
+        return layerBody(l, [lm(l.name), pr.description ? h("span", { class: "authored" }, h("span", { class: "by", text: t("packs.fromPack") }), pr.description) : null,
+          pr.hints.length ? h("span", { class: "t-meta full", text: t("packs.hints", { list: pr.hints.join(", ") }) }) : null]);
+      }))) : null,
+      outline.ok && outline.data.mods.length ? sec(t("packs.modsTitle"), t("hint.mod"), h("ul", { class: "fls" }, outline.data.mods.map((m) => h("li", { class: "fl" }, h("span", { class: "name mono", text: m }),
+        h("span", { class: "t-meta", text: t("packs.namedBy", { list: pack.profiles.filter((p) => p.mods.includes(m)).map((p) => p.name).join(", ") || "—" }) }))))) : null),
     warnings && warnings.length ? sec(t(res.ok ? "packs.warnings" : "packs.problems"), "", h("ul", { class: "list" }, warnings.map((d) =>
       warning(d.code, d.file ? d.file + (d.line ? ":" + d.line : "") : "", d.message)))) : null));
 }

@@ -100,7 +100,7 @@ function showItem(detail, it, harness) {
   }
   const o = it.op;
   mount(detail,
-    h("div", { class: "col intro tight" },
+    h("div", { class: "col intro" },
       h("div", { class: "meta" }, h("span", { class: "t-meta", text: groupName(it.group) }),
         h("span", { class: "tag", "data-a": o.action, text: word(o.action) }), h("span", { class: "t-meta", text: harnessName(o.harness) })),
       h("h2", { class: "h-detail", text: leafName(it) }),
