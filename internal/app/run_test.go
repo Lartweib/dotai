@@ -472,7 +472,10 @@ func TestPlanRunAddsStandalone(t *testing.T) {
 func TestPlanRunDropsClaudeCodeSessionAndPluginVariables(t *testing.T) {
 	home := runHome(t, app.ModeIsolated, []string{"claudecode"}, nil)
 	dropped := []string{"CLAUDE_CODE_PLUGIN_DIRS=/p", "CLAUDE_CODE_PLUGIN_SEED_DIR=/s", "CLAUDE_CODE_PLUGIN_CACHE_DIR=/c", "CLAUDE_ENV_FILE=/e.sh",
-		"CLAUDE_CODE_SESSION_ID=abc", "claudecode=1", "CLAUDE_CODE_CHILD_SESSION=1"}
+		"CLAUDE_CODE_SESSION_ID=abc", "claudecode=1", "CLAUDE_CODE_CHILD_SESSION=1", "CLAUDE_EFFORT=high", "CLAUDE_CODE_EXECPATH=/bin/claude",
+		"CLAUDE_CODE_FORCE_TERMINAL_IMAGES=1", "CLAUDE_CODE_MESSAGING_SOCKET=/run/inbox.pipe", "CLAUDE_CODE_MESSAGING_TOKEN=secret-inbox", "CLAUDE_PID=4242",
+		"CLAUDE_CODE_BRIDGE_SESSION_ID=bridge", "CLAUDE_JOB_DIR=/jobs/1", "CLAUDE_CODE_ENTRYPOINT=cli", "CLAUDE_CODE_SESSION_ATTENDED=1",
+		"CLAUDE_CODE_VERSION=2.1.309", "TRACEPARENT=00-trace-span-01"}
 	kept := []string{"CLAUDE_CODE_OAUTH_TOKEN=secret-oauth", "ANTHROPIC_API_KEY=secret-key", "CLAUDE_CODE_USE_BEDROCK=1", "AWS_BEARER_TOKEN_BEDROCK=secret-bearer",
 		"ANTHROPIC_BASE_URL=https://gateway.example", "ANTHROPIC_CUSTOM_HEADERS=X-Secret: s", "KEEP=1"}
 	p, err := app.PlanRunWith(home, "claudecode", nil, append(slices.Clone(dropped), kept...), lookPathAt(home), "windows")
@@ -489,8 +492,11 @@ func TestPlanRunDropsClaudeCodeSessionAndPluginVariables(t *testing.T) {
 			t.Errorf("Env = %q, want %q kept", p.Env, kv)
 		}
 	}
-	if len(p.Notes) != 1 || !strings.Contains(p.Notes[0], "CLAUDE_CODE_PLUGIN_DIRS, CLAUDE_CODE_PLUGIN_SEED_DIR, CLAUDE_CODE_PLUGIN_CACHE_DIR, CLAUDE_ENV_FILE, CLAUDE_CODE_SESSION_ID, claudecode, CLAUDE_CODE_CHILD_SESSION") {
-		t.Errorf("Notes = %q, want one naming the removed variables", p.Notes)
+	if len(p.Notes) != 1 || !strings.Contains(p.Notes[0], "CLAUDE_CODE_PLUGIN_DIRS, CLAUDE_CODE_PLUGIN_SEED_DIR, CLAUDE_CODE_PLUGIN_CACHE_DIR, CLAUDE_ENV_FILE, CLAUDE_CODE_SESSION_ID, claudecode, CLAUDE_CODE_CHILD_SESSION, CLAUDE_EFFORT, CLAUDE_CODE_EXECPATH, CLAUDE_CODE_FORCE_TERMINAL_IMAGES, "+
+		"CLAUDE_CODE_MESSAGING_SOCKET, CLAUDE_CODE_MESSAGING_TOKEN, CLAUDE_PID, CLAUDE_CODE_BRIDGE_SESSION_ID, CLAUDE_JOB_DIR, CLAUDE_CODE_ENTRYPOINT, "+
+		"CLAUDE_CODE_SESSION_ATTENDED, CLAUDE_CODE_VERSION, TRACEPARENT from") ||
+		strings.Contains(p.Notes[0], "secret") || strings.Contains(p.Notes[0], "pipe") || strings.Contains(p.Notes[0], "4242") || strings.Contains(p.Notes[0], "trace-span") {
+		t.Errorf("Notes = %q, want one naming the removed variables, without their values", p.Notes)
 	}
 	if len(p.Warnings) != 1 || !strings.Contains(p.Warnings[0], "CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY, CLAUDE_CODE_USE_BEDROCK, AWS_BEARER_TOKEN_BEDROCK, ANTHROPIC_BASE_URL, ANTHROPIC_CUSTOM_HEADERS") ||
 		strings.Contains(p.Warnings[0], "gateway.example") || strings.Contains(p.Warnings[0], "X-Secret") ||
@@ -500,6 +506,51 @@ func TestPlanRunDropsClaudeCodeSessionAndPluginVariables(t *testing.T) {
 	p, err = app.PlanRunWith(home, "claudecode", nil, []string{"KEEP=1"}, lookPathAt(home), "linux")
 	if err != nil || len(p.Notes) != 0 || len(p.Warnings) != 0 {
 		t.Errorf("without them: Notes = %q, Warnings = %q, %v, want none", p.Notes, p.Warnings, err)
+	}
+}
+
+// TestPlanRunKeepsUserSettableVariablesWithoutAParentSession checks that
+// the variables a parent Claude Code session sets but the user may set too
+// are removed only when CLAUDECODE shows that session, matched as the other
+// names are, while CLAUDE_EFFORT and CLAUDE_PID are removed either way.
+func TestPlanRunKeepsUserSettableVariablesWithoutAParentSession(t *testing.T) {
+	home := runHome(t, app.ModeIsolated, []string{"claudecode"}, nil)
+	session := []string{"CLAUDE_CODE_FORCE_TERMINAL_IMAGES=1", "CLAUDE_CODE_ENTRYPOINT=sdk-ts", "CLAUDE_CODE_SESSION_ATTENDED=1", "CLAUDE_CODE_VERSION=2.1.309",
+		"TRACEPARENT=00-trace-span-01"}
+	sessionNames := "CLAUDE_CODE_FORCE_TERMINAL_IMAGES, CLAUDE_CODE_ENTRYPOINT, CLAUDE_CODE_SESSION_ATTENDED, CLAUDE_CODE_VERSION, TRACEPARENT"
+	with := func(kv ...string) []string { return append(append(kv, session...), "KEEP=1") }
+	tests := []struct {
+		name, goos string
+		environ    []string
+		kept       bool
+		note       string
+	}{
+		{"no parent session", "linux", with("CLAUDE_EFFORT=high", "CLAUDE_PID=4242"), true,
+			"removed CLAUDE_EFFORT, CLAUDE_PID from the environment"},
+		{"parent session", "linux", with("CLAUDECODE=1"), false,
+			"removed CLAUDECODE, " + sessionNames + " from the environment"},
+		{"marker of another case on linux", "linux", with("claudecode=1"), true, ""},
+		{"marker of another case on windows", "windows", with("claudecode=1"), false,
+			"removed claudecode, " + sessionNames + " from the environment"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, err := app.PlanRunWith(home, "claudecode", nil, tt.environ, lookPathAt(home), tt.goos)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, kv := range session {
+				if slices.Contains(p.Env, kv) != tt.kept {
+					t.Errorf("Env = %q, want %q kept: %t", p.Env, kv, tt.kept)
+				}
+			}
+			if !slices.Contains(p.Env, "KEEP=1") {
+				t.Errorf("Env = %q, want KEEP kept", p.Env)
+			}
+			if tt.note == "" && len(p.Notes) != 0 || tt.note != "" && (len(p.Notes) != 1 || !strings.HasPrefix(p.Notes[0], tt.note+", since ")) {
+				t.Errorf("Notes = %q, want %q", p.Notes, tt.note)
+			}
+		})
 	}
 }
 

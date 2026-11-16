@@ -152,6 +152,14 @@ func planRun(d executeFS, lookPath func(string) (string, error), goos, home, cwd
 	for _, name := range a.Isolation.Drop {
 		drop[envKey(goos, name)] = true
 	}
+	if a.Isolation.SessionMarker != "" && slices.ContainsFunc(environ, func(kv string) bool {
+		name, _, _ := strings.Cut(kv, "=")
+		return envKey(goos, name) == envKey(goos, a.Isolation.SessionMarker)
+	}) {
+		for _, name := range a.Isolation.SessionDrop {
+			drop[envKey(goos, name)] = true
+		}
+	}
 	for _, name := range a.Isolation.Credentials {
 		credentials[envKey(goos, name)] = true
 	}

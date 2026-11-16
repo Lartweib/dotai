@@ -167,6 +167,11 @@ type Isolation struct {
 	// run removes them and says so, with DropNote, why, text for people.
 	Drop     []string
 	DropNote string
+	// SessionDrop are dropped as Drop is, but only when SessionMarker is in
+	// the user's environment: a parent session of the harness sets them,
+	// yet the user may set them too.
+	SessionMarker string
+	SessionDrop   []string
 	// Credentials are variables of the user's environment that log the
 	// harness in, or switch it to another provider or endpoint, which dotai
 	// run passes on, since the user may mean them, and names in a warning,
@@ -450,10 +455,20 @@ var adapters = []Adapter{
 			// (https://code.claude.com/docs/en/env-vars, read 2026-11-04):
 			// plugin directories, a shell setup sourced before each Bash
 			// command, and the markers Claude Code sets in the processes it
-			// spawns, which a session started from one would inherit.
+			// spawns, which a session started from one would inherit, among
+			// them the parent's inbox socket and token (read again
+			// 2026-11-16; CLAUDE_CODE_EXECPATH is not in the reference, and
+			// the markers were seen in a session's child processes that day).
 			Drop: []string{"CLAUDE_CODE_PLUGIN_DIRS", "CLAUDE_CODE_PLUGIN_SEED_DIR", "CLAUDE_CODE_PLUGIN_CACHE_DIR", "CLAUDE_ENV_FILE",
-				"CLAUDE_CODE_SESSION_ID", "CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION"},
+				"CLAUDE_CODE_SESSION_ID", "CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_EFFORT", "CLAUDE_CODE_EXECPATH",
+				"CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_PID", "CLAUDE_CODE_BRIDGE_SESSION_ID", "CLAUDE_JOB_DIR"},
 			DropNote: "each loads your own plugins or shell setup, or carries the Claude Code session dotai runs in, into the isolated one",
+			// Set in a session's child processes, but a user setting too
+			// (CLAUDE_CODE_FORCE_TERMINAL_IMAGES, TRACEPARENT), or set by SDK
+			// callers (CLAUDE_CODE_ENTRYPOINT), or undocumented, so they go
+			// only under a parent session.
+			SessionMarker: "CLAUDECODE",
+			SessionDrop:   []string{"CLAUDE_CODE_FORCE_TERMINAL_IMAGES", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_VERSION", "TRACEPARENT"},
 			// Each logs Claude Code in instead of the isolated login, or
 			// sends its requests to another provider or endpoint, from the
 			// same reference; not exhaustive: the reference lists more
@@ -574,6 +589,7 @@ func All() []Adapter {
 		out[i].Isolation.Vars = slices.Clone(out[i].Isolation.Vars)
 		out[i].Isolation.Flags = slices.Clone(out[i].Isolation.Flags)
 		out[i].Isolation.Drop = slices.Clone(out[i].Isolation.Drop)
+		out[i].Isolation.SessionDrop = slices.Clone(out[i].Isolation.SessionDrop)
 		out[i].Isolation.Credentials = slices.Clone(out[i].Isolation.Credentials)
 		for j := range out[i].Isolation.Flags {
 			f := &out[i].Isolation.Flags[j]

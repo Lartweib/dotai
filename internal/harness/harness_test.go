@@ -386,6 +386,18 @@ func TestAdapterData(t *testing.T) {
 			t.Errorf("Claude Code's Credentials lack %s", name)
 		}
 	}
+	for _, name := range []string{"CLAUDE_CODE_SESSION_ID", "CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_EFFORT", "CLAUDE_CODE_EXECPATH",
+		"CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_PID", "CLAUDE_CODE_BRIDGE_SESSION_ID", "CLAUDE_JOB_DIR"} {
+		if !slices.Contains(claude[0].Isolation.Drop, name) {
+			t.Errorf("Claude Code's Drop lacks %s", name)
+		}
+	}
+	// The user may set them, so they go only under a parent session.
+	session := []string{"CLAUDE_CODE_FORCE_TERMINAL_IMAGES", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_VERSION", "TRACEPARENT"}
+	if iso := claude[0].Isolation; slices.ContainsFunc(iso.Drop, func(n string) bool { return slices.Contains(session, n) }) || iso.SessionMarker != "CLAUDECODE" ||
+		!slices.Equal(iso.SessionDrop, session) {
+		t.Errorf("Claude Code drops %q always and %q under %q, want %q only under CLAUDECODE", iso.Drop, iso.SessionDrop, iso.SessionMarker, session)
+	}
 	for _, a := range harness.All() {
 		if len(a.Isolation.Drop) > 0 && a.Isolation.DropNote == "" {
 			t.Errorf("%s drops %q without a DropNote", a.ID, a.Isolation.Drop)
