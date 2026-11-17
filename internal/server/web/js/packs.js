@@ -1,10 +1,14 @@
 // The Packs board: the packs of the registry (~/.dotai/packs.json) on the
-// left, the selected one on the right: what each of its layers holds, by
-// type, as the server reads it, and what dotai validate says. Import adds a
-// folder once it validates, copy makes a new folder to edit, and remove
-// only forgets the entry.
+// left, each by its identity (github.com/<owner>/<repo> or local/<name>),
+// the selected one on the right: where it comes from, what each of its
+// layers holds, by type, as the server reads it, and what dotai validate
+// says. Adding a pack and updating a git pack are boards of their own
+// (packadd.js, packupdate.js); copy makes a new folder to edit, and remove,
+// once confirmed, forgets the entry and deletes a git pack's clone.
 
-import { actions, boardHead, closeMenu, failure, h, hint, icon, kv, lm, loading, menu, mount, notice, sec, settle, tech, warning } from "./dom.js";
+import { actions, boardHead, closeMenu, failure, h, hint, icon, kv, lm, loading, menu, mount, notice, sec, settle, submitGuard, tech } from "./dom.js";
+import { diagnostics, packWarnings, sourceLine } from "./packreview.js";
+import { shortCommit, visible } from "./packsource.js";
 import { fmtDate, lower, t } from "./i18n.js";
 import { act, harnessName, installed, isAbsolute, isInstalled, loadOutline, loadPack, registry, selectPack, selectedPack, setRegistry, shared, tilde } from "./store.js";
 
@@ -45,24 +49,18 @@ export async function render(root, ctx) {
     mount(detail, h("div", { class: "col intro" },
       h("h2", { class: "h-detail", text: t("packs.emptyTitle") }),
       h("p", { class: "body", text: t("packs.emptyBody") }),
-      importForm(doImport, true),
+      actions([h("a", { class: "btn primary", href: "#/add" }, icon("plus", 16), t("packs.add"))], t("packs.addNote")),
       hint(t("packs.emptyHint"))));
     return;
   }
 
-  const form = importForm(doImport, false);
-  form.hidden = true;
   const rows = h("ul", { class: "rows gap" });
   mount(list,
     h("div", { class: "listhead" },
       h("span", { class: "t-meta", text: t("packs.known", { n: packs.length }) }),
       h("span", { class: "grow" }),
-      h("button", { class: "btn quiet sm", type: "button", "aria-expanded": "false", onclick: (e) => {
-        form.hidden = !form.hidden;
-        e.currentTarget.setAttribute("aria-expanded", String(!form.hidden));
-        if (!form.hidden) form.querySelector("input").focus();
-      } }, icon("plus", 16), t("packs.import"))),
-    form, rows);
+      h("a", { class: "btn quiet sm", href: "#/add" }, icon("plus", 16), t("packs.add"))),
+    rows);
 
   let shown = 0; // only the latest selection mounts its detail
   const draw = () => {
@@ -79,75 +77,41 @@ export async function render(root, ctx) {
   draw();
 }
 
-function importForm(submit, primary) {
-  const input = h("input", { class: "input mono", id: "pack-path", type: "text", name: "pack", placeholder: t("packs.placeholder"), autocomplete: "off", spellcheck: "false", "aria-describedby": "pack-help" });
-  const err = h("div", { class: "err", role: "alert" });
-  const go = h("button", { class: primary ? "btn primary" : "btn", type: "submit", text: t("packs.importBtn") });
-  return h("form", { class: primary ? "form" : "form addform", onsubmit: async (e) => {
-    e.preventDefault();
-    const v = input.value.trim();
-    mount(err);
-    if (!isAbsolute(v)) {
-      err.textContent = t("packs.notAbsolute");
-      input.setAttribute("aria-invalid", "true");
-      return;
-    }
-    input.removeAttribute("aria-invalid");
-    go.disabled = true;
-    await submit(v, err);
-    go.disabled = false;
-  } },
-  h("div", { class: "field" },
-    h("label", { class: "label", for: "pack-path", text: t("packs.pathLabel") }),
-    h("div", { class: primary ? "inline wide" : "inline" }, input, go),
-    h("p", { class: "help", id: "pack-help", text: t("packs.pathHelp") }), err));
-}
-
 function packRow(p, pressed, pick) {
   const on = isInstalled(p.path);
   return h("li", {}, h("button", { class: "rowbtn tall", type: "button", "aria-pressed": String(pressed), onclick: pick },
     h("span", { class: "lead-dot" }, h("span", { class: on ? "dot on" : "dot" })),
     h("span", { class: "main" },
-      h("span", { class: "title" }, h("b", { text: p.name || t("packs.unreadable") }), p.version ? h("span", { class: "t-meta mono", text: p.version }) : null),
-      h("span", { class: "t-path", text: tilde(p.path) })),
+      h("span", { class: "title" }, h("b", { text: p.name ? visible(p.name) : t("packs.unreadable") }), p.version ? h("span", { class: "t-meta mono", text: p.version }) : null),
+      sourceLine(p)),
     h("span", { class: "side-mark" }, on ? h("span", { class: "pill sm you", text: t("packs.installed") })
       : p.error ? h("span", { class: "pill sm warn", text: t("packs.unreadableShort") }) : null)));
 }
 
 // once is an action button that its own request disables.
 function once(button, run) {
-  button.addEventListener("click", async () => {
-    if (button.disabled) return;
-    button.disabled = true;
-    try {
-      await run();
-    } finally {
-      button.disabled = false;
-    }
-  });
+  button.addEventListener("click", () => submitGuard(button, run));
   return button;
 }
 
 async function showPack(detail, entry, ctx, doImport) {
   const path = entry.path;
   const out = h("div", { class: "out" });
-  const doRemove = async () => {
-    const res = await act("/api/packs/remove", { path });
-    if (res.ok) setRegistry(res.data);
-    if (ctx.stale()) return;
-    if (!res.ok) {
-      mount(out, failure(res.error));
-      return;
-    }
-    ctx.again();
-  };
-  const removeBtn = (cls) => once(h("button", { class: cls, type: "button", text: t("packs.remove") }), doRemove);
+  // A removal asks first, and says what it deletes: a git pack's clone
+  // goes, a local pack's folder stays.
+  const removeBtn = (cls) => h("button", { class: cls, type: "button", text: t("packs.removeAsk"), onclick: (e) => {
+    const m = e.currentTarget.closest("details");
+    if (m) closeMenu(m);
+    mount(out, removeConfirm(entry, ctx, out));
+    out.querySelector("button").focus();
+  } });
   if (entry.error) {
     mount(detail, h("div", { class: "col intro" },
+      sourceLine(entry),
       h("p", { class: "t-path", text: tilde(path) }),
       h("h2", { class: "h-detail", text: t("packs.cannotRead") }),
       notice("bad", t("packs.unreadableBody"), entry.error),
-      actions([removeBtn("btn")], t("packs.removeNote")), out));
+      actions([removeBtn("btn")]), out));
     return;
   }
   loading(detail, t("packs.reading"));
@@ -156,9 +120,9 @@ async function showPack(detail, entry, ctx, doImport) {
   const pack = res.data && res.data.pack;
   if (!pack) {
     mount(detail, h("div", { class: "col intro" },
-      h("p", { class: "t-path", text: tilde(path) }),
+      sourceLine(entry),
       h("h2", { class: "h-detail", text: t("packs.cannotRead") }),
-      failure(res.error), actions([removeBtn("btn")], t("packs.removeNote")), out));
+      failure(res.error), actions([removeBtn("btn")]), out));
     return;
   }
   const on = isInstalled(path);
@@ -175,12 +139,14 @@ async function showPack(detail, entry, ctx, doImport) {
     h("div", { class: "meta" },
       on ? h("span", { class: "pill you", text: t("packs.installedMode", { mode: lower(t("mode." + s.mode)) }) }) : h("span", { class: "pill state", text: t("packs.notInstalled") }),
       on ? h("span", { class: "t-meta", text: t("packs.installedSince", { variant: s.variant, date: fmtDate(s.installedAt) }) }) : null),
-    h("h2", { class: "h-page" }, pack.name + " ", h("span", { class: "ver", text: pack.version })),
+    h("h2", { class: "h-page" }, visible(pack.name) + " ", h("span", { class: "ver", text: visible(pack.version) })),
     h("p", { class: "caps" }, h("span", { class: "t-path", text: tilde(path) }),
       h("span", { class: "t-meta", text: t("packs.engine", { v: pack.engine }) }), h("span", { class: "t-meta", text: t("packs.rulesync", { v: pack.rulesync }) })),
+    origin(entry),
     actions([
       h("a", { class: "btn primary", href: "#/plan/" + enc, text: t(on ? "packs.reinstall" : "packs.planInstall") }),
       h("a", { class: "btn", href: "#/tree/" + enc, text: t("packs.seeFiles") }),
+      entry.source ? h("a", { class: "btn", href: "#/update/" + encodeURIComponent(entry.id), text: t("packs.update") }) : null,
       more,
     ], !on && s ? t("packs.replacesNote", { name: pack.name, other: s.pack.name }) : t("packs.planNote")),
     out);
@@ -210,8 +176,50 @@ async function showPack(detail, entry, ctx, doImport) {
       }))) : null,
       outline.ok && outline.data.mods.length ? sec(t("packs.modsTitle"), t("hint.mod"), h("ul", { class: "fls" }, outline.data.mods.map((m) => h("li", { class: "fl" }, h("span", { class: "name mono", text: m }),
         h("span", { class: "t-meta", text: t("packs.namedBy", { list: pack.profiles.filter((p) => p.mods.includes(m)).map((p) => p.name).join(", ") || "—" }) }))))) : null),
-    warnings && warnings.length ? sec(t(res.ok ? "packs.warnings" : "packs.problems"), "", h("ul", { class: "list" }, warnings.map((d) =>
-      warning(d.code, d.file ? d.file + (d.line ? ":" + d.line : "") : "", d.message)))) : null));
+    warnings && warnings.length ? sec(t(res.ok ? "packs.warnings" : "packs.problems"), "", diagnostics(warnings)) : null));
+}
+
+// origin says where the pack comes from: its identity, and for a git pack
+// the repository, the ref and the commit it is at.
+function origin(entry) {
+  const src = entry.source;
+  return h("dl", { class: "kv origin" },
+    h("dt", { text: t("packs.identity") }), h("dd", { class: "mono", text: visible(entry.id || "—") }),
+    src ? [
+      h("dt", { text: t("packs.repository") }), h("dd", { class: "mono", text: visible(src.url) }),
+      h("dt", { text: t("packs.ref") }), h("dd", { class: "mono", text: visible(src.fullRef || src.ref) }),
+      h("dt", { text: t("packs.commit") }), h("dd", { class: "mono", title: src.commit, text: shortCommit(src.commit) }),
+    ] : [h("dt", { text: t("packs.source") }), h("dd", { text: t("packs.localSource") })]);
+}
+
+// removeConfirm asks before a removal, saying what it deletes, then
+// removes the entry by its identity, or by its path when it has none.
+function removeConfirm(entry, ctx, out) {
+  const name = entry.id || tilde(entry.path);
+  const err = h("div", { class: "out" });
+  const go = once(h("button", { class: "btn danger", type: "button", text: t("packs.remove") }), async () => {
+    const res = await act("/api/packs/remove", entry.id ? { id: entry.id } : { path: entry.path });
+    if (res.ok) setRegistry(res.data);
+    if (ctx.stale()) return;
+    if (!res.ok) {
+      mount(err, failure(res.error));
+      return;
+    }
+    await ctx.refresh();
+    if (ctx.stale()) return;
+    if (res.data.warnings && res.data.warnings.length) {
+      // What the removal could not delete stays on screen until it is read.
+      mount(out, notice("good", t("packs.removed", { id: name })), packWarnings(res.data.warnings),
+        actions([h("button", { class: "btn", type: "button", text: t("common.showAgain"), onclick: () => ctx.again() })]));
+      return;
+    }
+    ctx.again();
+  });
+  return h("div", { class: "well confirm", role: "group", "aria-label": t("packs.removeAsk") },
+    h("p", { class: "label", text: t("packs.removeTitle", { id: name }) }),
+    h("p", { class: "body", text: t(entry.source ? "packs.removeGit" : "packs.removeLocal", { path: tilde(entry.path) }) }),
+    h("p", { class: "help", text: t("packs.removeInstalls") }),
+    actions([go, h("button", { class: "btn quiet", type: "button", text: t("common.cancel"), onclick: () => mount(out) })]), err);
 }
 
 // The types of a layer, in the order the pack format lists them.

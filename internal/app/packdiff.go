@@ -204,31 +204,49 @@ func isBinary(data []byte) bool {
 
 // unsafeText reports whether s holds what a terminal or a page would not
 // show as it is: a C0 control other than a tab, a line feed and a carriage
-// return before a line feed, DEL, a C1 control, or a bidirectional
-// override, which can reorder what a line shows.
+// return before a line feed, DEL, a C1 control, or an invisible format
+// character, which can hide or reorder what a line shows. A byte order
+// mark at the very start, as editors on Windows write it, is allowed; one
+// anywhere else is not.
 func unsafeText(s string) bool {
 	for i, r := range s {
 		switch {
 		case r == '\t' || r == '\n':
+		case r == 0xfeff && i == 0:
 		case r == '\r':
 			if !strings.HasPrefix(s[i+1:], "\n") {
 				return true
 			}
 		case r < 0x20 || r == 0x7f || r >= 0x80 && r <= 0x9f:
 			return true
-		case r >= 0x202a && r <= 0x202e || r >= 0x2066 && r <= 0x2069:
+		case invisible(r):
 			return true
 		}
 	}
 	return false
 }
 
+// invisible reports whether r is a format character that a page shows as
+// nothing, or that reorders or breaks what a line shows: the
+// bidirectional overrides and isolates, the zero-width space, joiners and
+// marks, the line and paragraph separators, the word joiner, the Arabic
+// letter mark and the byte order mark.
+func invisible(r rune) bool {
+	switch {
+	case r >= 0x202a && r <= 0x202e, r >= 0x2066 && r <= 0x2069:
+		return true
+	case r >= 0x200b && r <= 0x200f, r == 0x2028, r == 0x2029, r == 0x2060, r == 0x061c, r == 0xfeff:
+		return true
+	}
+	return false
+}
+
 // unsafePath reports whether a path holds a control character of any
-// kind, a line feed, a carriage return and a tab included, or a
-// bidirectional override: stricter than unsafeText, since a path is one
+// kind, a line feed, a carriage return and a tab included, or an
+// invisible format character: stricter than unsafeText, since a path is one
 // line of a diff header, which a line feed in it could forge.
 func unsafePath(p string) bool {
 	return strings.ContainsFunc(p, func(r rune) bool {
-		return r < 0x20 || r == 0x7f || r >= 0x80 && r <= 0x9f || r >= 0x202a && r <= 0x202e || r >= 0x2066 && r <= 0x2069
+		return r < 0x20 || r == 0x7f || r >= 0x80 && r <= 0x9f || invisible(r)
 	})
 }

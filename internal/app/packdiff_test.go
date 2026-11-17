@@ -187,11 +187,18 @@ func TestExecChangesShowAnExecutableBitAndAModeChange(t *testing.T) {
 
 func TestExecChangesShowControlCharactersAsBinary(t *testing.T) {
 	for name, content := range map[string]string{
-		"an erase of the line": "ok\n\x1b[2K\x1b[1A" + "hidden()\n",
-		"a carriage return":    "visible\rhidden()\n",
-		"concealed text":       "\x1b[8mhidden()\x1b[0m\n",
-		"a C1 control":         "a\u009bb\n",
-		"a bidi override":      "a\u202eb\n",
+		"an erase of the line":  "ok\n\x1b[2K\x1b[1A" + "hidden()\n",
+		"a carriage return":     "visible\rhidden()\n",
+		"concealed text":        "\x1b[8mhidden()\x1b[0m\n",
+		"a C1 control":          "a\u009bb\n",
+		"a bidi override":       "a\u202eb\n",
+		"a zero-width space":    "a\u200bb\n",
+		"a right-to-left mark":  "a\u200fb\n",
+		"a line separator":      "a\u2028b\n",
+		"a paragraph separator": "a\u2029b\n",
+		"a word joiner":         "a\u2060b\n",
+		"an Arabic letter mark": "a\u061cb\n",
+		"a byte order mark":     "a\ufeffb\n",
 	} {
 		old, new := t.TempDir(), t.TempDir()
 		writeTree(t, old, map[string]string{"base/.rulesync/hooks.jsonc": "{}\n"})
@@ -208,6 +215,21 @@ func TestExecChangesShowControlCharactersAsBinary(t *testing.T) {
 	}
 }
 
+func TestExecChangesKeepTheDiffOfAFileThatStartsWithAByteOrderMark(t *testing.T) {
+	old, new := t.TempDir(), t.TempDir()
+	writeTree(t, new, map[string]string{"base/dotai/tools/bom.ps1": "\ufeffWrite-Host a\r\n"})
+	if changes, err := app.ExecChanges(old, new, nil, nil); err != nil || len(changes) != 1 || changes[0].Binary || changes[0].Diff == "" {
+		t.Errorf("a file with a leading BOM = %+v, %v, want a text diff", changes, err)
+	}
+	writeTree(t, new, map[string]string{"base/dotai/tools/bom.ps1": "\ufeffa\ufeffb\n"})
+	if changes, err := app.ExecChanges(old, new, nil, nil); err != nil || len(changes) != 1 || !changes[0].Binary || changes[0].Diff != "" {
+		t.Errorf("a BOM past the start = %+v, %v, want a binary change", changes, err)
+	}
+	if !app.UnsafePath("\ufeffbase/x.sh") {
+		t.Error("a path that starts with a BOM is safe")
+	}
+}
+
 func TestExecChangesOfAPathWithAControlCharacterHasNoDiff(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows refuses control characters in file names")
@@ -221,7 +243,8 @@ func TestExecChangesOfAPathWithAControlCharacterHasNoDiff(t *testing.T) {
 }
 
 func TestAPathIsSafeOnlyWithoutAnyControlCharacter(t *testing.T) {
-	for _, p := range []string{"base/.rulesync/mcp.jsonc\n+++ b/x", "a\rb", "a\tb", "a\x1bb", "a\u202eb", "a\u0085b"} {
+	for _, p := range []string{"base/.rulesync/mcp.jsonc\n+++ b/x", "a\rb", "a\tb", "a\x1bb", "a\u202eb", "a\u0085b",
+		"a\u200bb", "a\u200eb", "a\u2028b", "a\u2029b", "a\u2060b", "a\u061cb", "a\ufeffb"} {
 		if !app.UnsafePath(p) {
 			t.Errorf("UnsafePath(%q) = false, want true", p)
 		}

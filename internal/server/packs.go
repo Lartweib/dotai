@@ -137,12 +137,21 @@ func planToConfirm(res app.PackAddResult, err error) (any, error) {
 }
 
 // tooLong points a fetch stopped by the time limit of the operation to the
-// command line, whose fetch may take ten minutes.
+// command line, whose fetch may take ten minutes. Its data marks it, so
+// that the page can say so in the viewer's language.
 func tooLong(err error) error {
 	if errors.Is(err, context.DeadlineExceeded) {
-		return fmt.Errorf("%w; a large repository may need longer than the web UI allows: add or update it with dotai pack add or dotai pack update", err)
+		return &resultError{
+			err:  fmt.Errorf("%w; a large repository may need longer than the web UI allows: add or update it with dotai pack add or dotai pack update", err),
+			data: timedOut{true},
+		}
 	}
 	return err
+}
+
+// timedOut is the data of a fetch that tooLong stopped.
+type timedOut struct {
+	TimedOut bool `json:"timedOut"`
 }
 
 // removePack removes the pack of the body from the registry, by its

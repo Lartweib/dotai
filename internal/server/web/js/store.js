@@ -104,9 +104,11 @@ export async function loadRegistry() {
   return res;
 }
 
-// setRegistry keeps the list an import or a removal answered with.
-export function setRegistry(list) {
-  shared.registry = list;
+// setRegistry keeps the registry an add, an update, an import or a
+// removal answered with: its data holds the list, path and packs, beside
+// what the command did.
+export function setRegistry(data) {
+  shared.registry = { path: data.path, packs: data.packs, recovered: data.recovered || [] };
 }
 
 // isAbsolute accepts the absolute paths of every OS, as the API wants them.

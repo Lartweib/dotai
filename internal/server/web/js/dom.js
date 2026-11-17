@@ -124,6 +124,7 @@ const paths = {
   wrench: "M18.78 8.37L21.04 6.11A4.75 4.75 0 0 1 14.37 11.75L6.06 20.06A1.5 1.5 0 0 1 3.94 17.94L12.25 9.63A4.75 4.75 0 0 1 17.89 2.96L15.63 5.22z",
   file: "M14 2.75H6.5a2 2 0 0 0-2 2v14.5a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V8.25z M14 2.75V7a1.25 1.25 0 0 0 1.25 1.25h4.25",
   chev: "M6 9l6 6 6-6",
+  back: "M9.5 4 5.5 8l4 4",
   warn: "M12 3.5L21.5 20h-19z M12 10v4.5 M12 17.25v.25",
   plus: "M8 3.5 V12.5 M3.5 8 H12.5",
   sun: "M8 5.25 A2.75 2.75 0 1 0 8 10.75 A2.75 2.75 0 1 0 8 5.25 M8 1.75 V3 M8 13 V14.25 M1.75 8 H3 M13 8 H14.25 M3.6 3.6 L4.45 4.45 M11.55 11.55 L12.4 12.4 M3.6 12.4 L4.45 11.55 M11.55 4.45 L12.4 3.6",
@@ -135,7 +136,7 @@ const paths = {
 
 // The section of the navigation each board belongs to, which its head
 // names above the title when the two differ.
-const sections = { tree: "installed", plan: "installed" };
+const sections = { tree: "installed", plan: "installed", add: "packs", update: "packs" };
 
 // boardHead opens a board: its section, its title and what it is for, in
 // plain words.
@@ -206,6 +207,18 @@ export function failure(error) {
 
 export function busy(text) {
   return h("p", { class: "busy", role: "status", text });
+}
+
+// submitGuard runs the request of button while the button is off, so that
+// a second press does nothing, and turns it on again however run ends.
+export async function submitGuard(button, run) {
+  if (button.disabled) return undefined;
+  button.disabled = true;
+  try {
+    return await run();
+  } finally {
+    button.disabled = false;
+  }
 }
 
 // actions is the row of buttons of a form, with the note that explains
