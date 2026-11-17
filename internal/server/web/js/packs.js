@@ -4,7 +4,7 @@
 // folder once it validates, copy makes a new folder to edit, and remove
 // only forgets the entry.
 
-import { actions, boardHead, busy, failure, h, hint, icon, kv, lm, mount, notice, sec, tech, warning } from "./dom.js";
+import { actions, boardHead, closeMenu, failure, h, hint, icon, kv, lm, loading, menu, mount, notice, sec, settle, tech, warning } from "./dom.js";
 import { fmtDate, lower, t } from "./i18n.js";
 import { act, harnessName, installed, isAbsolute, isInstalled, loadOutline, loadPack, registry, selectPack, selectedPack, setRegistry, shared, tilde } from "./store.js";
 
@@ -66,6 +66,7 @@ export async function render(root, ctx) {
 
   let shown = 0; // only the latest selection mounts its detail
   const draw = () => {
+    settle(list);
     mount(rows, packs.map((p) => packRow(p, p.path === current, () => {
       current = p.path;
       selectPack(p.path);
@@ -149,7 +150,7 @@ async function showPack(detail, entry, ctx, doImport) {
       actions([removeBtn("btn")], t("packs.removeNote")), out));
     return;
   }
-  mount(detail, busy(t("packs.reading")));
+  loading(detail, t("packs.reading"));
   const [res, outline] = await Promise.all([loadPack(path), loadOutline(path)]);
   if (ctx.stale()) return;
   const pack = res.data && res.data.pack;
@@ -165,11 +166,10 @@ async function showPack(detail, entry, ctx, doImport) {
   const enc = encodeURIComponent(path);
   const target = outline.ok ? outline.data.copyTarget : "";
   const copy = h("button", { class: "menu-item", type: "button", text: t("packs.copy"), onclick: (e) => {
-    e.currentTarget.closest("details").open = false;
+    closeMenu(e.currentTarget.closest("details"));
     copyForm(out, path, target, ctx, doImport);
   } });
-  const more = h("details", { class: "menu" }, h("summary", { class: "btn", "aria-label": t("packs.more") }, t("packs.more")),
-    h("div", { class: "menu-list" }, copy, removeBtn("menu-item")));
+  const more = menu(t("packs.more"), [copy, removeBtn("menu-item")]);
 
   const intro = h("div", { class: "col intro" },
     h("div", { class: "meta" },
@@ -196,18 +196,20 @@ async function showPack(detail, entry, ctx, doImport) {
       [...pack.harnesses.map((id) => harnessRow(id, false)), ...pack.optionalHarnesses.map((id) => harnessRow(id, true))]),
     hint(t("hint.harness"))),
     !outline.ok ? failure(outline.error) : null,
-    of("base").map((l) => sec(t("packs.base"), t("hint.base"), layerBody(l, [lm("base"), h("span", { class: "t-meta", text: t("packs.userScope") })]))),
-    of("variant").length ? sec(t("packs.variants"), t("hint.variant"), h("div", { class: "layers" }, of("variant").map((l) => layerBody(l, [lm(l.name),
-      l.name === pack.defaultVariant ? h("span", { class: "pill sm state", text: t("packs.default") }) : null,
-      on && s.variant === l.name ? h("span", { class: "pill sm you", text: t("packs.installed") }) : null,
-      pack.sharedSkills.includes(l.name) ? h("span", { class: "t-meta", text: t("packs.sharedSkills") }) : null])))) : null,
-    of("profile").length ? sec(t("packs.profiles"), t("hint.profile"), h("div", { class: "layers" }, of("profile").map((l) => {
-      const pr = pack.profiles.find((x) => x.name === l.name) || { description: "", hints: [] };
-      return layerBody(l, [lm(l.name), pr.description ? h("span", { class: "authored" }, h("span", { class: "by", text: t("packs.fromPack") }), pr.description) : null,
-        pr.hints.length ? h("span", { class: "t-meta full", text: t("packs.hints", { list: pr.hints.join(", ") }) }) : null]);
-    }))) : null,
-    outline.ok && outline.data.mods.length ? sec(t("packs.modsTitle"), t("hint.mod"), h("ul", { class: "fls" }, outline.data.mods.map((m) => h("li", { class: "fl" }, h("span", { class: "name mono", text: m }),
-      h("span", { class: "t-meta", text: t("packs.namedBy", { list: pack.profiles.filter((p) => p.mods.includes(m)).map((p) => p.name).join(", ") || "—" }) }))))) : null,
+    // The layers, from the base to the mods, on one lane.
+    h("div", { class: "lanes" },
+      of("base").map((l) => sec(t("packs.base"), t("hint.base"), layerBody(l, [lm("base"), h("span", { class: "t-meta", text: t("packs.userScope") })]))),
+      of("variant").length ? sec(t("packs.variants"), t("hint.variant"), h("div", { class: "layers" }, of("variant").map((l) => layerBody(l, [lm(l.name),
+        l.name === pack.defaultVariant ? h("span", { class: "pill sm state", text: t("packs.default") }) : null,
+        on && s.variant === l.name ? h("span", { class: "pill sm you", text: t("packs.installed") }) : null,
+        pack.sharedSkills.includes(l.name) ? h("span", { class: "t-meta", text: t("packs.sharedSkills") }) : null])))) : null,
+      of("profile").length ? sec(t("packs.profiles"), t("hint.profile"), h("div", { class: "layers" }, of("profile").map((l) => {
+        const pr = pack.profiles.find((x) => x.name === l.name) || { description: "", hints: [] };
+        return layerBody(l, [lm(l.name), pr.description ? h("span", { class: "authored" }, h("span", { class: "by", text: t("packs.fromPack") }), pr.description) : null,
+          pr.hints.length ? h("span", { class: "t-meta full", text: t("packs.hints", { list: pr.hints.join(", ") }) }) : null]);
+      }))) : null,
+      outline.ok && outline.data.mods.length ? sec(t("packs.modsTitle"), t("hint.mod"), h("ul", { class: "fls" }, outline.data.mods.map((m) => h("li", { class: "fl" }, h("span", { class: "name mono", text: m }),
+        h("span", { class: "t-meta", text: t("packs.namedBy", { list: pack.profiles.filter((p) => p.mods.includes(m)).map((p) => p.name).join(", ") || "—" }) }))))) : null),
     warnings && warnings.length ? sec(t(res.ok ? "packs.warnings" : "packs.problems"), "", h("ul", { class: "list" }, warnings.map((d) =>
       warning(d.code, d.file ? d.file + (d.line ? ":" + d.line : "") : "", d.message)))) : null));
 }

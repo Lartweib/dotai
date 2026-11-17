@@ -70,7 +70,7 @@ function renderNav() {
   const current = routes[route().name].nav;
   mount(document.getElementById("nav"), navItems.map((id) =>
     h("li", {}, h("a", { class: "nav-e", href: "#/" + id, "aria-current": id === current ? "page" : null },
-      icon(id), h("span", { class: "nl", text: t("nav." + id) }),
+      h("span", { class: "nl", text: t("nav." + id) }),
       counts[id] ? h("span", { class: id === "doctor" && counts[id] > 0 ? "n you" : "n", text: String(counts[id]),
         "aria-label": t("nav.count." + id, { n: counts[id] }) }) : null))));
 }

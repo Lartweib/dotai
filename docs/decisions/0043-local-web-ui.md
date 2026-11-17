@@ -26,7 +26,7 @@ tags: [ui, web, security, cli, v1]
 - **Language.** A selector in the header switches the page between English and Spanish; the default follows the browser's language (`es*` is Spanish), and the choice is kept in `localStorage`. The page's own words come from one module of two dictionaries, which a test keeps to the same keys and placeholders, and dates and numbers use `Intl` in the chosen language. What the engine and the pack write stays as it is written: the API stays in English, and a known error or warning code is shown in the chosen language, with dotai's own message folded as its technical detail; a pack's descriptions are marked as the pack's.
 - **Pack registry.** `~/.dotai/packs.json` (`dotai.packs/v1`) lists the absolute paths of the packs the user imported, written atomically under `~/.dotai/lock`. The name and the version of each pack are read from its manifest when the list is read, and a path that is gone stays listed with its error. An import validates the pack first, and a path already listed is a no-op; removing an entry never touches the pack's files. No command of the command line edits the registry yet.
 - **Pack copy.** The Packs board copies a pack to a new directory the user names, by default `<name>-copy` next to it, whose parent must exist: regular files and directories only, `.git` skipped, and a link refused before anything is written (`copy-refused`). The copy is not imported: the user edits it, then imports it.
-- **Fonts.** The page embeds Schibsted Grotesk and Spline Sans Mono as WOFF2 files under the SIL Open Font License, so that the Content Security Policy keeps allowing only the server's own origin.
+- **Fonts.** The page embeds Newsreader, Schibsted Grotesk and DM Mono as WOFF2 files under the SIL Open Font License, so that the Content Security Policy keeps allowing only the server's own origin.
 
 ## Considered options
 
@@ -48,3 +48,5 @@ tags: [ui, web, security, cli, v1]
 
 - [CLI-JSON, Web UI API](../CLI-JSON.md#web-ui-api): the endpoints, the checks and the error codes.
 - [0026](0026-json-cli-and-ui-after-v1.md): the token and `127.0.0.1` rules this record refines.
+
+Update 2026-11-17: the page takes an editorial look, with a serif for titles, a grotesk for the interface and a mono face for data. Newsreader and DM Mono replace Spline Sans Mono among the embedded fonts above.

@@ -4,7 +4,7 @@
 // server refuses what cannot be restored. A project is restored as a
 // whole, through the preview of restore --project.
 
-import { actions, boardHead, busy, failure, h, hint, kv, mount, notice, sec } from "./dom.js";
+import { actions, boardHead, busy, failure, h, hint, kv, mount, notice, sec, settle } from "./dom.js";
 import { confirmFlow, restoreHomeFlow, restoreProjectFlow } from "./flows.js";
 import { fmtDate, fmtRelative, lower, t } from "./i18n.js";
 import { api, harnessName, tilde } from "./store.js";
@@ -26,6 +26,7 @@ export async function render(root, ctx) {
   let cur = all.find((x) => x.b.id === ctx.arg) || all[0];
 
   const draw = () => {
+    settle(list);
     mount(list,
       h("div", { class: "listhead" }, h("span", { class: "t-meta", text: t("backups.count", { n: all.length }) }), h("span", { class: "grow" }), h("span", { class: "t-meta", text: t("backups.newest") })),
       groups.map((g) => h("div", { class: "group" },

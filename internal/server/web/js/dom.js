@@ -25,10 +25,73 @@ function append(el, kids) {
   }
 }
 
-// mount replaces the children of el with kids.
+// mount replaces the children of el with kids, and ends the wait that
+// loading started.
 export function mount(el, ...kids) {
+  if (el.hasAttribute("aria-busy")) {
+    el.removeAttribute("aria-busy");
+    el.inert = false;
+    say("");
+  }
   el.replaceChildren();
   append(el, kids);
+}
+
+// loading shows that el waits for a request. An empty el shows the busy
+// line. One that already shows something keeps it, dimmed and inert, so
+// that no key can act on it, until mount replaces it: the pane does not
+// collapse and grow again. The live line of the page says what it waits
+// for.
+export function loading(el, text) {
+  if (el.childElementCount && !el.querySelector(":scope > .busy")) {
+    el.setAttribute("aria-busy", "true");
+    el.inert = true;
+    say(text);
+  } else {
+    mount(el, busy(text));
+  }
+}
+
+// say puts text in the live line (#live in index.html), which screen
+// readers read out.
+function say(text) {
+  const live = document.getElementById("live");
+  if (live) live.textContent = text;
+}
+
+// settle marks el as drawn: the rows a board draws into it again, for a
+// new choice, do not rise in again.
+export function settle(el) {
+  if (el.dataset.drawn) el.classList.add("still");
+  el.dataset.drawn = "1";
+}
+
+// menu is a button that folds out a list of items. It closes as it
+// opened, mirrored, before the list goes away.
+export function menu(label, items) {
+  const el = h("details", { class: "menu" }, h("summary", { class: "btn", "aria-label": label }, label), h("div", { class: "menu-list" }, items));
+  el.querySelector("summary").addEventListener("click", (e) => {
+    if (!el.open) return;
+    e.preventDefault();
+    closeMenu(el);
+  });
+  return el;
+}
+
+export function closeMenu(el) {
+  if (!el.open || el.classList.contains("closing")) return;
+  const list = el.querySelector(".menu-list");
+  const done = () => {
+    clearTimeout(timer);
+    list.removeEventListener("animationend", done);
+    el.classList.remove("closing");
+    el.open = false;
+  };
+  el.classList.add("closing");
+  list.addEventListener("animationend", done);
+  // When no animation runs. menu-out takes --d-2 (styles.css); the
+  // fallback waits that long and a little more.
+  const timer = setTimeout(done, (parseFloat(getComputedStyle(el).getPropertyValue("--d-2")) || 240) + 160);
 }
 
 const svgNS = "http://www.w3.org/2000/svg";
@@ -53,12 +116,6 @@ export function icon(name, size = 18) {
 }
 
 const paths = {
-  packs: "M12 2.75l8.25 4.5v9.5L12 21.25l-8.25-4.5v-9.5z M3.75 7.25L12 11.75l8.25-4.5 M12 11.75v9.5 M7.9 5l8.25 4.5",
-  installed: "M12 3.5v11 M7.5 10l4.5 4.5 4.5-4.5 M4 15.5v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3",
-  home: "M3 11L12 3.5l9 7.5 M5.25 9.25v10a2 2 0 0 0 2 2h9.5a2 2 0 0 0 2-2v-10 M10 21.25V16.5a2 2 0 0 1 4 0v4.75",
-  projects: "M8 7L3 12l5 5 M16 7l5 5-5 5 M14 4l-4 16",
-  backups: "M19.25 13a7.25 7.25 0 1 1-14.5 0 7.25 7.25 0 0 1 14.5 0z M12 9.25V13l2.5 1.75 M3.25 6.25l3-2.75 M20.75 6.25l-3-2.75",
-  doctor: "M12 21.25c-4.6-1.6-7.75-5-7.75-10V5.75L12 2.75l7.75 3v5.5c0 5-3.15 8.4-7.75 10z M8.75 12l2.25 2.25 4.25-4.5",
   doc: "M14 2.75H6.5a2 2 0 0 0-2 2v14.5a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V8.25z M14 2.75V7a1.25 1.25 0 0 0 1.25 1.25h4.25 M8.5 13h7 M8.5 17h5",
   sparkle: "M10.5 5.5c.6 4 3.9 7.4 8 8-4.1.6-7.4 4-8 8-.6-4-3.9-7.4-8-8 4.1-.6 7.4-4 8-8z M18.5 2.5c.25 1.5 1.5 2.75 3 3-1.5.25-2.75 1.5-3 3-.25-1.5-1.5-2.75-3-3 1.5-.25 2.75-1.5 3-3z",
   robot: "M6.75 8.5h10.5a2.5 2.5 0 0 1 2.5 2.5v7.25a2.5 2.5 0 0 1-2.5 2.5h-10.5a2.5 2.5 0 0 1-2.5-2.5v-7.25a2.5 2.5 0 0 1 2.5-2.5z M12 8.5V5.5 M10.25 17.25h3.5 M2.5 12.75v3.5 M21.5 12.75v3.5 M9 13v.5 M15 13v.5",
@@ -76,9 +133,16 @@ const paths = {
 
 // Shared pieces of the boards.
 
-// boardHead opens a board: its title and what it is for, in plain words.
+// The section of the navigation each board belongs to, which its head
+// names above the title when the two differ.
+const sections = { tree: "installed", plan: "installed", projects: "installed" };
+
+// boardHead opens a board: its section, its title and what it is for, in
+// plain words.
 export function boardHead(id, ...extra) {
+  const kicker = t("nav." + (sections[id] || id));
   return h("header", { class: "boardhead" },
+    kicker !== t(id + ".title") ? h("p", { class: "kicker", text: kicker }) : null,
     h("h1", { class: "h-board", id: id + "-h", text: t(id + ".title") }),
     h("p", { class: "lead", text: t(id + ".lead") }),
     ...extra);

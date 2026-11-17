@@ -5,7 +5,7 @@
 // the same (decision 0043). Whether the plan is blocked and whether it
 // needs consent come with the plan.
 
-import { actions, boardHead, busy, failure, h, hint, lm, mount, notice, op, sec, warning } from "./dom.js";
+import { actions, boardHead, busy, failure, h, hint, lm, loading, mount, notice, op, sec, warning } from "./dom.js";
 import { guard, rel } from "./flows.js";
 import { t } from "./i18n.js";
 import { act, harnessName, installed, isInstalled, loadPack, post, selectedPack, shared, tilde } from "./store.js";
@@ -28,7 +28,7 @@ export async function render(root, ctx) {
   const summary = info.data && info.data.pack;
 
   const replan = async (msg) => {
-    mount(pane, busy(t("plan.planning")));
+    loading(pane, t("plan.planning"));
     const res = await post("/api/install/plan", { pack, mode: state.mode, variant: state.variant }, ctx.signal);
     if (ctx.stale()) return;
     show(res, msg);

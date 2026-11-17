@@ -606,8 +606,7 @@ func TestTheEmbeddedFrontendLoadsUnderItsPolicy(t *testing.T) {
 	types := map[string]string{
 		"/styles.css": "text/css", "/app.js": "javascript", "/js/dom.js": "javascript", "/js/store.js": "javascript",
 		"/js/packs.js": "javascript", "/js/tree.js": "javascript", "/js/plan.js": "javascript", "/js/projects.js": "javascript",
-		"/js/backups.js": "javascript", "/js/doctor.js": "javascript", "/js/flows.js": "javascript", "/js/i18n.js": "javascript", "/js/home.js": "javascript", "/js/installed.js": "javascript", "/fonts/schibsted-grotesk-latin-400-normal.woff2": "font/woff2",
-		"/fonts/spline-sans-mono-latin-400-normal.woff2": "font/woff2",
+		"/js/backups.js": "javascript", "/js/doctor.js": "javascript", "/js/flows.js": "javascript", "/js/i18n.js": "javascript", "/js/home.js": "javascript", "/js/installed.js": "javascript",
 	}
 	for path, want := range types {
 		w := serve(h, request("GET", path, ""))
@@ -616,6 +615,19 @@ func TestTheEmbeddedFrontendLoadsUnderItsPolicy(t *testing.T) {
 		}
 		if strings.HasSuffix(path, ".js") && (strings.Contains(w.Body.String(), "innerHTML") || strings.Contains(w.Body.String(), "eval(")) {
 			t.Errorf("%s writes HTML or evaluates code", path)
+		}
+	}
+	// Every face styles.css names is embedded and served as WOFF2.
+	fonts := []string{
+		"newsreader-latin-opsz-normal", "newsreader-latin-wght-italic",
+		"schibsted-grotesk-latin-400-normal", "schibsted-grotesk-latin-500-normal", "schibsted-grotesk-latin-600-normal", "schibsted-grotesk-latin-700-normal",
+		"dm-mono-latin-400-normal", "dm-mono-latin-500-normal",
+	}
+	for _, name := range fonts {
+		path := "/fonts/" + name + ".woff2"
+		w := serve(h, request("GET", path, ""))
+		if w.Code != http.StatusOK || w.Header().Get("Content-Type") != "font/woff2" || !strings.HasPrefix(w.Body.String(), "wOF2") {
+			t.Errorf("GET %s = %d %q, want 200, font/woff2 and a WOFF2 file", path, w.Code, w.Header().Get("Content-Type"))
 		}
 	}
 	if csp := serve(h, request("GET", "/", "")).Header().Get("Content-Security-Policy"); !strings.HasPrefix(csp, "default-src 'self';") {

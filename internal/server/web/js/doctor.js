@@ -6,7 +6,7 @@
 // people (js/i18n.js), not rules of the engine; the finding's own message
 // comes from dotai.
 
-import { actions, boardHead, busy, failure, h, kv, mount, notice, sec, tech } from "./dom.js";
+import { actions, boardHead, busy, failure, h, kv, mount, notice, sec, settle, tech } from "./dom.js";
 import { guard } from "./flows.js";
 import { fmtTime, t } from "./i18n.js";
 import { act, api, harnessName, tilde } from "./store.js";
@@ -84,6 +84,7 @@ function draw(list, detail, d, ctx, msg, checked) {
           h("span", { class: "t-path", text: where(f) }))))))));
 
   const paint = () => {
+    settle(list);
     mount(list,
       h("div", { class: "listhead stack" },
         h("p", { class: "t-meta" }, open.length ? t("doctor.problems", { n: open.length }) + (fixable.length ? ", " + t("doctor.canFix", { n: fixable.length }) : "") : t("doctor.noProblems"),

@@ -6,7 +6,7 @@
 // and the keys of a settings file, and no layer chain. The kind of each
 // target, which sorts it into a group, comes with the plan.
 
-import { boardHead, busy, failure, h, icon, mount, sec } from "./dom.js";
+import { boardHead, busy, failure, h, icon, mount, sec, settle } from "./dom.js";
 import { rel, word } from "./flows.js";
 import { lower, t } from "./i18n.js";
 import { harnessName, installed, isInstalled, loadPack, post, selectedPack, tilde } from "./store.js";
@@ -47,9 +47,10 @@ export async function render(root, ctx) {
   }
   const p = res.data;
   const tabs = p.harnesses.filter((x) => x.managed);
-  const view = { harness: tabs[0] ? tabs[0].id : "", sel: "", closed: new Set() };
+  const view = { harness: tabs[0] ? tabs[0].id : "", sel: "", closed: new Set(), shown: null };
 
   const draw = () => {
+    settle(pane);
     const hp = tabs.find((x) => x.id === view.harness);
     const dir = hp ? hp.dir : p.root;
     const ops = p.ops.filter((o) => o.harness === view.harness || !o.harness);
@@ -80,7 +81,11 @@ export async function render(root, ctx) {
               it.op.action !== "unchanged" ? h("span", { class: "tag", "data-a": it.op.action, text: word(it.op.action) }) : null)))
             : h("li", { class: "help empty", text: t("tree.none", { name: harnessName(view.harness) }) })) : null);
       })));
-    showItem(detail, cur, view.harness);
+    // Folding a group draws the tree again; the detail changes only with
+    // the item.
+    const shown = view.harness + " " + (cur ? cur.id : "");
+    if (shown !== view.shown) showItem(detail, cur, view.harness);
+    view.shown = shown;
   };
   draw();
 }
@@ -100,7 +105,7 @@ function showItem(detail, it, harness) {
   }
   const o = it.op;
   mount(detail,
-    h("div", { class: "col intro tight" },
+    h("div", { class: "col intro" },
       h("div", { class: "meta" }, h("span", { class: "t-meta", text: groupName(it.group) }),
         h("span", { class: "tag", "data-a": o.action, text: word(o.action) }), h("span", { class: "t-meta", text: harnessName(o.harness) })),
       h("h2", { class: "h-detail", text: leafName(it) }),
