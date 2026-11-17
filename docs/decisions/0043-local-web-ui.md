@@ -50,3 +50,5 @@ tags: [ui, web, security, cli, v1]
 - [0026](0026-json-cli-and-ui-after-v1.md): the token and `127.0.0.1` rules this record refines.
 
 Update 2026-11-17: the page takes an editorial look, with a serif for titles, a grotesk for the interface and a mono face for data. Newsreader and DM Mono replace Spline Sans Mono among the embedded fonts above.
+
+Update 2026-11-17: the navigation has six boards: Repositories sits between Installed and Backups (`#/repos`; the old `#/projects` addresses lead there). It lists the repositories where profiles were applied, as `~/.dotai/projects.json` and the project records list them, each with its restore of the project, and says that a pack with onboarding applies profiles on its own, after the user approves its plan, the first time a session opens in the repository. Applying profiles by hand, the same plan and confirm, is a secondary option folded on that board. The Installed board keeps the home directory and points to Repositories.
