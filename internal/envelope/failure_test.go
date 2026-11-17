@@ -42,6 +42,16 @@ func TestClassify(t *testing.T) {
 		},
 		{name: "pack name taken", err: &app.PackNameTakenError{ID: "local/x", Path: "/p"}, wantCode: envelope.CodePackNameTaken},
 		{name: "host unsupported", err: &app.HostUnsupportedError{URL: "https://gitlab.com/a/b", Host: "gitlab.com"}, wantCode: envelope.CodeHostUnsupported},
+		{name: "git missing", err: &app.GitUnavailableError{}, wantCode: envelope.CodeGitMissing},
+		{name: "git too old", err: &app.GitUnavailableError{Version: "2.40.0", TooOld: true}, wantCode: envelope.CodeGitTooOld},
+		{name: "fetch failed", err: &app.FetchFailedError{URL: "https://github.com/a/b", Err: errors.New("exit 128")}, wantCode: envelope.CodeFetchFailed},
+		{name: "fetch by commit refused", err: &app.FetchByCommitRefusedError{URL: "https://github.com/a/b"}, wantCode: envelope.CodeFetchByCommit},
+		{
+			name:     "a refused tree carries its problems",
+			err:      &app.PackTreeRefusedError{Problems: []app.TreeProblem{{Path: "l", Problem: "is a link"}}},
+			wantCode: envelope.CodeTreeRefused,
+			wantData: map[string]any{"problems": []app.TreeProblem{{Path: "l", Problem: "is a link"}}},
+		},
 		{name: "wrapped errors are found", err: fmt.Errorf("wrapped: %w", &app.ConsentError{Plan: installPlan}), wantCode: envelope.CodeConsent, wantData: installPlan},
 	}
 	for _, tt := range tests {
