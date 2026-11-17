@@ -491,3 +491,23 @@ func TestFetchPackSaysWhyItStopped(t *testing.T) {
 		t.Errorf("a fetch past its own timeout = %v, want git's timeout named", err)
 	}
 }
+
+// TestFetchPackFromGitHub fetches a tiny public repository anonymously,
+// only with DOTAI_NET_TESTS=1: every other test stays off the network.
+func TestFetchPackFromGitHub(t *testing.T) {
+	if os.Getenv("DOTAI_NET_TESTS") != "1" {
+		t.Skip("set DOTAI_NET_TESTS=1 to fetch from github.com")
+	}
+	gitHome(t)
+	dir := filepath.Join(t.TempDir(), "clone")
+	got, err := app.FetchPack(context.Background(), dir, "https://github.com/octocat/Hello-World", "")
+	if err != nil {
+		t.Fatalf("FetchPack() error = %v", err)
+	}
+	if len(got.Commit) != 40 || !strings.HasPrefix(got.FullRef, "refs/heads/") {
+		t.Errorf("FetchPack() = %+v, want a commit and the default branch", got)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "README")); err != nil {
+		t.Errorf("nothing was checked out: %v", err)
+	}
+}
