@@ -88,3 +88,5 @@ The names of commands, fields, files and codes below are proposed.
 - [PACK-FORMAT](../PACK-FORMAT.md) (manifest, "Applying a pack", the agy `injectSteps` note) and [HARNESS-NOTES](../HARNESS-NOTES.md#hook-commands).
 - `examples/minimal-pack/base/.rulesync/subagents/onboarding.md`, `internal/state/project.go` (the marker), `internal/app/packs.go` (the UI's onboarding agent).
 - The OpenCode stdin problem: reproduced on 2026-11-13 with the plugin rulesync 41.0.0 generates, on OpenCode 2.0.30 (a `postToolUse` hook that reads stdin hangs `write`); a fix is proposed upstream and not released. Not yet in HARNESS-NOTES.
+
+Update 2026-11-17: the pack-creation onboarding is [0046](0046-pack-templates-and-wizard.md): an embedded template and a wizard that asks each profile's description and hints and previews the generated skill.

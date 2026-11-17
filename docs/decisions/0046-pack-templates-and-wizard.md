@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-11-17
 tags: [pack, authoring, template, ui, cli, consent]
 ---
@@ -30,7 +30,7 @@ Names are proposed.
 ## Consequences
 
 - Cost: kept example files ask consent at each install (inferred).
-- Amends [0043](0043-local-web-ui.md) (copy command; Home points to the wizard) and 0045 (pack creation).
+- Amends [0043](0043-local-web-ui.md) (copy command; Home points to the wizard) and [0045](0045-dotai-owned-project-onboarding.md) (pack creation).
 - Pending:
   - `InstallPlan` has no coded warnings.
   - Today consent covers only foreign content and conflicts; the UI also sends `yes`.
