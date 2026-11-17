@@ -110,7 +110,8 @@ func packGitEnv(environ []string, interactive bool) []string {
 
 // run runs git with the option set and extra, then sub, in dir when it is
 // not "", for at most timeout, with stdin closed, and gives its stdout. A
-// call that stops says why (gitStopped).
+// call that stops says why (gitStopped), and takes with it what git
+// started, such as a remote helper (runTree).
 func (g packGit) run(ctx context.Context, timeout time.Duration, dir string, extra []string, sub ...string) ([]byte, error) {
 	call, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -123,7 +124,7 @@ func (g packGit) run(ctx context.Context, timeout time.Duration, dir string, ext
 	cmd.WaitDelay = gitWaitDelay
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	err := cmd.Run()
+	err := runTree(cmd)
 	if call.Err() != nil {
 		return nil, gitStopped(ctx, sub[0], timeout)
 	}
