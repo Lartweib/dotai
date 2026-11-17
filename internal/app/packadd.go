@@ -207,7 +207,7 @@ func placePack(home, id, dir string, src PackSource, check func(packsDoc) error)
 	}
 	var list PackList
 	var warnings []PackWarning
-	err = withPacksLock(home, func() error {
+	recovered, err := withPacksLock(home, func() error {
 		doc, err := readPacks(home)
 		if err != nil {
 			return err
@@ -248,7 +248,7 @@ func placePack(home, id, dir string, src PackSource, check func(packsDoc) error)
 	if err != nil {
 		return PackList{}, nil, err
 	}
-	return list, warnings, nil
+	return list.with(recovered), warnings, nil
 }
 
 // aside is a directory moved from its place to a temporary sibling, to,

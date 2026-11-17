@@ -64,10 +64,12 @@ type PackSource struct {
 }
 
 // PackList is the registry as it reads now: Path is packs.json, and each
-// pack is listed in the order it was added.
+// pack is listed in the order it was added. Recovered are the clones the
+// sweep before it put back (sweepPacks).
 type PackList struct {
-	Path  string      `json:"path"`
-	Packs []PackEntry `json:"packs"`
+	Path      string      `json:"path"`
+	Packs     []PackEntry `json:"packs"`
+	Recovered []string    `json:"recovered"`
 }
 
 // PackEntry is one pack of the registry: its identity, its path, its
@@ -153,11 +155,12 @@ func ListPacks(home string) (PackList, error) {
 	if err != nil {
 		return PackList{}, err
 	}
+	recovered := sweepIfFree(home)
 	doc, err := readPacks(home)
 	if err != nil {
 		return PackList{}, err
 	}
-	return describePacks(home, doc), nil
+	return describePacks(home, doc).with(recovered), nil
 }
 
 // AddLocalPack adds the pack in dir, a local directory, to the registry of
@@ -222,7 +225,7 @@ func packDir(dir string) (string, error) {
 // writes it, atomically, as PacksSchema, only when edit reports a change.
 func editPacks(home string, edit func(*packsDoc) (bool, error)) (PackList, error) {
 	var list PackList
-	err := withPacksLock(home, func() error {
+	recovered, err := withPacksLock(home, func() error {
 		doc, err := readPacks(home)
 		if err != nil {
 			return err
@@ -240,14 +243,25 @@ func editPacks(home string, edit func(*packsDoc) (bool, error)) (PackList, error
 	if err != nil {
 		return PackList{}, err
 	}
-	return list, nil
+	return list.with(recovered), nil
 }
 
-// withPacksLock runs f holding ~/.dotai/lock.
-func withPacksLock(home string, f func() error) error {
+// withPacksLock runs f holding ~/.dotai/lock, after the sweep of what a
+// swap killed halfway left, and gives the clones the sweep put back.
+func withPacksLock(home string, f func() error) ([]string, error) {
 	r := runner{ctx: context.Background(), d: osInstallFS{}, home: home}
-	var warnings []string
-	return r.locked(&warnings, f)
+	var warnings, recovered []string
+	err := r.locked(&warnings, func() error {
+		recovered = sweepPacks(home)
+		return f()
+	})
+	return recovered, err
+}
+
+// with is l with the clones the sweep put back.
+func (l PackList) with(recovered []string) PackList {
+	l.Recovered = append([]string{}, recovered...)
+	return l
 }
 
 // writePacks writes doc as PacksSchema, atomically, giving each entry
@@ -341,7 +355,7 @@ var (
 // not answer in time, is listed with why. An entry without an identity is
 // local/<name> once its name is read.
 func describePacks(home string, doc packsDoc) PackList {
-	list := PackList{Path: filepath.Join(home, dotaiDir, packsFile), Packs: make([]PackEntry, len(doc.Packs))}
+	list := PackList{Path: filepath.Join(home, dotaiDir, packsFile), Packs: make([]PackEntry, len(doc.Packs)), Recovered: []string{}}
 	// Read once here: a pack that does not answer leaves its goroutine
 	// running after the list returns, and it must not read them later.
 	identify, wait := identifyPack, identifyWait

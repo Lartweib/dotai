@@ -61,7 +61,7 @@ func RemovePack(home, dir string) (PackRemoveResult, error) {
 // when match picks nothing.
 func removePacks(home string, match func(PackEntry) bool, none func() error) (PackRemoveResult, error) {
 	res := PackRemoveResult{Removed: []PackEntry{}, Warnings: []PackWarning{}}
-	err := withPacksLock(home, func() error {
+	recovered, err := withPacksLock(home, func() error {
 		doc, err := readPacks(home)
 		if err != nil {
 			return err
@@ -107,5 +107,6 @@ func removePacks(home string, match func(PackEntry) bool, none func() error) (Pa
 	if err != nil {
 		return PackRemoveResult{}, err
 	}
+	res.PackList = res.with(recovered)
 	return res, nil
 }
