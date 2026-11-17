@@ -605,7 +605,7 @@ func TestTheEmbeddedFrontendLoadsUnderItsPolicy(t *testing.T) {
 	}
 	types := map[string]string{
 		"/styles.css": "text/css", "/app.js": "javascript", "/js/dom.js": "javascript", "/js/store.js": "javascript",
-		"/js/packs.js": "javascript", "/js/tree.js": "javascript", "/js/plan.js": "javascript", "/js/projects.js": "javascript",
+		"/js/packs.js": "javascript", "/js/tree.js": "javascript", "/js/plan.js": "javascript", "/js/repos.js": "javascript",
 		"/js/backups.js": "javascript", "/js/doctor.js": "javascript", "/js/flows.js": "javascript", "/js/i18n.js": "javascript", "/js/home.js": "javascript", "/js/installed.js": "javascript",
 	}
 	for path, want := range types {
