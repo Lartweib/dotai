@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-11-17
 tags: [onboarding, profiles, skills, hooks, budget, manifest]
 ---
