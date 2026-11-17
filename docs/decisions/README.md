@@ -53,6 +53,7 @@ Records were renumbered on 2026-10-26, when the records about the reference pack
 | [0043](0043-local-web-ui.md) | A local web UI in v1, served by `dotai ui` over the same use cases (partially superseded by 0044) | accepted | 2026-11-04 |
 | [0044](0044-git-pack-distribution.md) | Packs are distributed as git repositories, fetched with the user's git | accepted | 2026-11-16 |
 | [0045](0045-dotai-owned-project-onboarding.md) | Project onboarding is dotai's: a generated profiling skill and a session-start hook | accepted | 2026-11-17 |
+| [0046](0046-pack-templates-and-wizard.md) | Packs start from an embedded template and a wizard | proposed | 2026-11-17 |
 
 ## Superseded (history only)
 
