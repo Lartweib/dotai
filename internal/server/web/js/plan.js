@@ -7,6 +7,7 @@
 
 import { actions, boardHead, busy, failure, h, hint, lm, loading, mount, notice, op, sec, warning } from "./dom.js";
 import { guard, rel } from "./flows.js";
+import { diagnostics } from "./packreview.js";
 import { t } from "./i18n.js";
 import { act, harnessName, installed, isInstalled, loadPack, post, selectedPack, shared, tilde } from "./store.js";
 
@@ -92,7 +93,7 @@ export async function render(root, ctx) {
         modes(p.mode, (m) => { state.mode = m; state.consent = false; replan(); })),
       h("div", { class: "col wide" },
         h("p", { class: "summary", text: counts(p) }),
-        p.diagnostics.length ? sec(t("plan.problems"), "", h("ul", { class: "list" }, p.diagnostics.map((d) => warning(d.code, d.file || "", d.message)))) : null,
+        p.diagnostics.length ? sec(t("plan.problems"), "", diagnostics(p.diagnostics)) : null,
         sections(p),
         sec(t("plan.warnings"), "", warnings(p)),
         sec(t("plan.backup"), t("hint.backup"),
