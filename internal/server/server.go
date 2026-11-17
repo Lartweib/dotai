@@ -44,7 +44,7 @@ type Deps struct {
 	Restore               func(ctx context.Context, home, id string, opts app.RestoreOptions, warn app.Warn, overwrite func(app.RestoreResult) (bool, error)) (app.RestoreResult, error)
 	RestoreProject        func(ctx context.Context, cwd, home string, opts app.ProjectRestoreOptions, overwrite func(app.ProjectRestoreResult) (bool, error)) (app.ProjectRestoreResult, error)
 	ListPacks             func(home string) (app.PackList, error)
-	ImportPack            func(home, dir string) (app.PackList, error)
+	AddLocalPack          func(home, dir string) (app.PackAddResult, error)
 	RemovePack            func(home, dir string) (app.PackList, error)
 	CopyPack              func(ctx context.Context, from, to string) (app.CopyResult, error)
 	SummarizePack         func(dir string) (app.PackContents, error)
@@ -69,7 +69,7 @@ func AppDeps(p app.Ports) Deps {
 		Restore:               p.Restore,
 		RestoreProject:        app.RestoreProject,
 		ListPacks:             app.ListPacks,
-		ImportPack:            app.ImportPack,
+		AddLocalPack:          app.AddLocalPack,
 		RemovePack:            app.RemovePack,
 		CopyPack:              app.CopyPack,
 		SummarizePack:         app.SummarizePack,

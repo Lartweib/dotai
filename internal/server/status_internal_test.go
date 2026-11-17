@@ -20,6 +20,8 @@ func TestEveryCodeHasItsIntendedStatus(t *testing.T) {
 		envelope.CodeRecordInvalid:   http.StatusConflict,
 		envelope.CodeCopyRefused:     http.StatusConflict,
 		envelope.CodeRegistryInvalid: http.StatusConflict,
+		envelope.CodePackNameTaken:   http.StatusConflict,
+		envelope.CodeHostUnsupported: http.StatusConflict,
 		CodeUnauthorized:             http.StatusUnauthorized,
 		CodeForbidden:                http.StatusForbidden,
 		CodeNotFound:                 http.StatusNotFound,

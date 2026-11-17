@@ -39,6 +39,11 @@ const (
 	// The pack registry, ~/.dotai/packs.json, is not JSON of its schema;
 	// it is left as it is.
 	CodeRegistryInvalid = "registry-invalid"
+	// A local pack whose name another directory of the registry already
+	// has (decision 0044).
+	CodePackNameTaken = "pack-name-taken"
+	// A git URL of a host other than github.com (decision 0044).
+	CodeHostUnsupported = "host-unsupported"
 )
 
 // Codes lists every error code above, so that an adapter that maps each
@@ -47,6 +52,7 @@ const (
 var Codes = []string{
 	CodeUsage, CodeInternal, CodeInvalid, CodeConsent, CodeRefused, CodeRunning,
 	CodeProjectRefused, CodeApplyRefused, CodeRecordInvalid, CodeCopyRefused, CodeRegistryInvalid,
+	CodePackNameTaken, CodeHostUnsupported,
 }
 
 // Envelope is the single JSON document a command prints with --json.

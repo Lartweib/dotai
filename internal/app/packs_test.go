@@ -40,21 +40,21 @@ func TestListPacksOfAHomeWithoutARegistryIsEmptyAndWritesNothing(t *testing.T) {
 	}
 }
 
-func TestImportPackListsTheValidatedPackOnce(t *testing.T) {
+func TestAddLocalPackListsTheValidatedPackOnce(t *testing.T) {
 	home, dir := t.TempDir(), packCopy(t)
-	list, err := app.ImportPack(home, dir)
+	list, err := app.AddLocalPack(home, dir)
 	if err != nil {
-		t.Fatalf("ImportPack() error = %v", err)
+		t.Fatalf("AddLocalPack() error = %v", err)
 	}
-	want := []app.PackEntry{{Path: dir, Name: "minimal-pack", Version: "0.1.0"}}
+	want := []app.PackEntry{{ID: "local/minimal-pack", Path: dir, Name: "minimal-pack", Version: "0.1.0"}}
 	if !reflect.DeepEqual(list.Packs, want) {
 		t.Errorf("packs = %+v, want %+v", list.Packs, want)
 	}
 	data, err := os.ReadFile(filepath.Join(home, ".dotai", "packs.json"))
-	if err != nil || !strings.Contains(string(data), `"schema": "dotai.packs/v1"`) {
+	if err != nil || !strings.Contains(string(data), `"schema": "dotai.packs/v2"`) {
 		t.Fatalf("packs.json = %s, %v", data, err)
 	}
-	again, err := app.ImportPack(home, dir+string(filepath.Separator))
+	again, err := app.AddLocalPack(home, dir+string(filepath.Separator))
 	if err != nil || !reflect.DeepEqual(again.Packs, want) {
 		t.Errorf("a second import = %+v, %v, want the same single entry", again.Packs, err)
 	}
@@ -63,15 +63,15 @@ func TestImportPackListsTheValidatedPackOnce(t *testing.T) {
 	}
 }
 
-func TestImportPackRefusesWhatIsNotAValidPack(t *testing.T) {
+func TestAddLocalPackRefusesWhatIsNotAValidPack(t *testing.T) {
 	home := t.TempDir()
 	t.Run("relative", func(t *testing.T) {
-		if _, err := app.ImportPack(home, "pack"); !errors.As(err, new(*app.UsageError)) {
+		if _, err := app.AddLocalPack(home, "pack"); !errors.As(err, new(*app.UsageError)) {
 			t.Errorf("error = %v, want a usage error", err)
 		}
 	})
 	t.Run("missing", func(t *testing.T) {
-		if _, err := app.ImportPack(home, filepath.Join(home, "nothing")); !errors.As(err, new(*app.UsageError)) {
+		if _, err := app.AddLocalPack(home, filepath.Join(home, "nothing")); !errors.As(err, new(*app.UsageError)) {
 			t.Errorf("error = %v, want a usage error", err)
 		}
 	})
@@ -80,7 +80,7 @@ func TestImportPackRefusesWhatIsNotAValidPack(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, "dotai.yaml"), []byte("schema: dotai.pack/v1\nname: x\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		_, err := app.ImportPack(home, dir)
+		_, err := app.AddLocalPack(home, dir)
 		var invalid *app.PackInvalidError
 		if !errors.As(err, &invalid) || invalid.Result.Valid || len(invalid.Result.Diagnostics) == 0 {
 			t.Errorf("error = %v, want a PackInvalidError with the diagnostics", err)
@@ -93,7 +93,7 @@ func TestImportPackRefusesWhatIsNotAValidPack(t *testing.T) {
 
 func TestListPacksKeepsAPackThatIsGoneWithAnError(t *testing.T) {
 	home, dir := t.TempDir(), packCopy(t)
-	if _, err := app.ImportPack(home, dir); err != nil {
+	if _, err := app.AddLocalPack(home, dir); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.RemoveAll(dir); err != nil {
@@ -110,7 +110,7 @@ func TestListPacksKeepsAPackThatIsGoneWithAnError(t *testing.T) {
 
 func TestRemovePackForgetsTheEntryAndKeepsTheFiles(t *testing.T) {
 	home, dir := t.TempDir(), packCopy(t)
-	if _, err := app.ImportPack(home, dir); err != nil {
+	if _, err := app.AddLocalPack(home, dir); err != nil {
 		t.Fatal(err)
 	}
 	list, err := app.RemovePack(home, dir)
@@ -392,7 +392,7 @@ func TestACorruptRegistryIsRefusedWithItsPath(t *testing.T) {
 			file := writeRegistry(t, home, data)
 			for op, call := range map[string]func() error{
 				"list":   func() error { _, err := app.ListPacks(home); return err },
-				"import": func() error { _, err := app.ImportPack(home, dir); return err },
+				"import": func() error { _, err := app.AddLocalPack(home, dir); return err },
 				"remove": func() error { _, err := app.RemovePack(home, dir); return err },
 			} {
 				var bad *app.RegistryInvalidError
@@ -422,7 +422,7 @@ func TestARelativeEntryIsListedWithAnErrorAndCanBeRemoved(t *testing.T) {
 
 func TestListPacksDoesNotWaitLongForAPackThatDoesNotAnswer(t *testing.T) {
 	home, dir := t.TempDir(), packCopy(t)
-	if _, err := app.ImportPack(home, dir); err != nil {
+	if _, err := app.AddLocalPack(home, dir); err != nil {
 		t.Fatal(err)
 	}
 	release := make(chan struct{})

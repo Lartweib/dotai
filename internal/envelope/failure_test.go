@@ -40,6 +40,8 @@ func TestClassify(t *testing.T) {
 			wantCode: envelope.CodeInternal,
 			wantData: map[string]any{"conflicts": conflicts},
 		},
+		{name: "pack name taken", err: &app.PackNameTakenError{ID: "local/x", Path: "/p"}, wantCode: envelope.CodePackNameTaken},
+		{name: "host unsupported", err: &app.HostUnsupportedError{URL: "https://gitlab.com/a/b", Host: "gitlab.com"}, wantCode: envelope.CodeHostUnsupported},
 		{name: "wrapped errors are found", err: fmt.Errorf("wrapped: %w", &app.ConsentError{Plan: installPlan}), wantCode: envelope.CodeConsent, wantData: installPlan},
 	}
 	for _, tt := range tests {

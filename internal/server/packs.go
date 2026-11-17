@@ -27,7 +27,7 @@ func (s *handler) importPack(r *http.Request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return s.act(r, "pack import", func(context.Context) (any, error) { return s.deps.ImportPack(s.cfg.Home, dir) })
+	return s.act(r, "pack import", func(context.Context) (any, error) { return s.deps.AddLocalPack(s.cfg.Home, dir) })
 }
 
 // removePack forgets the pack of the body; its files stay.

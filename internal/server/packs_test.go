@@ -43,7 +43,7 @@ func TestThePackRegistryImportsListsAndRemovesThroughTheApp(t *testing.T) {
 		t.Fatalf("packs of a new home = %+v", list.Packs)
 	}
 	list := packList(t, h, post("/api/packs/import", `{"path":`+jsonString(dir)+`}`, testToken))
-	if len(list.Packs) != 1 || list.Packs[0].Name != "minimal-pack" {
+	if len(list.Packs) != 1 || list.Packs[0].Name != "minimal-pack" || list.Packs[0].ID != "local/minimal-pack" {
 		t.Errorf("after the import = %+v", list.Packs)
 	}
 	if list := packList(t, h, request("GET", "/api/packs", testToken)); len(list.Packs) != 1 {

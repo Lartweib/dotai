@@ -48,6 +48,10 @@ func Classify(err error) (code string, data any) {
 		code, data = CodeInvalid, packInvalid.Result
 	case errors.As(err, new(*app.CopyRefusedError)):
 		code = CodeCopyRefused
+	case errors.As(err, new(*app.PackNameTakenError)):
+		code = CodePackNameTaken
+	case errors.As(err, new(*app.HostUnsupportedError)):
+		code = CodeHostUnsupported
 	case errors.As(err, &registry):
 		code, data = CodeRegistryInvalid, map[string]any{"path": registry.Path}
 	}
