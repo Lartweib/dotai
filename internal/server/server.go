@@ -46,6 +46,10 @@ type Deps struct {
 	ListPacks             func(home string) (app.PackList, error)
 	AddLocalPack          func(home, dir string) (app.PackAddResult, error)
 	RemovePack            func(home, dir string) (app.PackRemoveResult, error)
+	AddGitPack            func(ctx context.Context, home, url string, opts app.PackGitOptions) (app.PackAddResult, error)
+	PlanPackUpdate        func(ctx context.Context, home, id string, opts app.PackGitOptions) (app.PackUpdatePlan, []app.PackWarning, error)
+	UpdatePack            func(ctx context.Context, home, id string, opts app.PackGitOptions) (app.PackAddResult, error)
+	RemovePackID          func(home, id string) (app.PackRemoveResult, error)
 	CopyPack              func(ctx context.Context, from, to string) (app.CopyResult, error)
 	SummarizePack         func(dir string) (app.PackContents, error)
 }
@@ -71,6 +75,10 @@ func AppDeps(p app.Ports) Deps {
 		ListPacks:             app.ListPacks,
 		AddLocalPack:          app.AddLocalPack,
 		RemovePack:            app.RemovePack,
+		AddGitPack:            app.AddGitPack,
+		PlanPackUpdate:        app.PlanPackUpdate,
+		UpdatePack:            app.UpdatePack,
+		RemovePackID:          app.RemovePackID,
 		CopyPack:              app.CopyPack,
 		SummarizePack:         app.SummarizePack,
 	}
@@ -190,8 +198,11 @@ func newUI(cfg Config, deps Deps, web fs.FS) *ui {
 		"/api/restore/project":         {"restore", http.MethodPost, s.restoreProject},
 		"/api/doctor/fix":              {"doctor", http.MethodPost, s.fix},
 		"/api/packs":                   {command, http.MethodGet, s.packs},
-		"/api/packs/import":            {command, http.MethodPost, s.importPack},
-		"/api/packs/remove":            {command, http.MethodPost, s.removePack},
+		"/api/packs/import":            {"pack add", http.MethodPost, s.importPack},
+		"/api/packs/add":               {"pack add", http.MethodPost, s.addPack},
+		"/api/packs/update/plan":       {"pack update", http.MethodPost, s.planUpdate},
+		"/api/packs/update":            {"pack update", http.MethodPost, s.updatePack},
+		"/api/packs/remove":            {"pack remove", http.MethodPost, s.removePack},
 		"/api/packs/copy":              {command, http.MethodPost, s.copyPack},
 		"/api/pack/summary":            {command, http.MethodGet, s.packSummary},
 	}
