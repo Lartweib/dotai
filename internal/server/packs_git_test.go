@@ -3,8 +3,10 @@ package server_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -169,5 +171,46 @@ func TestAFetchPastTheOperationLimitPointsToTheCommandLine(t *testing.T) {
 	w := serve(h, post("/api/packs/add", `{"url":"https://github.com/acme/pack"}`, testToken))
 	if w.Code != http.StatusInternalServerError || !strings.Contains(w.Body.String(), "dotai pack add") {
 		t.Errorf("add = %d; body %s, want the command line suggested", w.Code, w.Body)
+	}
+	wantTimedOut(t, w)
+}
+
+// wantTimedOut checks that w is the internal failure of a fetch stopped by
+// the time limit, marked in its data so that the page can say so in the
+// viewer's language.
+func wantTimedOut(t *testing.T, w *httptest.ResponseRecorder) {
+	t.Helper()
+	e := decode(t, w)
+	var data struct {
+		TimedOut bool `json:"timedOut"`
+	}
+	if e.Error == nil || e.Error.Code != "internal" || json.Unmarshal(e.Data, &data) != nil || !data.TimedOut {
+		t.Errorf("envelope = %+v, data %s, want internal with timedOut", e, e.Data)
+	}
+}
+
+func TestAnUpdatePastTheOperationLimitIsMarkedAsTimedOut(t *testing.T) {
+	deps := fakeDeps()
+	late := fmt.Errorf("git fetch was stopped by the time limit of the operation: %w", context.DeadlineExceeded)
+	deps.PlanPackUpdate = func(context.Context, string, string, app.PackGitOptions) (app.PackUpdatePlan, []app.PackWarning, error) {
+		return app.PackUpdatePlan{}, nil, late
+	}
+	deps.UpdatePack = func(context.Context, string, string, app.PackGitOptions) (app.PackAddResult, error) {
+		return app.PackAddResult{}, late
+	}
+	h := server.New(testConfig(t), deps, testWeb)
+	wantTimedOut(t, serve(h, post("/api/packs/update/plan", `{"id":"github.com/acme/pack"}`, testToken)))
+	wantTimedOut(t, serve(h, post("/api/packs/update", `{"id":"github.com/acme/pack","digest":"sha256:x"}`, testToken)))
+}
+
+func TestAnotherFailureOfAFetchCarriesNoData(t *testing.T) {
+	deps := fakeDeps()
+	deps.AddGitPack = func(context.Context, string, string, app.PackGitOptions) (app.PackAddResult, error) {
+		return app.PackAddResult{}, errors.New("git broke")
+	}
+	h := server.New(testConfig(t), deps, testWeb)
+	w := serve(h, post("/api/packs/add", `{"url":"https://github.com/acme/pack"}`, testToken))
+	if e := decode(t, w); e.Error == nil || e.Error.Code != "internal" || len(e.Data) != 0 {
+		t.Errorf("envelope = %+v, data %s, want internal without data", e, e.Data)
 	}
 }
