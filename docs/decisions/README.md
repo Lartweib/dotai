@@ -52,6 +52,7 @@ Records were renumbered on 2026-10-26, when the records about the reference pack
 | [0042](0042-tag-driven-release-binaries.md) | Tag-driven release binaries built by a script and published with gh | proposed | 2026-11-03 |
 | [0043](0043-local-web-ui.md) | A local web UI in v1, served by `dotai ui` over the same use cases | accepted | 2026-11-04 |
 | [0044](0044-git-pack-distribution.md) | Packs are distributed as git repositories, fetched with the user's git | proposed | 2026-11-16 |
+| [0045](0045-dotai-owned-project-onboarding.md) | Project onboarding is dotai's: a generated profiling skill and a session-start hook | accepted | 2026-11-17 |
 
 ## Superseded (history only)
 
