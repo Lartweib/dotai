@@ -68,7 +68,7 @@ variants:
 | Field | Required | Meaning |
 |---|---|---|
 | `schema` | yes | Format version. |
-| `name`, `version` | yes | Pack identity. |
+| `name`, `version` | yes | The pack's display name and version. A local pack's identity is `local/<name>`; a git pack's comes from its source ([Adding a pack](#adding-a-pack), [0044](decisions/0044-git-pack-distribution.md)). |
 | `description`, `author` | no | What the pack is and who makes it, as strings. The `.claude-plugin/plugin.json` dotai writes for a mod carries them ([Mods](#mods)). |
 | `engine` | yes | Range of engine versions the pack supports. |
 | `rulesync` | yes | Exact rulesync version the pack was tested with. |
@@ -99,7 +99,7 @@ Profiles are chosen by the onboarding agent after it analyzes the project and as
 
 ## Adding a pack
 
-`dotai pack add` adds a pack to the registry, `~/.dotai/packs.json`, which the web UI shows too ([0044](decisions/0044-git-pack-distribution.md), proposed). A pack comes from a GitHub repository, fetched with the git on `PATH` (2.41 or later) into `~/.dotai/packs/github.com/<owner>/<repo>`, or from a local directory, added with `--dir`, which stays where it is. A git pack's identity is `github.com/<owner>/<repo>` in lower case, and its manifest `name` is only a label; a local pack's is `local/<name>`, and a new local name follows the rule for mod names. A fetched pack never runs its hooks, its `.gitattributes` has no effect, so the files are the committed bytes, and its tree is checked before it is validated: no symbolic link, no submodule, no `.git` path, at most 10000 files and 64 MiB. `dotai pack update` shows what changed in executable content, every layer's `.rulesync/hooks.jsonc`, `.rulesync/mcp.jsonc` and `dotai/settings.yaml`, `dotai/tools/` and `mods/`, and also `.rulesync/permissions.jsonc`, the scripts of skills, commands and subagents, `dotai.yaml` and every executable file, before it replaces the clone. See the `pack` commands in [CLI JSON output](CLI-JSON.md#commands).
+`dotai pack add` adds a pack to the registry, `~/.dotai/packs.json`, which the web UI shows too ([0044](decisions/0044-git-pack-distribution.md)). A pack comes from a GitHub repository, fetched with the git on `PATH` (2.41 or later) into `~/.dotai/packs/github.com/<owner>/<repo>`, or from a local directory, added with `--dir`, which stays where it is. A git pack's identity is `github.com/<owner>/<repo>` in lower case, and its manifest `name` is only a label; a local pack's is `local/<name>`, and a new local name follows the rule for mod names. A fetched pack never runs its hooks, its `.gitattributes` has no effect, so the files are the committed bytes, and its tree is checked before it is validated: no symbolic link, no submodule, no `.git` path, at most 10000 files and 64 MiB. `dotai pack update` shows what changed in executable content, every layer's `.rulesync/hooks.jsonc`, `.rulesync/mcp.jsonc` and `dotai/settings.yaml`, `dotai/tools/` and `mods/`, and also `.rulesync/permissions.jsonc`, the scripts of skills, commands and subagents, `dotai.yaml` and every executable file, before it replaces the clone. See the `pack` commands in [CLI JSON output](CLI-JSON.md#commands).
 
 ## Applying a pack
 
