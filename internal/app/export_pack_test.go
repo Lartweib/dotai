@@ -56,3 +56,11 @@ func SetPackFetchTimeout(d time.Duration) (restore func()) {
 	packFetchTimeout = d
 	return func() { packFetchTimeout = old }
 }
+
+// SetPackFault fails the step of a placement for which fault gives an
+// error, until restore is called.
+func SetPackFault(fault func(step string) error) (restore func()) {
+	old := packFault
+	packFault = fault
+	return func() { packFault = old }
+}

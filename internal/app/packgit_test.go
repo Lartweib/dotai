@@ -68,18 +68,30 @@ func newRemote(t *testing.T, url string) *remoteRepo {
 	return r
 }
 
-// serveRemotes points the fetches of the test at the remotes, by URL.
+// serveRemotes points the fetches of the test at the remotes, by the
+// identity of their URL, in any of its forms. A GitHub URL of no remote
+// reaches a directory that does not exist, never the network; any other
+// URL is left as it is, for the protocol allowlist to refuse.
 func serveRemotes(t *testing.T, remotes ...*remoteRepo) {
 	t.Helper()
-	byURL := map[string]string{}
+	byID := map[string]string{}
 	for _, r := range remotes {
-		byURL[r.url] = "file://" + filepath.ToSlash(r.dir)
+		src, err := app.ParsePackURL(r.url)
+		if err != nil {
+			t.Fatal(err)
+		}
+		byID[src.ID] = "file://" + filepath.ToSlash(r.dir)
 	}
+	nowhere := "file://" + filepath.ToSlash(filepath.Join(t.TempDir(), "no-remote"))
 	t.Cleanup(app.SetPackRemote(func(url string) string {
-		if to, ok := byURL[url]; ok {
+		src, err := app.ParsePackURL(url)
+		if err != nil {
+			return url
+		}
+		if to, ok := byID[src.ID]; ok {
 			return to
 		}
-		return url
+		return nowhere
 	}))
 }
 

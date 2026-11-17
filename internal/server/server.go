@@ -45,7 +45,7 @@ type Deps struct {
 	RestoreProject        func(ctx context.Context, cwd, home string, opts app.ProjectRestoreOptions, overwrite func(app.ProjectRestoreResult) (bool, error)) (app.ProjectRestoreResult, error)
 	ListPacks             func(home string) (app.PackList, error)
 	AddLocalPack          func(home, dir string) (app.PackAddResult, error)
-	RemovePack            func(home, dir string) (app.PackList, error)
+	RemovePack            func(home, dir string) (app.PackRemoveResult, error)
 	CopyPack              func(ctx context.Context, from, to string) (app.CopyResult, error)
 	SummarizePack         func(dir string) (app.PackContents, error)
 }

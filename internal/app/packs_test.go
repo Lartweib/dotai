@@ -414,9 +414,9 @@ func TestARelativeEntryIsListedWithAnErrorAndCanBeRemoved(t *testing.T) {
 	if err != nil || len(list.Packs) != 2 || list.Packs[0].Error == "" || list.Packs[1].Name != "minimal-pack" {
 		t.Fatalf("ListPacks() = %+v, %v, want the relative entry with an error and the pack", list.Packs, err)
 	}
-	list, err = app.RemovePack(home, "relative/pack")
-	if err != nil || len(list.Packs) != 1 || list.Packs[0].Path != dir {
-		t.Errorf("RemovePack(relative) = %+v, %v, want the pack alone", list.Packs, err)
+	removed, err := app.RemovePack(home, "relative/pack")
+	if err != nil || len(removed.Packs) != 1 || removed.Packs[0].Path != dir {
+		t.Errorf("RemovePack(relative) = %+v, %v, want the pack alone", removed.Packs, err)
 	}
 }
 

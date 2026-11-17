@@ -200,35 +200,7 @@ func AddLocalPack(home, dir string) (PackAddResult, error) {
 	if err != nil {
 		return PackAddResult{}, err
 	}
-	out := PackAddResult{PackList: list, Outcome: outcome, Warnings: []PackWarning{}}
-	for _, e := range list.Packs {
-		if samePath(e.Path, dir) {
-			out.Pack = e
-		}
-	}
-	return out, nil
-}
-
-// RemovePack forgets the pack at dir in the registry of home. It never
-// touches the pack's files; a path that is not listed is no error.
-func RemovePack(home, dir string) (PackList, error) {
-	home, err := requireAbs(home)
-	if err != nil {
-		return PackList{}, err
-	}
-	if dir == "" {
-		return PackList{}, &UsageError{msg: "the pack path is empty"}
-	}
-	// A path that is not absolute can only be an entry of a registry
-	// written by hand: it is removed as it is written.
-	if filepath.IsAbs(dir) {
-		dir = filepath.Clean(dir)
-	}
-	return editPacks(home, func(doc *packsDoc) (bool, error) {
-		n := len(doc.Packs)
-		doc.Packs = slices.DeleteFunc(doc.Packs, func(p packsItem) bool { return p.Path == dir || samePath(p.Path, dir) })
-		return len(doc.Packs) != n, nil
-	})
+	return addResult(list, func(e PackEntry) bool { return samePath(e.Path, dir) }, outcome, nil), nil
 }
 
 // packDir checks that dir is the absolute path of a directory.
