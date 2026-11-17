@@ -95,7 +95,7 @@ internal/
   platform/       filesystem, processes, env, OS paths
 ```
 
-`cli` and `server` are two adapters over `app`: neither imports the other, and both report results and errors through `envelope`, so that a command and its endpoint give the same `data` and error codes ([0043](decisions/0043-local-web-ui.md), proposed). `main` connects them: `cli` reaches the server only through a function in its `Env`.
+`cli` and `server` are two adapters over `app`: neither imports the other, and both report results and errors through `envelope`, so that a command and its endpoint give the same `data` and error codes ([0043](decisions/0043-local-web-ui.md)). `main` connects them: `cli` reaches the server only through a function in its `Env`.
 
 JSON and JSONC key edits use `tailscale/hujson` plus a small own edit layer in `plan`, which keeps comments, key order and line endings ([0028](decisions/0028-plan-centric-hexagonal-engine.md)).
 

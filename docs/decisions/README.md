@@ -16,7 +16,7 @@ Records were renumbered on 2026-10-26, when the records about the reference pack
 | [0004](0004-installer-language-and-shape.md) | Installer language and shape (partially superseded by 0006) | accepted | 2026-10-19 |
 | [0005](0005-working-name-dotai.md) | Working name: `dotai` | accepted | 2026-10-19 |
 | [0007](0007-always-on-context-budget.md) | Always-on context budget | proposed | 2026-10-20 |
-| [0008](0008-onboarding-by-detection-and-base-profile.md) | Onboarding by detection and base profile (partially superseded by 0023 and 0039) | accepted | 2026-10-20 |
+| [0008](0008-onboarding-by-detection-and-base-profile.md) | Onboarding by detection and base profile (partially superseded by 0023, 0039 and 0045) | accepted | 2026-10-20 |
 | [0010](0010-engine-and-pack-separated.md) | Engine and pack separated from day one | accepted | 2026-10-23 |
 | [0011](0011-mods-always-project-scoped.md) | Mods always project-scoped | accepted | 2026-10-23 |
 | [0012](0012-rules-file-per-harness.md) | Rules file per harness: `CLAUDE.md` for Claude Code, `AGENTS.md` for agy and OpenCode (partially superseded by 0041) | accepted | 2026-10-23 |
@@ -48,7 +48,7 @@ Records were renumbered on 2026-10-26, when the records about the reference pack
 | [0038](0038-replace-mode-resets-harness-to-fresh-install.md) | Replace mode resets each selected harness to a fresh install | accepted | 2026-11-01 |
 | [0039](0039-base-layer-installs-skills-at-user-level.md) | The base layer may install skills and agents at user level | accepted | 2026-11-01 |
 | [0040](0040-list-files-merged-as-a-union.md) | Hooks and permissions merge as a union in layer order | accepted | 2026-11-01 |
-| [0041](0041-project-scope-local-and-untracked.md) | The project scope stays local: excluded from git, never in tracked files | accepted | 2026-11-02 |
+| [0041](0041-project-scope-local-and-untracked.md) | The project scope stays local: excluded from git, never in tracked files (partially superseded by 0045) | accepted | 2026-11-02 |
 | [0042](0042-tag-driven-release-binaries.md) | Tag-driven release binaries built by a script and published with gh | proposed | 2026-11-03 |
 | [0043](0043-local-web-ui.md) | A local web UI in v1, served by `dotai ui` over the same use cases (partially superseded by 0044) | accepted | 2026-11-04 |
 | [0044](0044-git-pack-distribution.md) | Packs are distributed as git repositories, fetched with the user's git | accepted | 2026-11-16 |
