@@ -135,7 +135,7 @@ const paths = {
 
 // The section of the navigation each board belongs to, which its head
 // names above the title when the two differ.
-const sections = { tree: "installed", plan: "installed", projects: "installed" };
+const sections = { tree: "installed", plan: "installed" };
 
 // boardHead opens a board: its section, its title and what it is for, in
 // plain words.

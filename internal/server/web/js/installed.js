@@ -1,21 +1,20 @@
 // The Installed board: what is installed in the home directory, as the
 // install state says, with the install, reinstall and uninstall of a pack
-// (each a plan or a preview first, then confirm), and the repositories
-// where dotai apply ran, as the project records list them.
+// (each a plan or a preview first, then confirm). The repositories where
+// profiles were applied have their own board; this one points there.
 
-import { actions, boardHead, h, kv, lm, mount, sec } from "./dom.js";
-import { confirmFlow, restoreHomeFlow, restoreProjectFlow } from "./flows.js";
+import { actions, boardHead, h, kv, mount, sec } from "./dom.js";
+import { confirmFlow, restoreHomeFlow } from "./flows.js";
+import { recorded } from "./repos.js";
 import { fmtDate, fmtRelative, lower, t } from "./i18n.js";
-import { harnessName, installed, registry, shared, tilde } from "./store.js";
-
-const base = (p) => p.split(/[\\/]/).filter(Boolean).pop() || p;
+import { harnessName, installed, registry, tilde } from "./store.js";
 
 export async function render(root, ctx) {
   const pane = h("div", { class: "detail solo" });
   mount(root, boardHead("installed"), pane);
   const s = installed();
   const home = h("div", { class: "stack" });
-  const projects = (shared.status ? shared.status.projects : []).filter((p) => p.project);
+  const n = recorded().length;
 
   if (s) {
     const enc = encodeURIComponent(s.pack.path);
@@ -50,23 +49,7 @@ export async function render(root, ctx) {
 
   mount(pane, h("div", { class: "col wide" },
     sec(t("installed.homeSec"), "", home),
-    sec(t("installed.reposSec"), t("installed.reposHint"),
-      projects.length ? h("ul", { class: "repos" }, projects.map((p) => repoRow(p, ctx)))
-        : h("p", { class: "quietp", text: t("installed.noRepos") }),
-      actions([h("a", { class: "btn", href: "#/projects", text: t("installed.applyRepo") })], t("installed.applyRepoNote")))));
-}
-
-function repoRow(p, ctx) {
-  const rec = p.record;
-  const out = h("div", { class: "out" });
-  return h("li", { class: "repo" },
-    h("div", { class: "repo-main" },
-      h("div", { class: "title" }, h("b", { text: base(p.project) }), rec ? rec.profiles.map((x) => lm(x)) : null,
-        rec ? h("span", { class: "t-meta", title: fmtDate(rec.appliedAt), text: t("projects.lastApplied", { when: fmtRelative(rec.appliedAt) }) }) : null),
-      h("span", { class: "t-path", text: tilde(p.project) }),
-      p.error ? h("span", { class: "err", text: p.error }) : null),
-    h("div", { class: "btns" },
-      h("a", { class: "btn sm", href: "#/projects/" + encodeURIComponent(p.project), text: t("installed.openRepo") }),
-      rec ? h("button", { class: "btn sm", type: "button", text: t("projects.restorePreview"), onclick: () => confirmFlow(out, restoreProjectFlow(p.project, ctx)) }) : null),
-    out);
+    sec(t("installed.reposSec"), "",
+      h("p", { class: "body" }, n ? t("installed.reposSome", { n }) : t("installed.reposNone"), " ",
+        h("a", { href: "#/repos", text: t("installed.reposLink") })))));
 }

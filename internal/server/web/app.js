@@ -14,7 +14,7 @@ import * as packs from "./js/packs.js";
 import * as installed from "./js/installed.js";
 import * as tree from "./js/tree.js";
 import * as plan from "./js/plan.js";
-import * as projects from "./js/projects.js";
+import * as repos from "./js/repos.js";
 import * as backups from "./js/backups.js";
 import * as doctor from "./js/doctor.js";
 
@@ -44,26 +44,33 @@ async function exchange(code) {
 }
 
 // The boards, by the route in the address: #/packs, #/tree and so on.
-// The plan of an install, the files it writes and the apply to a project
-// are steps of the Installed board.
+// The plan of an install and the files it writes are steps of the
+// Installed board.
 const routes = {
   home: { view: home, nav: "home" },
   packs: { view: packs, nav: "packs" },
   installed: { view: installed, nav: "installed" },
   tree: { view: tree, nav: "installed" },
   plan: { view: plan, nav: "installed" },
-  projects: { view: projects, nav: "installed" },
+  repos: { view: repos, nav: "repos" },
   backups: { view: backups, nav: "backups" },
   doctor: { view: doctor, nav: "doctor" },
 };
 
-const navItems = ["home", "packs", "installed", "backups", "doctor"];
+const navItems = ["home", "packs", "installed", "repos", "backups", "doctor"];
+
+// Old routes that now have another name: #/projects became #/repos.
+const aliases = { projects: "repos" };
 
 const counts = {};
 
 function route() {
-  const [name, ...rest] = location.hash.replace(/^#\/?/, "").split("/");
-  return { name: routes[name] ? name : "home", arg: decodeURIComponent(rest.join("/")) };
+  let [name, ...rest] = location.hash.replace(/^#\/?/, "").split("/");
+  if (Object.hasOwn(aliases, name)) {
+    name = aliases[name];
+    history.replaceState(null, "", "#/" + [name, ...rest].join("/"));
+  }
+  return { name: Object.hasOwn(routes, name) ? name : "home", arg: decodeURIComponent(rest.join("/")) };
 }
 
 function renderNav() {
@@ -110,7 +117,7 @@ export async function refresh() {
   await loadStatus();
   paintHome();
   counts.packs = registry().length;
-  counts.installed = shared.status ? shared.status.projects.length + (shared.status.state ? 1 : 0) : 0;
+  counts.repos = repos.recorded().length;
   renderNav();
   api("/api/backups").then((res) => {
     if (res.ok) setCount("backups", res.data.home.length + res.data.projects.reduce((n, p) => n + p.backups.length, 0));

@@ -443,7 +443,7 @@ form.well { gap: 12px; }
 .repo:first-child { padding-top: 2px; }
 .repo-main { display: flex; flex-direction: column; gap: 3px; flex: 1 1 18rem; min-width: 0; }
 .repo-main .title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
-.repo-main .title b { font: 450 var(--t-row)/1.3 var(--fs); }
+.repo-main .title b { font: 450 var(--t-row)/1.3 var(--fs); overflow-wrap: anywhere; min-width: 0; }
 .repo .out { flex: 1 1 100%; }
 .authored { flex: 1 1 14rem; }
 .authored .by { margin-right: 6px; font-size: var(--t-sm); color: var(--ink-3); }
@@ -477,6 +477,11 @@ form.well { gap: 12px; }
 .fold > summary { padding: 10px 0; font-weight: 600; cursor: pointer; transition: color var(--d-1) var(--ease); }
 .fold > summary:hover { color: var(--you-ink); }
 .fold-body { display: flex; flex-direction: column; gap: 12px; padding: 2px 0 16px; }
+/* The quiet way in: applying profiles by hand, a fold under a rule whose
+   summary reads as a text button, not an action of the board. */
+.col > .manual { box-shadow: inset 0 1px 0 var(--rule); padding-top: 8px; }
+.manual > summary { width: fit-content; color: var(--ink-2); font-weight: 500; }
+.intro > a.t-meta { width: fit-content; }
 .menu { position: relative; }
 .menu > summary { list-style: none; }
 .menu > summary::-webkit-details-marker { display: none; }
@@ -521,7 +526,7 @@ form.well { gap: 12px; }
 .detail > * { animation: rise var(--d-5) var(--o-settle) backwards; }
 .detail > :nth-child(2) { animation-delay: 70ms; }
 .detail > :nth-child(n+3) { animation-delay: 140ms; }
-.rows > li, .kids > li, .repos > li, .col > .sec, .lanes > .sec, .steps > li, .levels > li { --i: 8; animation: rise var(--d-5) var(--o-settle) backwards; animation-delay: calc(100ms + var(--i) * var(--step)); }
+.rows > li, .kids > li, .repos > li, .col > .sec, .col > .manual, .lanes > .sec, .steps > li, .levels > li { --i: 8; animation: rise var(--d-5) var(--o-settle) backwards; animation-delay: calc(100ms + var(--i) * var(--step)); }
 :is(.rows, .kids, .repos, .col, .lanes, .steps, .levels) > :nth-child(1) { --i: 0; }
 :is(.rows, .kids, .repos, .col, .lanes, .steps, .levels) > :nth-child(2) { --i: 1; }
 :is(.rows, .kids, .repos, .col, .lanes, .steps, .levels) > :nth-child(3) { --i: 2; }

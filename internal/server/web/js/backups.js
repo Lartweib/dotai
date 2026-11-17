@@ -99,7 +99,7 @@ function show(detail, cur, ctx) {
   if (g.scope === "home") {
     offer(action, t("backups.restoreHome"), t("backups.preview"), restoreHomeFlow(b.id, ctx));
   } else if (g.project) {
-    offer(action, t("backups.restoreProject"), t("projects.restorePreview"), restoreProjectFlow(g.project, ctx));
+    offer(action, t("backups.restoreProject"), t("repos.restorePreview"), restoreProjectFlow(g.project, ctx));
   } else {
     mount(action, h("p", { class: "body", text: t("backups.cannotRestore") }));
   }
