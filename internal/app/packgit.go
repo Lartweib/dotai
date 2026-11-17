@@ -170,11 +170,12 @@ func requireGit(ctx context.Context) error {
 	return checkGitVersion(string(out))
 }
 
-// PackFetch is what a fetch of a pack got: the commit and the full name of
-// the ref fetched.
+// PackFetch is what a fetch of a pack got: the commit, the full name of
+// the ref fetched and the mode of each file of its tree, by path.
 type PackFetch struct {
 	Commit  string
 	FullRef string
+	Modes   map[string]string
 }
 
 // fetchPack fetches ref of url ("" for the remote's default branch) into
@@ -223,7 +224,17 @@ func (g packGit) fetchPack(ctx context.Context, dir, url, ref string) (PackFetch
 	if _, err := g.run(ctx, gitTimeout, dir, nil, "checkout", "-q", "--no-recurse-submodules", "--detach", commit); err != nil {
 		return PackFetch{}, err
 	}
-	return PackFetch{Commit: commit, FullRef: fullRef}, nil
+	return PackFetch{Commit: commit, FullRef: fullRef, Modes: treeModes(tree)}, nil
+}
+
+// treeModes is the mode of each file of the commit checked out in dir, by
+// path, nil when git cannot tell, such as in a directory without .git.
+func (g packGit) treeModes(ctx context.Context, dir string) map[string]string {
+	out, err := g.run(ctx, gitTimeout, dir, nil, "ls-tree", "-r", "-z", "-l", "HEAD")
+	if err != nil {
+		return nil
+	}
+	return treeModes(out)
 }
 
 // resolveRef is what fetchPack fetches for ref: the branch the remote's

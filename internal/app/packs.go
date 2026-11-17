@@ -136,12 +136,14 @@ const (
 )
 
 // PackAddResult is an addition or an update of a pack: the registry after
-// it, the pack's entry, the outcome and the warnings.
+// it, the pack's entry, the outcome, the plan of an update (nil for a
+// first addition) and the warnings.
 type PackAddResult struct {
 	PackList
-	Pack     PackEntry     `json:"pack"`
-	Outcome  string        `json:"outcome"`
-	Warnings []PackWarning `json:"warnings"`
+	Pack     PackEntry       `json:"pack"`
+	Outcome  string          `json:"outcome"`
+	Update   *PackUpdatePlan `json:"update"`
+	Warnings []PackWarning   `json:"warnings"`
 }
 
 // ListPacks reads the registry of home. A home without one has no packs,

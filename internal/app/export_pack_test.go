@@ -64,3 +64,13 @@ func SetPackFault(fault func(step string) error) (restore func()) {
 	packFault = fault
 	return func() { packFault = old }
 }
+
+// UnifiedDiff is the unified diff of old and new.
+var UnifiedDiff = unifiedDiff
+
+// ExecChanges compares the executable content of two clones, with the
+// modes of their files.
+var ExecChanges = execChanges
+
+// UnsafePath reports whether a path holds a control character.
+var UnsafePath = unsafePath

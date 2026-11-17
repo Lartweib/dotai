@@ -25,10 +25,16 @@ const (
 
 // PackGitOptions are the choices of an addition or an update of a git
 // pack. Ref is a tag, a branch or a full commit SHA, "" for the default
-// branch. Interactive leaves git's prompts on, as on the command line.
+// branch, or, for a pack already added, the ref it records. Interactive
+// leaves git's prompts on, as on the command line. An update first shows
+// Confirm, when it is set, the plan it is about to carry out (the web UI's
+// digest), then, when the plan moves the pack to another commit, asks
+// Consent, the prompt or --yes; without consent it is a *PackConsentError.
 type PackGitOptions struct {
 	Ref         string
 	Interactive bool
+	Confirm     func(PackUpdatePlan) error
+	Consent     func(PackUpdatePlan) (bool, error)
 }
 
 // The steps of a placement a test can fail through packFault.
@@ -43,7 +49,9 @@ var packFault = func(step string) error { return nil }
 // AddGitPack fetches the pack at rawURL, a GitHub repository, checks its
 // tree, validates it and adds it to the registry of home, cloned at
 // ~/.dotai/packs/<identity>. On any failure nothing is registered and the
-// fetch is deleted; a fetch that cannot be deleted is a warning.
+// fetch is deleted; a fetch that cannot be deleted is a warning. A pack of
+// that identity already added is updated, as UpdatePack does, and keeps
+// the URL last used.
 func AddGitPack(ctx context.Context, home, rawURL string, opts PackGitOptions) (res PackAddResult, err error) {
 	home, err = requireAbs(home)
 	if err != nil {
@@ -65,8 +73,15 @@ func AddGitPack(ctx context.Context, home, rawURL string, opts PackGitOptions) (
 	if err != nil {
 		return PackAddResult{}, err
 	}
-	if slices.ContainsFunc(doc.Packs, func(p packsItem) bool { return p.ID == src.ID }) {
-		return PackAddResult{}, &UsageError{msg: fmt.Sprintf("the pack %s is already added", src.ID)}
+	// The same identity is the same pack, from any form or case of its
+	// URL: adding it again is an update, to another ref when one is given.
+	if i := slices.IndexFunc(doc.Packs, func(p packsItem) bool { return p.ID == src.ID && p.Source != nil }); i >= 0 {
+		entry := doc.Packs[i]
+		ref := opts.Ref
+		if ref == "" {
+			ref = entry.Source.Ref
+		}
+		return updatePack(ctx, g, home, entry, src, ref, opts)
 	}
 	f, err := fetchChecked(ctx, g, home, src, opts.Ref)
 	if err != nil {
@@ -94,12 +109,13 @@ func AddGitPack(ctx context.Context, home, rawURL string, opts PackGitOptions) (
 }
 
 // fetched is a checked and validated fetch of a pack in dir, a temporary
-// sibling of its clone path, at commit, of the ref named fullRef, until
-// cleanUp removes what is left of it.
+// sibling of its clone path, at commit, of the ref named fullRef, with the
+// modes of its tree by path, until cleanUp removes what is left of it.
 type fetched struct {
 	dir     string
 	commit  string
 	fullRef string
+	modes   map[string]string
 }
 
 // cleanUp removes what is left of the fetch once the operation that holds
@@ -155,7 +171,7 @@ func fetchChecked(ctx context.Context, g packGit, home string, src GitSource, re
 		}
 		return fetched{}, err
 	}
-	return fetched{dir: dir, commit: got.Commit, fullRef: got.FullRef}, nil
+	return fetched{dir: dir, commit: got.Commit, fullRef: got.FullRef, modes: got.Modes}, nil
 }
 
 // refWarnings warns of a branch, which can move.

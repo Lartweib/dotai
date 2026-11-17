@@ -24,6 +24,7 @@ func Classify(err error) (code string, data any) {
 		invalid      *InvalidError
 		packInvalid  *app.PackInvalidError
 		registry     *app.RegistryInvalidError
+		packConsent  *app.PackConsentError
 		git          *app.GitUnavailableError
 		tree         *app.PackTreeRefusedError
 	)
@@ -54,6 +55,8 @@ func Classify(err error) (code string, data any) {
 		code = CodePackNameTaken
 	case errors.As(err, new(*app.HostUnsupportedError)):
 		code = CodeHostUnsupported
+	case errors.As(err, &packConsent):
+		code, data = CodeConsent, packConsent.Plan
 	case errors.As(err, &git):
 		code = CodeGitMissing
 		if git.TooOld {

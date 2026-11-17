@@ -52,6 +52,7 @@ func TestClassify(t *testing.T) {
 			wantCode: envelope.CodeTreeRefused,
 			wantData: map[string]any{"problems": []app.TreeProblem{{Path: "l", Problem: "is a link"}}},
 		},
+		{name: "an update without consent carries its plan", err: &app.PackConsentError{Plan: app.PackUpdatePlan{ID: "github.com/a/b"}}, wantCode: envelope.CodeConsent, wantData: app.PackUpdatePlan{ID: "github.com/a/b"}},
 		{name: "wrapped errors are found", err: fmt.Errorf("wrapped: %w", &app.ConsentError{Plan: installPlan}), wantCode: envelope.CodeConsent, wantData: installPlan},
 	}
 	for _, tt := range tests {

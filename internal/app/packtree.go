@@ -56,6 +56,19 @@ func checkPackTree(out []byte) []TreeProblem {
 	return problems
 }
 
+// treeModes is the mode of each entry of the output of git ls-tree -r -z
+// -l, by path.
+func treeModes(out []byte) map[string]string {
+	modes := map[string]string{}
+	for rec := range bytes.SplitSeq(out, []byte{0}) {
+		meta, p, ok := strings.Cut(string(rec), "\t")
+		if f := strings.Fields(meta); ok && len(f) == 4 {
+			modes[p] = f[0]
+		}
+	}
+	return modes
+}
+
 // dotGitSegment reports whether seg, a component of a path, names .git on
 // some file system: in any case, with the trailing dots and spaces Windows
 // drops, as an NTFS stream (.git:...), as its 8.3 short name (git~N), or

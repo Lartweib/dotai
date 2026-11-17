@@ -18,7 +18,7 @@ func main() {
 			return server.Run(ctx, server.Options{Home: o.Home, CacheDir: o.CacheDir, Port: o.Port, Ready: o.Ready, Open: o.Open}, server.AppDeps(app.Ports{}))
 		},
 		OpenBrowser: server.OpenBrowser,
-		AddGitPack:  app.AddGitPack, AddLocalPack: app.AddLocalPack, RemovePackID: app.RemovePackID, ListPacks: app.ListPacks})
+		AddGitPack:  app.AddGitPack, AddLocalPack: app.AddLocalPack, UpdatePack: app.UpdatePack, RemovePackID: app.RemovePackID, ListPacks: app.ListPacks})
 	restore()
 	os.Exit(code)
 }

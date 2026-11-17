@@ -2,6 +2,7 @@ package cli
 
 import (
 	"cmp"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -26,12 +27,13 @@ func newPackCmd(env Env, jsonOut *bool) *cobra.Command {
 			"stays where it is. A git pack's identity is github.com/<owner>/<repo>, a local one's local/<name>.",
 		Args: cobra.NoArgs,
 	}
-	cmd.AddCommand(newPackAddCmd(env, jsonOut), newPackRemoveCmd(env, jsonOut), newPackListCmd(env, jsonOut))
+	cmd.AddCommand(newPackAddCmd(env, jsonOut), newPackUpdateCmd(env, jsonOut), newPackRemoveCmd(env, jsonOut), newPackListCmd(env, jsonOut))
 	return cmd
 }
 
 func newPackAddCmd(env Env, jsonOut *bool) *cobra.Command {
 	var ref, dir string
+	var yes bool
 	cmd := &cobra.Command{
 		Use:   "add <github-url> [--ref <ref>] | add --dir <path>",
 		Short: "Add a pack from a GitHub repository or a local directory",
@@ -40,7 +42,9 @@ func newPackAddCmd(env Env, jsonOut *bool) *cobra.Command {
 			"~/.dotai/packs/<identity>. Its hooks, attributes and submodules never run; a link, a submodule, a .git path or\n" +
 			"more than 10000 files or 64 MiB is refused; then it is validated as by dotai validate. Nothing is registered\n" +
 			"unless every check passes. A branch can move: the pack stays at its commit until dotai pack update.\n" +
-			"With --dir, add the pack in that directory, which stays where it is, as local/<name>.",
+			"Adding a pack of the same identity again, from any form of its URL, is an update, as dotai pack update, to\n" +
+			"--ref when given, and keeps the URL last used. With --dir, add the pack in that directory, which stays where it\n" +
+			"is, as local/<name>.",
 		Args: func(cmd *cobra.Command, args []string) error {
 			switch {
 			case dir != "" && len(args) > 0:
@@ -55,6 +59,7 @@ func newPackAddCmd(env Env, jsonOut *bool) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&ref, "ref", "", "tag, branch or full commit SHA to fetch (default: the default branch)")
 	cmd.Flags().StringVar(&dir, "dir", "", "add the pack in this local directory instead")
+	cmd.Flags().BoolVar(&yes, "yes", false, "update a pack already added without asking")
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -73,27 +78,127 @@ func newPackAddCmd(env Env, jsonOut *bool) *cobra.Command {
 		} else {
 			ctx, stop := interruptible(cmd)
 			defer stop()
-			res, err = env.AddGitPack(ctx, home, args[0], app.PackGitOptions{Ref: ref, Interactive: true})
+			var asked bool
+			res, err = env.AddGitPack(ctx, home, args[0], app.PackGitOptions{Ref: ref, Interactive: true, Consent: packConsent(ctx, env, *jsonOut, yes, &asked)})
 			if err != nil {
-				return err
+				return packUpdateFailed(env, *jsonOut, asked, err)
 			}
+			return writePackResult(env, cmd, *jsonOut, res, asked)
 		}
-		return writePackResult(env, cmd, *jsonOut, res)
+		return writePackResult(env, cmd, *jsonOut, res, false)
 	}
 	return cmd
 }
 
+func newPackUpdateCmd(env Env, jsonOut *bool) *cobra.Command {
+	var yes bool
+	cmd := &cobra.Command{
+		Use:   "update <identity> [--yes]",
+		Short: "Fetch a git pack again and show what changed in its executable content",
+		Long: "Fetch the ref recorded for the git pack <identity> again, by its full name, check and validate it as dotai pack\n" +
+			"add does, and show what changed in executable content: every layer's .rulesync/hooks.jsonc, .rulesync/mcp.jsonc\n" +
+			"and dotai/settings.yaml, dotai/tools/ and mods/. Once you confirm, or with --yes, the new clone replaces the old\n" +
+			"one, which is put back on any failure. With --json and without --yes, a move to another commit fails with\n" +
+			"consent-required and the plan. An unreachable remote leaves the pack as it was. Installs and projects change only\n" +
+			"when dotai install or dotai apply runs again.",
+		Args: cobra.ExactArgs(1),
+	}
+	cmd.Flags().BoolVar(&yes, "yes", false, "update without asking")
+	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("the home directory is unknown: %w", err)
+		}
+		ctx, stop := interruptible(cmd)
+		defer stop()
+		var asked bool
+		res, err := env.UpdatePack(ctx, home, args[0], app.PackGitOptions{Interactive: true, Consent: packConsent(ctx, env, *jsonOut, yes, &asked)})
+		if err != nil {
+			return packUpdateFailed(env, *jsonOut, asked, err)
+		}
+		return writePackResult(env, cmd, *jsonOut, res, asked)
+	}
+	return cmd
+}
+
+// packConsent is the consent of an update: --yes, or the answer to the
+// prompt once the plan is shown; none with --json or without a terminal.
+// asked is set once the plan was shown.
+func packConsent(ctx context.Context, env Env, jsonOut, yes bool, asked *bool) func(app.PackUpdatePlan) (bool, error) {
+	return func(p app.PackUpdatePlan) (bool, error) {
+		if yes {
+			return true, nil
+		}
+		if jsonOut || env.Prompt == nil {
+			return false, nil
+		}
+		*asked = true
+		if err := writeUpdatePlan(env.Stdout, p); err != nil {
+			return false, err
+		}
+		return env.Prompt(ctx, fmt.Sprintf("Update %s from %s to %s, with the changes above? [y/N] ", termSafe(p.ID), termSafe(app.ShortCommit(p.From.Commit)), termSafe(app.ShortCommit(p.To.Commit))))
+	}
+}
+
+// packUpdateFailed is err of an addition or an update: one the user
+// refused says so; one without consent shows its plan in text.
+func packUpdateFailed(env Env, jsonOut, asked bool, err error) error {
+	ce, ok := errors.AsType[*app.PackConsentError](err)
+	switch {
+	case ok && asked:
+		return errors.New("the update was cancelled, and nothing changed")
+	case ok && !jsonOut:
+		if werr := writeUpdatePlan(env.Stdout, ce.Plan); werr != nil {
+			return errors.Join(err, werr)
+		}
+	}
+	return err
+}
+
+// writeUpdatePlan prints the plan of an update: the move and each change
+// of executable content, with its diff.
+func writeUpdatePlan(w io.Writer, p app.PackUpdatePlan) error {
+	var b strings.Builder
+	fmt.Fprintf(&b, "update %s\nfrom:   %s (%s)\nto:     %s (%s)\n", termSafe(p.ID), termSafe(p.From.Commit), termSafe(p.From.FullRef), termSafe(p.To.Commit), termSafe(p.To.FullRef))
+	if p.Missing {
+		b.WriteString("the clone is gone: every file shows as added\n")
+	}
+	if len(p.Changes) == 0 {
+		b.WriteString("no change in executable content (hooks, MCP servers, settings, tools, mods)\n")
+	} else {
+		fmt.Fprintf(&b, "%d changes in executable content:\n", len(p.Changes))
+	}
+	for _, c := range p.Changes {
+		fmt.Fprintf(&b, "\n%s %s\n", c.Change, termSafe(c.Path))
+		if c.Note != "" {
+			fmt.Fprintf(&b, "%s (before %s, after %s)\n", c.Note, cmp.Or(c.Before, "none"), cmp.Or(c.After, "none"))
+		}
+		// A diff is text without control characters (app.ExecChange): it is
+		// escaped all the same.
+		b.WriteString(termText(c.Diff))
+	}
+	b.WriteString("\n")
+	_, err := io.WriteString(w, b.String())
+	return err
+}
+
 // writePackResult prints an addition or an update: the envelope with
-// --json, or the pack and where it is from, and its warnings on stderr.
-func writePackResult(env Env, cmd *cobra.Command, jsonOut bool, res app.PackAddResult) error {
+// --json, or the plan of an update unless shown is set, the pack and
+// where it is from, and its warnings on stderr.
+func writePackResult(env Env, cmd *cobra.Command, jsonOut bool, res app.PackAddResult, shown bool) error {
 	if jsonOut {
 		return envelope.Write(env.Stdout, envelope.Success(commandName(cmd), res))
 	}
+	if res.Update != nil && res.Update.Moves() && !shown {
+		if err := writeUpdatePlan(env.Stdout, *res.Update); err != nil {
+			return err
+		}
+	}
 	var b strings.Builder
 	p := res.Pack
-	fmt.Fprintf(&b, "%s %s (%s %s)\npath:   %s\n", res.Outcome, p.ID, cmp.Or(p.Name, "?"), cmp.Or(p.Version, "?"), p.Path)
+	fmt.Fprintf(&b, "%s %s (%s %s)\npath:   %s\n", res.Outcome, termSafe(p.ID), termSafe(cmp.Or(p.Name, "?")), termSafe(cmp.Or(p.Version, "?")), termSafe(p.Path))
 	if s := p.Source; s != nil {
-		fmt.Fprintf(&b, "source: %s\ncommit: %s (%s)\n", s.URL, s.Commit, s.FullRef)
+		fmt.Fprintf(&b, "source: %s\ncommit: %s (%s)\n", termSafe(s.URL), termSafe(s.Commit), termSafe(s.FullRef))
 	}
 	if _, err := io.WriteString(env.Stdout, b.String()); err != nil {
 		return err
@@ -104,7 +209,7 @@ func writePackResult(env Env, cmd *cobra.Command, jsonOut bool, res app.PackAddR
 
 func writePackWarnings(w io.Writer, warnings []app.PackWarning) {
 	for _, warn := range warnings {
-		fmt.Fprintf(w, "warning: %s\n", warn.Message)
+		fmt.Fprintf(w, "warning: %s\n", termSafe(warn.Message))
 	}
 }
 
@@ -130,10 +235,10 @@ func newPackRemoveCmd(env Env, jsonOut *bool) *cobra.Command {
 			}
 			var b strings.Builder
 			for _, e := range res.Removed {
-				fmt.Fprintf(&b, "removed %s (%s)\n", e.ID, e.Path)
+				fmt.Fprintf(&b, "removed %s (%s)\n", termSafe(e.ID), termSafe(e.Path))
 			}
 			if res.Deleted != "" {
-				fmt.Fprintf(&b, "deleted %s\n", res.Deleted)
+				fmt.Fprintf(&b, "deleted %s\n", termSafe(res.Deleted))
 			}
 			if _, err := io.WriteString(env.Stdout, b.String()); err != nil {
 				return err
@@ -166,12 +271,12 @@ func newPackListCmd(env Env, jsonOut *bool) *cobra.Command {
 				b.WriteString("no packs: add one with dotai pack add\n")
 			}
 			for _, e := range list.Packs {
-				fmt.Fprintf(&b, "%s  %s %s\n  %s\n", cmp.Or(e.ID, "?"), cmp.Or(e.Name, "?"), e.Version, e.Path)
+				fmt.Fprintf(&b, "%s  %s %s\n  %s\n", termSafe(cmp.Or(e.ID, "?")), termSafe(cmp.Or(e.Name, "?")), termSafe(e.Version), termSafe(e.Path))
 				if s := e.Source; s != nil {
-					fmt.Fprintf(&b, "  %s at %s (%s)\n", s.URL, s.Commit, s.FullRef)
+					fmt.Fprintf(&b, "  %s at %s (%s)\n", termSafe(s.URL), termSafe(s.Commit), termSafe(s.FullRef))
 				}
 				if e.Error != "" {
-					fmt.Fprintf(&b, "  error: %s\n", e.Error)
+					fmt.Fprintf(&b, "  error: %s\n", termSafe(e.Error))
 				}
 			}
 			_, err = io.WriteString(env.Stdout, b.String())

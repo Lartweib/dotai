@@ -215,3 +215,141 @@ func TestPackCommandsWithTheRealUseCases(t *testing.T) {
 		t.Errorf("no registry in the test home: %v", err)
 	}
 }
+
+// updateEnv fakes UpdatePack with a plan that changes a tool: it asks the
+// consent it is given, as the use case does, and records the answer.
+func updateEnv(stdout, stderr *bytes.Buffer, c *packCalls, consented *bool) cli.Env {
+	env := packEnv(stdout, stderr, c, nil)
+	plan := app.PackUpdatePlan{ID: "github.com/acme/pack", Path: "/h/.dotai/packs/github.com/acme/pack",
+		From:    app.PackSource{URL: "https://github.com/acme/pack", FullRef: "refs/heads/main", Commit: strings.Repeat("a", 40)},
+		To:      app.PackSource{URL: "https://github.com/acme/pack", FullRef: "refs/heads/main", Commit: strings.Repeat("b", 40)},
+		Changes: []app.ExecChange{{Path: "base/dotai/tools/x.sh", Change: app.ChangeAdded, Diff: "--- /dev/null\n+++ b/base/dotai/tools/x.sh\n@@ -0,0 +1 @@\n+rm -rf ~\n"}},
+	}
+	env.UpdatePack = func(_ context.Context, home, id string, opts app.PackGitOptions) (app.PackAddResult, error) {
+		c.home, c.id, c.opts = home, id, opts
+		ok := false
+		if opts.Consent != nil {
+			var err error
+			if ok, err = opts.Consent(plan); err != nil {
+				return app.PackAddResult{}, err
+			}
+		}
+		*consented = ok
+		if !ok {
+			return app.PackAddResult{}, &app.PackConsentError{Plan: plan}
+		}
+		return app.PackAddResult{Pack: app.PackEntry{ID: id, Source: &plan.To}, Outcome: app.PackUpdated, Update: &plan, Warnings: []app.PackWarning{}}, nil
+	}
+	return env
+}
+
+func TestPackUpdateWithYesUpdates(t *testing.T) {
+	packHome(t)
+	var stdout, stderr bytes.Buffer
+	var c packCalls
+	var consented bool
+	if code := cli.Run([]string{"pack", "update", "github.com/acme/pack", "--yes", "--json"}, updateEnv(&stdout, &stderr, &c, &consented)); code != cli.ExitOK {
+		t.Fatalf("exit = %d; %s", code, &stdout)
+	}
+	if !consented || c.id != "github.com/acme/pack" || !c.opts.Interactive {
+		t.Errorf("calls = %+v, consented %v", c, consented)
+	}
+	if e := envelopeOf(t, &stdout); e["command"] != "pack update" || e["data"].(map[string]any)["outcome"] != "updated" {
+		t.Errorf("envelope = %v", e)
+	}
+}
+
+func TestPackUpdateWithoutYesInJSONNeedsConsentWithThePlan(t *testing.T) {
+	packHome(t)
+	var stdout, stderr bytes.Buffer
+	var c packCalls
+	var consented bool
+	env := updateEnv(&stdout, &stderr, &c, &consented)
+	env.Prompt = func(context.Context, string) (bool, error) { t.Error("--json asked a question"); return true, nil }
+	if code := cli.Run([]string{"pack", "update", "github.com/acme/pack", "--json"}, env); code != cli.ExitInternal {
+		t.Fatalf("exit = %d; %s", code, &stdout)
+	}
+	e := envelopeOf(t, &stdout)
+	if e["error"].(map[string]any)["code"] != "consent-required" || e["data"].(map[string]any)["changes"] == nil {
+		t.Errorf("envelope = %v, want consent-required with the plan", e)
+	}
+}
+
+func TestPackUpdateShowsTheDiffAndAsks(t *testing.T) {
+	packHome(t)
+	for answer, wantCode := range map[bool]int{true: cli.ExitOK, false: cli.ExitInternal} {
+		var stdout, stderr bytes.Buffer
+		var c packCalls
+		var consented bool
+		var question string
+		env := updateEnv(&stdout, &stderr, &c, &consented)
+		env.Prompt = func(_ context.Context, q string) (bool, error) { question = q; return answer, nil }
+		code := cli.Run([]string{"pack", "update", "github.com/acme/pack"}, env)
+		if code != wantCode {
+			t.Errorf("answer %v: exit = %d, want %d; stderr %s", answer, code, wantCode, &stderr)
+		}
+		if !strings.Contains(stdout.String(), "+rm -rf ~") || !strings.Contains(stdout.String(), "added base/dotai/tools/x.sh") {
+			t.Errorf("answer %v: stdout lacks the diff:\n%s", answer, &stdout)
+		}
+		if question == "" {
+			t.Errorf("answer %v: nothing was asked", answer)
+		}
+		if !answer && !strings.Contains(stderr.String(), "cancelled") {
+			t.Errorf("a refused update says %q", &stderr)
+		}
+	}
+}
+
+func TestPackAddTakesYesForAnUpdate(t *testing.T) {
+	packHome(t)
+	var stdout, stderr bytes.Buffer
+	var c packCalls
+	env := packEnv(&stdout, &stderr, &c, nil)
+	if code := cli.Run([]string{"pack", "add", "https://github.com/acme/pack", "--yes", "--json"}, env); code != cli.ExitOK {
+		t.Fatalf("exit = %d; %s", code, &stdout)
+	}
+	if c.opts.Consent == nil {
+		t.Fatal("pack add passes no consent")
+	}
+	if ok, _ := c.opts.Consent(app.PackUpdatePlan{}); !ok {
+		t.Error("pack add --yes does not consent")
+	}
+}
+
+func TestPackUpdateEscapesWhatThePackControls(t *testing.T) {
+	packHome(t)
+	var stdout, stderr bytes.Buffer
+	var c packCalls
+	var consented bool
+	env := updateEnv(&stdout, &stderr, &c, &consented)
+	plan := app.PackUpdatePlan{ID: "github.com/acme/pack",
+		From: app.PackSource{FullRef: "refs/heads/m\x1b[2Kain", Commit: strings.Repeat("a", 40)},
+		To:   app.PackSource{FullRef: "refs/heads/main", Commit: strings.Repeat("b", 40)},
+		Changes: []app.ExecChange{
+			{Path: "base/dotai/tools/\x1b[8mx.sh", Change: app.ChangeAdded, Binary: true, Note: "binary: compare the hashes", After: "sha256:00"},
+		},
+	}
+	env.UpdatePack = func(_ context.Context, _, _ string, opts app.PackGitOptions) (app.PackAddResult, error) {
+		_, _ = opts.Consent(plan)
+		return app.PackAddResult{}, &app.PackConsentError{Plan: plan}
+	}
+	env.Prompt = func(context.Context, string) (bool, error) { return false, nil }
+	cli.Run([]string{"pack", "update", "github.com/acme/pack"}, env)
+	if strings.Contains(stdout.String(), "\x1b") || strings.Contains(stderr.String(), "\x1b") {
+		t.Errorf("an escape sequence reached the terminal:\n%q", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), `\x1b[8mx.sh`) || !strings.Contains(stdout.String(), "compare the hashes") {
+		t.Errorf("stdout = %q, want the path escaped and the binary note", &stdout)
+	}
+}
+
+func TestErrorsReachTheTerminalEscaped(t *testing.T) {
+	packHome(t)
+	var stdout, stderr bytes.Buffer
+	var c packCalls
+	env := packEnv(&stdout, &stderr, &c, errors.New("git said \x1b]0;owned\x07 here\nsecond line"))
+	cli.Run([]string{"pack", "add", "https://github.com/a/b"}, env)
+	if strings.Contains(stderr.String(), "\x1b") || strings.Contains(stderr.String(), "\x07") || !strings.Contains(stderr.String(), "\nsecond line") {
+		t.Errorf("stderr = %q, want the controls escaped and the lines kept", &stderr)
+	}
+}
