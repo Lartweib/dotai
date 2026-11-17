@@ -19,15 +19,22 @@ import (
 	"github.com/lartweib/dotai/internal/rulesync"
 )
 
-// The pack registry (decision 0043): ~/.dotai/packs.json lists the
-// absolute paths of the packs the user imported, so that the web UI shows
-// the same packs in every browser. It holds paths only; the name and the
-// version of each pack are read from its manifest when the list is read.
+// The pack registry (decisions 0043 and 0044): ~/.dotai/packs.json lists
+// the packs the user added, so that the web UI and the command line show
+// the same packs. Each entry has the pack's identity, its absolute path
+// and, for a pack fetched from git, its source; the name and the version of
+// each pack are read from its manifest when the list is read.
 
 const (
 	packsFile = "packs.json"
-	// PacksSchema is the schema of ~/.dotai/packs.json.
-	PacksSchema = "dotai.packs/v1"
+	// PacksSchema is the schema of ~/.dotai/packs.json that dotai writes.
+	PacksSchema = "dotai.packs/v2"
+	// packsSchemaV1 is the schema before git sources (decision 0043), which
+	// dotai reads and rewrites as PacksSchema.
+	packsSchemaV1 = "dotai.packs/v1"
+	// packsDir is the directory of ~/.dotai that holds the clones of the
+	// git packs, each at packs/<identity>.
+	packsDir = "packs"
 )
 
 // packsDoc is the content of packs.json.
@@ -36,28 +43,50 @@ type packsDoc struct {
 	Packs  []packsItem `json:"packs"`
 }
 
+// packsItem is one entry of packs.json. ID is empty only in an entry of
+// the v1 registry whose manifest could not be read when it was rewritten:
+// it reads as local/<name>. A local pack has no Source.
 type packsItem struct {
-	Path string `json:"path"`
+	ID     string      `json:"id,omitempty"`
+	Path   string      `json:"path"`
+	Source *PackSource `json:"source,omitempty"`
+}
+
+// PackSource is where a git pack comes from: the URL last used to add or
+// update it, the ref asked for ("" for the default branch), its full name
+// as git fetched it (refs/tags/..., refs/heads/..., or the commit itself
+// when the ref is a commit) and the commit installed.
+type PackSource struct {
+	URL     string `json:"url"`
+	Ref     string `json:"ref"`
+	FullRef string `json:"fullRef"`
+	Commit  string `json:"commit"`
 }
 
 // PackList is the registry as it reads now: Path is packs.json, and each
-// pack is listed in import order.
+// pack is listed in the order it was added. Recovered are the clones the
+// sweep before it put back (sweepPacks).
 type PackList struct {
-	Path  string      `json:"path"`
-	Packs []PackEntry `json:"packs"`
+	Path      string      `json:"path"`
+	Packs     []PackEntry `json:"packs"`
+	Recovered []string    `json:"recovered"`
 }
 
-// PackEntry is one pack of the registry. Name and Version come from its
-// manifest; Error says why it could not be read, such as a directory that
-// is gone, and the entry stays listed.
+// PackEntry is one pack of the registry: its identity, its path, its
+// source, nil for a local pack, and the name and the version of its
+// manifest. Error says why the manifest could not be read, such as a
+// directory that is gone, and the entry stays listed; the identity of a
+// local pack whose manifest is unknown can then be "".
 type PackEntry struct {
-	Path    string `json:"path"`
-	Name    string `json:"name"`
-	Version string `json:"version"`
-	Error   string `json:"error"`
+	ID      string      `json:"id"`
+	Path    string      `json:"path"`
+	Name    string      `json:"name"`
+	Version string      `json:"version"`
+	Source  *PackSource `json:"source"`
+	Error   string      `json:"error"`
 }
 
-// PackInvalidError refuses the import of a pack that does not validate,
+// PackInvalidError refuses the addition of a pack that does not validate,
 // with the result of the validation.
 type PackInvalidError struct {
 	Path   string
@@ -68,8 +97,8 @@ func (e *PackInvalidError) Error() string {
 	return fmt.Sprintf("%s is not a valid pack: dotai validate reports %d problems", e.Path, len(e.Result.Diagnostics))
 }
 
-// RegistryInvalidError is a packs.json that is not JSON of PacksSchema.
-// The registry is left as it is: the user fixes or moves the file.
+// RegistryInvalidError is a packs.json that is not JSON of a schema dotai
+// reads. The registry is left as it is: the user fixes or moves the file.
 type RegistryInvalidError struct {
 	Path string
 	Why  string
@@ -79,10 +108,45 @@ func (e *RegistryInvalidError) Error() string {
 	return fmt.Sprintf("the pack registry %s cannot be read: %s; fix it or move it aside, then try again", e.Path, e.Why)
 }
 
+// PackNameTakenError refuses a local pack whose name another directory of
+// the registry already has.
+type PackNameTakenError struct {
+	ID, Path string
+}
+
+func (e *PackNameTakenError) Error() string {
+	return fmt.Sprintf("the pack %s is already added from %s: remove it first, or rename this pack in its dotai.yaml", e.ID, e.Path)
+}
+
 // CopyRefusedError refuses a copy of a pack before it writes anything.
 type CopyRefusedError struct{ msg string }
 
 func (e *CopyRefusedError) Error() string { return e.msg }
+
+// PackWarning is what an addition or an update did that may not be what
+// the user meant, such as following a branch.
+type PackWarning struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// The outcomes of an addition or an update.
+const (
+	PackAdded     = "added"
+	PackUpdated   = "updated"
+	PackUnchanged = "unchanged"
+)
+
+// PackAddResult is an addition or an update of a pack: the registry after
+// it, the pack's entry, the outcome, the plan of an update (nil for a
+// first addition) and the warnings.
+type PackAddResult struct {
+	PackList
+	Pack     PackEntry       `json:"pack"`
+	Outcome  string          `json:"outcome"`
+	Update   *PackUpdatePlan `json:"update"`
+	Warnings []PackWarning   `json:"warnings"`
+}
 
 // ListPacks reads the registry of home. A home without one has no packs,
 // and nothing is written.
@@ -91,60 +155,57 @@ func ListPacks(home string) (PackList, error) {
 	if err != nil {
 		return PackList{}, err
 	}
+	recovered := sweepIfFree(home)
 	doc, err := readPacks(home)
 	if err != nil {
 		return PackList{}, err
 	}
-	return describePacks(home, doc), nil
+	return describePacks(home, doc).with(recovered), nil
 }
 
-// ImportPack adds the pack in dir to the registry of home once it
-// validates. A pack already listed is left as it is.
-func ImportPack(home, dir string) (PackList, error) {
+// AddLocalPack adds the pack in dir, a local directory, to the registry of
+// home once it validates, as local/<name>. A directory already listed is
+// left as it is; another directory with the name of a listed local pack is
+// a *PackNameTakenError, and a new name must follow the rule for mod
+// names. It never copies or moves dir.
+func AddLocalPack(home, dir string) (PackAddResult, error) {
 	home, err := requireAbs(home)
 	if err != nil {
-		return PackList{}, err
+		return PackAddResult{}, err
 	}
 	dir, err = packDir(dir)
 	if err != nil {
-		return PackList{}, err
+		return PackAddResult{}, err
 	}
 	res, err := Validate(dir, Selection{})
 	if err != nil {
-		return PackList{}, err
+		return PackAddResult{}, err
 	}
-	if !res.Valid {
-		return PackList{}, &PackInvalidError{Path: dir, Result: res}
+	if !res.Valid || res.Pack == nil {
+		return PackAddResult{}, &PackInvalidError{Path: dir, Result: res}
 	}
-	return editPacks(home, func(doc *packsDoc) bool {
+	name, outcome := res.Pack.Name, PackAdded
+	list, err := editPacks(home, func(doc *packsDoc) (bool, error) {
 		if slices.ContainsFunc(doc.Packs, func(p packsItem) bool { return samePath(p.Path, dir) }) {
-			return false
+			outcome = PackUnchanged
+			return false, nil
 		}
-		doc.Packs = append(doc.Packs, packsItem{Path: dir})
-		return true
+		id := localID(name)
+		for _, e := range describePacks(home, *doc).Packs {
+			if e.ID == id {
+				return false, &PackNameTakenError{ID: id, Path: e.Path}
+			}
+		}
+		if problem := localNameProblem(name); problem != "" {
+			return false, &UsageError{msg: fmt.Sprintf("the pack name %q in %s %s, as a mod name does: rename it in its dotai.yaml", name, dir, problem)}
+		}
+		doc.Packs = append(doc.Packs, packsItem{ID: id, Path: dir})
+		return true, nil
 	})
-}
-
-// RemovePack forgets the pack at dir in the registry of home. It never
-// touches the pack's files; a path that is not listed is no error.
-func RemovePack(home, dir string) (PackList, error) {
-	home, err := requireAbs(home)
 	if err != nil {
-		return PackList{}, err
+		return PackAddResult{}, err
 	}
-	if dir == "" {
-		return PackList{}, &UsageError{msg: "the pack path is empty"}
-	}
-	// A path that is not absolute can only be an entry of a registry
-	// written by hand: it is removed as it is written.
-	if filepath.IsAbs(dir) {
-		dir = filepath.Clean(dir)
-	}
-	return editPacks(home, func(doc *packsDoc) bool {
-		n := len(doc.Packs)
-		doc.Packs = slices.DeleteFunc(doc.Packs, func(p packsItem) bool { return p.Path == dir || samePath(p.Path, dir) })
-		return len(doc.Packs) != n
-	})
+	return addResult(list, func(e PackEntry) bool { return samePath(e.Path, dir) }, outcome, nil), nil
 }
 
 // packDir checks that dir is the absolute path of a directory.
@@ -161,32 +222,67 @@ func packDir(dir string) (string, error) {
 }
 
 // editPacks changes the registry with edit under ~/.dotai/lock, and
-// writes it, atomically, only when edit reports a change.
-func editPacks(home string, edit func(*packsDoc) bool) (PackList, error) {
-	r := runner{ctx: context.Background(), d: osInstallFS{}, home: home}
-	var warnings []string
-	var doc packsDoc
-	err := r.locked(&warnings, func() error {
-		var err error
-		if doc, err = readPacks(home); err != nil {
-			return err
-		}
-		if !edit(&doc) {
-			return nil
-		}
-		data, err := json.MarshalIndent(doc, "", "  ")
+// writes it, atomically, as PacksSchema, only when edit reports a change.
+func editPacks(home string, edit func(*packsDoc) (bool, error)) (PackList, error) {
+	var list PackList
+	recovered, err := withPacksLock(home, func() error {
+		doc, err := readPacks(home)
 		if err != nil {
 			return err
 		}
-		return r.d.WriteIn(filepath.Join(home, dotaiDir), packsFile, append(data, '\n'), 0o600)
+		changed, err := edit(&doc)
+		if err != nil {
+			return err
+		}
+		list = describePacks(home, doc)
+		if !changed {
+			return nil
+		}
+		return writePacks(home, doc, list)
 	})
 	if err != nil {
 		return PackList{}, err
 	}
-	return describePacks(home, doc), nil
+	return list.with(recovered), nil
 }
 
-// readPacks reads packs.json, empty when it is missing.
+// withPacksLock runs f holding ~/.dotai/lock, after the sweep of what a
+// swap killed halfway left, and gives the clones the sweep put back.
+func withPacksLock(home string, f func() error) ([]string, error) {
+	r := runner{ctx: context.Background(), d: osInstallFS{}, home: home}
+	var warnings, recovered []string
+	err := r.locked(&warnings, func() error {
+		recovered = sweepPacks(home)
+		return f()
+	})
+	return recovered, err
+}
+
+// with is l with the clones the sweep put back.
+func (l PackList) with(recovered []string) PackList {
+	l.Recovered = append([]string{}, recovered...)
+	return l
+}
+
+// writePacks writes doc as PacksSchema, atomically, giving each entry
+// without an identity the one list, its description, read: local/<name>
+// once its manifest can be read. It must run under the lock.
+func writePacks(home string, doc packsDoc, list PackList) error {
+	doc.Schema = PacksSchema
+	for i := range doc.Packs {
+		if doc.Packs[i].ID == "" && i < len(list.Packs) {
+			doc.Packs[i].ID = list.Packs[i].ID
+		}
+	}
+	data, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return err
+	}
+	return osInstallFS{}.WriteIn(filepath.Join(home, dotaiDir), packsFile, append(data, '\n'), 0o600)
+}
+
+// readPacks reads packs.json, empty when it is missing. A v1 registry
+// reads with its paths alone.
 func readPacks(home string) (packsDoc, error) {
 	name := filepath.Join(home, dotaiDir, packsFile)
 	doc := packsDoc{Schema: PacksSchema, Packs: []packsItem{}}
@@ -197,13 +293,48 @@ func readPacks(home string) (packsDoc, error) {
 	if err := json.Unmarshal(data, &doc); err != nil {
 		return packsDoc{}, &RegistryInvalidError{Path: name, Why: err.Error()}
 	}
-	if doc.Schema != PacksSchema {
-		return packsDoc{}, &RegistryInvalidError{Path: name, Why: fmt.Sprintf("its schema %q is not %s", doc.Schema, PacksSchema)}
+	switch doc.Schema {
+	case PacksSchema:
+	case packsSchemaV1:
+		for i, p := range doc.Packs {
+			doc.Packs[i] = packsItem{Path: p.Path}
+		}
+	default:
+		return packsDoc{}, &RegistryInvalidError{Path: name, Why: fmt.Sprintf("its schema %q is neither %s nor %s", doc.Schema, PacksSchema, packsSchemaV1)}
 	}
 	if doc.Packs == nil {
 		doc.Packs = []packsItem{}
 	}
+	seen := map[string]bool{}
+	for _, p := range doc.Packs {
+		if why := p.problem(); why != "" {
+			return packsDoc{}, &RegistryInvalidError{Path: name, Why: fmt.Sprintf("the entry %q %s", p.Path, why)}
+		}
+		if p.ID != "" && seen[p.ID] {
+			return packsDoc{}, &RegistryInvalidError{Path: name, Why: fmt.Sprintf("two entries have the identity %s", p.ID)}
+		}
+		seen[p.ID] = true
+	}
 	return doc, nil
+}
+
+// problem says why p is not an entry dotai writes, "" when it is one: a
+// git pack has a GitHub identity and a source, a local one an identity
+// local/<name>, or none, and no source.
+func (p packsItem) problem() string {
+	if p.Source != nil {
+		if _, _, ok := gitHubID(p.ID); !ok {
+			return fmt.Sprintf("has a source but the identity %q is not github.com/<owner>/<repo>", p.ID)
+		}
+		if src, err := ParsePackURL(p.Source.URL); err != nil || src.ID != p.ID {
+			return fmt.Sprintf("has the URL %q, which is not one of the pack %s", p.Source.URL, p.ID)
+		}
+		return ""
+	}
+	if p.ID != "" && (!strings.HasPrefix(p.ID, localPrefix) || p.ID == localPrefix) {
+		return fmt.Sprintf("has no source but the identity %q is not local/<name>", p.ID)
+	}
+	return ""
 }
 
 // identifyPack reads the name and the version of the pack in dir, and
@@ -221,17 +352,22 @@ var (
 
 // describePacks reads the name and the version of each pack of doc, all at
 // once, each for at most identifyWait. A pack that cannot be read, or does
-// not answer in time, is listed with why.
+// not answer in time, is listed with why. An entry without an identity is
+// local/<name> once its name is read.
 func describePacks(home string, doc packsDoc) PackList {
-	list := PackList{Path: filepath.Join(home, dotaiDir, packsFile), Packs: make([]PackEntry, len(doc.Packs))}
+	list := PackList{Path: filepath.Join(home, dotaiDir, packsFile), Packs: make([]PackEntry, len(doc.Packs)), Recovered: []string{}}
 	// Read once here: a pack that does not answer leaves its goroutine
 	// running after the list returns, and it must not read them later.
 	identify, wait := identifyPack, identifyWait
 	var wg sync.WaitGroup
 	for i, p := range doc.Packs {
-		list.Packs[i] = PackEntry{Path: p.Path}
+		list.Packs[i] = PackEntry{ID: p.ID, Path: p.Path}
+		if p.Source != nil {
+			src := *p.Source
+			list.Packs[i].Source = &src
+		}
 		if !filepath.IsAbs(p.Path) {
-			list.Packs[i].Error = fmt.Sprintf("the path %q is not absolute: remove it from the list and import the pack again", p.Path)
+			list.Packs[i].Error = fmt.Sprintf("the path %q is not absolute: remove it from the list and add the pack again", p.Path)
 			continue
 		}
 		wg.Add(1)
@@ -252,6 +388,14 @@ func describePacks(home string, doc packsDoc) PackList {
 					e.Error = r.err.Error()
 				} else {
 					e.Name, e.Version = r.name, r.version
+					switch {
+					case e.ID == "" && r.name != "":
+						e.ID = localID(r.name)
+					case e.Source == nil && e.ID != localID(r.name):
+						// The registry keeps the identity the pack was added
+						// with; a rename in its manifest does not move it.
+						e.Error = fmt.Sprintf("the manifest now names the pack %q, not %q: remove it and add it again", r.name, strings.TrimPrefix(e.ID, localPrefix))
+					}
 				}
 			case <-time.After(wait):
 				e.Error = fmt.Sprintf("the pack did not answer within %s", wait)

@@ -56,6 +56,10 @@ type (
 		app.DoctorResult
 		Digest string `json:"digest"`
 	}
+	packUpdateView struct {
+		app.PackUpdatePlan
+		Digest string `json:"digest"`
+	}
 )
 
 func installView(p app.InstallPlan) (any, error) {
@@ -81,6 +85,11 @@ func projectRestorePreview(r app.ProjectRestoreResult) (any, error) {
 func doctorFindings(r app.DoctorResult) (any, error) {
 	d, err := digest(r)
 	return doctorView{r, d}, err
+}
+
+func updateView(p app.PackUpdatePlan) (any, error) {
+	d, err := digest(p)
+	return packUpdateView{p, d}, err
 }
 
 // confirm returns the Confirm of an action whose user saw the plan of the

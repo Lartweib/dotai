@@ -57,6 +57,10 @@ func modNameProblem(name string) string {
 	return ""
 }
 
+// ModNameProblem says why name breaks the rule for mod names, "" when it
+// follows it; a new local pack's name follows it too (decision 0044).
+func ModNameProblem(name string) string { return modNameProblem(name) }
+
 // Mod is a directory of the pack's mods/: a Claude Code plugin tree that a
 // project apply installs whole, as the pack ships it.
 type Mod struct {

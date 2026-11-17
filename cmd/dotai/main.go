@@ -17,7 +17,8 @@ func main() {
 		UI: func(ctx context.Context, o cli.UIOptions) error {
 			return server.Run(ctx, server.Options{Home: o.Home, CacheDir: o.CacheDir, Port: o.Port, Ready: o.Ready, Open: o.Open}, server.AppDeps(app.Ports{}))
 		},
-		OpenBrowser: server.OpenBrowser})
+		OpenBrowser: server.OpenBrowser,
+		AddGitPack:  app.AddGitPack, AddLocalPack: app.AddLocalPack, UpdatePack: app.UpdatePack, RemovePackID: app.RemovePackID, ListPacks: app.ListPacks})
 	restore()
 	os.Exit(code)
 }

@@ -24,6 +24,9 @@ func Classify(err error) (code string, data any) {
 		invalid      *InvalidError
 		packInvalid  *app.PackInvalidError
 		registry     *app.RegistryInvalidError
+		packConsent  *app.PackConsentError
+		git          *app.GitUnavailableError
+		tree         *app.PackTreeRefusedError
 	)
 	switch {
 	case errors.As(err, &usage), errors.As(err, new(*UsageError)):
@@ -48,6 +51,23 @@ func Classify(err error) (code string, data any) {
 		code, data = CodeInvalid, packInvalid.Result
 	case errors.As(err, new(*app.CopyRefusedError)):
 		code = CodeCopyRefused
+	case errors.As(err, new(*app.PackNameTakenError)):
+		code = CodePackNameTaken
+	case errors.As(err, new(*app.HostUnsupportedError)):
+		code = CodeHostUnsupported
+	case errors.As(err, &packConsent):
+		code, data = CodeConsent, packConsent.Plan
+	case errors.As(err, &git):
+		code = CodeGitMissing
+		if git.TooOld {
+			code = CodeGitTooOld
+		}
+	case errors.As(err, new(*app.FetchByCommitRefusedError)):
+		code = CodeFetchByCommit
+	case errors.As(err, new(*app.FetchFailedError)):
+		code = CodeFetchFailed
+	case errors.As(err, &tree):
+		code, data = CodeTreeRefused, map[string]any{"problems": tree.Problems}
 	case errors.As(err, &registry):
 		code, data = CodeRegistryInvalid, map[string]any{"path": registry.Path}
 	}

@@ -39,6 +39,24 @@ const (
 	// The pack registry, ~/.dotai/packs.json, is not JSON of its schema;
 	// it is left as it is.
 	CodeRegistryInvalid = "registry-invalid"
+	// A local pack whose name another directory of the registry already
+	// has (decision 0044).
+	CodePackNameTaken = "pack-name-taken"
+	// A git URL of a host other than github.com (decision 0044).
+	CodeHostUnsupported = "host-unsupported"
+	// The git on PATH cannot fetch packs: it is missing, or older than
+	// 2.41 (decision 0044).
+	CodeGitMissing = "git-missing"
+	CodeGitTooOld  = "git-too-old"
+	// A fetch of a pack that failed: a remote that cannot be reached, a ref
+	// it does not have, or credentials git did not get. Nothing changed.
+	CodeFetchFailed = "fetch-failed"
+	// A full commit SHA the remote does not serve, with no fallback to a
+	// full clone (decision 0044).
+	CodeFetchByCommit = "fetch-by-commit-refused"
+	// A commit whose tree holds a link, a submodule or a .git path, or more
+	// than a copy of a pack takes; nothing was checked out or registered.
+	CodeTreeRefused = "pack-tree-refused"
 )
 
 // Codes lists every error code above, so that an adapter that maps each
@@ -47,6 +65,7 @@ const (
 var Codes = []string{
 	CodeUsage, CodeInternal, CodeInvalid, CodeConsent, CodeRefused, CodeRunning,
 	CodeProjectRefused, CodeApplyRefused, CodeRecordInvalid, CodeCopyRefused, CodeRegistryInvalid,
+	CodePackNameTaken, CodeHostUnsupported, CodeGitMissing, CodeGitTooOld, CodeFetchFailed, CodeFetchByCommit, CodeTreeRefused,
 }
 
 // Envelope is the single JSON document a command prints with --json.

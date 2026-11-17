@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-11-16
 tags: [pack, distribution, git, registry, security, cli]
 ---
@@ -59,7 +59,7 @@ The commands and the error and warning codes below are proposed names.
 - Accepted cost: from the UI, a repository behind an unknown host key, or a passphrase-protected key without an agent, cannot be added; the user runs the CLI once.
 - Accepted cost: after the first v2 write, an older dotai cannot read the registry.
 - Risk: the nested directory and the flat form lengthen Windows paths, which harnesses may not handle even when git does.
-- On acceptance, this record partially supersedes [0043](0043-local-web-ui.md) on the pack registry: schema v2, the CLI edits it, and `remove` deletes a git pack's clone. It also amends [0041](0041-project-scope-local-and-untracked.md) (the reserved `.dotai/packs/<pack>/` takes the flat identity) and [PACK-FORMAT](../PACK-FORMAT.md#manifest) (`name` and `version` are no longer the identity); those records and the index are marked on acceptance.
+- Partially supersedes [0043](0043-local-web-ui.md) on the pack registry: schema v2, the CLI edits it, and `remove` deletes a git pack's clone. Amends [0041](0041-project-scope-local-and-untracked.md) (the reserved `.dotai/packs/<pack>/` takes the flat identity) and [PACK-FORMAT](../PACK-FORMAT.md#manifest) (`name` and `version` are no longer the identity).
 - Pending:
   - How the UI presents add, update and the diff of executable content.
   - Extra names the root check allows, such as `.github/`.

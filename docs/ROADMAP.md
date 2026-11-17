@@ -54,6 +54,6 @@ Follow-ups after v1, in priority order:
 2. `doctor` checks the external skills a profile expects (`capabilities`).
 3. `claudecode.skillOverrides` merged per skill across layers.
 4. Support for a newer rulesync (43.x), with its checksums embedded ([0029](decisions/0029-rulesync-checksums-embedded-in-the-engine.md)).
-5. `dotai pack add`, `update` and `remove` for packs distributed as git repositories (github.com only in v1), the registry `dotai.packs/v2`, a JSON Schema of `dotai.yaml` and the `validate` warning for undeclared directories ([0044](decisions/0044-git-pack-distribution.md), proposed).
+5. Packs distributed as git repositories, github.com only in v1 ([0044](decisions/0044-git-pack-distribution.md)). In: `dotai pack add`, `update`, `remove` and `list`, the registry `dotai.packs/v2` and their endpoints in the API. Still to come: the UI screens for adding a pack and for the diff of an update, the identity in the install state, the backups and the project records, with its flat form for `.dotai/packs/<flat>/` and the rules file, a JSON Schema of `dotai.yaml`, and the `validate` warnings `layer-undeclared` and `flat-name-ambiguous`.
 
 Also after v1: engine support for stack detection during onboarding ([0020](decisions/0020-v1-scope-engine-and-pack.md)).

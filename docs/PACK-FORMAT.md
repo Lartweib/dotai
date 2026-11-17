@@ -68,7 +68,7 @@ variants:
 | Field | Required | Meaning |
 |---|---|---|
 | `schema` | yes | Format version. |
-| `name`, `version` | yes | Pack identity. |
+| `name`, `version` | yes | The pack's display name and version. A local pack's identity is `local/<name>`; a git pack's comes from its source ([Adding a pack](#adding-a-pack), [0044](decisions/0044-git-pack-distribution.md)). |
 | `description`, `author` | no | What the pack is and who makes it, as strings. The `.claude-plugin/plugin.json` dotai writes for a mod carries them ([Mods](#mods)). |
 | `engine` | yes | Range of engine versions the pack supports. |
 | `rulesync` | yes | Exact rulesync version the pack was tested with. |
@@ -96,6 +96,10 @@ variants:
 Profiles are flat and combinable: a project has zero or more of them (for example `--profile web,astro-cloudflare`). There are no sub-profiles. A stack-specific profile exists only when the stack repeats across projects; what is specific to one project goes in that project's own rules.
 
 Profiles are chosen by the onboarding agent after it analyzes the project and asks the user ([0008](decisions/0008-onboarding-by-detection-and-base-profile.md)), or by hand. The engine never picks one. The project records its profiles so later sessions do not ask again. The example pack ships a generic onboarding agent, `examples/minimal-pack/base/.rulesync/subagents/onboarding.md`, a subagent of the base, so that the install puts it at user level: it stops when the project marker `.dotai/state.json` already lists profiles, finds the installed pack in `pack.path` of the install state `~/.dotai/state.json`, reads its profiles with `dotai validate <pack path> --json`, detects the stack by content, asks the minimum, shows `dotai apply --profile <a,b> --dry-run`, and runs `dotai apply --profile <a,b>` only after the user approves, with `--yes` only for conflicts the user approved; it never commits. A pack copies it and adapts the places it marks for the pack author (the profile mapping, the evidence, the questions and the model pins); the web UI shows the onboarding agent of the selected pack, the first subagent named `onboarding`.
+
+## Adding a pack
+
+`dotai pack add` adds a pack to the registry, `~/.dotai/packs.json`, which the web UI shows too ([0044](decisions/0044-git-pack-distribution.md)). A pack comes from a GitHub repository, fetched with the git on `PATH` (2.41 or later) into `~/.dotai/packs/github.com/<owner>/<repo>`, or from a local directory, added with `--dir`, which stays where it is. A git pack's identity is `github.com/<owner>/<repo>` in lower case, and its manifest `name` is only a label; a local pack's is `local/<name>`, and a new local name follows the rule for mod names. A fetched pack never runs its hooks, its `.gitattributes` has no effect, so the files are the committed bytes, and its tree is checked before it is validated: no symbolic link, no submodule, no `.git` path, at most 10000 files and 64 MiB. `dotai pack update` shows what changed in executable content, every layer's `.rulesync/hooks.jsonc`, `.rulesync/mcp.jsonc` and `dotai/settings.yaml`, `dotai/tools/` and `mods/`, and also `.rulesync/permissions.jsonc`, the scripts of skills, commands and subagents, `dotai.yaml` and every executable file, before it replaces the clone. See the `pack` commands in [CLI JSON output](CLI-JSON.md#commands).
 
 ## Applying a pack
 
