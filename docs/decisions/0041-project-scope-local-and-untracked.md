@@ -6,6 +6,8 @@ tags: [engine, project-scope, git, harnesses, merge, onboarding]
 
 # 0041 · The project scope stays local: excluded from git, never in tracked files
 
+> **Partially superseded by [0045](0045-dotai-owned-project-onboarding.md) on 2026-11-17: option D.** An engine-owned record, `.dotai/onboarding.json`, decides when the agent is told to run the profile analysis; the engine still runs no agent. Still in force: the rest of the record.
+
 ## Context
 
 Roadmap PR 10 applies profiles to a project (`dotai apply --profile`). [0030](0030-tools-paths-and-project-config.md) gives the project a `.dotai/` directory with the engine's record of applied profiles, `config.yaml` of the user and the pack, and `tools/`. Project outputs can hold absolute local paths through `${DOTAI_PROJECT_TOOLS}`, and a work or shared repository must not see one person's tooling. rulesync renders project output to the files a team usually commits: `CLAUDE.md`, `AGENTS.md` (shared by agy and OpenCode), `.mcp.json`, `.claude/settings.json` and the root `opencode.jsonc` ([HARNESS-NOTES](../HARNESS-NOTES.md#rulesync-4100)).
@@ -76,3 +78,5 @@ Update 2026-11-03 (roadmap PR 11): `dotai doctor`. It is read-only by default an
 Update 2026-11-04: rulesync gives the OpenCode hooks plugin the same file name and id at both scopes, so the project plugin, against "as rendered" above, is staged as `.opencode/plugins/rulesync-hooks-project.js` with the id `rulesync-hooks-project`, and the stage fails when rulesync's id is not found exactly once ([HARNESS-NOTES](../HARNESS-NOTES.md#rulesync-4100)).
 
 Update 2026-11-17: [0044](0044-git-pack-distribution.md) keys a pack on its identity, `github.com/<owner>/<repo>` or `local/<name>`. The reserved `.dotai/packs/<pack>/` and the Claude Code rules file `.claude/rules/<pack>.md` take the pack's flat form, the identity with each `/` replaced by `__`; a local pack's flat form is its bare name, so existing projects keep their paths. The engine still uses the pack name until that follow-up lands ([ROADMAP](../ROADMAP.md)).
+
+Update 2026-11-17: [0045](0045-dotai-owned-project-onboarding.md) adds `.dotai/onboarding.json`, engine-written. `dotai onboarding dismiss` in a never-applied repository creates `.dotai/` and its `.git/info/exclude` entry and records the write in the project record, so `dotai restore --project` removes it, and `dotai doctor` checks the file as it checks the marker. Like the marker, it is never trusted for ownership. The engine does not implement it yet.
