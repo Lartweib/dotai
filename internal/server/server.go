@@ -225,6 +225,9 @@ func newUI(cfg Config, deps Deps, web fs.FS) *ui {
 			writeEnvelope(w, http.StatusMethodNotAllowed, envelope.Failure(e.command, CodeMethodNotAllowed, r.Method+" is not allowed on "+r.URL.Path+": use "+e.method))
 			return
 		}
+		// Bound the body here, where the ResponseWriter is known, so that a
+		// body over the limit also closes the connection after the reply.
+		r.Body = http.MaxBytesReader(w, r.Body, maxBody)
 		data, err := e.run(r)
 		if err != nil {
 			writeFailure(w, e.command, err)
@@ -464,12 +467,13 @@ func absParam(v, name string, required bool) (string, error) {
 const maxBody = 64 << 10
 
 // decodeJSON decodes the body of r into v. The body must be one JSON
-// object, sent as application/json, with no field that v lacks.
+// object, sent as application/json, with no field that v lacks. The API
+// handler bounds the body to maxBody before an endpoint reads it.
 func decodeJSON(r *http.Request, v any) error {
 	if mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mt != "application/json" {
 		return envelope.Usage("the body must be JSON, with Content-Type application/json")
 	}
-	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, maxBody))
+	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
 		return envelope.Usage("the body is not the JSON this endpoint takes: " + err.Error())
