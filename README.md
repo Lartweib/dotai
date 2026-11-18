@@ -66,7 +66,7 @@ go install github.com/lartweib/dotai/cmd/dotai@latest
 
 ## Quickstart
 
-Create a pack, check it, see what an install would do, install it isolated, launch a harness against it, and open the UI. The example targets Claude Code, which must already be installed (`claude` on `PATH`); the first install downloads the pinned rulesync once and verifies its checksum.
+Create a pack, check it, see what an install would do, install it isolated, launch a harness against it, and open the UI. The example uses Claude Code; use the harness you have instead (`claudecode` or `antigravity-cli`, or `opencode` as a preview), which must already be installed. The first install downloads the pinned rulesync once and verifies its checksum.
 
 ```sh
 dotai pack new my-pack --name my-pack --harness claudecode --profile web:"Web projects"
@@ -79,6 +79,7 @@ dotai ui
 - `dotai pack new` writes dotai's template, one commented example of each file a pack holds, and adds the pack to the registry. Edit the examples: a file left as the template wrote it is flagged `template-unchanged`, and `install` asks before installing it.
 - `dotai install --mode isolated` installs under `~/.dotai/isolated/`, never into your own harness configuration; `dotai restore` undoes it.
 - `dotai run claudecode` launches Claude Code against the isolated install; pass the harness's own arguments after `--`.
+- `dotai install` manages the pack's harnesses that are installed on your machine, or those `--harness` names. A harness the pack lists in `harnesses` is required, one in `optional-harnesses` is skipped when it is missing ([Pack format](docs/PACK-FORMAT.md#manifest)).
 
 For a complete, small pack to read, see [examples/minimal-pack](examples/minimal-pack/README.md). [Creating a pack](docs/PACK-FORMAT.md#creating-a-pack) covers `dotai pack new` in full, and [Applying a pack](docs/PACK-FORMAT.md#applying-a-pack) the project profiles.
 
