@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-11-03
 tags: [engine, release, ci, supply-chain, versioning]
 ---
@@ -41,3 +41,5 @@ Roadmap PR 12 ships `dotai` as a binary per platform, so that a user can install
 - `scripts/release.sh` and `.github/workflows/release.yml`.
 - `cmd/dotai/version_test.go` builds `dotai` with the linker flag of the script and checks the printed version.
 - Local check on Windows with Git Bash, 2026-11-03: all five targets built and the Windows binary printed `dotai v0.1.0`. zip is not installed there, so the preflight refused until a stand-in for zip was put on `PATH`.
+
+Update 2026-11-18: accepted. `.github/workflows/release.yml` and `scripts/release.sh` implement this decision as written, and CI runs the script's `--self-test` on every push and pull request. The first release is cut from a `vX.Y.Z` tag on `main`; its version follows the Versioning point above.

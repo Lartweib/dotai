@@ -1,59 +1,46 @@
 # Roadmap
 
-The delivery plan for the engine, as a sequence of pull requests. Every PR is a deliverable: it leaves something that can be run or inspected, does one thing, and carries its own tests. PRs are stacked on `main`: each one merges into `main` and the next one starts from there. Rows split into parts, such as 9b-1 to 9b-4, are sequential PRs in the same way.
+What the engine delivers, in the order it was built, and what comes next. The scope is set by [0020](decisions/0020-v1-scope-engine-and-pack.md), widened by [0034](decisions/0034-replace-mode-in-v1.md) and [0043](decisions/0043-local-web-ui.md); the code structure by [0028](decisions/0028-plan-centric-hexagonal-engine.md). How contributions are made is in [CONTRIBUTING.md](../CONTRIBUTING.md).
 
-Demos use the minimal example pack in the repository (`examples/minimal-pack`) and a temporary home directory. They never touch a real harness configuration.
+Every demo below uses the example pack in the repository ([examples/minimal-pack](../examples/minimal-pack)) and a temporary home directory, never a real harness configuration.
 
-The scope is set by [0020](decisions/0020-v1-scope-engine-and-pack.md) and the code structure by [0028](decisions/0028-plan-centric-hexagonal-engine.md).
+Status: **done** is on `main`; **next** is the current focus; **later** is planned, in priority order, but not started.
 
 ## v1
 
-| # | Pull request | What can be seen or tried |
-|---|---|---|
-| 1 | Skeleton: Go module, `cmd/dotai`, versioned `--json` output, CI on Windows, Linux and macOS | `dotai version` and `dotai version --json` |
-| 2 | `pack`: load the manifest, layers and `dotai:` blocks; add the example pack | `dotai validate examples/minimal-pack`; a broken manifest reports file and line |
-| 3 | `merge`: layer merge rules ([0023](decisions/0023-flat-profiles-and-layer-merge-rules.md)) and one staging tree per scope | `dotai validate` rejects duplicate names and undeclared overrides; `dotai stage --out <dir>` shows the merged tree |
-| 4 | `rulesync`: download the pinned binary, verify its checksum, cache it and run it into staging | `dotai stage` shows the real harness output (`CLAUDE.md`, `AGENTS.md`, agents) |
-| 5 | `render`: per-harness settings, path variables such as `${DOTAI_TOOLS}`, and tools | Staging contains the Claude Code and agy `settings.json` |
-| 6 | JSON/JSONC edit layer over hujson | Golden tests show before and after: comments, key order and CRLF kept |
-| 7 | `plan` and the adapters as data | `dotai install --dry-run` prints the exact plan, readable or as `--json` |
-| 8 | `backup`, `state` and isolated execution for Claude Code | `dotai install --mode isolated`, then open Claude Code isolated with the pack; `dotai restore` puts everything back |
-| 9 | Isolated mode for agy and OpenCode | The same demo on the other two harnesses |
-| 9b-1 | Replace mode decision ([0038](decisions/0038-replace-mode-resets-harness-to-fresh-install.md)) and the verification of what each harness reads and creates at user level | [HARNESS-NOTES](HARNESS-NOTES.md#replace-inventory): each fact verified with its version and OS, or marked unverified |
-| 9b-2 | Replace layout in the adapters: keep-lists and leak entries, harness detection and selection (`--harness`), `optional-harnesses` in the manifest, the refusal on relocation variables in the plan, the mode default and switch rules, `~/.agents/skills` per variant | `dotai install --mode replace --dry-run` lists what would be wiped, kept and written per harness, and the detection of each harness |
-| 9b-3 | Backup by move, wipe operations, journal and rollback, restore of wipes, the pinned first replace backup | Tests in a temporary home: a wipe moves entries into the backup, a failure rolls them back, and `dotai restore` moves them back exactly |
-| 9b-4 | Replace enabled: consent, running-harness check, refusals enforced, the `dotai run` message, the move across volumes (copy, sync and delete), CLI-JSON | `dotai install --mode replace` into a temporary home's real harness paths, then `dotai restore` brings the original back |
-| 10-1 | Project scope decision ([0041](decisions/0041-project-scope-local-and-untracked.md)) and the verification of what each harness reads in a project, excluded files and hook commands included | [HARNESS-NOTES](HARNESS-NOTES.md#project-scope-inventory): each fact verified with its version and OS, or marked unverified |
-| 10-2 | Project layout in the adapters: the local target of each kind per harness, the tracked-file check through git with each item left uninstalled named, the warnings for a harness with no local slot, the `.git/info/exclude` entries (pending outside a git repository), the refusal in the home directory and at a drive root, same-name clashes across scopes | `dotai apply --profile <p> --dry-run` in a test repository lists, per harness, each target, the items skipped because git tracks their file, and the exclude entries |
-| 10-3 | `dotai apply --profile` enabled: writes with merge by key and union, the exclude block, the project record under `~/.dotai/projects/` with its ownership record and a marker in `.dotai/`, rollback, per-project MCP keys in `~/.claude.json`, or in the isolated `.claude.json` of an isolated install (retry on `EPERM`, re-read, one rewrite), the reserved `.dotai/packs/<pack>/`, the first-apply flag in CLI-JSON, replace keeping the owned MCP keys, and `dotai restore --project`, run in the project, which undoes it from the apply's backups ([0041](decisions/0041-project-scope-local-and-untracked.md)) | Apply a profile to a test repository: `git status` stays clean, foreign content is kept, and a second apply reports it is not the first; `dotai restore --project` then leaves the project, its `.git/info/exclude` and the owned `~/.claude.json` keys as before the first apply |
-| 10-4 | Mods as plugins under `.claude/skills/<mod>/` ([0027](decisions/0027-loose-files-and-plugins-only-for-mods.md)), excluded like the rest: `mods/<mod>/` at the pack root, named by profiles, checked by `validate`, installed whole for Claude Code with the plugin manifest dotai writes when the mod ships none, removed by `restore --project` ([PACK-FORMAT](PACK-FORMAT.md#mods)) | Apply a profile with a mod and see it load in Claude Code after workspace trust |
-| 11 | `doctor`: read-only, the files and keys of the install state and of every project record checked against the disk, the project markers, the orphan entries of `~/.dotai/projects.json` and orphan records, stable finding codes and exit code 3 in [CLI-JSON](CLI-JSON.md), and `--fix`, the only repair, which writes the exclude entries that are pending or missing with a backup and a journal; the agy `--gemini_dir` launch cannot be checked, since only `dotai run` passes it ([0041](decisions/0041-project-scope-local-and-untracked.md)) | Edit an installed file by hand and see `dotai doctor` report it; it also reports owned per-project MCP keys that went missing, orphan entries whose path no longer exists, and completes pending exclude entries ([0041](decisions/0041-project-scope-local-and-untracked.md)) |
-| 12 | Release: binaries per platform, built from a `vX.Y.Z` tag and published with `SHA256SUMS` ([0042](decisions/0042-tag-driven-release-binaries.md)) | Install `dotai` from a release and repeat the PR 8 demo |
+| # | Deliverable | What can be seen or tried | Status |
+|---|---|---|---|
+| 1 | Skeleton: Go module, `cmd/dotai`, versioned `--json` output, CI on Windows, Linux and macOS | `dotai version` and `dotai version --json` | done |
+| 2 | Pack loading: the manifest, layers and `dotai:` blocks, and the example pack | `dotai validate examples/minimal-pack`; a broken manifest reports file and line | done |
+| 3 | Layer merge rules ([0023](decisions/0023-flat-profiles-and-layer-merge-rules.md), [0040](decisions/0040-list-files-merged-as-a-union.md)) and one staging tree per scope | `dotai validate` rejects duplicate names and undeclared overrides; `dotai stage --out <dir>` shows the merged tree | done |
+| 4 | Pinned rulesync: download, embedded checksums, cache, run into staging ([0021](decisions/0021-go-engine-orchestrates-rulesync.md), [0029](decisions/0029-rulesync-checksums-embedded-in-the-engine.md)) | `dotai stage` shows the real harness output (`CLAUDE.md`, `AGENTS.md`, agents) | done |
+| 5 | Per-harness settings, path variables such as `${DOTAI_TOOLS}`, and tools ([0030](decisions/0030-tools-paths-and-project-config.md), [0037](decisions/0037-tool-commands-resolved-per-os.md)) | Staging contains the Claude Code and agy `settings.json` | done |
+| 6 | JSON and JSONC edit layer over hujson | Golden tests show before and after: comments, key order and CRLF kept | done |
+| 7 | The plan and the harness adapters as data ([0028](decisions/0028-plan-centric-hexagonal-engine.md)) | `dotai install --dry-run` prints the exact plan, readable or as `--json` | done |
+| 8 | Backup, install state, isolated install and `dotai run` ([0031](decisions/0031-isolated-install-root.md), [0032](decisions/0032-install-state-backup-and-isolated-launch.md), [0033](decisions/0033-restore-from-the-install-history.md)) for Claude Code, agy and OpenCode | `dotai install --mode isolated`, then `dotai run <harness>`; `dotai restore` puts everything back | done |
+| 9 | Replace mode ([0038](decisions/0038-replace-mode-resets-harness-to-fresh-install.md)): keep-lists, harness detection and selection, backup by move, consent, the running-harness check, moves across volumes | `dotai install --mode replace` into a temporary home's real harness paths, then `dotai restore` brings the original back | done |
+| 10 | Project scope ([0041](decisions/0041-project-scope-local-and-untracked.md)): local targets per harness, tracked files never written, `.git/info/exclude`, the project record, `dotai restore --project` | Apply a profile to a test repository: `git status` stays clean; `dotai restore --project` leaves the project as before | done |
+| 11 | Mods as project-scoped plugins under `.claude/skills/<mod>/` ([0027](decisions/0027-loose-files-and-plugins-only-for-mods.md)) | Apply a profile with a mod and see it load in Claude Code after workspace trust | done |
+| 12 | `dotai doctor`, read-only, with stable finding codes, and `--fix` for exclude entries | Edit an installed file by hand and see `dotai doctor` report it | done |
+| 13 | Local web UI, `dotai ui` ([0043](decisions/0043-local-web-ui.md)): boards for the packs, the install plan, the repositories, the backups and `doctor`; every action shown as its plan first | Install, apply, restore and fix from the browser, each carried out only as the plan it showed | done |
+| 14 | Packs as git repositories, github.com only ([0044](decisions/0044-git-pack-distribution.md)): `dotai pack add`, `update`, `remove` and `list`, the registry, and the UI screens to add a pack and review an update | `dotai pack update` shows what changed in hooks, MCP servers, settings, tools and mods before it swaps the clone | done |
+| 15 | Project onboarding owned by dotai ([0045](decisions/0045-dotai-owned-project-onboarding.md)): a generated profiling skill and a session-start hook | A session in a new repository proposes profiles; the user approves the plan | done |
+| 16 | Pack template and wizard ([0046](decisions/0046-pack-templates-and-wizard.md)): `dotai pack new` and the UI's Create a pack step | `dotai pack new my-pack --name my-pack --harness claudecode`, then `dotai validate my-pack` | done |
+| 17 | Release tooling ([0042](decisions/0042-tag-driven-release-binaries.md)): binaries per platform from a `vX.Y.Z` tag, with `SHA256SUMS` | `scripts/release.sh --self-test`; the release workflow runs CI first | done |
+| 18 | First release, `v0.1.0` | Install `dotai` from a release archive and repeat the demo of row 8 | next |
+| 19 | OpenCode out of preview, once rulesync's generated OpenCode hooks plugin is fixed upstream (hooks that read stdin can hang, and hook timeouts are not enforced) | The hook checks of [HARNESS-NOTES](HARNESS-NOTES.md#hook-commands) pass on OpenCode | next |
 
-Follow-ups from [0041](decisions/0041-project-scope-local-and-untracked.md), not decided yet, to be placed in a row when they are:
-
-- Done: `${DOTAI_TOOL:<name>}` in hook commands, with the quoting per harness of [0037](decisions/0037-tool-commands-resolved-per-os.md): agy runs hooks through `cmd /c` and escapes quotes, so a path without spaces only, else `hook-path-unquotable` ([HARNESS-NOTES](HARNESS-NOTES.md#hook-commands)).
-- Done: identical MCP definitions in several profiles, or in two layers of a scope, accepted and kept once ([PACK-FORMAT](PACK-FORMAT.md#merge-rules)).
-- Done: a `validate` warning, `hooks-shadowed`, when the same hook event is in the shared block and a per-harness block of `hooks.jsonc`, since rulesync 41 drops the shared one for that harness.
-- Done: agy `SessionStart` hooks must print JSON (`injectSteps`), documented for pack authors in [PACK-FORMAT](PACK-FORMAT.md#tools-and-project-config).
-
-Checkpoints: PR 4 is the first real harness output, PR 8 the first real use with a safe way back, PR 9b-4 the first install over the real configuration, and PR 10-4 closes the v1 scope.
+Decision records written during development cite the pull-request numbers of an earlier version of this roadmap: 8, 8b, 8c and 9 are row 8, 9b-1 to 9b-4 the replace mode (row 9), 10-1 to 10-4 the project scope and mods (rows 10 and 11), 11 `doctor` (row 12), 12 the release tooling (row 17), and 13 and 14 the web UI (row 13).
 
 ## After v1
 
-The UI is a thin layer over the same use cases as the CLI ([0026](decisions/0026-json-cli-and-ui-after-v1.md)). `dotai ui` runs inside the same binary and calls the `app` package directly, returning the same structures as `--json`. It listens only on `127.0.0.1`, uses a random token and embeds its assets.
+In priority order:
 
-| # | Pull request | What can be seen or tried |
+| # | Deliverable | Status |
 |---|---|---|
-| 13 | `dotai ui`, read-only ([0043](decisions/0043-local-web-ui.md)) | The installed state, the project records, the backups, the plan of an install or an apply, a restore preview and the `doctor` result in the browser |
-| 14 | UI boards and actions ([0043](decisions/0043-local-web-ui.md)) | The packs, the merged tree per harness, the install plan, the projects, the backups and the `doctor` findings as boards; install, apply, restore, restore of a project and `doctor --fix` from the UI, each shown as its plan first and carried out only as that plan, by its digest |
-
-Follow-ups after v1, in priority order:
-
-1. A `doctor` check of the always-on context budget, split into rules, the skill and agent listing, and the total, against caps the pack declares ([0007](decisions/0007-always-on-context-budget.md)).
-2. `doctor` checks the external skills a profile expects (`capabilities`).
-3. `claudecode.skillOverrides` merged per skill across layers.
-4. Support for a newer rulesync (43.x), with its checksums embedded ([0029](decisions/0029-rulesync-checksums-embedded-in-the-engine.md)).
-5. Packs distributed as git repositories, github.com only in v1 ([0044](decisions/0044-git-pack-distribution.md)). In: `dotai pack add`, `update`, `remove` and `list`, the registry `dotai.packs/v2` and their endpoints in the API. Still to come: the UI screens for adding a pack and for the diff of an update, the identity in the install state, the backups and the project records, with its flat form for `.dotai/packs/<flat>/` and the rules file, a JSON Schema of `dotai.yaml`, and the `validate` warnings `layer-undeclared` and `flat-name-ambiguous`.
-
-Also after v1: engine support for stack detection during onboarding ([0020](decisions/0020-v1-scope-engine-and-pack.md)).
+| 1 | A `doctor` check of the always-on context budget, split into rules, the skill and agent listing, and the total, against caps the pack declares ([0007](decisions/0007-always-on-context-budget.md)) | later |
+| 2 | `doctor` checks the external skills a profile expects (`capabilities`) | later |
+| 3 | `claudecode.skillOverrides` merged per skill across layers | later |
+| 4 | Support for a newer rulesync (43.x), with its checksums embedded ([0029](decisions/0029-rulesync-checksums-embedded-in-the-engine.md)) | later |
+| 5 | The rest of [0044](decisions/0044-git-pack-distribution.md): the pack identity in the install state, the backups and the project records, with its flat form for `.dotai/packs/<flat>/` and the rules file; a JSON Schema of `dotai.yaml`; the `validate` warnings `layer-undeclared` and `flat-name-ambiguous` | later |
+| 6 | Engine support for stack detection during onboarding ([0020](decisions/0020-v1-scope-engine-and-pack.md)) | later |
