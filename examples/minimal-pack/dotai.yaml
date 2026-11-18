@@ -4,7 +4,7 @@ version: 0.1.0
 description: A minimal example pack for the dotai engine.
 author: dotai examples
 engine: ">=0.1.0"
-rulesync: 41.0.0
+rulesync: 43.9.2
 harnesses: [claudecode, antigravity-cli, opencode]
 
 profiles:

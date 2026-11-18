@@ -15,7 +15,7 @@ import (
 
 // projectTree is the project tree that dotai stage writes for a profile
 // with a rule, a skill, a subagent, a command, an MCP server, hooks,
-// permissions and settings, with rulesync 41.0.0 (checked on Windows,
+// permissions and settings, with rulesync 43.9.2 (checked on Windows,
 // 2026-11-02). Each settings or configuration file holds its content.
 var projectTree = map[string]string{
 	".agents/agents/webdev.md":            "",

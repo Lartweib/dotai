@@ -31,7 +31,7 @@ func TestValidateFS(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		res, err := app.ValidateFS(fstest.MapFS{
 			"dotai.yaml": {Data: []byte("schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\n" +
-				"rulesync: 41.0.0\nharnesses: [opencode]\noptional-harnesses: [claudecode]\n" +
+				"rulesync: 43.9.2\nharnesses: [opencode]\noptional-harnesses: [claudecode]\n" +
 				"profiles:\n  web: {path: profiles/web, description: Web projects., hints: [astro.config.*, next.config.*]}\n  api: {path: ./profiles/api, description: APIs.}\n" +
 				"variants:\n  a: {path: variants/a, default: true}\n  b: {path: variants/b, shared-skills: true}\n")},
 			"base/.rulesync/rules/r.md":         {Data: []byte("# R\n")},
@@ -43,7 +43,7 @@ func TestValidateFS(t *testing.T) {
 		want := app.ValidateResult{
 			Valid: true,
 			Pack: &app.PackSummary{
-				Name: "p", Version: "1.0.0", Engine: ">=0.1.0", Rulesync: "41.0.0",
+				Name: "p", Version: "1.0.0", Engine: ">=0.1.0", Rulesync: "43.9.2",
 				Harnesses: []string{"opencode"}, OptionalHarnesses: []string{"claudecode"}, Variants: []string{"a", "b"}, DefaultVariant: "a",
 				Profiles: []app.ProfileSummary{
 					{Name: "web", Path: "profiles/web", Description: "Web projects.", Hints: []string{"astro.config.*", "next.config.*"}, Mods: []string{}},
@@ -79,7 +79,7 @@ func TestValidateFS(t *testing.T) {
 // a path that does not exist: hints are [] and an invalid path is "".
 func TestValidateFSProfilesJSON(t *testing.T) {
 	res, err := app.ValidateFS(fstest.MapFS{
-		"dotai.yaml": {Data: []byte("schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\nrulesync: 41.0.0\n" +
+		"dotai.yaml": {Data: []byte("schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\nrulesync: 43.9.2\n" +
 			"harnesses: [opencode]\nprofiles:\n  out: {path: ../out, description: Outside.}\n  gone: {path: profiles/gone, description: Missing.}\n")},
 		"base/.rulesync/rules/r.md": {Data: []byte("# R\n")},
 	}, app.Selection{})
@@ -101,7 +101,7 @@ func TestValidateFSProfilesJSON(t *testing.T) {
 // (decision 0045): dotai's onboarding has a null path, a custom one the
 // path the manifest gives, with its warning.
 func TestValidateFSOnboardingJSON(t *testing.T) {
-	const manifest = "schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\nrulesync: 41.0.0\nharnesses: [opencode]\n"
+	const manifest = "schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\nrulesync: 43.9.2\nharnesses: [opencode]\n"
 	for _, tt := range []struct {
 		name, extra, want string
 		warnings          []string
@@ -135,7 +135,7 @@ func TestValidateFSOnboardingJSON(t *testing.T) {
 }
 
 func TestValidateFSMergeRules(t *testing.T) {
-	const manifest = "schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\nrulesync: 41.0.0\n" +
+	const manifest = "schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\nrulesync: 43.9.2\n" +
 		"harnesses: [opencode]\nprofiles:\n  web: {path: profiles/web, description: Web.}\n"
 	conflict := fstest.MapFS{
 		"dotai.yaml":                        {Data: []byte(manifest)},
@@ -154,7 +154,7 @@ func TestValidateFSMergeRules(t *testing.T) {
 		{
 			name: "an unsupported rulesync does not stop the merge rules",
 			fsys: fstest.MapFS{
-				"dotai.yaml":                        {Data: []byte(strings.Replace(manifest, "41.0.0", "40.0.0", 1))},
+				"dotai.yaml":                        {Data: []byte(strings.Replace(manifest, "43.9.2", "40.0.0", 1))},
 				"base/.rulesync/rules/r.md":         {Data: []byte("# R\n")},
 				"profiles/web/.rulesync/rules/r.md": {Data: []byte("# R\n")},
 			},
@@ -189,7 +189,7 @@ func TestValidateFSMergeRules(t *testing.T) {
 
 func TestValidateDoesNotFollowSymlinksOnDisk(t *testing.T) {
 	dir := t.TempDir()
-	manifest := "schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\nrulesync: 41.0.0\nharnesses: [opencode]\n"
+	manifest := "schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\nrulesync: 43.9.2\nharnesses: [opencode]\n"
 	rules := filepath.Join(dir, "base", ".rulesync", "rules")
 	if err := os.MkdirAll(rules, 0o755); err != nil {
 		t.Fatal(err)
@@ -240,7 +240,7 @@ func TestValidateFSRulesyncVersion(t *testing.T) {
 	t.Run("unsupported", func(t *testing.T) {
 		res, err := app.ValidateFS(manifest("40.0.0"), app.Selection{})
 		want := []pack.Diagnostic{pack.NewDiagnostic("dotai.yaml", 5, 11, pack.CodeRulesyncUnsupported,
-			"rulesync 40.0.0 is not supported by this engine").WithHint("pin one of: 41.0.0")}
+			"rulesync 40.0.0 is not supported by this engine").WithHint("pin one of: 43.9.2")}
 		if err != nil || res.Valid || !reflect.DeepEqual(res.Diagnostics, want) {
 			t.Errorf("result = %+v, %v\nwant diagnostics %+v", res, err, want)
 		}

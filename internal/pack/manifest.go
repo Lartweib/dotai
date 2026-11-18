@@ -116,7 +116,7 @@ func decodeIdentity(r reader, o object, rulesyncVersions []string) Manifest {
 		}
 	}
 	if m.Rulesync, n = o.str("rulesync", true); n != nil && !isExactVersion(m.Rulesync) {
-		r.report(n, CodeRulesyncInvalid, "rulesync %q must be an exact version such as 41.0.0", m.Rulesync)
+		r.report(n, CodeRulesyncInvalid, "rulesync %q must be an exact version such as 43.9.2", m.Rulesync)
 	} else if n != nil && rulesyncVersions != nil && !slices.Contains(rulesyncVersions, m.Rulesync) {
 		*r.diags = append(*r.diags, NewDiagnostic(r.file, n.Line+r.offset, n.Column, CodeRulesyncUnsupported,
 			"rulesync %s is not supported by this engine", m.Rulesync).

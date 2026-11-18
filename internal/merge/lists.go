@@ -292,7 +292,7 @@ func listFile(path string, n *node) File {
 }
 
 // shadowedHooks warns about each event of a tool-scoped block of the
-// scope's hooks that the shared hooks declare too: rulesync 41 renders the
+// scope's hooks that the shared hooks declare too: rulesync 43 renders the
 // block's hooks of that event for its harness, and drops the shared ones
 // (HARNESS-NOTES). The warning is at the event in the block and points at
 // the event in the shared hooks.

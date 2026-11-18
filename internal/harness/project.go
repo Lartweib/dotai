@@ -92,12 +92,13 @@ type UserItems struct {
 
 // Rename is a file of the project staging tree that the engine renames
 // after rulesync renders it, giving it a name of its own: From, a slash
-// path in the tree, becomes To, with its one occurrence of Old, matched
-// exactly, replaced by New. A file without exactly one Old is an error, so
-// that a rulesync that renders another form is caught.
+// path in the tree, becomes To, its content as rulesync wrote it. The file
+// must hold ID, matched exactly, once: the line that gives it an id of its
+// own. A file without exactly one ID is an error, so that a rulesync that
+// renders another form is caught.
 type Rename struct {
 	From, To string
-	Old, New string
+	ID       string
 }
 
 // ProjectLayout is a harness's project scope (decision 0041): where each
@@ -305,12 +306,14 @@ var (
 		},
 		// OpenCode has no mods.
 		NoSlot: []ProjectKind{ProjectMods},
-		// rulesync names the hooks plugin the same at both scopes, its file
-		// and, for OpenCode 2, its id, the form rulesync 41.0.0 writes;
-		// OpenCode keeps one plugin per name, so the project's would hide
-		// the user's (HARNESS-NOTES).
+		// rulesync names the hooks plugin file the same at both scopes.
+		// OpenCode 2 keeps one plugin per id, and rulesync 43.9.2 derives
+		// the id from the file's URL, so the scopes' ids differ; the
+		// project's still gets a file name of its own, and a plugin with
+		// any other id, such as the fixed one of rulesync 41.0.0, which
+		// would hide the user's, fails the stage (HARNESS-NOTES).
 		Renames: []Rename{{From: ".opencode/plugins/rulesync-hooks.js", To: ".opencode/plugins/rulesync-hooks-project.js",
-			Old: `id: "rulesync-hooks",`, New: `id: "rulesync-hooks-project",`}},
+			ID: `id: "rulesync-hooks:" + import.meta.url,`}},
 		// OpenCode reads the project's .claude/skills and .agents/skills too,
 		// but lists a skill of the same name once, the .opencode/skills copy
 		// winning (HARNESS-NOTES), so a skill installed for every harness

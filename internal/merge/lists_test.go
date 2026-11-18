@@ -221,7 +221,7 @@ func TestCheckListFiles(t *testing.T) {
 
 // TestWarningsForShadowedHooks checks the warning for a hook event that
 // both the shared hooks and a tool-scoped block of hooks.jsonc declare:
-// rulesync 41 renders only the block's hooks of that event for that
+// rulesync 43 renders only the block's hooks of that event for that
 // harness. It names the event, the block and both files, once per problem
 // across variants, and it is no error.
 func TestWarningsForShadowedHooks(t *testing.T) {

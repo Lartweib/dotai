@@ -50,7 +50,7 @@ func hookPathStyle(quoting harness.Quoting) pathStyle {
 // the layer of each hook, for the harnesses a stage renders. A hook of a
 // tool-scoped block is written as its harness reads a command. A shared
 // hook reaches each rendered harness whose own block does not declare its
-// event (rulesync 41), so its path is bare as soon as one of those takes
+// event (rulesync 43), so its path is bare as soon as one of those takes
 // it bare. A hook that no rendered harness gets is left as it is, and a
 // path that cannot be bare is a HookPathError.
 func expandHooks(data []byte, origins map[string]string, tools ToolPaths, scope string, harnesses []string) ([]byte, error) {

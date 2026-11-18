@@ -408,8 +408,8 @@ func TestAdapterData(t *testing.T) {
 			}
 		}
 		for _, r := range a.Project.Renames {
-			if r.From == "" || r.To == "" || r.From == r.To || r.Old == "" || r.New == "" || r.Old == r.New {
-				t.Errorf("%s rename %+v: want two files and two ids", a.ID, r)
+			if r.From == "" || r.To == "" || r.From == r.To || r.ID == "" {
+				t.Errorf("%s rename %+v: want two files and an id", a.ID, r)
 			}
 		}
 		if h := a.Isolation.Instructions; h != nil && (h.Key == "" || len(h.Paths) == 0 || h.Others == "") {
@@ -420,7 +420,7 @@ func TestAdapterData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []harness.Rename{{From: ".opencode/plugins/rulesync-hooks.js", To: ".opencode/plugins/rulesync-hooks-project.js", Old: `id: "rulesync-hooks",`, New: `id: "rulesync-hooks-project",`}}
+	want := []harness.Rename{{From: ".opencode/plugins/rulesync-hooks.js", To: ".opencode/plugins/rulesync-hooks-project.js", ID: `id: "rulesync-hooks:" + import.meta.url,`}}
 	if !reflect.DeepEqual(oc[0].Project.Renames, want) {
 		t.Errorf("OpenCode renames = %+v, want %+v", oc[0].Project.Renames, want)
 	}

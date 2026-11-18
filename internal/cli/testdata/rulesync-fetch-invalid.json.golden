@@ -15,7 +15,7 @@
         "column": 11,
         "code": "rulesync-unsupported",
         "message": "rulesync 40.0.0 is not supported by this engine",
-        "hint": "pin one of: 41.0.0"
+        "hint": "pin one of: 43.9.2"
       }
     ]
   },
