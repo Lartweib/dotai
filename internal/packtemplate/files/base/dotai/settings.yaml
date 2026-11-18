@@ -1,0 +1,7 @@
+# Settings rulesync does not cover, one block per harness of the manifest,
+# merged as-is into that harness's settings file (docs/PACK-FORMAT.md,
+# "Settings"). A tool runs from a setting as ${DOTAI_TOOL:<name>}, such as
+# statusLine: { type: command, command: "${DOTAI_TOOL:example-tool}" }.
+claudecode:
+  env:
+    DOTAI_TEMPLATE_EXAMPLE: "1"

@@ -1,0 +1,9 @@
+{
+  // The permissions of the layer: allow, ask or deny per pattern. Every
+  // layer's permissions merge as a union, and deny wins over ask over allow.
+  "permission": {
+    "bash": {
+      "git status": "allow"
+    }
+  }
+}

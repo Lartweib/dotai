@@ -1,0 +1,26 @@
+# The manifest of the pack (docs/PACK-FORMAT.md, "Manifest").
+schema: dotai.pack/v1
+name: example-pack
+version: 0.1.0
+engine: ">=0.1.0"
+rulesync: 41.0.0
+# The harnesses the pack requires, by their rulesync target names.
+harnesses: [claudecode, antigravity-cli, opencode]
+
+# Profiles are project scope: dotai apply --profile installs them in a
+# repository. The description and the hints are all dotai's onboarding
+# skill knows about a profile, so write them for a reader who has not
+# seen the pack.
+profiles:
+  example:
+    path: profiles/example
+    description: "An example profile, to replace with one for a kind of project, such as web apps."
+    hints: [package.json]
+    mods: [example-mod]
+
+# Variants are user scope, with the base: dotai install takes the default
+# one unless --variant names another.
+variants:
+  default:
+    path: variants/default
+    default: true
