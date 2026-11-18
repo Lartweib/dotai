@@ -19,6 +19,7 @@ var helloFiles = []string{".claude/skills/hello/.claude-plugin/plugin.json", ".c
 
 func TestPlanProjectInstallsTheModsOfTheProfiles(t *testing.T) {
 	project, home, _ := projectDirs(t)
+	chooseEveryHarness(t, home)
 	g := &fakeGit{}
 	p, err := planProject(t, g, examplePack, project, home)
 	if err != nil || len(p.Diagnostics) != 0 {

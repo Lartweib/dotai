@@ -1,6 +1,6 @@
 Install plan · minimal-pack 0.1.0 · variant standalone · mode replace
 root: /home/u
-note: the optional harness opencode is skipped: it is not installed (opencode not found on PATH and no /home/u/.config/opencode directory)
+note: the harness opencode is skipped: it is not installed (opencode not found on PATH and no /home/u/.config/opencode directory)
 
 claudecode · replace · keeps your login
   binary: /usr/bin/claude

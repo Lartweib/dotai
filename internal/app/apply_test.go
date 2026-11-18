@@ -9,8 +9,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lartweib/dotai/internal/app"
+	"github.com/lartweib/dotai/internal/pack"
 	"github.com/lartweib/dotai/internal/plan"
 	"github.com/lartweib/dotai/internal/rulesync"
 	"github.com/lartweib/dotai/internal/state"
@@ -26,15 +28,47 @@ func (f *treeRulesync) fetch(_ context.Context, _, version string, _ app.Progres
 	return rulesync.Result{Version: version}, nil
 }
 
-func (f *treeRulesync) run(_ context.Context, _ rulesync.Result, _ []string, jobs ...rulesync.Job) error {
+func (f *treeRulesync) run(_ context.Context, _ rulesync.Result, targets []string, jobs ...rulesync.Job) error {
 	for _, j := range jobs {
 		if !j.Global {
 			for name, data := range f.tree {
-				writeFile(f.t, filepath.Join(j.Dir, filepath.FromSlash(name)), data)
+				if rendersFor(name, targets) {
+					writeFile(f.t, filepath.Join(j.Dir, filepath.FromSlash(name)), data)
+				}
 			}
 		}
 	}
 	return nil
+}
+
+// rendersFor reports whether rulesync renders the project file name for
+// one of targets, as it renders a harness's files only for its target: a
+// path under .opencode or opencode.json(c) for OpenCode, under .agents for
+// agy, and any other for Claude Code.
+func rendersFor(name string, targets []string) bool {
+	switch {
+	case strings.HasPrefix(name, ".opencode/") || strings.HasPrefix(name, "opencode.json"):
+		return slices.Contains(targets, "opencode")
+	case strings.HasPrefix(name, ".agents/"):
+		return slices.Contains(targets, "antigravity-cli")
+	}
+	return slices.Contains(targets, "claudecode")
+}
+
+// chooseEveryHarness saves in home the install state of a replace install
+// of the example pack whose --harness choice is every harness, so that an
+// apply, which writes into each harness's own configuration as with no
+// install, follows that choice and manages OpenCode, a preview harness,
+// too (decision 0047).
+func chooseEveryHarness(t *testing.T, home string) {
+	t.Helper()
+	s := state.New(state.Pack{Name: "minimal-pack", Version: "0.1.0"}, "standalone", app.ModeReplace, time.Date(2026, 10, 29, 10, 0, 0, 0, time.UTC), pack.Harnesses, "", nil)
+	s.Selection = slices.Clone(pack.Harnesses)
+	data, err := state.Encode(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, at(home, ".dotai/state.json"), string(data))
 }
 
 // applyRepo is a project at the top of a git repository whose exclude
@@ -70,6 +104,7 @@ func yes(app.ProjectPlan) (bool, error) { return true, nil }
 
 func TestApplyWritesThePlanAndASecondApplyIsNotTheFirst(t *testing.T) {
 	project, home, g := applyRepo(t)
+	chooseEveryHarness(t, home)
 	res, err := applyWith(t, newClockFS(t), g, profileTree, project, home, nil)
 	if err != nil {
 		t.Fatalf("Apply() error = %v", err)
@@ -262,6 +297,7 @@ func (f *failAtFS) WriteIn(root, name string, data []byte, mode os.FileMode) err
 
 func TestApplyRollsBackEverythingOnAFailure(t *testing.T) {
 	project, home, g := applyRepo(t)
+	chooseEveryHarness(t, home)
 	writeFile(t, at(project, ".claude/settings.local.json"), `{"theme":"dark"}`)
 	writeFile(t, at(home, ".claude.json"), `{"numStartups":3}`)
 	before, homeBefore := files(t, project), files(t, home)

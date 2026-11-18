@@ -4,10 +4,12 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
 	"time"
 
+	"github.com/lartweib/dotai/internal/pack"
 	"github.com/lartweib/dotai/internal/proc"
 	"github.com/lartweib/dotai/internal/state"
 )
@@ -54,7 +56,19 @@ type OSInstallFS = osInstallFS
 // through fetch and running rulesync through run, on a host that finds
 // every harness and sets no variable.
 func PlanInstallWith(ctx context.Context, d installFS, fetch fetchFunc, run runFunc, dir, variant, home string) (InstallPlan, error) {
-	return planInstall(ctx, d, everyHarness, fetch, run, "cache", dir, home, InstallOptions{Variant: variant}, nil)
+	return planInstall(ctx, d, everyHarness, fetch, run, "cache", dir, home, InstallOptions{Variant: variant, Harnesses: compatible(dir)}, nil)
+}
+
+// compatible is every harness the manifest of the pack in dir is
+// compatible with, for the wrappers that install on a host that finds
+// every harness, so that the preview ones are managed too (decision
+// 0047); nil when the manifest cannot be read.
+func compatible(dir string) []string {
+	m, _, err := pack.ReadManifest(os.DirFS(dir))
+	if err != nil || m == nil || len(m.Harnesses) == 0 {
+		return nil
+	}
+	return m.Harnesses
 }
 
 // yes is the consent of a user who answers yes.
@@ -100,11 +114,17 @@ func RestoreHost(ctx context.Context, d executeFS, h Host, home, id string, opts
 	return restore(ctx, d, h, home, id, opts, nil, overwrite)
 }
 
-// Detect and SelectHarnesses are the detection of a harness and the
-// selection of the harnesses an install manages.
+// Detect, SelectHarnesses and SelectHarnessesForApply are the detection of
+// a harness and the selection of the harnesses an install, or an apply,
+// manages.
 var (
 	Detect          = detect
-	SelectHarnesses = selectHarnesses
+	SelectHarnesses = func(m pack.Manifest, asked []string, prev *state.State, det map[string]Detection) (harnessSelection, error) {
+		return selectHarnesses(m, asked, prev, det, byInstall)
+	}
+	SelectHarnessesForApply = func(m pack.Manifest, asked []string, prev *state.State, det map[string]Detection) (harnessSelection, error) {
+		return selectHarnesses(m, asked, prev, det, byApply)
+	}
 )
 
 // ExecuteFS is the port Install writes through.
@@ -113,13 +133,13 @@ type ExecuteFS = executeFS
 // InstallWith is Install through d, fetching through fetch and running
 // rulesync through run.
 func InstallWith(ctx context.Context, d executeFS, fetch fetchFunc, run runFunc, dir, variant, home string) (InstallResult, error) {
-	return install(ctx, d, everyHarness, fetch, run, "cache", dir, home, InstallOptions{Variant: variant}, nil, nil, yes)
+	return install(ctx, d, everyHarness, fetch, run, "cache", dir, home, InstallOptions{Variant: variant, Harnesses: compatible(dir)}, nil, nil, yes)
 }
 
 // InstallWarnWith is InstallWith giving the warnings to read before it
 // writes to warn.
 func InstallWarnWith(ctx context.Context, d executeFS, fetch fetchFunc, run runFunc, dir, variant, home string, warn Warn) (InstallResult, error) {
-	return install(ctx, d, everyHarness, fetch, run, "cache", dir, home, InstallOptions{Variant: variant}, nil, warn, yes)
+	return install(ctx, d, everyHarness, fetch, run, "cache", dir, home, InstallOptions{Variant: variant, Harnesses: compatible(dir)}, nil, warn, yes)
 }
 
 // RetryWith, Transient and NarrowMode are the retry of a move or a removal,

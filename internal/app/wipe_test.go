@@ -17,6 +17,7 @@ import (
 
 	"github.com/lartweib/dotai/internal/app"
 	"github.com/lartweib/dotai/internal/backup"
+	"github.com/lartweib/dotai/internal/pack"
 	"github.com/lartweib/dotai/internal/state"
 )
 
@@ -123,13 +124,13 @@ func replaceHome(t *testing.T) (home string, h app.Host, outside string) {
 func installReplace(t *testing.T, d app.ExecuteFS, h app.Host, home string) (app.InstallResult, error) {
 	t.Helper()
 	f := quiet(t)
-	return app.InstallReplace(context.Background(), d, h, f.fetch, replaceRun(t), examplePack, home, app.InstallOptions{})
+	return app.InstallReplace(context.Background(), d, h, f.fetch, replaceRun(t), examplePack, home, app.InstallOptions{Harnesses: pack.Harnesses})
 }
 
 func installAgain(t *testing.T, d app.ExecuteFS, h app.Host, home string) (app.InstallResult, error) {
 	t.Helper()
 	f := quiet(t)
-	return app.InstallAgainReplace(context.Background(), d, h, f.fetch, replaceRun(t), examplePack, home, app.InstallOptions{})
+	return app.InstallAgainReplace(context.Background(), d, h, f.fetch, replaceRun(t), examplePack, home, app.InstallOptions{Harnesses: pack.Harnesses})
 }
 
 // claudeJSON is the ~/.claude.json of realConfig without the keys a

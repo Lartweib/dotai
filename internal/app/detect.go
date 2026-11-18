@@ -13,6 +13,7 @@ import (
 
 	"github.com/lartweib/dotai/internal/harness"
 	"github.com/lartweib/dotai/internal/pack"
+	"github.com/lartweib/dotai/internal/plan"
 	"github.com/lartweib/dotai/internal/proc"
 	"github.com/lartweib/dotai/internal/state"
 )
@@ -117,78 +118,248 @@ func (d Detection) Why(a harness.Adapter) string {
 	return fmt.Sprintf("%s not found on PATH and no %s directory", a.Command, d.Config)
 }
 
-// detectAll detects every harness of m in home.
+// detectAll detects every harness dotai knows in home. A harness m is not
+// compatible with is detected for the plan to show only: a configuration
+// directory of it that cannot be checked counts as not found, and does not
+// stop the install.
 func detectAll(d installFS, h host, home string, m pack.Manifest) (map[string]Detection, error) {
-	adapters, err := harness.Lookup(m.Harnesses)
-	if err != nil {
-		return nil, err
-	}
 	out := map[string]Detection{}
-	for _, a := range adapters {
-		if out[a.ID], err = detect(d, h.lookPath, home, a); err != nil {
+	for _, a := range harness.All() {
+		det, err := detect(d, h.lookPath, home, a)
+		switch {
+		case err != nil && slices.Contains(m.Harnesses, a.ID):
 			return nil, err
+		case err != nil:
+			det = Detection{Config: filepath.Join(home, filepath.FromSlash(a.Real.Dir))}
 		}
+		out[a.ID] = det
 	}
 	return out, nil
 }
 
-// selectHarnesses chooses the harnesses an install manages, in the order
-// of m's harnesses, required then optional (decision 0038), and the
-// --harness choice to save in the install state, nil for none. With asked,
-// the --harness list, not nil, it manages those and saves them. Otherwise,
-// when the previous install prev was of the same pack and saved a choice,
-// it reuses that choice, with every required harness, and saves it again
-// as it was; otherwise it manages every harness of m that det detects and
-// saves no choice. So a harness skipped as undetected never changes the
-// saved choice. A required harness that is not detected stops the install,
-// and so does one asked for that is not; a required harness asked leaves
-// out, and a name asked that the pack does not support, are a *UsageError.
-// An optional harness that is not managed gets a notice, text for people.
-func selectHarnesses(m pack.Manifest, asked []string, prev *state.State, det map[string]Detection) (selected, notices, choice []string, err error) {
-	all := m.Harnesses
-	adapters, err := harness.Lookup(all)
-	if err != nil {
-		return nil, nil, nil, err
+// Codes of the warning of a preview harness an install manages, and of the
+// refusals of a harness selection (decision 0047).
+const (
+	// CodeHarnessPreview warns that the install manages a preview harness,
+	// with the reason it is one; it blocks nothing and needs no consent.
+	CodeHarnessPreview = "harness-preview"
+	// A name the harness choice gives that dotai does not know, or that the
+	// pack is not compatible with.
+	CodeHarnessUnknown       = "harness-unknown"
+	CodeHarnessNotCompatible = "harness-not-compatible"
+	// A required harness the harness choice leaves out, one that is not
+	// installed, and one that is a preview no choice names; a required
+	// preview harness that is not installed gets both of the last two.
+	CodeHarnessRequired        = "harness-required"
+	CodeHarnessMissing         = "harness-missing"
+	CodeHarnessPreviewRequired = "harness-preview-required"
+	// A harness the choice names that is not installed.
+	CodeHarnessNotInstalled = "harness-not-installed"
+	// No harness the pack is compatible with is selected.
+	CodeHarnessNoneSelected = "harness-none-selected"
+)
+
+// HarnessState is a harness dotai knows, as a selection sees it (decision
+// 0047): whether the pack is compatible with it and requires it, its
+// status and why it is a preview, its detection, and whether the install
+// manages it.
+type HarnessState struct {
+	ID           string `json:"id"`
+	Compatible   bool   `json:"compatible"`
+	Required     bool   `json:"required"`
+	Status       string `json:"status"`
+	StatusReason string `json:"statusReason"`
+	Managed      bool   `json:"managed"`
+	Detection
+}
+
+// HarnessRefusal is why a selection of harnesses is refused: its code, the
+// harness, "" for none, and the message, text for people.
+type HarnessRefusal struct {
+	Code    string `json:"code"`
+	Harness string `json:"harness"`
+	Message string `json:"message"`
+}
+
+// HarnessRefusedError is a harness selection that an install or an apply
+// refuses before it stages anything (decision 0047), with each refusal and
+// the state of every harness, so that a caller can show the choice again.
+type HarnessRefusedError struct {
+	Refusals  []HarnessRefusal
+	Harnesses []HarnessState
+}
+
+func (e *HarnessRefusedError) Error() string {
+	msgs := make([]string, 0, len(e.Refusals))
+	for _, r := range e.Refusals {
+		msgs = append(msgs, r.Message)
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// harnessSelection is what selectHarnesses chooses: Selected, the
+// harnesses an install manages, in the manifest's order; Notices, why a
+// compatible harness is not managed, text for people; Choice, the
+// --harness choice to save in the install state, nil for none; Warnings,
+// a harness-preview warning per preview harness it manages; and States,
+// every harness dotai knows, the compatible ones in the manifest's order,
+// then the others in dotai's.
+type harnessSelection struct {
+	Selected, Notices, Choice []string
+	Warnings                  []plan.Warning
+	States                    []HarnessState
+}
+
+// chooser is whose selection selectHarnesses makes, which decides how its
+// texts tell the user to choose: an install takes --harness, and an apply
+// follows the install's choice, so it points at dotai install --harness.
+type chooser bool
+
+const (
+	byInstall chooser = false
+	byApply   chooser = true
+)
+
+// optIn tells the user how to choose the preview harness id.
+func (c chooser) optIn(id string) string {
+	if c == byApply {
+		return "choose it with dotai install --harness, then apply again"
+	}
+	return fmt.Sprintf("pass --harness %s to manage it", id)
+}
+
+// change tells the user how to change the choice.
+func (c chooser) change() string {
+	if c == byApply {
+		return "choose again with dotai install --harness to change it"
+	}
+	return "pass --harness to change it"
+}
+
+// selectHarnesses chooses the harnesses an install, or with c byApply an
+// apply, manages among those m is compatible with (decisions 0038 and
+// 0047). With asked, the --harness list, not nil, it manages those and
+// saves them as the choice. Otherwise, when the previous install prev was
+// of the same pack and saved a choice, it reuses that choice, with every
+// required harness, and saves it again as it was; otherwise it manages the
+// compatible harnesses that det detects and that are supported, and saves
+// no choice. So a harness skipped as undetected never changes the saved
+// choice, and a harness that is not supported, a preview one, is managed
+// only when a choice names it, or when, without a choice, the previous
+// install of the same pack managed it, as one from before decision 0047
+// did. A selection that cannot stand is a *HarnessRefusedError, with every
+// refusal: a name asked that dotai does not know or the pack is not
+// compatible with, a required harness asked leaves out, one that is not
+// installed or is a preview no choice names, a harness asked that is not
+// installed, and a selection with no harness at all.
+func selectHarnesses(m pack.Manifest, asked []string, prev *state.State, det map[string]Detection, c chooser) (harnessSelection, error) {
+	var sel harnessSelection
+	var refusals []HarnessRefusal
+	refuse := func(code, id, format string, args ...any) {
+		refusals = append(refusals, HarnessRefusal{Code: code, Harness: id, Message: fmt.Sprintf(format, args...)})
 	}
 	for _, id := range asked {
-		if !slices.Contains(all, id) {
-			return nil, nil, nil, &UsageError{fmt.Sprintf("--harness names %q, which the pack does not support: its harnesses are %s", id, strings.Join(all, ", "))}
+		switch _, err := harness.Lookup([]string{id}); {
+		case err != nil:
+			refuse(CodeHarnessUnknown, id, "--harness names %q, which dotai does not know: it knows %s", id, strings.Join(pack.Harnesses, ", "))
+		case !slices.Contains(m.Harnesses, id):
+			refuse(CodeHarnessNotCompatible, id, "--harness names %q, which the pack is not compatible with: its harnesses are %s", id, strings.Join(m.Harnesses, ", "))
 		}
 	}
+	adapters, err := harness.Lookup(m.Harnesses)
+	if err != nil {
+		return harnessSelection{}, err
+	}
+	samePack := prev != nil && prev.Pack.Name == m.Name
 	var saved []string
 	switch {
 	case asked != nil:
-		for _, id := range all {
+		for _, id := range m.Harnesses {
 			if slices.Contains(asked, id) {
-				choice = append(choice, id)
+				sel.Choice = append(sel.Choice, id)
 			}
 		}
-	case prev != nil && prev.Pack.Name == m.Name && prev.Selection != nil:
-		saved, choice = prev.Selection, slices.Clone(prev.Selection)
+	case samePack && prev.Selection != nil:
+		saved, sel.Choice = prev.Selection, slices.Clone(prev.Selection)
 	}
-	var missing []string
+	// kept is a preview harness that the previous install of the pack
+	// managed without a choice: it stays opted in.
+	kept := func(id string) bool {
+		return asked == nil && saved == nil && samePack && slices.Contains(prev.Harnesses, id)
+	}
+	var why []string // why each compatible harness is not selected, for a selection of none
 	for _, a := range adapters {
-		required := slices.Contains(m.Requires, a.ID)
+		required, preview := slices.Contains(m.Requires, a.ID), a.Status != harness.Supported
+		chosen := slices.Contains(sel.Choice, a.ID) || kept(a.ID)
 		d := det[a.ID]
 		switch {
 		case asked != nil && !slices.Contains(asked, a.ID) && required:
-			return nil, nil, nil, &UsageError{fmt.Sprintf("the pack requires %s, which --harness leaves out: add it to --harness", a.ID)}
+			refuse(CodeHarnessRequired, a.ID, "the pack requires %s, which --harness leaves out: add it to --harness", a.ID)
 		case asked != nil && !slices.Contains(asked, a.ID):
-			notices = append(notices, fmt.Sprintf("the optional harness %s is not managed: --harness leaves it out", a.ID))
+			sel.Notices = append(sel.Notices, fmt.Sprintf("the harness %s is not managed: --harness leaves it out", a.ID))
+			why = append(why, fmt.Sprintf("%s is left out of --harness", a.ID))
 		case saved != nil && !required && !slices.Contains(saved, a.ID):
-			notices = append(notices, fmt.Sprintf("the optional harness %s is not managed: the --harness choice an earlier install saved leaves it out; pass --harness to change it", a.ID))
+			sel.Notices = append(sel.Notices, fmt.Sprintf("the harness %s is not managed: the --harness choice an earlier install saved leaves it out; %s", a.ID, c.change()))
+			why = append(why, fmt.Sprintf("%s is left out of the --harness choice an earlier install saved", a.ID))
+		case preview && required && !chosen:
+			refuse(CodeHarnessPreviewRequired, a.ID, "the pack requires %s, a preview harness that is managed only when you choose it: %s; %s", a.ID, a.StatusReason, c.optIn(a.ID))
+			if !d.Detected {
+				refuse(CodeHarnessMissing, a.ID, "the pack requires %s, which is not installed (%s)", a.ID, d.Why(a))
+			}
+		case d.Detected && preview && !chosen:
+			sel.Notices = append(sel.Notices, fmt.Sprintf("the preview harness %s is not managed unless you choose it: %s; %s", a.ID, a.StatusReason, c.optIn(a.ID)))
+			why = append(why, fmt.Sprintf("%s is a preview harness: %s", a.ID, c.optIn(a.ID)))
 		case d.Detected:
-			selected = append(selected, a.ID)
+			sel.Selected = append(sel.Selected, a.ID)
+			if preview {
+				sel.Warnings = append(sel.Warnings, plan.Warning{Code: CodeHarnessPreview, Harness: a.ID, Message: fmt.Sprintf("%s is a preview harness: %s", a.ID, a.StatusReason)})
+			}
+			if preview && kept(a.ID) {
+				sel.Notices = append(sel.Notices, fmt.Sprintf("the preview harness %s stays managed: the earlier install of the pack managed it; %s", a.ID, c.change()))
+			}
 		case asked != nil:
-			missing = append(missing, fmt.Sprintf("--harness asks for %s, which is not installed (%s)", a.ID, d.Why(a)))
+			refuse(CodeHarnessNotInstalled, a.ID, "--harness asks for %s, which is not installed (%s)", a.ID, d.Why(a))
 		case required:
-			missing = append(missing, fmt.Sprintf("the pack requires %s, which is not installed (%s)", a.ID, d.Why(a)))
+			refuse(CodeHarnessMissing, a.ID, "the pack requires %s, which is not installed (%s)", a.ID, d.Why(a))
 		default:
-			notices = append(notices, fmt.Sprintf("the optional harness %s is skipped: it is not installed (%s)", a.ID, d.Why(a)))
+			sel.Notices = append(sel.Notices, fmt.Sprintf("the harness %s is skipped: it is not installed (%s)", a.ID, d.Why(a)))
+			why = append(why, fmt.Sprintf("%s is not installed (%s)", a.ID, d.Why(a)))
 		}
 	}
-	if len(missing) > 0 {
-		return nil, nil, nil, errors.New(strings.Join(missing, "; "))
+	if len(refusals) == 0 && len(sel.Selected) == 0 {
+		if asked != nil && len(asked) == 0 {
+			why = []string{"--harness names none"}
+		}
+		refuse(CodeHarnessNoneSelected, "", "no harness the pack is compatible with is selected: %s", strings.Join(why, "; "))
 	}
-	return selected, notices, choice, nil
+	sel.States = harnessStates(m, sel.Selected, det)
+	if len(refusals) > 0 {
+		return harnessSelection{}, &HarnessRefusedError{Refusals: refusals, Harnesses: sel.States}
+	}
+	return sel, nil
+}
+
+// harnessStates is the state of every harness dotai knows for m, with
+// selected managed: the compatible ones in the manifest's order, then the
+// others in dotai's.
+func harnessStates(m pack.Manifest, selected []string, det map[string]Detection) []HarnessState {
+	order := slices.Clone(m.Harnesses)
+	for _, id := range pack.Harnesses {
+		if !slices.Contains(order, id) {
+			order = append(order, id)
+		}
+	}
+	out := []HarnessState{}
+	for _, id := range order {
+		found, err := harness.Lookup([]string{id})
+		if err != nil {
+			continue
+		}
+		a := found[0]
+		out = append(out, HarnessState{
+			ID: id, Compatible: slices.Contains(m.Harnesses, id), Required: slices.Contains(m.Requires, id),
+			Status: string(a.Status), StatusReason: a.StatusReason, Managed: slices.Contains(selected, id), Detection: det[id],
+		})
+	}
+	return out
 }

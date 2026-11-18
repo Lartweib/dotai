@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/lartweib/dotai/internal/app"
+	"github.com/lartweib/dotai/internal/envelope"
 	"github.com/lartweib/dotai/internal/plan"
 	"github.com/lartweib/dotai/internal/rulesync"
 	"github.com/lartweib/dotai/internal/state"
@@ -39,12 +40,15 @@ func (f projectRulesync) fetch(_ context.Context, _, version string, _ app.Progr
 	return rulesync.Result{Version: version}, nil
 }
 
-func (f projectRulesync) run(_ context.Context, _ rulesync.Result, _ []string, jobs ...rulesync.Job) error {
+func (f projectRulesync) run(_ context.Context, _ rulesync.Result, targets []string, jobs ...rulesync.Job) error {
 	for _, j := range jobs {
 		if j.Global {
 			continue
 		}
 		for name, data := range profileTree {
+			if !rendersFor(name, targets) {
+				continue
+			}
 			writeFile(f.t, filepath.Join(j.Dir, filepath.FromSlash(name)), data)
 		}
 	}
@@ -111,6 +115,7 @@ func projectDirs(t *testing.T) (project, home, tmp string) {
 
 func TestPlanProjectListsEachTargetAndWritesNothing(t *testing.T) {
 	project, home, tmp := projectDirs(t)
+	chooseEveryHarness(t, home)
 	g := &fakeGit{tracked: []string{".claude/skills/lint/SKILL.md"}}
 	p, err := planProject(t, g, examplePack, project, home)
 	if err != nil || len(p.Diagnostics) != 0 {
@@ -159,7 +164,7 @@ func TestPlanProjectListsEachTargetAndWritesNothing(t *testing.T) {
 	if got := tree(t, project); len(got) != 0 {
 		t.Errorf("project = %v, want it untouched", got)
 	}
-	if got := tree(t, home); len(got) != 0 {
+	if got := tree(t, home); !reflect.DeepEqual(got, []string{".dotai/state.json"}) {
 		t.Errorf("home = %v, want it untouched", got)
 	}
 	if entries, _ := os.ReadDir(tmp); len(entries) != 0 {
@@ -508,5 +513,48 @@ func TestOSGitWithoutGit(t *testing.T) {
 	_, err := app.OSGit{}.Repo(context.Background(), at(dir, "sub"))
 	if m, ok := errors.AsType[*app.GitMissingError](err); !ok || m.Git != at(dir, ".git") {
 		t.Errorf("Repo() error = %v, want git missing in a repository", err)
+	}
+}
+
+// TestPlanProjectFollowsTheInstallsChoiceOfAPreviewHarness checks an
+// apply's selection (decision 0047): by default it leaves out a detected
+// preview harness, with a notice that says to choose it at install; it
+// follows a saved choice that names it, with harness-preview; and a pack
+// that requires it is refused with harness-refused, whose message points
+// at dotai install --harness, since apply takes no --harness.
+func TestPlanProjectFollowsTheInstallsChoiceOfAPreviewHarness(t *testing.T) {
+	project, home, _ := projectDirs(t)
+	p, err := planProject(t, &fakeGit{}, examplePack, project, home)
+	if err != nil || len(p.Diagnostics) != 0 {
+		t.Fatalf("PlanProject() = %+v, %v", p, err)
+	}
+	if slices.Contains(p.Harnesses, "opencode") || !slices.ContainsFunc(p.Notices, func(n string) bool {
+		return strings.Contains(n, "the preview harness opencode is not managed") && strings.Contains(n, "dotai install --harness")
+	}) {
+		t.Errorf("harnesses %v, notices %q, want OpenCode left out with a notice naming dotai install --harness", p.Harnesses, p.Notices)
+	}
+	if slices.ContainsFunc(p.Warnings, func(w plan.Warning) bool { return w.Code == app.CodeHarnessPreview }) {
+		t.Errorf("warnings %+v, want no harness-preview", p.Warnings)
+	}
+
+	chooseEveryHarness(t, home)
+	p, err = planProject(t, &fakeGit{}, examplePack, project, home)
+	if err != nil || len(p.Diagnostics) != 0 {
+		t.Fatalf("PlanProject() = %+v, %v", p, err)
+	}
+	if !slices.Contains(p.Harnesses, "opencode") || !slices.ContainsFunc(p.Warnings, func(w plan.Warning) bool { return w.Code == app.CodeHarnessPreview && w.Harness == "opencode" }) {
+		t.Errorf("harnesses %v, warnings %+v, want OpenCode with harness-preview", p.Harnesses, p.Warnings)
+	}
+
+	dir := copyPack(t)
+	editPack(t, dir, "dotai.yaml", "# requires: [claudecode]", "requires: [opencode]")
+	_, home2, _ := projectDirs(t)
+	_, err = planProject(t, &fakeGit{}, dir, project, home2)
+	refused, ok := errors.AsType[*app.HarnessRefusedError](err)
+	if !ok || len(refused.Refusals) != 1 || refused.Refusals[0].Code != app.CodeHarnessPreviewRequired || !strings.Contains(err.Error(), "choose it with dotai install --harness, then apply again") {
+		t.Fatalf("PlanProject() error = %v, want harness-preview-required pointing at dotai install --harness", err)
+	}
+	if code, _ := envelope.Classify(err); code != envelope.CodeHarnessRefused {
+		t.Errorf("envelope code %q, want %q", code, envelope.CodeHarnessRefused)
 	}
 }

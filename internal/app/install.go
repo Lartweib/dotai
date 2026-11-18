@@ -53,8 +53,9 @@ type InstallPlan struct {
 	Mode         string            `json:"mode"`
 	Root         string            `json:"root"`         // the directory that holds each harness's directory: the isolated root, or the home directory in replace mode
 	SharedSkills *SharedSkillsPlan `json:"sharedSkills"` // nil when the variant does not share skills
-	// Harnesses are every harness of the pack, the required ones then the
-	// optional ones, managed by the install or not (decision 0038).
+	// Harnesses are every harness dotai knows, the ones the pack is
+	// compatible with first, managed by the install or not, each with its
+	// state (decision 0047).
 	Harnesses []HarnessPlan `json:"harnesses"`
 	Ops       []InstallOp   `json:"ops"`
 	// Wipes, Keeps and WipeKeys are what a replace install does to each
@@ -65,7 +66,8 @@ type InstallPlan struct {
 	Keeps    []KeepPlan `json:"keeps"`
 	WipeKeys []WipeKey  `json:"wipeKeys"`
 	Refusals []Refusal  `json:"refusals"`
-	// Notices say why an optional harness is not managed, text for people.
+	// Notices say why a compatible harness is not managed, or why a preview
+	// one is, text for people.
 	Notices []string `json:"notices"`
 	// Warnings are what the install carries out but the user should read
 	// before confirming it, by code, such as a pack that replaces dotai's
@@ -118,9 +120,16 @@ type InstallOptions struct {
 // user's own setup still provides. A harness the install does not manage
 // has only its detection; its other lists are empty.
 type HarnessPlan struct {
-	ID       string `json:"id"`
-	Required bool   `json:"required"`
-	Managed  bool   `json:"managed"`
+	ID string `json:"id"`
+	// Compatible is whether the pack lists the harness in its harnesses,
+	// Required in its requires; Status and StatusReason are the harness's
+	// status, supported or preview, and why it is a preview (decision
+	// 0047).
+	Compatible   bool   `json:"compatible"`
+	Required     bool   `json:"required"`
+	Status       string `json:"status"`
+	StatusReason string `json:"statusReason"`
+	Managed      bool   `json:"managed"`
 	Detection
 	Level    string        `json:"level"`
 	Dir      string        `json:"dir"`
@@ -131,6 +140,10 @@ type HarnessPlan struct {
 	// resolved for this OS.
 	Tools []ToolCommand `json:"tools"`
 }
+
+// IsPreview reports whether h is a preview harness: any status but
+// supported counts as one, as the selection counts it (decision 0047).
+func (h HarnessPlan) IsPreview() bool { return h.Status != string(harness.Supported) }
 
 // PointerPlan is an environment variable (env) or a flag (flag) set to an
 // absolute directory.
@@ -347,16 +360,14 @@ func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run run
 	}
 	// The harnesses are detected and selected only for a pack that is
 	// valid, before rulesync is fetched.
-	var detected map[string]Detection
-	var notices, choice []string
+	var sel harnessSelection
 	pick := func(m pack.Manifest) ([]string, error) {
-		var err error
-		if detected, err = detectAll(d, h, home, m); err != nil {
+		detected, err := detectAll(d, h, home, m)
+		if err != nil {
 			return nil, err
 		}
-		var selected []string
-		selected, notices, choice, err = selectHarnesses(m, opts.Harnesses, prev, detected)
-		return selected, err
+		sel, err = selectHarnesses(m, opts.Harnesses, prev, detected, byInstall)
+		return sel.Selected, err
 	}
 	s, err := stage(ctx, d, fetch, run, cacheDir, dir, out, Selection{Variant: opts.Variant}, pick, tools, false, progress)
 	if err != nil {
@@ -381,7 +392,8 @@ func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run run
 	if err != nil {
 		return err
 	}
-	res.Notices = append(res.Notices, notices...)
+	res.Notices = append(res.Notices, sel.Notices...)
+	res.Warnings = append(res.Warnings, sel.Warnings...)
 	res.Warnings = append(res.Warnings, templatePlanWarnings(s.TemplateFiles, userLayers(s.Pack, res.Variant), "install")...)
 	shared := slices.Contains(s.Pack.SharedSkills, res.Variant)
 	tree := filepath.Join(out, ScopeUser)
@@ -425,19 +437,14 @@ func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run run
 		return err
 	}
 	res.SharedSkills = sp
-	all, err := harness.Lookup(s.Pack.Harnesses)
-	if err != nil {
-		return err
-	}
-	for _, a := range all {
-		hp := HarnessPlan{ID: a.ID, Required: slices.Contains(s.Pack.Requires, a.ID), Detection: detected[a.ID],
-			Pointers: []PointerPlan{}, Leaks: []string{}, Tools: []ToolCommand{}}
-		if slices.Contains(s.Harnesses, a.ID) {
-			hp = harnessPlan(harness.Mode(mode), home, a, h.goos, shared)
-			hp.Required, hp.Managed, hp.Detection = slices.Contains(s.Pack.Requires, a.ID), true, detected[a.ID]
+	for _, st := range sel.States {
+		hp := HarnessPlan{ID: st.ID, Pointers: []PointerPlan{}, Leaks: []string{}, Tools: []ToolCommand{}}
+		if found, err := harness.Lookup([]string{st.ID}); err == nil && st.Managed {
+			hp = harnessPlan(harness.Mode(mode), home, found[0], h.goos, shared)
 		}
+		hp.Compatible, hp.Required, hp.Status, hp.StatusReason, hp.Managed, hp.Detection = st.Compatible, st.Required, st.Status, st.StatusReason, st.Managed, st.Detection
 		for _, c := range s.ToolCommands {
-			if hp.Managed && c.Scope == ScopeUser && c.Harness == a.ID {
+			if hp.Managed && c.Scope == ScopeUser && c.Harness == st.ID {
 				hp.Tools = append(hp.Tools, c)
 			}
 		}
@@ -454,7 +461,7 @@ func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run run
 			Link: op.Link, BeforeLink: op.BeforeLink, Kind: opKind(byID, harness.Mode(mode), home, op),
 		})
 	}
-	return then(planned{plan: res, shared: shared, ops: p.Ops, tree: tree, prev: prev, harnesses: s.Harnesses, choice: choice, owned: p.Owned, keys: p.Keys, ignoreExec: !d.ExecBit()})
+	return then(planned{plan: res, shared: shared, ops: p.Ops, tree: tree, prev: prev, harnesses: s.Harnesses, choice: sel.Choice, owned: p.Owned, keys: p.Keys, ignoreExec: !d.ExecBit()})
 }
 
 // buildPlan plans the user-scope staging tree tree into home. A first

@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -22,16 +24,16 @@ var installPlan = app.InstallPlan{
 	Pack:    &app.PackSummary{Name: "minimal-pack", Version: "0.1.0", Harnesses: []string{"claudecode", "antigravity-cli", "opencode"}, Requires: []string{}, Profiles: []app.ProfileSummary{}, Variants: []string{}, SharedSkills: []string{}, Layers: []app.LayerSummary{}},
 	Variant: "standalone", Mode: app.ModeIsolated, Root: "/home/u/.dotai/isolated",
 	Harnesses: []app.HarnessPlan{
-		{ID: "claudecode", Required: true, Managed: true, Detection: app.Detection{Detected: true, Binary: "/usr/bin/claude", Config: "/home/u/.claude", ConfigFound: true},
+		{ID: "claudecode", Compatible: true, Required: true, Status: "supported", Managed: true, Detection: app.Detection{Detected: true, Binary: "/usr/bin/claude", Config: "/home/u/.claude", ConfigFound: true},
 			Level: "partial", Dir: "/home/u/.dotai/isolated/claude", Relogin: "unknown",
 			Pointers: []app.PointerPlan{{Mechanism: "env", Name: "CLAUDE_CONFIG_DIR", Dir: "/home/u/.dotai/isolated/claude"}},
 			Leaks:    []string{"the CLAUDE.md, .claude/CLAUDE.md and CLAUDE.local.md of each directory above the working directory still load, but for your ~/CLAUDE.md, ~/CLAUDE.local.md, ~/.claude/CLAUDE.md and ~/.claude/rules, which the isolated settings exclude with claudeMdExcludes"}, Tools: []app.ToolCommand{}},
-		{ID: "antigravity-cli", Required: true, Managed: true, Detection: app.Detection{Detected: true, Binary: "/usr/bin/agy", Config: "/home/u/.gemini"},
+		{ID: "antigravity-cli", Compatible: true, Status: "supported", Managed: true, Detection: app.Detection{Detected: true, Binary: "/usr/bin/agy", Config: "/home/u/.gemini"},
 			Level: "partial", Dir: "/home/u/.dotai/isolated/gemini", Relogin: "no",
 			Pointers: []app.PointerPlan{{Mechanism: "flag", Name: "--gemini_dir", Dir: "/home/u/.dotai/isolated/gemini"}},
 			Leaks:    []string{"authentication is shared through the OS keyring"},
 			Tools:    []app.ToolCommand{{Key: "statusLine", Tool: "hello", Command: `sh /home/u/.dotai/tools/hello.sh`}}},
-		{ID: "opencode", Required: true, Managed: true, Detection: app.Detection{Detected: true, Config: "/home/u/.config/opencode", ConfigFound: true},
+		{ID: "opencode", Compatible: true, Status: "preview", StatusReason: "the hooks plugin hangs", Managed: true, Detection: app.Detection{Detected: true, Config: "/home/u/.config/opencode", ConfigFound: true},
 			Level: "partial", Dir: "/home/u/.dotai/isolated/opencode", Relogin: "yes",
 			Pointers: []app.PointerPlan{
 				{Mechanism: "env", Name: "XDG_CONFIG_HOME", Dir: "/home/u/.dotai/isolated/opencode/config"},
@@ -471,15 +473,19 @@ func TestRunInstallDryRunWithSharedSkills(t *testing.T) {
 	}
 }
 
-// TestRunInstallDryRunShowsAHarnessItDoesNotManage checks the text of an
-// optional harness the install skips: its detection, and the notice that
-// says why (decision 0038).
+// TestRunInstallDryRunShowsAHarnessItDoesNotManage checks the text of a
+// harness the install does not manage (decision 0047): a preview harness
+// it skips and one the pack is not compatible with, each with its state
+// and detection, and the notice that says why.
 func TestRunInstallDryRunShowsAHarnessItDoesNotManage(t *testing.T) {
 	p := installPlan
-	p.Harnesses = []app.HarnessPlan{p.Harnesses[0], {ID: "opencode", Detection: app.Detection{Config: "/home/u/.config/opencode"},
-		Pointers: []app.PointerPlan{}, Leaks: []string{}, Tools: []app.ToolCommand{}}}
+	p.Harnesses = []app.HarnessPlan{p.Harnesses[0],
+		{ID: "opencode", Compatible: true, Status: "preview", StatusReason: "r", Detection: app.Detection{Config: "/home/u/.config/opencode"},
+			Pointers: []app.PointerPlan{}, Leaks: []string{}, Tools: []app.ToolCommand{}},
+		{ID: "antigravity-cli", Status: "supported", Detection: app.Detection{Config: "/home/u/.gemini"},
+			Pointers: []app.PointerPlan{}, Leaks: []string{}, Tools: []app.ToolCommand{}}}
 	p.Ops = p.Ops[:2]
-	p.Notices = []string{"the optional harness opencode is skipped: it is not installed (opencode not found on PATH and no /home/u/.config/opencode directory)"}
+	p.Notices = []string{"the preview harness opencode is not managed unless you choose it: r; pass --harness opencode to manage it"}
 	var stdout bytes.Buffer
 	env := testEnv(&stdout, &bytes.Buffer{})
 	env.PlanInstall = func(context.Context, string, string, string, app.InstallOptions, app.Progress) (app.InstallPlan, error) {
@@ -489,8 +495,9 @@ func TestRunInstallDryRunShowsAHarnessItDoesNotManage(t *testing.T) {
 		t.Fatalf("exit code = %d", code)
 	}
 	for _, want := range []string{
-		"note: the optional harness opencode is skipped: it is not installed (opencode not found on PATH and no /home/u/.config/opencode directory)\n",
-		"\nopencode · optional, not managed\n  binary: not found on PATH\n  config: /home/u/.config/opencode (missing)\n",
+		"note: the preview harness opencode is not managed unless you choose it: r; pass --harness opencode to manage it\n",
+		"\nopencode · preview, not managed\n  binary: not found on PATH\n  config: /home/u/.config/opencode (missing)\n",
+		"\nantigravity-cli · not compatible with the pack, not managed\n",
 		"\nclaudecode · partial isolation · may need a new login\n  binary: /usr/bin/claude\n  config: /home/u/.claude\n",
 	} {
 		if !strings.Contains(stdout.String(), want) {
@@ -499,14 +506,47 @@ func TestRunInstallDryRunShowsAHarnessItDoesNotManage(t *testing.T) {
 	}
 }
 
+// TestRunInstallRefusesTheHarnessSelection checks the envelope of an
+// install whose harness selection is refused (decision 0047): the code
+// harness-refused, exit code 1, and the refusals and every harness as its
+// data.
+func TestRunInstallRefusesTheHarnessSelection(t *testing.T) {
+	refused := &app.HarnessRefusedError{
+		Refusals:  []app.HarnessRefusal{{Code: app.CodeHarnessMissing, Harness: "antigravity-cli", Message: "the pack requires antigravity-cli, which is not installed (agy not found on PATH)"}},
+		Harnesses: []app.HarnessState{{ID: "antigravity-cli", Compatible: true, Required: true, Status: "supported"}},
+	}
+	var stdout bytes.Buffer
+	env := testEnv(&stdout, &bytes.Buffer{})
+	env.PlanInstall = func(context.Context, string, string, string, app.InstallOptions, app.Progress) (app.InstallPlan, error) {
+		return app.InstallPlan{}, refused
+	}
+	if code := cli.Run([]string{"install", "--dry-run", "--json"}, env); code != cli.ExitInternal {
+		t.Fatalf("exit code = %d, want %d", code, cli.ExitInternal)
+	}
+	e := decodeOne(t, stdout.Bytes())
+	var withData struct {
+		Data struct {
+			Refusals  []app.HarnessRefusal `json:"refusals"`
+			Harnesses []app.HarnessState   `json:"harnesses"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &withData); err != nil {
+		t.Fatal(err)
+	}
+	if e.OK || e.Error == nil || e.Error.Code != envelope.CodeHarnessRefused || !strings.Contains(e.Error.Message, "antigravity-cli") ||
+		!reflect.DeepEqual(withData.Data.Refusals, refused.Refusals) || !reflect.DeepEqual(withData.Data.Harnesses, refused.Harnesses) {
+		t.Errorf("envelope = %+v, data %+v, want harness-refused with the refusals and the harnesses", e, withData.Data)
+	}
+}
+
 // replacePlan is the dry run of a replace install, with fixed paths.
 var replacePlan = app.InstallPlan{
 	Pack:    installPlan.Pack,
 	Variant: "standalone", Mode: app.ModeReplace, Root: "/home/u",
 	Harnesses: []app.HarnessPlan{
-		{ID: "claudecode", Required: true, Managed: true, Detection: app.Detection{Detected: true, Binary: "/usr/bin/claude", Config: "/home/u/.claude", ConfigFound: true},
+		{ID: "claudecode", Compatible: true, Required: true, Status: "supported", Managed: true, Detection: app.Detection{Detected: true, Binary: "/usr/bin/claude", Config: "/home/u/.claude", ConfigFound: true},
 			Dir: "/home/u/.claude", Relogin: "no", Pointers: []app.PointerPlan{}, Leaks: []string{}, Tools: []app.ToolCommand{}},
-		{ID: "antigravity-cli", Required: true, Managed: true, Detection: app.Detection{Detected: true, Binary: "/usr/bin/agy", Config: "/home/u/.gemini", ConfigFound: true},
+		{ID: "antigravity-cli", Compatible: true, Status: "supported", Managed: true, Detection: app.Detection{Detected: true, Binary: "/usr/bin/agy", Config: "/home/u/.gemini", ConfigFound: true},
 			Dir: "/home/u/.gemini", Relogin: "no", Pointers: []app.PointerPlan{}, Leaks: []string{},
 			Tools: []app.ToolCommand{{Key: "statusLine", Tool: "hello", Command: "sh /home/u/.dotai/tools/hello.sh"}}},
 	},
@@ -533,7 +573,7 @@ var replacePlan = app.InstallPlan{
 	},
 	Refusals: []app.Refusal{{Code: app.RefuseRelocation, Harness: "claudecode", Variable: "CLAUDE_CONFIG_DIR",
 		Message: "CLAUDE_CONFIG_DIR is set, so claudecode may read its configuration from somewhere a replace install does not reset: unset it, then install again"}},
-	Notices:     []string{"the optional harness opencode is skipped: it is not installed (opencode not found on PATH and no /home/u/.config/opencode directory)"},
+	Notices:     []string{"the harness opencode is skipped: it is not installed (opencode not found on PATH and no /home/u/.config/opencode directory)"},
 	Warnings:    []plan.Warning{},
 	Diagnostics: []app.Diagnostic{},
 }
@@ -562,6 +602,56 @@ func TestRunInstallDryRunReplace(t *testing.T) {
 				t.Errorf("exit code = %d, stderr = %q, want 0 and empty", code, stderr.String())
 			}
 			assertGolden(t, filepath.Join("testdata", tt.golden), stdout.Bytes())
+		})
+	}
+}
+
+// TestRunInstallRefusesAnUnknownOrMissingRequiredHarness checks the exit
+// code and the envelope of the selections the real install refuses
+// (decision 0047): a --harness name dotai does not know, and a --harness
+// that leaves out a required harness, each harness-refused with exit
+// code 1, before rulesync is fetched. PATH holds no harness.
+func TestRunInstallRefusesAnUnknownOrMissingRequiredHarness(t *testing.T) {
+	packHome(t)
+	t.Setenv("PATH", t.TempDir())
+	cache := t.TempDir()
+	t.Setenv("DOTAI_CACHE_DIR", cache)
+	dir := filepath.Join(t.TempDir(), "pack")
+	if err := os.CopyFS(dir, os.DirFS(examplePack)); err != nil {
+		t.Fatal(err)
+	}
+	manifest := filepath.Join(dir, "dotai.yaml")
+	data, err := os.ReadFile(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifest, bytes.Replace(data, []byte("# requires: [claudecode]"), []byte("requires: [claudecode]"), 1), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		harness, code string
+	}{
+		{"codex", app.CodeHarnessUnknown},
+		{"antigravity-cli", app.CodeHarnessRequired},
+	} {
+		t.Run(tt.code, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			env := testEnv(&stdout, &stderr)
+			env.PlanInstall = app.PlanInstall
+			code := cli.Run([]string{"install", dir, "--dry-run", "--harness", tt.harness, "--json"}, env)
+			var e struct {
+				Error *envelope.Error `json:"error"`
+				Data  struct {
+					Refusals []app.HarnessRefusal `json:"refusals"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(stdout.Bytes(), &e); err != nil {
+				t.Fatalf("stdout %s: %v", &stdout, err)
+			}
+			if code != cli.ExitInternal || e.Error == nil || e.Error.Code != envelope.CodeHarnessRefused ||
+				!slices.ContainsFunc(e.Data.Refusals, func(r app.HarnessRefusal) bool { return r.Code == tt.code }) {
+				t.Errorf("exit %d, envelope %s, want exit %d, harness-refused with %s", code, &stdout, cli.ExitInternal, tt.code)
+			}
 		})
 	}
 }
