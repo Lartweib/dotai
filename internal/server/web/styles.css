@@ -296,6 +296,7 @@ a.btn, a.btn:hover { color: var(--ink); }
 .check input { flex: none; width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--you); cursor: pointer; }
 .check .lm { margin-top: 1px; }
 .check-text { min-width: 0; }
+.check.still { cursor: default; }
 .checks .check { padding: 10px 12px; border-radius: var(--r); box-shadow: inset 0 0 0 1px var(--rule); transition: background-color var(--d-1) var(--ease), box-shadow var(--d-2) var(--o-drift); }
 .checks .check:hover { background: var(--hov); }
 .checks .check:has(input:checked) { background: var(--sel); box-shadow: inset 0 0 0 1px var(--rule-2); }

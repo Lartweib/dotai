@@ -60,6 +60,7 @@ const en = {
   "hint.record": "The record is the file where dotai notes what it applied here, so it can check and undo it later.",
   "hint.keys": "dotai owns only these keys of the file; the others stay as they are.",
   "hint.backup": "Before writing, dotai copies what it is about to change, so a restore can undo the install.",
+  "hint.applyHarnesses": "An apply follows the harnesses the install chose. Choose them on the Install plan board, or with dotai install --harness, then plan the apply again.",
   "hint.exclude": "These entries go to .git/info/exclude, so git ignores the applied files without a change to .gitignore.",
 
   // Install modes
@@ -568,6 +569,8 @@ const en = {
   "plan.harness.preview": "preview",
   "plan.harness.notInstalled": "not installed",
   "plan.harness.notCompatible": "not compatible with this pack",
+  "plan.harness.managed": "managed",
+  "plan.harness.notManaged": "not managed",
   "plan.previewReason": "A preview harness: {reason}.",
   "plan.harness.requiredPreview": "required, preview",
   "reason.opencode": "the OpenCode hooks plugin that rulesync generates hangs on a hook that reads stdin, and enforces no hook timeout",
@@ -855,6 +858,7 @@ const es = {
   "hint.record": "El registro es el archivo donde dotai anota lo que aplicó aquí, para poder comprobarlo y deshacerlo después.",
   "hint.keys": "dotai solo administra estas claves del archivo; las demás quedan como están.",
   "hint.backup": "Antes de escribir, dotai copia lo que va a cambiar, para que una restauración pueda deshacer la instalación.",
+  "hint.applyHarnesses": "Una aplicación sigue los harnesses que eligió la instalación. Elígelos en el tablero del plan de instalación, o con dotai install --harness, y vuelve a planificar la aplicación.",
   "hint.exclude": "Estas entradas van a .git/info/exclude, para que git ignore los archivos aplicados sin modificar .gitignore.",
 
   // Install modes
@@ -1363,6 +1367,8 @@ const es = {
   "plan.harness.preview": "vista previa",
   "plan.harness.notInstalled": "no instalado",
   "plan.harness.notCompatible": "no compatible con este paquete",
+  "plan.harness.managed": "gestionado",
+  "plan.harness.notManaged": "no gestionado",
   "plan.previewReason": "Un harness en vista previa: {reason}.",
   "plan.harness.requiredPreview": "requerido, vista previa",
   "reason.opencode": "el plugin de hooks de OpenCode que genera rulesync se cuelga con un hook que lee stdin y no impone ningún tiempo límite a los hooks",
