@@ -18,6 +18,7 @@ func Classify(err error) (code string, data any) {
 		consent      *app.ConsentError
 		refused      *app.RefusedError
 		running      *app.RunningError
+		harnesses    *app.HarnessRefusedError
 		project      *app.ProjectRefusedError
 		applyConsent *app.ApplyConsentError
 		applyRefused *app.ApplyRefusedError
@@ -39,6 +40,8 @@ func Classify(err error) (code string, data any) {
 		code, data = CodeRefused, refused.Plan
 	case errors.As(err, &running):
 		code, data = CodeRunning, map[string]any{"harnesses": running.Harnesses, "running": runningList(running.Running)}
+	case errors.As(err, &harnesses):
+		code, data = CodeHarnessRefused, map[string]any{"refusals": harnesses.Refusals, "harnesses": harnesses.Harnesses}
 	case errors.As(err, &project):
 		code = CodeProjectRefused
 	case errors.As(err, &applyConsent):

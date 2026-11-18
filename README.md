@@ -29,7 +29,7 @@ Each AI coding harness keeps its rules, agents, skills, hooks, MCP servers and s
 | Google Antigravity CLI (agy) | `antigravity-cli` | `agy` | `--gemini_dir` | Supported |
 | OpenCode | `opencode` | `opencode` | `XDG_*` directories | Preview |
 
-OpenCode is a preview, pending an upstream fix in rulesync's generated OpenCode hooks plugin: hooks that read stdin can hang, and hook timeouts are not enforced.
+OpenCode is a preview, pending an upstream fix in rulesync's generated OpenCode hooks plugin: hooks that read stdin can hang, and hook timeouts are not enforced. An install never selects a preview harness by default: name it with `--harness`, or tick it in the web UI's harness step, and the plan warns `harness-preview`; the saved choice, or an earlier install of the pack that managed it, keeps it managed.
 
 Isolation is partial for every harness: each install plan names what of your own setup still loads, such as a shared login. The verified behavior of each harness, with the version and OS it was checked on, is in [Harness notes](docs/HARNESS-NOTES.md).
 
@@ -79,7 +79,7 @@ dotai ui
 - `dotai pack new` writes dotai's template, one commented example of each file a pack holds, and adds the pack to the registry. Edit the examples: a file left as the template wrote it is flagged `template-unchanged`, and `install` asks before installing it.
 - `dotai install --mode isolated` installs under `~/.dotai/isolated/`, never into your own harness configuration; `dotai restore` undoes it.
 - `dotai run claudecode` launches Claude Code against the isolated install; pass the harness's own arguments after `--`.
-- `dotai install` manages the pack's harnesses that are installed on your machine, or those `--harness` names. A harness the pack lists in `harnesses` is required, one in `optional-harnesses` is skipped when it is missing ([Pack format](docs/PACK-FORMAT.md#manifest)).
+- `dotai install` manages the pack's harnesses that are installed on your machine, or those `--harness` names. The pack lists the harnesses it is compatible with in `harnesses` and those it cannot do without in `requires`: a missing required harness stops the install, and a preview harness, such as OpenCode, is managed only when `--harness` or the saved choice names it, or the previous install of the pack managed it ([Pack format](docs/PACK-FORMAT.md#manifest)).
 
 For a complete, small pack to read, see [examples/minimal-pack](examples/minimal-pack/README.md). [Creating a pack](docs/PACK-FORMAT.md#creating-a-pack) covers `dotai pack new` in full, and [Applying a pack](docs/PACK-FORMAT.md#applying-a-pack) the project profiles.
 

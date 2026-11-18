@@ -425,3 +425,41 @@ func TestAdapterData(t *testing.T) {
 		t.Errorf("OpenCode renames = %+v, want %+v", oc[0].Project.Renames, want)
 	}
 }
+
+// TestStatus checks each harness's status (decision 0047): OpenCode is a
+// preview harness, with the reason, and the others are supported.
+func TestStatus(t *testing.T) {
+	want := map[string]harness.Status{"claudecode": harness.Supported, "antigravity-cli": harness.Supported, "opencode": harness.Preview}
+	for _, a := range harness.All() {
+		// Every adapter states its status: a missing one is no default.
+		if a.Status != harness.Supported && a.Status != harness.Preview {
+			t.Errorf("%s: status %q, want %q or %q", a.ID, a.Status, harness.Supported, harness.Preview)
+		}
+		if w, ok := want[a.ID]; !ok || a.Status != w {
+			t.Errorf("%s: status %q, want %q (listed %v)", a.ID, a.Status, w, ok)
+		}
+		if (a.Status == harness.Preview) != (a.StatusReason != "") {
+			t.Errorf("%s: status %q with reason %q, want a reason for a preview harness only", a.ID, a.Status, a.StatusReason)
+		}
+	}
+	oc, err := harness.Lookup([]string{"opencode"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := oc[0].StatusReason; !strings.Contains(r, "stdin") || !strings.Contains(r, "timeout") {
+		t.Errorf("OpenCode's reason %q, want the hooks that read stdin and the missing timeouts named", r)
+	}
+}
+
+// TestPackHarnessesAreTheAdapters checks that the harness names a manifest
+// accepts, pack.Harnesses, are the adapters' ids, in order. The pack
+// package cannot derive them, since this package imports it.
+func TestPackHarnessesAreTheAdapters(t *testing.T) {
+	var ids []string
+	for _, a := range harness.All() {
+		ids = append(ids, a.ID)
+	}
+	if !reflect.DeepEqual(ids, pack.Harnesses) {
+		t.Errorf("adapters %v, pack.Harnesses %v, want the same list", ids, pack.Harnesses)
+	}
+}

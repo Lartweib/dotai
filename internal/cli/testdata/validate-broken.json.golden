@@ -13,7 +13,7 @@
         "claudecode",
         "vscode"
       ],
-      "optionalHarnesses": [],
+      "requires": [],
       "profiles": [],
       "variants": [
         "standalone"

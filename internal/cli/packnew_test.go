@@ -3,6 +3,7 @@ package cli_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -77,6 +78,23 @@ func TestRunPackNewFromFlagsWritesAndAddsThePack(t *testing.T) {
 	}
 }
 
+// TestRunPackNewHarnessFlags checks the harnesses of pack new's flags
+// (decision 0047): without --harness, the pack is compatible with every
+// supported harness, and --require lists the ones it requires.
+func TestRunPackNewHarnessFlags(t *testing.T) {
+	packHome(t)
+	dir := filepath.Join(t.TempDir(), "my-pack")
+	var stdout, stderr bytes.Buffer
+	args := []string{"pack", "new", dir, "--name", "my-pack", "--require", "claudecode", "--dry-run", "--json"}
+	if code := cli.Run(args, newEnv(&stdout, &stderr)); code != cli.ExitOK {
+		t.Fatalf("exit = %d; stdout %s; stderr %s", code, &stdout, &stderr)
+	}
+	data := envelopeOf(t, &stdout)["data"].(map[string]any)
+	if got := fmt.Sprint(data["harnesses"], data["requires"]); got != "[claudecode antigravity-cli] [claudecode]" {
+		t.Errorf("harnesses and requires = %s, want every supported harness and claudecode required", got)
+	}
+}
+
 func TestRunPackNewRefusals(t *testing.T) {
 	packHome(t)
 	full := t.TempDir()
@@ -101,7 +119,8 @@ func TestRunPackNewRefusals(t *testing.T) {
 		{"a hint of no profile", []string{"pack", "new", fresh, "--name", "x", "--harness", "opencode", "--hint", "web:a"}, cli.ExitUsage, envelope.CodeUsage},
 		{"an unknown answer", []string{"pack", "new", fresh, "--answers", bad}, cli.ExitUsage, envelope.CodeUsage},
 		{"a directory that is not empty", []string{"pack", "new", full, "--answers", answers}, cli.ExitInternal, envelope.CodeNewRefused},
-		{"a pack with problems", []string{"pack", "new", fresh, "--name", "x"}, cli.ExitInvalid, envelope.CodeInvalid},
+		{"a pack with problems", []string{"pack", "new", fresh, "--name", "x", "--harness", "claudecode", "--require", "opencode"}, cli.ExitInvalid, envelope.CodeInvalid},
+		{"answers and --require", []string{"pack", "new", fresh, "--answers", answers, "--require", "opencode"}, cli.ExitUsage, envelope.CodeUsage},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer

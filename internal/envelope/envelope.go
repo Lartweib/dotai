@@ -24,6 +24,12 @@ const (
 	CodeConsent = "consent-required"
 	CodeRefused = "replace-refused"
 	CodeRunning = "harness-running"
+	// An install or an apply whose harness selection is refused before
+	// anything is staged (decision 0047). Each refusal of its data has its
+	// code: harness-unknown, harness-not-compatible, harness-required,
+	// harness-missing, harness-preview-required, harness-not-installed or
+	// harness-none-selected.
+	CodeHarnessRefused = "harness-refused"
 	// A project apply refused in the home directory or at a root, where
 	// the project scope would overlap the user scope (decision 0041).
 	CodeProjectRefused = "project-refused"
@@ -66,7 +72,7 @@ const (
 // one, such as the web UI to an HTTP status, can check that it maps them
 // all.
 var Codes = []string{
-	CodeUsage, CodeInternal, CodeInvalid, CodeConsent, CodeRefused, CodeRunning,
+	CodeUsage, CodeInternal, CodeInvalid, CodeConsent, CodeRefused, CodeRunning, CodeHarnessRefused,
 	CodeProjectRefused, CodeApplyRefused, CodeRecordInvalid, CodeCopyRefused, CodeNewRefused, CodeRegistryInvalid,
 	CodePackNameTaken, CodeHostUnsupported, CodeGitMissing, CodeGitTooOld, CodeFetchFailed, CodeFetchByCommit, CodeTreeRefused,
 }

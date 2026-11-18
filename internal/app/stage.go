@@ -106,7 +106,7 @@ func Stage(ctx context.Context, cacheDir, dir, out string, sel Selection, tools 
 
 // pickHarnesses chooses, once the pack is valid, the harnesses a stage
 // renders, in the manifest's order; nil renders every harness the pack
-// supports, the optional ones included (decision 0038).
+// is compatible with, the ones it does not require included (decision 0047).
 type pickHarnesses func(m pack.Manifest) ([]string, error)
 
 // GeneratorRulesync is the Generator of the files rulesync renders.
@@ -133,7 +133,7 @@ func stage(ctx context.Context, w stageFS, fetch fetchFunc, run runFunc, cacheDi
 		res.Diagnostics = diags
 		return res, nil
 	}
-	harnesses := p.Manifest.AllHarnesses()
+	harnesses := p.Manifest.Harnesses
 	if pick != nil {
 		if harnesses, err = pick(p.Manifest); err != nil {
 			return StageResult{}, err

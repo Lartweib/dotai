@@ -14,7 +14,7 @@
         "antigravity-cli",
         "opencode"
       ],
-      "optionalHarnesses": [],
+      "requires": [],
       "profiles": [
         {
           "name": "web",

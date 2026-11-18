@@ -31,7 +31,7 @@ func TestValidateFS(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		res, err := app.ValidateFS(fstest.MapFS{
 			"dotai.yaml": {Data: []byte("schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\n" +
-				"rulesync: 43.9.2\nharnesses: [opencode]\noptional-harnesses: [claudecode]\n" +
+				"rulesync: 43.9.2\nharnesses: [opencode, claudecode]\nrequires: [claudecode]\n" +
 				"profiles:\n  web: {path: profiles/web, description: Web projects., hints: [astro.config.*, next.config.*]}\n  api: {path: ./profiles/api, description: APIs.}\n" +
 				"variants:\n  a: {path: variants/a, default: true}\n  b: {path: variants/b, shared-skills: true}\n")},
 			"base/.rulesync/rules/r.md":         {Data: []byte("# R\n")},
@@ -44,7 +44,7 @@ func TestValidateFS(t *testing.T) {
 			Valid: true,
 			Pack: &app.PackSummary{
 				Name: "p", Version: "1.0.0", Engine: ">=0.1.0", Rulesync: "43.9.2",
-				Harnesses: []string{"opencode"}, OptionalHarnesses: []string{"claudecode"}, Variants: []string{"a", "b"}, DefaultVariant: "a",
+				Harnesses: []string{"opencode", "claudecode"}, Requires: []string{"claudecode"}, Variants: []string{"a", "b"}, DefaultVariant: "a",
 				Profiles: []app.ProfileSummary{
 					{Name: "web", Path: "profiles/web", Description: "Web projects.", Hints: []string{"astro.config.*", "next.config.*"}, Mods: []string{}},
 					{Name: "api", Path: "profiles/api", Description: "APIs.", Hints: []string{}, Mods: []string{}},

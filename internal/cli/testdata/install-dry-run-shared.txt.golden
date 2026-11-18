@@ -20,7 +20,7 @@ antigravity-cli · partial isolation · keeps your login
   leaks: authentication is shared through the OS keyring
   statusLine runs tool hello: sh /home/u/.dotai/tools/hello.sh
 
-opencode · partial isolation · needs a new login
+opencode · preview · partial isolation · needs a new login
   binary: not found on PATH
   config: /home/u/.config/opencode
   XDG_CONFIG_HOME=/home/u/.dotai/isolated/opencode/config

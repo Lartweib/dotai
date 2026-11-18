@@ -1,5 +1,6 @@
 // The Create a pack board, the wizard of decision 0046: it asks the
-// pack's folder, its name, the harnesses it requires and its profiles,
+// pack's folder, its name, the harnesses it is compatible with and those
+// it requires (decision 0047), and its profiles,
 // each with the description and hints that dotai's profiling skill knows
 // it by, then shows the plan of dotai pack new: the files it writes from
 // the template and the skill dotai will generate. The user ticks that
@@ -12,11 +13,13 @@ import { guard } from "./flows.js";
 import { t } from "./i18n.js";
 import { backLink, diagnostics } from "./packreview.js";
 import { visible } from "./packsource.js";
-import { act, harnessName, isAbsolute, post, selectPack, setRegistry, shared } from "./store.js";
+import { act, harnessName, previewReason, isAbsolute, post, selectPack, setRegistry, shared } from "./store.js";
+import { isPreview, wizardDefaults } from "./harnesspick.js";
 import { emptyProfile, fileGroups, newRequest } from "./wizard.js";
 
 export async function render(root, ctx) {
-  const state = { dir: "", name: "", harnesses: [...shared.harnesses.keys()], profiles: [emptyProfile()] };
+  const infos = shared.harnessInfo.length ? shared.harnessInfo : [...shared.harnesses.keys()].map((id) => ({ id, status: "supported" }));
+  const state = { dir: "", name: "", ...wizardDefaults(infos), profiles: [emptyProfile()] };
   const out = h("div", { class: "flow-out" });
   const form = h("form", { class: "form" });
   const profiles = h("div", { class: "stack" });
@@ -53,15 +56,36 @@ export async function render(root, ctx) {
       } }));
   }));
 
-  const harnessBoxes = h("div", { class: "stack tight" }, [...shared.harnesses.keys()].map((id) => {
-    const box = h("input", { type: "checkbox", id: "new-h-" + id });
-    box.checked = state.harnesses.includes(id);
+  // The compatible harnesses, every supported one ticked and a preview
+  // one listed with its reason, unticked; then the required ones, none
+  // ticked, each only for a compatible harness.
+  const ids = infos.map((x) => x.id);
+  const requireBoxes = h("div", { class: "stack tight" });
+  const drawRequires = () => mount(requireBoxes, ids.map((id) => {
+    const box = h("input", { type: "checkbox", id: "new-r-" + id });
+    box.checked = state.requires.includes(id);
+    box.disabled = !state.harnesses.includes(id);
     box.addEventListener("change", () => {
-      state.harnesses = [...shared.harnesses.keys()].filter((x) => document.getElementById("new-h-" + x).checked);
+      state.requires = ids.filter((x) => document.getElementById("new-r-" + x).checked);
       changed();
     });
-    return h("label", { class: "check", for: "new-h-" + id }, box, h("span", { class: "check-text", text: harnessName(id) }), h("span", { class: "mono", text: " " + id }));
+    return h("label", { class: "check", for: "new-r-" + id }, box, h("span", { class: "check-text", text: harnessName(id) }), h("span", { class: "mono", text: " " + id }));
   }));
+  const harnessBoxes = h("div", { class: "stack tight" }, infos.map((x) => {
+    const box = h("input", { type: "checkbox", id: "new-h-" + x.id });
+    box.checked = state.harnesses.includes(x.id);
+    box.addEventListener("change", () => {
+      state.harnesses = ids.filter((id) => document.getElementById("new-h-" + id).checked);
+      state.requires = state.requires.filter((id) => state.harnesses.includes(id));
+      drawRequires();
+      changed();
+    });
+    return h("div", {},
+      h("label", { class: "check", for: "new-h-" + x.id }, box, h("span", { class: "check-text", text: harnessName(x.id) }), h("span", { class: "mono", text: " " + x.id }),
+        isPreview(x) ? h("span", { class: "pill sm state", text: t("plan.harness.preview") }) : null),
+      isPreview(x) && x.statusReason ? h("p", { class: "help", text: t("plan.previewReason", { reason: previewReason(x.id, x.statusReason) }) }) : null);
+  }));
+  drawRequires();
 
   const showPlan = (p, msg) => {
     const read = h("input", { type: "checkbox", id: "new-read" });
@@ -136,6 +160,7 @@ export async function render(root, ctx) {
     field("new-dir", t("new.dir"), t("new.dirHelp"), text("new-dir", state.dir, (v) => { state.dir = v; }, { class: "input mono", placeholder: t("packs.placeholder") })),
     field("new-name", t("new.name"), t("new.nameHelp"), text("new-name", state.name, (v) => { state.name = v; }, { class: "input mono" })),
     h("fieldset", { class: "field" }, h("legend", { class: "label", text: t("new.harnesses") }), harnessBoxes, hint(t("new.harnessesHelp"))),
+    h("fieldset", { class: "field" }, h("legend", { class: "label", text: t("new.requires") }), requireBoxes, hint(t("new.requiresHelp"))),
     h("fieldset", { class: "field" }, h("legend", { class: "label", text: t("new.profiles") }),
       hint(t("new.profilesHelp")), profiles,
       h("button", { class: "btn sm", type: "button", text: t("new.addProfile"), onclick: () => {

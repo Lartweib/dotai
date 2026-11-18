@@ -3,14 +3,18 @@
 // digest of what it shows; the install sends it back, and the server
 // refuses with plan-changed, and the new plan, when the plan is no longer
 // the same (decision 0043). Whether the plan is blocked and whether it
-// needs consent come with the plan.
+// needs consent come with the plan. The harness step shows every harness
+// with its state and sends the user's choice as the plan's harnesses,
+// none until the user changes a tick, so that the plan keeps the saved
+// choice or the default (decision 0047).
 
 import { actions, boardHead, busy, failure, h, hint, lm, loading, mount, notice, op, sec, warning } from "./dom.js";
 import { guard, rel } from "./flows.js";
 import { diagnostics } from "./packreview.js";
+import { choiceOf, harnessRows, pickOf, toggled } from "./harnesspick.js";
 import { consentLabel, foreignWarned } from "./planconsent.js";
 import { t } from "./i18n.js";
-import { act, harnessName, installed, isInstalled, loadPack, post, selectedPack, shared, tilde } from "./store.js";
+import { act, harnessName, installed, previewReason, isInstalled, loadPack, post, selectedPack, shared, tilde } from "./store.js";
 
 export async function render(root, ctx) {
   const pack = ctx.arg || selectedPack();
@@ -24,22 +28,41 @@ export async function render(root, ctx) {
     return;
   }
   const s = installed();
-  const state = { mode: isInstalled(pack) && s ? s.mode : "", variant: "", consent: false };
+  const state = { mode: isInstalled(pack) && s ? s.mode : "", variant: "", consent: false, harnesses: null };
   const info = await loadPack(pack);
   if (ctx.stale()) return;
   const summary = info.data && info.data.pack;
 
   const replan = async (msg) => {
     loading(pane, t("plan.planning"));
-    const res = await post("/api/install/plan", { pack, mode: state.mode, variant: state.variant }, ctx.signal);
+    const res = await post("/api/install/plan", { pack, mode: state.mode, variant: state.variant, harnesses: state.harnesses }, ctx.signal);
     if (ctx.stale()) return;
     show(res, msg);
   };
 
+  // pick changes the choice of harnesses, against list, the harnesses
+  // shown, and plans it again.
+  const pick = (list, rows, id, on) => {
+    state.harnesses = choiceOf(list, toggled(rows, id, on));
+    state.consent = false;
+    replan();
+  };
+
   const show = (res, msg) => {
     if (!res.data || !res.data.ops) {
+      // A refused selection comes with every harness: the step shows them,
+      // so that the user changes the choice and plans it.
+      const refused = res.error && res.error.code === "harness-refused" && res.data && res.data.harnesses;
+      const list = refused ? res.data.harnesses : [];
+      const rows = harnessRows(list, state.harnesses);
+      // Planning again with no tick changed pins no choice.
+      const again = () => {
+        if (refused) state.harnesses = choiceOf(list, pickOf(rows));
+        replan();
+      };
       mount(pane, h("div", { class: "col wide intro" }, crumbs(pack, summary), failure(res.error),
-        actions([h("button", { class: "btn", type: "button", onclick: () => replan(), text: t("plan.again") })])));
+        refused ? harnessStep(rows, (id, on) => pick(list, rows, id, on)) : null,
+        actions([h("button", { class: "btn", type: "button", onclick: again, text: t(refused ? "plan.harnessesAgain" : "plan.again") })])));
       return;
     }
     const p = res.data;
@@ -63,7 +86,7 @@ export async function render(root, ctx) {
     sync();
     go.addEventListener("click", async () => {
       mount(out, busy(t("plan.installing")));
-      const r = await g.run(() => act("/api/install", { pack, mode: p.mode, variant: p.variant, digest: p.digest, yes: state.consent }));
+      const r = await g.run(() => act("/api/install", { pack, mode: p.mode, variant: p.variant, harnesses: state.harnesses, digest: p.digest, yes: state.consent }));
       if (!r || ctx.stale()) return;
       if (r.ok) {
         await ctx.refresh();
@@ -92,7 +115,8 @@ export async function render(root, ctx) {
         variants.length > 1 ? h("fieldset", { class: "field" }, h("legend", { class: "label", text: t("plan.variant") }), hint(t("hint.variant")),
           h("div", { class: "tabs", role: "radiogroup", "aria-label": t("plan.variant") }, variants.map((v) =>
             h("button", { class: "btn sm", type: "button", role: "radio", "aria-checked": String(v === p.variant), "aria-selected": String(v === p.variant), onclick: () => { state.variant = v; state.consent = false; replan(); }, text: v })))) : null,
-        modes(p.mode, (m) => { state.mode = m; state.consent = false; replan(); })),
+        modes(p.mode, (m) => { state.mode = m; state.consent = false; replan(); }),
+        harnessStep(harnessRows(p.harnesses, state.harnesses), (id, on) => pick(p.harnesses, harnessRows(p.harnesses, state.harnesses), id, on))),
       h("div", { class: "col wide" },
         h("p", { class: "summary", text: counts(p) }),
         p.diagnostics.length ? sec(t("plan.problems"), "", diagnostics(p.diagnostics)) : null,
@@ -113,6 +137,24 @@ export async function render(root, ctx) {
 function crumbs(pack, summary, installedNow) {
   return h("p", { class: "meta" }, h("a", { class: "t-meta", href: "#/packs", text: summary ? summary.name + " " + summary.version : tilde(pack) }),
     installedNow ? h("span", { class: "pill sm you", text: t("packs.installed") }) : h("span", { class: "pill sm state", text: t("plan.nothingYet") }));
+}
+
+// harnessStep is the harness step (decision 0047): each harness with its
+// state, a box the user ticks for a compatible harness that is installed,
+// a required one ticked and locked, a preview one with why it is one;
+// onPick is called with the id and whether it is now ticked.
+function harnessStep(rows, onPick) {
+  return h("fieldset", { class: "field" }, h("legend", { class: "label", text: t("plan.harnesses") }), hint(t("hint.harnessPick")),
+    h("div", { class: "stack tight" }, rows.map((r) => {
+      const box = h("input", { type: "checkbox", id: "plan-h-" + r.id });
+      box.checked = r.checked;
+      box.disabled = r.disabled;
+      box.addEventListener("change", () => onPick(r.id, box.checked));
+      return h("div", {},
+        h("label", { class: "check", for: "plan-h-" + r.id }, box, h("span", { class: "check-text", text: harnessName(r.id) }), h("span", { class: "mono", text: " " + r.id }),
+          r.why ? h("span", { class: "pill sm state", text: t("plan.harness." + r.why) }) : null),
+        r.reason ? h("p", { class: "help", text: t("plan.previewReason", { reason: previewReason(r.id, r.reason) }) }) : null);
+    })));
 }
 
 function modes(current, pick) {

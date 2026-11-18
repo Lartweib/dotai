@@ -65,11 +65,13 @@ type Profile struct {
 	Mods        []string `json:"mods" yaml:"mods"`
 }
 
-// Answers are what a new pack is made of: its name, the harnesses it
-// requires and its profiles, in order.
+// Answers are what a new pack is made of: its name, the harnesses it is
+// compatible with, those of them it requires (decision 0047), and its
+// profiles, in order.
 type Answers struct {
 	Name      string    `json:"name" yaml:"name"`
 	Harnesses []string  `json:"harnesses" yaml:"harnesses"`
+	Requires  []string  `json:"requires" yaml:"requires"`
 	Profiles  []Profile `json:"profiles" yaml:"profiles"`
 }
 
@@ -206,7 +208,7 @@ func blockKeys(data []byte) []string {
 }
 
 // manifest is the dotai.yaml of a: the template's own, with its comments,
-// whose name, harnesses and profiles are a's. Without profiles, the
+// whose name, harnesses, required harnesses and profiles are a's. Without profiles, the
 // paragraph of the profiles, with its comment, is left out.
 func manifest(a Answers) []byte {
 	text, err := fs.ReadFile(FS(), manifestFile)
@@ -229,6 +231,8 @@ func manifest(a Answers) []byte {
 				line = "name: " + scalar(a.Name)
 			case strings.HasPrefix(line, "harnesses: "):
 				line = "harnesses: " + flow(a.Harnesses)
+			case strings.HasPrefix(line, "requires: "):
+				line = "requires: " + flow(a.Requires)
 			case line == "profiles:":
 				profiles, inProfiles = true, true
 				lines = append(lines, line)

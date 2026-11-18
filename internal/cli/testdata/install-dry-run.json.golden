@@ -13,7 +13,7 @@
         "antigravity-cli",
         "opencode"
       ],
-      "optionalHarnesses": [],
+      "requires": [],
       "profiles": [],
       "variants": [],
       "defaultVariant": "",
@@ -31,7 +31,10 @@
     "harnesses": [
       {
         "id": "claudecode",
+        "compatible": true,
         "required": true,
+        "status": "supported",
+        "statusReason": "",
         "managed": true,
         "detected": true,
         "binary": "/usr/bin/claude",
@@ -54,7 +57,10 @@
       },
       {
         "id": "antigravity-cli",
-        "required": true,
+        "compatible": true,
+        "required": false,
+        "status": "supported",
+        "statusReason": "",
         "managed": true,
         "detected": true,
         "binary": "/usr/bin/agy",
@@ -83,7 +89,10 @@
       },
       {
         "id": "opencode",
-        "required": true,
+        "compatible": true,
+        "required": false,
+        "status": "preview",
+        "statusReason": "the hooks plugin hangs",
         "managed": true,
         "detected": true,
         "binary": "",

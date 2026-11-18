@@ -41,6 +41,7 @@ version: 0.1.0
 engine: ">=0.1.0"
 rulesync: 43.9.2
 harnesses: [claudecode, antigravity-cli, opencode]
+requires: [claudecode]
 
 profiles:
   web:
@@ -75,8 +76,8 @@ onboarding:                # optional: replaces dotai's onboarding
 | `description`, `author` | no | What the pack is and who makes it, as strings. The `.claude-plugin/plugin.json` dotai writes for a mod carries them ([Mods](#mods)). |
 | `engine` | yes | Range of engine versions the pack supports. |
 | `rulesync` | yes | Exact rulesync version the pack was tested with. |
-| `harnesses` | yes | Required targets, using rulesync target names: `claudecode`, `antigravity-cli`, `opencode`. An install where one of them is not installed, or is left out with `--harness`, stops before writing anything, naming it and why ([0038](decisions/0038-replace-mode-resets-harness-to-fresh-install.md)). |
-| `optional-harnesses` | no | Targets the pack also supports, with the same names as `harnesses`; each one at most once and none of them also in `harnesses` (`harness-duplicate`), and an unknown name is `harness-unknown`. An install skips one that is not installed, with a notice ([0038](decisions/0038-replace-mode-resets-harness-to-fresh-install.md)). `dotai/settings.yaml` may hold a block for it, and `stage` renders it with the required ones. |
+| `harnesses` | yes | The harnesses the pack is compatible with, using rulesync target names: `claudecode`, `antigravity-cli`, `opencode`; an unknown name is `harness-unknown`, and a name given twice `harness-duplicate`. An install manages a selection of them: the saved choice, or those that are installed and supported, a preview harness only when the user picks it ([0047](decisions/0047-harness-selection-and-preview-harnesses.md)). `dotai/settings.yaml` may hold a block for each, and `stage` renders every one. |
+| `requires` | no | The harnesses of `harnesses` the pack cannot do without, possibly none: an install where one of them is not installed, or is left out of the selection, stops before writing anything, naming it and why ([0038](decisions/0038-replace-mode-resets-harness-to-fresh-install.md), [0047](decisions/0047-harness-selection-and-preview-harnesses.md)). An unknown name is `harness-unknown`, a name given twice `harness-duplicate`, and one that `harnesses` does not list `harness-not-compatible`. The `optional-harnesses` field of earlier drafts is removed ([0047](decisions/0047-harness-selection-and-preview-harnesses.md)): a manifest that has it is `field-unknown`, with a hint to list every compatible harness in `harnesses` and the needed ones in `requires`. |
 | `profiles.<name>.path`, `variants.<name>.path` | yes | Layer directory, relative to the pack root. |
 | `profiles.<name>.description` | yes | What the profile is for. The profiling skill lists it ([Onboarding](#onboarding)). |
 | `profiles.<name>.hints` | no | Globs of repository-relative paths: evidence for the profiling skill, never proof. The engine never picks a profile by them; the session-start hook uses them only to tell when to speak ([Onboarding](#onboarding)). Each is matched as Go's `path.Match` reads it, against the whole path from the top of the repository, so `package.json` is the top one only and `*` stays within one directory; `dotai validate` warns `profile-hint-invalid` about a pattern `path.Match` refuses, which matches nothing, and about one with `**`, which `path.Match` reads as `*` within one segment. |
@@ -134,12 +135,13 @@ Decided in [0046](decisions/0046-pack-templates-and-wizard.md). dotai embeds one
 
 It has no `dotai-profiles` item and no `onboarding` subagent: dotai generates the onboarding ([Onboarding](#onboarding)).
 
-`dotai pack new <dir>` writes the template into a new or empty directory, filled in with the pack's name, the harnesses it requires and its profiles, each with its `description`, `hints` and mods, from flags or an answers file, and adds it as `dotai pack add --dir` does; `--dry-run` shows the files and the profiling skill dotai will generate from them, and writes nothing ([CLI-JSON](CLI-JSON.md#commands)). The web UI's wizard, Create a pack on the Packs board, where Home points without a pack, asks the same answers, shows the same plan with the skill, and writes it by its digest through the same use case. Each profile gets the template's example rule, as `profiles/<name>/.rulesync/rules/<name>.md`, each mod a profile names the example mod, and `dotai/settings.yaml` only the blocks of the chosen harnesses. The names of the pack, its profiles and its mods follow the rule for mod names, so that each is safe as a folder.
+`dotai pack new <dir>` writes the template into a new or empty directory, filled in with the pack's name, the harnesses it is compatible with (every supported one by default; a preview one only when named), those it requires (none by default) and its profiles, each with its `description`, `hints` and mods, from flags or an answers file, and adds it as `dotai pack add --dir` does; `--dry-run` shows the files and the profiling skill dotai will generate from them, and writes nothing ([CLI-JSON](CLI-JSON.md#commands)). The web UI's wizard, Create a pack on the Packs board, where Home points without a pack, asks the same answers, shows the same plan with the skill, and writes it by its digest through the same use case. Each profile gets the template's example rule, as `profiles/<name>/.rulesync/rules/<name>.md`, each mod a profile names the example mod, and `dotai/settings.yaml` only the blocks of the chosen harnesses. The names of the pack, its profiles and its mods follow the rule for mod names, so that each is safe as a folder.
 
 ```yaml
 # dotai pack new my-pack --answers answers.yaml
 name: my-pack
 harnesses: [claudecode, opencode]
+requires: [claudecode]
 profiles:
   - name: web
     description: Web apps with a JavaScript toolchain.
@@ -272,7 +274,7 @@ There are no model tiers ([0024](decisions/0024-models-declared-per-harness-no-t
 
 `dotai/settings.yaml` holds one block per harness, keyed by rulesync target name, merged as-is into that harness's settings file ([0025](decisions/0025-settings-as-per-harness-passthrough.md)). The engine does not interpret any setting. A layer that replaces a value from an earlier layer declares it in a top-level `dotai:` block, for example `dotai: { overrides: [claudecode.statusLine] }` ([0030](decisions/0030-tools-paths-and-project-config.md)).
 
-`dotai validate` checks each file on its own. The top-level keys are harnesses listed in the manifest, in `harnesses` or `optional-harnesses`, plus the optional `dotai:`, and each harness block is a mapping whose keys contain no dot; a profile cannot carry an `antigravity-cli` block. Values must have a JSON form: no anchors or aliases, no keys that are not strings, no infinite or NaN numbers, no integers that do not fit 64 bits, and no null, because a layer cannot unset a key. `dotai:` holds only `overrides`, a list of `<harness>.<key>` entries, without duplicates, each naming a key the same file sets. Claude Code's `env` must be a mapping, because it merges per variable, and its override names one variable, `claudecode.env.<VAR>`, and no other nested path is allowed. Whether an override replaces a value of an earlier layer is checked when the layers merge. The same key in the user scope and the project scope is not a conflict: each scope writes its own settings file, and the harness decides which one wins.
+`dotai validate` checks each file on its own. The top-level keys are harnesses listed in the manifest's `harnesses`, plus the optional `dotai:`, and each harness block is a mapping whose keys contain no dot; a profile cannot carry an `antigravity-cli` block. Values must have a JSON form: no anchors or aliases, no keys that are not strings, no infinite or NaN numbers, no integers that do not fit 64 bits, and no null, because a layer cannot unset a key. `dotai:` holds only `overrides`, a list of `<harness>.<key>` entries, without duplicates, each naming a key the same file sets. Claude Code's `env` must be a mapping, because it merges per variable, and its override names one variable, `claudecode.env.<VAR>`, and no other nested path is allowed. Whether an override replaces a value of an earlier layer is checked when the layers merge. The same key in the user scope and the project scope is not a conflict: each scope writes its own settings file, and the harness decides which one wins.
 
 ```yaml
 claudecode:

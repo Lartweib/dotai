@@ -42,6 +42,7 @@ func TestPlanProjectWithRealRulesync(t *testing.T) {
 		writeFile(t, filepath.Join(web, filepath.FromSlash(name)), data)
 	}
 	project, home, _ := projectDirs(t)
+	chooseEveryHarness(t, home) // OpenCode, a preview harness, too
 	git(t, project, "init", "-q")
 	writeFile(t, at(project, ".agents/hooks.json"), "{}\n")
 	git(t, project, "add", ".agents/hooks.json")

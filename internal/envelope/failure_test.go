@@ -31,6 +31,18 @@ func TestClassify(t *testing.T) {
 			wantData: map[string]any{"harnesses": []string{"claudecode"}, "running": []app.RunningHarness{}},
 		},
 		{name: "project refused", err: &app.ProjectRefusedError{}, wantCode: envelope.CodeProjectRefused},
+		{
+			name: "a refused harness selection carries its refusals and every harness",
+			err: fmt.Errorf("plan: %w", &app.HarnessRefusedError{
+				Refusals:  []app.HarnessRefusal{{Code: app.CodeHarnessMissing, Harness: "claudecode", Message: "m"}},
+				Harnesses: []app.HarnessState{{ID: "claudecode", Compatible: true, Required: true, Status: "supported"}},
+			}),
+			wantCode: envelope.CodeHarnessRefused,
+			wantData: map[string]any{
+				"refusals":  []app.HarnessRefusal{{Code: app.CodeHarnessMissing, Harness: "claudecode", Message: "m"}},
+				"harnesses": []app.HarnessState{{ID: "claudecode", Compatible: true, Required: true, Status: "supported"}},
+			},
+		},
 		{name: "apply consent carries the project plan", err: &app.ApplyConsentError{Plan: projectPlan}, wantCode: envelope.CodeConsent, wantData: projectPlan},
 		{name: "apply refused carries the project plan", err: &app.ApplyRefusedError{Plan: projectPlan}, wantCode: envelope.CodeApplyRefused, wantData: projectPlan},
 		{name: "record invalid", err: &app.RecordInvalidError{Path: "/home/u/.dotai/projects/x/record.json"}, wantCode: envelope.CodeRecordInvalid},

@@ -12,7 +12,7 @@
       "harnesses": [
         "claudecode"
       ],
-      "optionalHarnesses": [],
+      "requires": [],
       "profiles": [
         {
           "name": "web",

@@ -43,7 +43,7 @@ type ProjectPlan struct {
 	Refusals []plan.Warning `json:"refusals"`
 	// FirstApply is set when the project has no record of an earlier apply.
 	FirstApply bool `json:"firstApply"`
-	// Notices say why an optional harness is not in the plan, and when
+	// Notices say why a compatible harness is not in the plan, and when
 	// Claude Code loads each mod the plan installs, text for people.
 	Notices     []string     `json:"notices"`
 	Diagnostics []Diagnostic `json:"diagnostics"`
@@ -221,14 +221,15 @@ func withProjectPlan(ctx context.Context, d installFS, h host, g gitPort, fetch 
 		}
 	}()
 	var notices []string
+	var warnings []plan.Warning
 	pick := func(m pack.Manifest) ([]string, error) {
 		detected, err := detectAll(d, h, home, m)
 		if err != nil {
 			return nil, err
 		}
-		selected, n, _, err := selectHarnesses(m, nil, prev, detected)
-		notices = n
-		return selected, err
+		sel, err := selectHarnesses(m, nil, prev, detected, byApply)
+		notices, warnings = sel.Notices, sel.Warnings
+		return sel.Selected, err
 	}
 	s, err := stage(ctx, d, fetch, run, cacheDir, dir, filepath.Join(tmp, "staging"), Selection{Variant: variant, Profiles: opts.Profiles}, pick, ToolsIn(home, project), false, progress)
 	if err != nil {
@@ -262,6 +263,7 @@ func withProjectPlan(ctx context.Context, d installFS, h host, g gitPort, fetch 
 		return err
 	}
 	res.Harnesses, res.Notices = append(res.Harnesses, s.Harnesses...), append(res.Notices, notices...)
+	res.Warnings = append(res.Warnings, warnings...)
 	res.Warnings = append(res.Warnings, templatePlanWarnings(s.TemplateFiles, projectLayers(s.Pack, opts.Profiles), "apply")...)
 	in := plan.ProjectInput{Project: project, Home: home, Pack: s.Pack.Name, Adapters: adapters, Repo: repo != nil, MCPKey: mcpKey}
 	if record != nil {

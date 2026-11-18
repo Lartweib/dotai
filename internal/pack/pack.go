@@ -17,31 +17,33 @@ import (
 
 // Diagnostic codes.
 const (
-	CodeManifestMissing    = "manifest-missing"
-	CodeYAMLInvalid        = "yaml-invalid"
-	CodeFieldType          = "field-type"
-	CodeFieldRequired      = "field-required"
-	CodeFieldUnknown       = "field-unknown"
-	CodeFieldDuplicate     = "field-duplicate"
-	CodeSchemaUnknown      = "schema-unknown"
-	CodeVersionInvalid     = "version-invalid"
-	CodeEngineInvalid      = "engine-invalid"
-	CodeRulesyncInvalid    = "rulesync-invalid"
-	CodeHarnessUnknown     = "harness-unknown"
-	CodeHarnessDuplicate   = "harness-duplicate"
-	CodeLayerPathInvalid   = "layer-path-invalid"
-	CodeLayerMissing       = "layer-missing"
-	CodeVariantDefault     = "variant-default"
-	CodeFrontmatterInvalid = "frontmatter-invalid"
-	CodeSymlinkNotAllowed  = "symlink-not-allowed"
-	CodeNotRegularFile     = "not-regular-file"
-	CodeFileTooLarge       = "file-too-large"
-	CodeLayerNotDirectory  = "layer-not-directory"
-	CodeSettingsValue      = "settings-value-invalid"
-	CodeSettingsScope      = "settings-scope"
-	CodeOverridePath       = "override-path-invalid"
-	CodeOverrideKeyUnset   = "override-key-unset"
-	CodeLegacyFileName     = "legacy-file-name"
+	CodeManifestMissing  = "manifest-missing"
+	CodeYAMLInvalid      = "yaml-invalid"
+	CodeFieldType        = "field-type"
+	CodeFieldRequired    = "field-required"
+	CodeFieldUnknown     = "field-unknown"
+	CodeFieldDuplicate   = "field-duplicate"
+	CodeSchemaUnknown    = "schema-unknown"
+	CodeVersionInvalid   = "version-invalid"
+	CodeEngineInvalid    = "engine-invalid"
+	CodeRulesyncInvalid  = "rulesync-invalid"
+	CodeHarnessUnknown   = "harness-unknown"
+	CodeHarnessDuplicate = "harness-duplicate"
+	// A harness of requires that harnesses does not list (decision 0047).
+	CodeHarnessNotCompatible = "harness-not-compatible"
+	CodeLayerPathInvalid     = "layer-path-invalid"
+	CodeLayerMissing         = "layer-missing"
+	CodeVariantDefault       = "variant-default"
+	CodeFrontmatterInvalid   = "frontmatter-invalid"
+	CodeSymlinkNotAllowed    = "symlink-not-allowed"
+	CodeNotRegularFile       = "not-regular-file"
+	CodeFileTooLarge         = "file-too-large"
+	CodeLayerNotDirectory    = "layer-not-directory"
+	CodeSettingsValue        = "settings-value-invalid"
+	CodeSettingsScope        = "settings-scope"
+	CodeOverridePath         = "override-path-invalid"
+	CodeOverrideKeyUnset     = "override-key-unset"
+	CodeLegacyFileName       = "legacy-file-name"
 
 	// A rulesync pin the engine cannot verify, reported only by LoadWith.
 	CodeRulesyncUnsupported = "rulesync-unsupported"
@@ -176,7 +178,7 @@ func LoadWith(fsys fs.FS, rulesyncVersions []string) (*Pack, []Diagnostic, error
 		}
 	}
 	for _, l := range layers {
-		if err = loadLayer(fsys, &diags, &l, p.Manifest.AllHarnesses()); err != nil {
+		if err = loadLayer(fsys, &diags, &l, p.Manifest.Harnesses); err != nil {
 			return nil, nil, err
 		}
 		p.Layers = append(p.Layers, l)

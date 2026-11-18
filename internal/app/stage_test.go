@@ -370,22 +370,23 @@ func TestStageRunsRulesyncInEachScope(t *testing.T) {
 	}
 }
 
-// TestStageRendersTheOptionalHarnesses checks that stage renders every
-// harness the pack supports, the optional ones too (decision 0038).
-func TestStageRendersTheOptionalHarnesses(t *testing.T) {
+// TestStageRendersEveryCompatibleHarness checks that stage renders every
+// harness the pack is compatible with, the required ones or not
+// (decision 0047).
+func TestStageRendersEveryCompatibleHarness(t *testing.T) {
 	dir := copyPack(t)
-	editPack(t, dir, "dotai.yaml", "harnesses: [claudecode, antigravity-cli, opencode]", "harnesses: [claudecode]\noptional-harnesses: [antigravity-cli, opencode]")
+	editPack(t, dir, "dotai.yaml", "harnesses: [claudecode, antigravity-cli, opencode]", "harnesses: [claudecode, antigravity-cli, opencode]\nrequires: [claudecode]")
 	out := filepath.Join(t.TempDir(), "staging")
 	f := &fakeRulesync{t: t}
 	if _, err := f.stage(dir, out, app.Selection{}, false); err != nil {
 		t.Fatalf("Stage() error = %v", err)
 	}
 	if len(f.runs) == 0 || !reflect.DeepEqual(f.runs[0].targets, []string{"claudecode", "antigravity-cli", "opencode"}) {
-		t.Errorf("runs = %+v, want rulesync for the required harnesses, then the optional ones", f.runs)
+		t.Errorf("runs = %+v, want rulesync for every compatible harness, in manifest order", f.runs)
 	}
 	for _, name := range []string{"user/.gemini/antigravity-cli/settings.json", "user/.config/opencode/opencode.jsonc"} {
 		if _, err := os.Stat(filepath.Join(out, filepath.FromSlash(name))); err != nil {
-			t.Errorf("the settings of an optional harness are missing: %v", err)
+			t.Errorf("the settings of a harness the pack does not require are missing: %v", err)
 		}
 	}
 }

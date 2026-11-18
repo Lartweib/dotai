@@ -19,7 +19,10 @@ const ManifestFile = "dotai.yaml"
 // SchemaV1 is the only manifest schema this engine reads.
 const SchemaV1 = "dotai.pack/v1"
 
-// Harnesses are the rulesync target names the engine supports (0019).
+// Harnesses are the rulesync target names the engine supports (0019): the
+// ids of the harness adapters, in their order. The harness package
+// imports this one, so the list cannot derive from it; a test there
+// checks that the two agree.
 var Harnesses = []string{"claudecode", "antigravity-cli", "opencode"}
 
 // Manifest is the content of dotai.yaml.
@@ -32,12 +35,15 @@ type Manifest struct {
 	// Description and Author describe the pack, "" when the manifest has
 	// none; the plugin manifest dotai writes for a mod carries them.
 	Description, Author string
-	Harnesses           []string // required: an install stops when one is missing (decision 0038)
-	// OptionalHarnesses are the other harnesses the pack supports: an
-	// install skips one that is not installed (decision 0038).
-	OptionalHarnesses []string
-	Profiles          []Profile // in declaration order
-	Variants          []Variant // in declaration order
+	// Harnesses are the harnesses the pack is compatible with, never
+	// empty; an install picks among those detected (decision 0047).
+	Harnesses []string
+	// Requires are the harnesses of Harnesses the pack needs: an install
+	// stops when one is missing (decisions 0038 and 0047); nil or empty
+	// when it needs none in particular.
+	Requires []string
+	Profiles []Profile // in declaration order
+	Variants []Variant // in declaration order
 	// Onboarding is the onboarding block: dotai's onboarding unless it
 	// names a custom item (decision 0045).
 	Onboarding Onboarding
@@ -49,12 +55,6 @@ type Manifest struct {
 type hintAt struct {
 	profile, hint string
 	line, column  int
-}
-
-// AllHarnesses is every harness the pack supports: the required ones,
-// then the optional ones, in declaration order.
-func (m Manifest) AllHarnesses() []string {
-	return append(slices.Clone(m.Harnesses), m.OptionalHarnesses...)
 }
 
 // Profile is a project-level layer. Mods are the mods of the pack's mods/
@@ -82,10 +82,15 @@ type Detect struct {
 
 func decodeManifest(fsys fs.FS, r reader, root *yaml.Node, rulesyncVersions []string) Manifest {
 	o := r.object(nil, root, ManifestFile,
-		"schema", "name", "version", "description", "author", "engine", "rulesync", "harnesses", "optional-harnesses", "profiles", "variants", "onboarding")
+		"schema", "name", "version", "description", "author", "engine", "rulesync", "harnesses", "requires", removedOptionalHarnesses, "profiles", "variants", "onboarding")
 	m := decodeIdentity(r, o, rulesyncVersions)
-	m.Harnesses = decodeHarnesses(r, o)
-	m.OptionalHarnesses = decodeOptionalHarnesses(r, o, m.Harnesses)
+	m.Harnesses = decodeHarnesses(r, o, "harnesses", true, nil)
+	m.Requires = decodeHarnesses(r, o, "requires", false, m.Harnesses)
+	if k := o.keys[removedOptionalHarnesses]; k != nil {
+		*r.diags = append(*r.diags, NewDiagnostic(r.file, k.Line+r.offset, k.Column, CodeFieldUnknown,
+			"%s: unknown field %q: decision 0047 removed it", o.what, removedOptionalHarnesses).
+			WithHint("list every harness the pack is compatible with in harnesses, and the ones it cannot do without in requires"))
+	}
 	m.Profiles, m.hints = decodeProfiles(fsys, r, o)
 	m.Onboarding = decodeOnboarding(r, o)
 	var declared int
@@ -130,28 +135,23 @@ func isExactVersion(v string) bool {
 	return err == nil
 }
 
-func decodeHarnesses(r reader, o object) []string {
-	hs, nodes := o.list("harnesses", true)
-	for i, h := range hs {
-		if !slices.Contains(Harnesses, h) {
-			r.report(nodes[i], CodeHarnessUnknown, "unknown harness %q, want one of %v", h, Harnesses)
-		}
-	}
-	return hs
-}
+// removedOptionalHarnesses is the manifest field of decision 0038 that
+// decision 0047 removed: a manifest that has it gets a field-unknown
+// diagnostic with a hint of what replaces it.
+const removedOptionalHarnesses = "optional-harnesses"
 
-// decodeOptionalHarnesses reads optional-harnesses: known harnesses, each
-// once, none of them also in required.
-func decodeOptionalHarnesses(r reader, o object, required []string) []string {
-	hs, nodes := o.list("optional-harnesses", false)
+// decodeHarnesses reads the list of harnesses at key: known harnesses,
+// each once, and, when compatible is not nil, each one of compatible.
+func decodeHarnesses(r reader, o object, key string, required bool, compatible []string) []string {
+	hs, nodes := o.list(key, required)
 	for i, h := range hs {
 		switch {
 		case !slices.Contains(Harnesses, h):
 			r.report(nodes[i], CodeHarnessUnknown, "unknown harness %q, want one of %v", h, Harnesses)
-		case slices.Contains(required, h):
-			r.report(nodes[i], CodeHarnessDuplicate, "harness %q is in both harnesses and optional-harnesses", h)
 		case slices.Contains(hs[:i], h):
-			r.report(nodes[i], CodeHarnessDuplicate, "harness %q is given twice in optional-harnesses", h)
+			r.report(nodes[i], CodeHarnessDuplicate, "harness %q is given twice in %s", h, key)
+		case compatible != nil && !slices.Contains(compatible, h):
+			r.report(nodes[i], CodeHarnessNotCompatible, "harness %q is in %s but not in harnesses, the harnesses the pack is compatible with", h, key)
 		}
 	}
 	return hs

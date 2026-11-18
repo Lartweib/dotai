@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/lartweib/dotai/internal/app"
+	"github.com/lartweib/dotai/internal/pack"
 	"github.com/lartweib/dotai/internal/proc"
 )
 
@@ -15,6 +16,9 @@ import (
 func installConsent(t *testing.T, h app.Host, home string, opts app.InstallOptions, consent app.Consent) (app.InstallResult, error) {
 	t.Helper()
 	opts.Mode = app.ModeReplace
+	if opts.Harnesses == nil {
+		opts.Harnesses = pack.Harnesses // OpenCode, a preview harness, too
+	}
 	return app.InstallConsent(context.Background(), newClockFS(t), h, quiet(t).fetch, replaceRun(t), examplePack, home, opts, consent)
 }
 

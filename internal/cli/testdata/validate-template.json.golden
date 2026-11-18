@@ -12,7 +12,7 @@
       "harnesses": [
         "opencode"
       ],
-      "optionalHarnesses": [],
+      "requires": [],
       "profiles": [],
       "variants": [],
       "defaultVariant": "",

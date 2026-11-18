@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/lartweib/dotai/internal/app"
+	"github.com/lartweib/dotai/internal/pack"
 	"github.com/lartweib/dotai/internal/plan"
 	"github.com/lartweib/dotai/internal/rulesync"
 	"github.com/lartweib/dotai/internal/state"
@@ -133,7 +134,7 @@ func replaceRun(t *testing.T) func(context.Context, rulesync.Result, []string, .
 func planReplace(t *testing.T, home string, h app.Host, variant string) (app.InstallPlan, error) {
 	t.Helper()
 	f := quiet(t)
-	return app.PlanInstallHost(context.Background(), app.OSInstallFS{}, h, f.fetch, replaceRun(t), examplePack, home, app.InstallOptions{Variant: variant, Mode: app.ModeReplace})
+	return app.PlanInstallHost(context.Background(), app.OSInstallFS{}, h, f.fetch, replaceRun(t), examplePack, home, app.InstallOptions{Variant: variant, Mode: app.ModeReplace, Harnesses: pack.Harnesses})
 }
 
 func rels(home string, paths []string) []string {

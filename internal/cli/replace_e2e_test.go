@@ -26,6 +26,10 @@ import (
 // agents, skills, settings and MCP servers they lose to a replace install,
 // the files of Gemini CLI and of other tools, and the generic paths under
 // the home directory.
+// every is the --harness choice of every harness, OpenCode, a preview
+// harness that no install manages by default, included (decision 0047).
+const every = "claudecode,antigravity-cli,opencode"
+
 var seededConfig = map[string]string{
 	".claude/.credentials.json":               `{"claudeAiOauth":{"accessToken":"fake"}}`,
 	".claude/history.jsonl":                   `{"display":"hi"}` + "\n",
@@ -226,13 +230,13 @@ func TestReplaceInstallAndRestore(t *testing.T) {
 	e := newE2E(t)
 	seeded := snapshot(t, e.home)
 
-	code, stdout, stderr := e.run("install", examplePack, "--mode", "replace")
+	code, stdout, stderr := e.run("install", examplePack, "--harness", every, "--mode", "replace")
 	if code != cli.ExitInternal || !strings.Contains(stderr, "--yes") || !strings.Contains(stdout, "wipe  ") || !strings.Contains(stdout, "refused, the install wrote nothing") {
 		t.Errorf("without --yes: exit code = %d, stdout = %q, stderr = %q, want the plan and a refusal that names --yes", code, stdout, stderr)
 	}
 	sameSnapshot(t, "home after the install without --yes", snapshot(t, e.home), seeded)
 
-	code, stdout, _ = e.run("install", examplePack, "--mode", "replace", "--json")
+	code, stdout, _ = e.run("install", examplePack, "--harness", every, "--mode", "replace", "--json")
 	env := decode(t, stdout)
 	var plan app.InstallPlan
 	if err := json.Unmarshal(env.Data, &plan); err != nil || code != cli.ExitInternal || env.OK || env.Error.Code != "consent-required" ||
@@ -241,7 +245,7 @@ func TestReplaceInstallAndRestore(t *testing.T) {
 	}
 	sameSnapshot(t, "home after the install --json without --yes", snapshot(t, e.home), seeded)
 
-	code, stdout, stderr = e.run("install", examplePack, "--mode", "replace", "--yes", "--json")
+	code, stdout, stderr = e.run("install", examplePack, "--harness", every, "--mode", "replace", "--yes", "--json")
 	if code != cli.ExitOK {
 		t.Fatalf("with --yes: exit code = %d, stdout = %s, stderr = %q", code, stdout, stderr)
 	}
@@ -405,7 +409,7 @@ func TestReplaceRefusesWhileAHarnessRuns(t *testing.T) {
 	e := newE2E(t)
 	seeded := snapshot(t, e.home)
 	e.procs = []proc.Process{{PID: os.Getpid(), Name: exe("claude")}, {PID: 4242, Name: exe("opencode-service-4242-ab")}, {PID: 7, Name: "init"}}
-	code, stdout, _ := e.run("install", examplePack, "--mode", "replace", "--yes", "--json")
+	code, stdout, _ := e.run("install", examplePack, "--harness", every, "--mode", "replace", "--yes", "--json")
 	env := decode(t, stdout)
 	var data struct {
 		Running []app.RunningHarness `json:"running"`
@@ -415,7 +419,7 @@ func TestReplaceRefusesWhileAHarnessRuns(t *testing.T) {
 		t.Errorf("exit code = %d, envelope = %s, want harness-running naming OpenCode's service only", code, stdout)
 	}
 	sameSnapshot(t, "home after the refused install", snapshot(t, e.home), seeded)
-	if code, _, stderr := e.run("install", examplePack, "--mode", "replace", "--yes", "--ignore-running"); code != cli.ExitOK {
+	if code, _, stderr := e.run("install", examplePack, "--harness", every, "--mode", "replace", "--yes", "--ignore-running"); code != cli.ExitOK {
 		t.Fatalf("--ignore-running: exit code = %d, stderr = %q, want it installed", code, stderr)
 	}
 	installed := snapshot(t, e.home)

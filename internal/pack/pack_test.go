@@ -72,21 +72,43 @@ func TestLoadSharedSkills(t *testing.T) {
 	}
 }
 
-func TestLoadOptionalHarnesses(t *testing.T) {
+// TestLoadRequires checks the harnesses of decision 0047: harnesses are
+// the compatible ones, and requires the subset the pack needs. A harness
+// of harnesses may have settings, required or not.
+func TestLoadRequires(t *testing.T) {
 	f := validPack()
-	editManifest("harnesses: [claudecode, opencode]", "harnesses: [claudecode]\noptional-harnesses: [opencode, antigravity-cli]")(f)
-	// The settings of an optional harness are the pack's too.
+	editManifest("harnesses: [claudecode, opencode]", "harnesses: [claudecode, opencode, antigravity-cli]\nrequires: [opencode]")(f)
 	f["base/dotai/settings.yaml"] = file("claudecode:\n  model: sonnet\nopencode:\n  model: a/b\n")
 	p, diags, err := pack.Load(f)
 	if err != nil || len(diags) != 0 {
 		t.Fatalf("Load() = %v, %v, want no diagnostics", diags, err)
 	}
 	m := p.Manifest
-	if !reflect.DeepEqual(m.Harnesses, []string{"claudecode"}) || !reflect.DeepEqual(m.OptionalHarnesses, []string{"opencode", "antigravity-cli"}) {
-		t.Errorf("harnesses = %v, optional %v", m.Harnesses, m.OptionalHarnesses)
+	if !reflect.DeepEqual(m.Harnesses, []string{"claudecode", "opencode", "antigravity-cli"}) || !reflect.DeepEqual(m.Requires, []string{"opencode"}) {
+		t.Errorf("harnesses = %v, requires %v", m.Harnesses, m.Requires)
 	}
-	if got := m.AllHarnesses(); !reflect.DeepEqual(got, []string{"claudecode", "opencode", "antigravity-cli"}) {
-		t.Errorf("AllHarnesses() = %v, want the required ones, then the optional ones", got)
+
+	// Without requires, the pack needs no harness in particular.
+	p, diags, err = pack.Load(validPack())
+	if err != nil || len(diags) != 0 || p.Manifest.Requires != nil {
+		t.Errorf("Load() = requires %v, %v, %v, want none", p.Manifest.Requires, diags, err)
+	}
+}
+
+// TestOptionalHarnessesIsGone checks that a manifest with the
+// optional-harnesses of decision 0038, which decision 0047 removes, is an
+// unknown field whose hint says what replaces it.
+func TestOptionalHarnessesIsGone(t *testing.T) {
+	f := validPack()
+	editManifest("harnesses: [claudecode, opencode]", "harnesses: [claudecode]\noptional-harnesses: [opencode]")(f)
+	_, diags, err := pack.Load(f)
+	if err != nil || len(diags) != 1 {
+		t.Fatalf("Load() = %v, %v, want one diagnostic", diags, err)
+	}
+	d := diags[0]
+	if d.Code != pack.CodeFieldUnknown || d.Line != 7 || !strings.Contains(d.Message, "optional-harnesses") ||
+		!strings.Contains(d.Hint, "harnesses") || !strings.Contains(d.Hint, "requires") {
+		t.Errorf("diagnostic = %+v, want field-unknown at optional-harnesses with a hint to list them in harnesses and requires", d)
 	}
 }
 
@@ -248,24 +270,34 @@ func TestLoadDiagnostics(t *testing.T) {
 			want:   []string{`dotai.yaml:6:25: harness-unknown: unknown harness "vscode", want one of [claudecode antigravity-cli opencode]`},
 		},
 		{
-			name:   "unknown optional harness",
-			mutate: editManifest("harnesses: [claudecode, opencode]", "harnesses: [claudecode]\noptional-harnesses: [opencode, codex]"),
-			want:   []string{`dotai.yaml:7:32: harness-unknown: unknown harness "codex", want one of [claudecode antigravity-cli opencode]`},
+			name:   "harness given twice",
+			mutate: editManifest("harnesses: [claudecode, opencode]", "harnesses: [claudecode, opencode, claudecode]"),
+			want:   []string{`dotai.yaml:6:35: harness-duplicate: harness "claudecode" is given twice in harnesses`},
 		},
 		{
-			name:   "optional harness that is also required",
-			mutate: editManifest("harnesses: [claudecode, opencode]", "harnesses: [claudecode, opencode]\noptional-harnesses: [opencode]"),
-			want:   []string{`dotai.yaml:7:22: harness-duplicate: harness "opencode" is in both harnesses and optional-harnesses`},
+			name:   "unknown required harness",
+			mutate: editManifest("harnesses: [claudecode, opencode]", "harnesses: [claudecode, opencode]\nrequires: [codex]"),
+			want:   []string{`dotai.yaml:7:12: harness-unknown: unknown harness "codex", want one of [claudecode antigravity-cli opencode]`},
 		},
 		{
-			name:   "optional harness given twice",
-			mutate: editManifest("harnesses: [claudecode, opencode]", "harnesses: [claudecode]\noptional-harnesses: [opencode, opencode]"),
-			want:   []string{`dotai.yaml:7:32: harness-duplicate: harness "opencode" is given twice in optional-harnesses`},
+			name:   "required harness given twice",
+			mutate: editManifest("harnesses: [claudecode, opencode]", "harnesses: [claudecode, opencode]\nrequires: [opencode, opencode]"),
+			want:   []string{`dotai.yaml:7:22: harness-duplicate: harness "opencode" is given twice in requires`},
 		},
 		{
-			name:   "optional harnesses is not a list",
-			mutate: editManifest("harnesses: [claudecode, opencode]", "harnesses: [claudecode]\noptional-harnesses: opencode"),
-			want:   []string{`dotai.yaml:7:21: field-type: dotai.yaml: "optional-harnesses" must be a list`},
+			name:   "required harness that is not compatible",
+			mutate: editManifest("harnesses: [claudecode, opencode]", "harnesses: [claudecode, opencode]\nrequires: [antigravity-cli]"),
+			want:   []string{`dotai.yaml:7:12: harness-not-compatible: harness "antigravity-cli" is in requires but not in harnesses, the harnesses the pack is compatible with`},
+		},
+		{
+			name:   "requires may be empty",
+			mutate: editManifest("harnesses: [claudecode, opencode]", "harnesses: [claudecode, opencode]\nrequires: []"),
+			want:   nil,
+		},
+		{
+			name:   "requires is not a list",
+			mutate: editManifest("harnesses: [claudecode, opencode]", "harnesses: [claudecode]\nrequires: claudecode"),
+			want:   []string{`dotai.yaml:7:11: field-type: dotai.yaml: "requires" must be a list`},
 		},
 		{
 			name:   "empty harness list",

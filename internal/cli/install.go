@@ -30,9 +30,10 @@ func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
 			"and a key dotai owns that was changed since is named and not overwritten. A variant with shared-skills also\n" +
 			"links each skill of ~/.agents/skills into Claude Code's and agy's isolated skills, unless the pack has a skill\n" +
 			"of that name; a skill added there later shows up after the next install.\n" +
-			"It manages the pack's harnesses that are installed, found by their command on PATH or their configuration\n" +
-			"directory (agy by its command only), or those --harness names; a required harness that is missing or left out\n" +
-			"stops the install, an optional one is skipped with a note. A --harness choice is saved, and a plain install reuses it.\n" +
+			"It manages the pack's compatible harnesses that are installed and supported, found by their command on PATH or\n" +
+			"their configuration directory (agy by its command only), or those --harness names; a preview harness, such as\n" +
+			"opencode, only when --harness or the saved choice names it. A required harness that is missing or left out\n" +
+			"stops the install, another one is skipped with a note. A --harness choice is saved, and a plain install reuses it.\n" +
 			"The pack is staged as by stage, into a temporary directory that is removed. Before the first write, each file\n" +
 			"that is replaced or removed is copied into a backup under ~/.dotai/backups; a failure rolls back from it.\n" +
 			"The install state is written last, to ~/.dotai/state.json. With --dry-run, nothing but the rulesync cache is written.\n" +
@@ -168,6 +169,23 @@ func earlyWarnings(env Env, jsonOut bool) (app.Warn, map[string]bool) {
 	}, warned
 }
 
+// unmanagedText says why the plan does not manage h, a harness dotai
+// knows (decision 0047): the pack is not compatible with it, or it is
+// compatible, required or not, and a preview or not.
+func unmanagedText(h app.HarnessPlan) string {
+	if !h.Compatible {
+		return "not compatible with the pack, not managed"
+	}
+	parts := []string{}
+	if h.Required {
+		parts = append(parts, "required")
+	}
+	if h.IsPreview() {
+		parts = append(parts, "preview")
+	}
+	return strings.Join(append(parts, "not managed"), ", ")
+}
+
 // writePlan prints an install plan: the pack and mode, the shared skills
 // of a variant that shares them, how each harness runs isolated, the
 // operations of each harness and then of the tools, and a count of each
@@ -195,12 +213,16 @@ func writePlan(w io.Writer, p app.InstallPlan, color bool, footer string) error 
 
 	for _, h := range p.Harnesses {
 		if !h.Managed {
-			fmt.Fprintf(&b, "\n%s · optional, not managed\n", paint(color, styleBold, h.ID))
+			fmt.Fprintf(&b, "\n%s · %s\n", paint(color, styleBold, h.ID), unmanagedText(h))
 			writeDetection(&b, h.Detection)
 			continue
 		}
+		id := h.ID
+		if h.IsPreview() {
+			id += " · preview"
+		}
 		if p.Mode == app.ModeReplace {
-			fmt.Fprintf(&b, "\n%s · replace · %s\n", paint(color, styleBold, h.ID), loginText(h.Relogin))
+			fmt.Fprintf(&b, "\n%s · replace · %s\n", paint(color, styleBold, id), loginText(h.Relogin))
 			writeDetection(&b, h.Detection)
 			writeKeeps(&b, p.Keeps, h.ID)
 			for _, c := range h.Tools {
@@ -208,7 +230,7 @@ func writePlan(w io.Writer, p app.InstallPlan, color bool, footer string) error 
 			}
 			continue
 		}
-		fmt.Fprintf(&b, "\n%s · %s isolation · %s\n", paint(color, styleBold, h.ID), h.Level, loginText(h.Relogin))
+		fmt.Fprintf(&b, "\n%s · %s isolation · %s\n", paint(color, styleBold, id), h.Level, loginText(h.Relogin))
 		writeDetection(&b, h.Detection)
 		for _, ptr := range h.Pointers {
 			fmt.Fprintf(&b, "  %s=%s\n", ptr.Name, ptr.Dir)
