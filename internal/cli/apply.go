@@ -32,7 +32,9 @@ func newApplyCmd(env Env, jsonOut *bool) *cobra.Command {
 			"root. Without --variant, the variant the install state records, or the pack's default, is checked against the\n" +
 			"profiles. Files and keys dotai does not own, or that changed since it wrote them, are overwritten only with your\n" +
 			"consent: on a terminal you are asked once, after the plan; otherwise, and with --json, the apply is refused\n" +
-			"unless --yes is given. A backup keeps what the apply overwrites; dotai restore --project undoes the apply.",
+			"unless --yes is given. A backup keeps what the apply overwrites; dotai restore --project undoes the apply.\n" +
+			"A pack file that is still an example of dotai's pack template, unchanged (template-unchanged), is installed only\n" +
+			"with the same consent: --yes accepts what the plan asks to confirm.",
 		// Checked with the arguments, so these are usage errors.
 		Args: func(cmd *cobra.Command, args []string) error {
 			if !cmd.Flags().Changed("profile") || len(profiles) == 0 {
@@ -42,7 +44,7 @@ func newApplyCmd(env Env, jsonOut *bool) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print the plan and write nothing")
-	cmd.Flags().BoolVar(&yes, "yes", false, "overwrite the conflicts of the plan, after backing them up, without asking")
+	cmd.Flags().BoolVar(&yes, "yes", false, "accept what the plan asks to confirm without asking: its conflicts, after backing them up, and template files left unchanged")
 	cmd.Flags().StringVar(&variant, "variant", "", "variant of the user scope the profiles are checked against")
 	cmd.Flags().StringSliceVar(&profiles, "profile", nil, "profiles to apply, comma-separated")
 	format := formatFlag(cmd)
@@ -92,8 +94,7 @@ func newApplyCmd(env Env, jsonOut *bool) *cobra.Command {
 			if err := writeProjectPlan(env.Stdout, p, color, "nothing was written yet\n"); err != nil {
 				return false, err
 			}
-			return env.Prompt(ctx, "The apply overwrites the conflicts listed above, files and keys dotai does not own or that changed since it wrote "+
-				"them, after copying them into its backup. Go on? [y/N] ")
+			return env.Prompt(ctx, applyQuestion(p))
 		}
 		res, err := env.Apply(ctx, cache, dir, project, home, opts, downloadProgress(env, *jsonOut), consent)
 		if _, ok := errors.AsType[*app.ApplyConsentError](err); ok && asked {
@@ -231,4 +232,17 @@ var projectStyle = map[plan.Action]string{plan.Create: styleGreen, plan.Replace:
 // paintProjectAction pads action to the widest action and colors it.
 func paintProjectAction(color bool, a plan.Action) string {
 	return paintWord(color, projectStyle[a], string(a))
+}
+
+// applyQuestion asks whether the apply may go on with what its plan p
+// asks to confirm.
+func applyQuestion(p app.ProjectPlan) string {
+	var parts []string
+	if p.ConflictConsent() {
+		parts = append(parts, "overwrites the conflicts, files and keys dotai does not own or that changed since it wrote them, after copying them into its backup")
+	}
+	if files := p.TemplateFiles(); len(files) > 0 {
+		parts = append(parts, "installs "+app.TemplateFilesPhrase(len(files)))
+	}
+	return "The apply " + strings.Join(parts, ", and it ") + ", as listed above. Go on? [y/N] "
 }

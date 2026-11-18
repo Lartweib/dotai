@@ -171,5 +171,6 @@ func validate(fsys fs.FS, sel Selection) (ValidateResult, *pack.Pack, error) {
 		res.Warnings = append(res.Warnings, merge.Warnings(p, sel)...)
 		res.Valid = len(res.Diagnostics) == 0
 	}
+	res.Warnings = append(res.Warnings, templateUnchanged(p)...)
 	return res, p, nil
 }

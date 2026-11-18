@@ -43,7 +43,9 @@ func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
 			"with --yes, when its plan lists refusals, and while a harness it resets is running, unless --ignore-running.\n" +
 			"With --dry-run it lists what would be wiped, kept and written per harness, and why it would refuse. Without\n" +
 			"--mode, install uses the mode the install state records, or isolated; it never switches a replace install to\n" +
-			"isolated: run dotai restore first.",
+			"isolated: run dotai restore first.\n" +
+			"A pack file that is still an example of dotai's pack template, unchanged (template-unchanged), is installed only\n" +
+			"with the same consent, in either mode: --yes accepts what the plan asks to confirm.",
 		// Checked with the arguments, so these are usage errors.
 		Args: func(cmd *cobra.Command, args []string) error {
 			if cmd.Flags().Changed("profile") {
@@ -55,7 +57,7 @@ func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print the plan and write nothing")
 	cmd.Flags().StringVar(&variant, "variant", "", "variant applied on top of the base")
 	cmd.Flags().StringVar(&mode, "mode", "", "install mode: isolated or replace (default: the mode the install state records, or isolated)")
-	cmd.Flags().BoolVar(&yes, "yes", false, "in the replace mode, wipe what dotai does not own into the backup without asking")
+	cmd.Flags().BoolVar(&yes, "yes", false, "accept what the plan asks to confirm without asking: what a replace install wipes into the backup, and template files left unchanged")
 	cmd.Flags().BoolVar(&ignoreRunning, "ignore-running", false, "in the replace mode, install even when a harness it resets looks like it is running")
 	cmd.Flags().StringSliceVar(&harnesses, "harness", nil, "harnesses to manage, comma-separated (default: the saved selection, or the pack's harnesses that are installed)")
 	cmd.Flags().StringSlice("profile", nil, "not accepted: profiles are project scope")
@@ -104,8 +106,7 @@ func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
 			if err := writePlan(env.Stdout, p, color, "nothing was written yet\n"); err != nil {
 				return false, err
 			}
-			return env.Prompt(ctx, "The replace install moves into its backup what dotai does not own: the entries it wipes, the files it overwrites "+
-				"and the keys of ~/.claude.json it deletes, as listed above. Go on? [y/N] ")
+			return env.Prompt(ctx, installQuestion(p))
 		}
 		res, err := env.Install(ctx, cache, packDir(args), home, opts, progress, warn, consent)
 		if _, ok := errors.AsType[*app.ConsentError](err); ok && asked {
@@ -433,4 +434,17 @@ func paintAction(color bool, a plan.Action) string {
 		return string(a) + pad
 	}
 	return paint(color, style, string(a)) + pad
+}
+
+// installQuestion asks whether the install may go on with what its plan p
+// asks to confirm.
+func installQuestion(p app.InstallPlan) string {
+	var parts []string
+	if p.ConsentForeign {
+		parts = append(parts, "moves into its backup what dotai does not own: the entries it wipes, the files it overwrites and the keys of ~/.claude.json it deletes")
+	}
+	if files := p.TemplateFiles(); len(files) > 0 {
+		parts = append(parts, "installs "+app.TemplateFilesPhrase(len(files)))
+	}
+	return "The install " + strings.Join(parts, ", and it ") + ", as listed above. Go on? [y/N] "
 }

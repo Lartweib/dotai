@@ -49,7 +49,8 @@ type ProjectPlan struct {
 	Diagnostics []Diagnostic `json:"diagnostics"`
 	// Blocked says that the apply refuses the plan whatever the consent,
 	// for its diagnostics or refusals; Consent that it needs consent
-	// (--yes) for its conflicts.
+	// (--yes) for what it asks to confirm: its conflicts, and the files of
+	// the pack's template it installs unchanged (template-unchanged).
 	Blocked bool `json:"blocked"`
 	Consent bool `json:"consent"`
 }
@@ -176,7 +177,7 @@ func withProjectPlan(ctx context.Context, d installFS, h host, g gitPort, fetch 
 	then = func(p projectPlanned) error {
 		p.plan.Blocked = len(p.plan.Diagnostics) > 0 || len(p.plan.Refusals) > 0
 		files, keys := conflicts(p.plan)
-		p.plan.Consent = files+keys > 0
+		p.plan.Consent = files+keys > 0 || len(p.plan.TemplateFiles()) > 0
 		return next(p)
 	}
 	if !filepath.IsAbs(home) || !filepath.IsAbs(cwd) {
@@ -261,6 +262,7 @@ func withProjectPlan(ctx context.Context, d installFS, h host, g gitPort, fetch 
 		return err
 	}
 	res.Harnesses, res.Notices = append(res.Harnesses, s.Harnesses...), append(res.Notices, notices...)
+	res.Warnings = append(res.Warnings, templatePlanWarnings(s.TemplateFiles, projectLayers(s.Pack, opts.Profiles), "apply")...)
 	in := plan.ProjectInput{Project: project, Home: home, Pack: s.Pack.Name, Adapters: adapters, Repo: repo != nil, MCPKey: mcpKey}
 	if record != nil {
 		in.Owned = record.Owned()

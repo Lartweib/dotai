@@ -12,6 +12,7 @@ import { api, loadStatus, registry, shared, tilde } from "./js/store.js";
 import * as home from "./js/home.js";
 import * as packs from "./js/packs.js";
 import * as packadd from "./js/packadd.js";
+import * as packnew from "./js/packnew.js";
 import * as packupdate from "./js/packupdate.js";
 import * as installed from "./js/installed.js";
 import * as tree from "./js/tree.js";
@@ -47,12 +48,13 @@ async function exchange(code) {
 
 // The boards, by the route in the address: #/packs, #/tree and so on.
 // The plan of an install and the files it writes are steps of the
-// Installed board; adding a pack (#/add) and updating one (#/update/<id>)
-// are steps of the Packs board.
+// Installed board; adding a pack (#/add), creating one with the wizard
+// (#/new) and updating one (#/update/<id>) are steps of the Packs board.
 const routes = {
   home: { view: home, nav: "home" },
   packs: { view: packs, nav: "packs" },
   add: { view: packadd, nav: "packs" },
+  new: { view: packnew, nav: "packs" },
   update: { view: packupdate, nav: "packs" },
   installed: { view: installed, nav: "installed" },
   tree: { view: tree, nav: "installed" },

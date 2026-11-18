@@ -27,11 +27,15 @@ func TestRunOnboardingHook(t *testing.T) {
 		t.Fatal(err)
 	}
 	const line = "dotai: this repository is not set up."
+	// release lets the hook past the bound return, once the test is over.
+	release := make(chan struct{})
+	defer close(release)
 	tests := []struct {
-		name string
-		args []string
-		hook func(ctx context.Context) (string, error)
-		want string
+		name  string
+		args  []string
+		hook  func(ctx context.Context) (string, error)
+		bound time.Duration
+		want  string
 	}{
 		{name: "plain text for Claude Code", args: []string{"--harness", "claudecode"}, hook: func(context.Context) (string, error) { return line, nil }, want: line + "\n"},
 		{name: "plain text for OpenCode", args: []string{"--harness", "opencode"}, hook: func(context.Context) (string, error) { return line, nil }, want: line + "\n"},
@@ -39,9 +43,10 @@ func TestRunOnboardingHook(t *testing.T) {
 			want: `{"injectSteps":[{"systemMessage":{"systemMessage":"say \"hi\""}}]}` + "\n"},
 		{name: "silence", args: []string{"--harness", "antigravity-cli"}, hook: func(context.Context) (string, error) { return "", nil }},
 		{name: "an error is silent", args: []string{"--harness", "claudecode"}, hook: func(context.Context) (string, error) { return line, errors.New("broken") }},
-		{name: "past the time bound is silent", args: []string{"--harness", "claudecode"}, hook: func(ctx context.Context) (string, error) {
-			<-ctx.Done()
-			time.Sleep(50 * time.Millisecond)
+		// A hook that has not returned by the bound, a short one here,
+		// leaves the session in silence: the command does not wait for it.
+		{name: "past the time bound is silent", args: []string{"--harness", "claudecode"}, bound: 200 * time.Millisecond, hook: func(context.Context) (string, error) {
+			<-release
 			return line, nil
 		}},
 		{name: "an envelope with --json", args: []string{"--harness", "claudecode", "--json"}, hook: func(context.Context) (string, error) { return line, nil },
@@ -57,13 +62,17 @@ func TestRunOnboardingHook(t *testing.T) {
 				}
 				return tt.hook(ctx)
 			}
-			start := time.Now()
-			code := cli.Run(append([]string{"onboarding", "hook"}, tt.args...), env)
+			env.HookBound = tt.bound
+			ran := make(chan int, 1)
+			go func() { ran <- cli.Run(append([]string{"onboarding", "hook"}, tt.args...), env) }()
+			var code int
+			select {
+			case code = <-ran:
+			case <-time.After(30 * time.Second): // a hang guard only
+				t.Fatal("the command hung")
+			}
 			if code != cli.ExitOK || stdout.String() != tt.want || stderr.Len() != 0 {
 				t.Errorf("exit code = %d, stdout = %q, stderr = %q, want 0, %q and nothing", code, stdout.String(), stderr.String(), tt.want)
-			}
-			if d := time.Since(start); d > time.Second {
-				t.Errorf("the hook took %v, want it bounded", d)
 			}
 		})
 	}

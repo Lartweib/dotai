@@ -1,0 +1,2 @@
+✓ template-pack 0.1.0 is valid · 1 layer
+warning: base/.rulesync/rules/example-rule.md: template-unchanged: this file is an example file of dotai's pack template, unchanged (fix: edit it for your pack, or delete it; while it is unchanged, dotai install and dotai apply ask before installing it)

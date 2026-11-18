@@ -1,0 +1,59 @@
+{
+  "schema": "dotai.cli/v1",
+  "command": "pack new",
+  "ok": true,
+  "data": {
+    "dir": "/work/my-pack",
+    "id": "local/my-pack",
+    "name": "my-pack",
+    "harnesses": [
+      "claudecode",
+      "opencode"
+    ],
+    "profiles": [
+      {
+        "name": "web",
+        "path": "profiles/web",
+        "description": "Web apps with a JavaScript toolchain.",
+        "hints": [
+          "package.json",
+          "*.config.js"
+        ],
+        "mods": [
+          "panel"
+        ]
+      },
+      {
+        "name": "go",
+        "path": "profiles/go",
+        "description": "Go services.",
+        "hints": [
+          "go.mod"
+        ],
+        "mods": []
+      }
+    ],
+    "files": [
+      "README.md",
+      "base/.rulesync/commands/example-command.md",
+      "base/.rulesync/hooks.jsonc",
+      "base/.rulesync/mcp.jsonc",
+      "base/.rulesync/permissions.jsonc",
+      "base/.rulesync/rules/example-rule.md",
+      "base/.rulesync/rules/overview.md",
+      "base/.rulesync/skills/example-skill/SKILL.md",
+      "base/.rulesync/subagents/example-agent.md",
+      "base/dotai/settings.yaml",
+      "base/dotai/tools/example-tool.ps1",
+      "base/dotai/tools/example-tool.sh",
+      "dotai.yaml",
+      "mods/panel/hooks/example-mod.js",
+      "mods/panel/hooks/hooks.json",
+      "profiles/go/.rulesync/rules/go.md",
+      "profiles/web/.rulesync/rules/web.md",
+      "variants/default/.rulesync/rules/example-variant.md"
+    ],
+    "skill": "---\nname: dotai-profiles\ndescription: Proposes the dotai profiles that fit this repository and applies them after the user approves. Use when the session says the repository is not set up, or that its profiles may no longer fit.\n---\n\n# Set up this repository with the profiles of my-pack\n\ndotai generated this skill from the manifest of the pack my-pack 0.1.0, and `dotai install` writes it again. dotai never picks a profile: you propose, the user approves, and `dotai apply` writes.\n\n## Procedure\n\n1. Use only the profiles listed below, by their names. Never invent one.\n2. When `.dotai/state.json` exists at the top of the repository, profiles were applied already: follow \"Profiles applied\" below instead.\n3. Look at the working tree, tracked and untracked files, without `.git/` and `.dotai/`. When it holds nothing besides a README, a license or ignore files, the repository is empty: ask the user what the project will be, and propose profiles from the answers.\n4. Otherwise, detect the stack by content: read the manifests, the configuration and the source files. A profile's hints are evidence, never proof. Ask the user only what the analysis leaves open.\n5. Show the plan of the profiles you propose, comma-separated: `dotai apply --profile <a,b> --dry-run`.\n6. Run `dotai apply --profile <a,b>` only after the user approves that plan. Add `--yes` only when the plan asks to confirm something, its conflicts or the example files of dotai's pack template it installs unchanged, and the user approved it.\n7. Never commit: what dotai writes stays out of git.\n8. When the user wants no profiles here, run `dotai onboarding dismiss`, so that new sessions stop asking.\n\n## Profiles applied\n\n`.dotai/state.json` lists the profiles applied. Analyze the repository again, as in steps 3 and 4, and report each mismatch: a profile gone from the pack, one the content now suggests, or one it no longer supports. Only report and propose: applying needs the same plan and approval as above. When the user keeps the profiles as they are, run `dotai onboarding dismiss`.\n\n## Profiles of my-pack\n\n### web\n\nWeb apps with a JavaScript toolchain.\n\n- Hints: `package.json`, `*.config.js`\n- Mods: `panel`\n\n### go\n\nGo services.\n\n- Hints: `go.mod`\n",
+    "warnings": []
+  }
+}

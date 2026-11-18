@@ -49,7 +49,8 @@ export async function render(root, ctx) {
     mount(detail, h("div", { class: "col intro" },
       h("h2", { class: "h-detail", text: t("packs.emptyTitle") }),
       h("p", { class: "body", text: t("packs.emptyBody") }),
-      actions([h("a", { class: "btn primary", href: "#/add" }, icon("plus", 16), t("packs.add"))], t("packs.addNote")),
+      actions([h("a", { class: "btn primary", href: "#/new" }, icon("plus", 16), t("packs.create")),
+        h("a", { class: "btn", href: "#/add" }, icon("plus", 16), t("packs.add"))], t("packs.createNote")),
       hint(t("packs.emptyHint"))));
     return;
   }
@@ -59,6 +60,7 @@ export async function render(root, ctx) {
     h("div", { class: "listhead" },
       h("span", { class: "t-meta", text: t("packs.known", { n: packs.length }) }),
       h("span", { class: "grow" }),
+      h("a", { class: "btn quiet sm", href: "#/new" }, icon("plus", 16), t("packs.create")),
       h("a", { class: "btn quiet sm", href: "#/add" }, icon("plus", 16), t("packs.add"))),
     rows);
 

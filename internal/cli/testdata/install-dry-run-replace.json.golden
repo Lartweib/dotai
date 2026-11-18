@@ -191,6 +191,7 @@
     "warnings": [],
     "diagnostics": [],
     "blocked": false,
-    "consent": false
+    "consent": false,
+    "consentForeign": false
   }
 }

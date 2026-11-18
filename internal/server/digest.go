@@ -60,6 +60,10 @@ type (
 		app.PackUpdatePlan
 		Digest string `json:"digest"`
 	}
+	packNewView struct {
+		app.PackNewPlan
+		Digest string `json:"digest"`
+	}
 )
 
 func installView(p app.InstallPlan) (any, error) {
@@ -85,6 +89,11 @@ func projectRestorePreview(r app.ProjectRestoreResult) (any, error) {
 func doctorFindings(r app.DoctorResult) (any, error) {
 	d, err := digest(r)
 	return doctorView{r, d}, err
+}
+
+func newView(p app.PackNewPlan) (any, error) {
+	d, err := digest(p)
+	return packNewView{p, d}, err
 }
 
 func updateView(p app.PackUpdatePlan) (any, error) {

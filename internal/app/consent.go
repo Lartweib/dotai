@@ -135,19 +135,27 @@ func runningReminder(ids []string) string {
 		strings.Join(ids, ", "))
 }
 
-// ConsentError is a replace install that wipes or overwrites what dotai
-// does not own, and was not allowed to: Plan is its plan, with Entries
-// wiped entries that hold something, Keys keys of split files and Files
-// files replaced that dotai does not own.
+// ConsentError is an install whose plan asks to confirm something, and
+// that was not allowed to: Plan is its plan, with Entries wiped entries
+// that hold something, Keys keys of split files and Files files replaced
+// that dotai does not own, in a replace install, and Templates the files
+// of the pack's template it installs unchanged.
 type ConsentError struct {
 	Plan                 InstallPlan
 	Entries, Keys, Files int
+	Templates            []string
 }
 
 func (e *ConsentError) Error() string {
-	return fmt.Sprintf("the replace install would move into its backup what dotai does not own: %s it wipes, %s it overwrites and %s of ~/.claude.json it deletes; "+
-		"the install wrote nothing: run it again with --yes to allow them, after reading the plan",
-		plural(e.Entries, "entry", "entries"), plural(e.Files, "file", "files"), plural(e.Keys, "key", "keys"))
+	var parts []string
+	if e.Entries+e.Keys+e.Files > 0 || len(e.Templates) == 0 {
+		parts = append(parts, fmt.Sprintf("the replace install would move into its backup what dotai does not own: %s it wipes, %s it overwrites and %s of ~/.claude.json it deletes",
+			plural(e.Entries, "entry", "entries"), plural(e.Files, "file", "files"), plural(e.Keys, "key", "keys")))
+	}
+	if t := templateConsent("install", e.Templates); t != "" {
+		parts = append(parts, t)
+	}
+	return strings.Join(parts, "; ") + "; the install wrote nothing: run it again with --yes to accept what the plan asks to confirm, after reading it"
 }
 
 func plural(n int, one, many string) string {

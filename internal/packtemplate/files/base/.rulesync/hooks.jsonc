@@ -1,0 +1,9 @@
+{
+  // The hooks of the layer, by event. Every layer's hooks merge into one
+  // list per event (docs/PACK-FORMAT.md, "Merge rules"). This example only
+  // prints a line when a session stops.
+  "version": 1,
+  "hooks": {
+    "stop": [{ "command": "echo dotai template example hook" }]
+  }
+}

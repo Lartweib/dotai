@@ -43,6 +43,10 @@ type StageResult struct {
 	// Warnings are what an install plan warns about the staging, such as
 	// a harness that does not get the session-start hook (decision 0045).
 	Warnings []plan.Warning `json:"-"`
+	// TemplateFiles are the files of the pack that are the template's,
+	// unchanged (decision 0046), which an install or apply plan warns
+	// about in the layers it installs.
+	TemplateFiles []string `json:"-"`
 }
 
 // StagedFile is one written file: its scope, its path inside the scope's
@@ -118,7 +122,7 @@ func stage(ctx context.Context, w stageFS, fetch fetchFunc, run runFunc, cacheDi
 	if err != nil {
 		return StageResult{}, err
 	}
-	res := StageResult{Files: []StagedFile{}, Diagnostics: v.Diagnostics, Pack: v.Pack}
+	res := StageResult{Files: []StagedFile{}, Diagnostics: v.Diagnostics, Pack: v.Pack, TemplateFiles: templateFiles(v.Warnings)}
 	if !v.Valid {
 		return res, nil
 	}

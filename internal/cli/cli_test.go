@@ -70,6 +70,8 @@ func TestRun(t *testing.T) {
 		{name: "validate warnings text", args: []string{"validate", shadowedHooksPack}, wantCode: 0, goldenOut: "validate-warnings.txt.golden"},
 		{name: "validate warnings compact", args: []string{"validate", shadowedHooksPack, "--format=compact"}, wantCode: 0, goldenOut: "validate-warnings.compact.golden"},
 		{name: "validate warnings json", args: []string{"validate", shadowedHooksPack, "--json"}, wantCode: 0, goldenOut: "validate-warnings.json.golden"},
+		{name: "validate template text", args: []string{"validate", templatePack}, wantCode: 0, goldenOut: "validate-template.txt.golden"},
+		{name: "validate template json", args: []string{"validate", templatePack, "--json"}, wantCode: 0, goldenOut: "validate-template.json.golden"},
 		{name: "stage without out", args: []string{"stage", examplePack, "--json"}, wantCode: 2, goldenOut: "stage-no-out.json.golden"},
 	}
 	for _, tt := range tests {
@@ -98,6 +100,8 @@ var (
 	mergeBrokenPack = filepath.Join("testdata", "merge-broken-pack")
 	// shadowedHooksPack is valid, with a warning.
 	shadowedHooksPack = filepath.Join("testdata", "shadowed-hooks-pack")
+	// templatePack is valid, with a file of the pack template unchanged.
+	templatePack = filepath.Join("testdata", "template-pack")
 )
 
 func TestRunValidateDefaultsToCurrentDirectory(t *testing.T) {

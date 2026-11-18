@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -66,9 +67,20 @@ type Env struct {
 	UpdatePack   func(ctx context.Context, home, id string, opts app.PackGitOptions) (app.PackAddResult, error)
 	RemovePackID func(home, id string) (app.PackRemoveResult, error)
 	ListPacks    func(home string) (app.PackList, error)
+	// PlanPackNew and NewPack are dotai pack new, with and without
+	// --dry-run: a pack written from the template and added (decision
+	// 0046).
+	PlanPackNew func(home, dir string, in app.PackNewInput) (app.PackNewPlan, error)
+	NewPack     func(home, dir string, in app.PackNewInput, opts app.PackNewOptions) (app.PackNewResult, error)
+	// CopyPack is dotai pack copy, the copy the web UI's Packs board
+	// makes.
+	CopyPack func(ctx context.Context, from, to string) (app.CopyResult, error)
 	// OnboardingHook is dotai onboarding hook: the line the session-start
 	// hook prints in the directory cwd, "" for none (decision 0045).
 	OnboardingHook func(ctx context.Context, cwd, home string) (string, error)
+	// HookBound is how long dotai onboarding hook waits for OnboardingHook
+	// in all; zero is hookBound, 1 s.
+	HookBound time.Duration
 	// DismissOnboarding is dotai onboarding dismiss in the directory cwd.
 	DismissOnboarding func(ctx context.Context, cwd, home string) (app.DismissResult, error)
 }

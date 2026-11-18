@@ -76,9 +76,13 @@ type InstallPlan struct {
 	Diagnostics []Diagnostic   `json:"diagnostics"`
 	// Blocked says that the install refuses the plan whatever the consent,
 	// for its diagnostics or refusals; Consent that it needs consent
-	// (--yes) to wipe or overwrite what dotai does not own.
-	Blocked bool `json:"blocked"`
-	Consent bool `json:"consent"`
+	// (--yes) for what it asks to confirm: what a replace install wipes or
+	// overwrites that dotai does not own (ConsentForeign), and the files
+	// of the pack's template that it installs unchanged (TemplateFiles,
+	// its template-unchanged warnings).
+	Blocked        bool `json:"blocked"`
+	Consent        bool `json:"consent"`
+	ConsentForeign bool `json:"consentForeign"`
 }
 
 // InstallOptions are the choices of an install besides the pack: the
@@ -264,14 +268,15 @@ func planInstall(ctx context.Context, d installFS, h host, fetch fetchFunc, run 
 // settle sets what the plan of p says of carrying it out: whether it is
 // blocked, by diagnostics or refusals, which no consent overrides, and
 // whether it needs consent, for what it wipes or overwrites that dotai does
-// not own (foreign).
+// not own (foreign) or for the template files it installs unchanged.
 func (p *planned) settle(d installFS) error {
 	p.plan.Blocked = len(p.plan.Diagnostics) > 0 || len(p.plan.Refusals) > 0
 	if len(p.plan.Diagnostics) > 0 {
 		return nil
 	}
 	entries, keys, files, err := foreign(d, *p)
-	p.plan.Consent = entries+keys+files > 0
+	p.plan.ConsentForeign = entries+keys+files > 0
+	p.plan.Consent = p.plan.ConsentForeign || len(p.plan.TemplateFiles()) > 0
 	return err
 }
 
@@ -377,6 +382,7 @@ func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run run
 		return err
 	}
 	res.Notices = append(res.Notices, notices...)
+	res.Warnings = append(res.Warnings, templatePlanWarnings(s.TemplateFiles, userLayers(s.Pack, res.Variant), "install")...)
 	shared := slices.Contains(s.Pack.SharedSkills, res.Variant)
 	tree := filepath.Join(out, ScopeUser)
 	// Only the isolated mode: in the replace mode the real home directory

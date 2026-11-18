@@ -61,18 +61,24 @@ func newOnboardingHookCmd(env Env, jsonOut *bool) *cobra.Command {
 }
 
 // runHook is the line of env.OnboardingHook in the current directory, ""
-// on any error or past hookBound. Its ctx ends app.HookReap before the
-// bound, which kills the git the hook runs, and runHook waits for the
-// hook to return until the bound, which it does once git is reaped.
+// on any error or past the bound, env.HookBound or hookBound when zero.
+// Its ctx ends app.HookReap before the bound (at half a bound shorter
+// than twice that), which kills the git the hook runs, and runHook waits
+// for the hook to return until the bound, which it does once git is
+// reaped.
 func runHook(parent context.Context, env Env) string {
 	home, herr := os.UserHomeDir()
 	cwd, cerr := os.Getwd()
 	if herr != nil || cerr != nil || env.OnboardingHook == nil {
 		return ""
 	}
-	bound := time.NewTimer(hookBound)
+	limit := env.HookBound
+	if limit <= 0 {
+		limit = hookBound
+	}
+	bound := time.NewTimer(limit)
 	defer bound.Stop()
-	ctx, cancel := context.WithTimeout(parent, hookBound-app.HookReap)
+	ctx, cancel := context.WithTimeout(parent, max(limit-app.HookReap, limit/2))
 	defer cancel()
 	done := make(chan string, 1)
 	go func() {

@@ -1,0 +1,64 @@
+new pack local/my-pack
+dir:    /work/my-pack
+files:  18
+  README.md
+  base/.rulesync/commands/example-command.md
+  base/.rulesync/hooks.jsonc
+  base/.rulesync/mcp.jsonc
+  base/.rulesync/permissions.jsonc
+  base/.rulesync/rules/example-rule.md
+  base/.rulesync/rules/overview.md
+  base/.rulesync/skills/example-skill/SKILL.md
+  base/.rulesync/subagents/example-agent.md
+  base/dotai/settings.yaml
+  base/dotai/tools/example-tool.ps1
+  base/dotai/tools/example-tool.sh
+  dotai.yaml
+  mods/panel/hooks/example-mod.js
+  mods/panel/hooks/hooks.json
+  profiles/go/.rulesync/rules/go.md
+  profiles/web/.rulesync/rules/web.md
+  variants/default/.rulesync/rules/example-variant.md
+
+the profiling skill dotai generates from the manifest at each install:
+
+---
+name: dotai-profiles
+description: Proposes the dotai profiles that fit this repository and applies them after the user approves. Use when the session says the repository is not set up, or that its profiles may no longer fit.
+---
+
+# Set up this repository with the profiles of my-pack
+
+dotai generated this skill from the manifest of the pack my-pack 0.1.0, and `dotai install` writes it again. dotai never picks a profile: you propose, the user approves, and `dotai apply` writes.
+
+## Procedure
+
+1. Use only the profiles listed below, by their names. Never invent one.
+2. When `.dotai/state.json` exists at the top of the repository, profiles were applied already: follow "Profiles applied" below instead.
+3. Look at the working tree, tracked and untracked files, without `.git/` and `.dotai/`. When it holds nothing besides a README, a license or ignore files, the repository is empty: ask the user what the project will be, and propose profiles from the answers.
+4. Otherwise, detect the stack by content: read the manifests, the configuration and the source files. A profile's hints are evidence, never proof. Ask the user only what the analysis leaves open.
+5. Show the plan of the profiles you propose, comma-separated: `dotai apply --profile <a,b> --dry-run`.
+6. Run `dotai apply --profile <a,b>` only after the user approves that plan. Add `--yes` only when the plan asks to confirm something, its conflicts or the example files of dotai's pack template it installs unchanged, and the user approved it.
+7. Never commit: what dotai writes stays out of git.
+8. When the user wants no profiles here, run `dotai onboarding dismiss`, so that new sessions stop asking.
+
+## Profiles applied
+
+`.dotai/state.json` lists the profiles applied. Analyze the repository again, as in steps 3 and 4, and report each mismatch: a profile gone from the pack, one the content now suggests, or one it no longer supports. Only report and propose: applying needs the same plan and approval as above. When the user keeps the profiles as they are, run `dotai onboarding dismiss`.
+
+## Profiles of my-pack
+
+### web
+
+Web apps with a JavaScript toolchain.
+
+- Hints: `package.json`, `*.config.js`
+- Mods: `panel`
+
+### go
+
+Go services.
+
+- Hints: `go.mod`
+
+dry run, nothing was written

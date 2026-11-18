@@ -21,13 +21,13 @@ import (
 func newPackCmd(env Env, jsonOut *bool) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "pack",
-		Short: "Add, update, list and remove the packs of ~/.dotai/packs.json",
+		Short: "Create, add, update, list, copy and remove the packs of ~/.dotai/packs.json",
 		Long: "The pack registry, ~/.dotai/packs.json, which the web UI shows too. A pack comes from a GitHub repository,\n" +
 			"fetched with the git on PATH (2.41 or later) into ~/.dotai/packs/<identity>, or from a local directory, which\n" +
 			"stays where it is. A git pack's identity is github.com/<owner>/<repo>, a local one's local/<name>.",
 		Args: cobra.NoArgs,
 	}
-	cmd.AddCommand(newPackAddCmd(env, jsonOut), newPackUpdateCmd(env, jsonOut), newPackRemoveCmd(env, jsonOut), newPackListCmd(env, jsonOut))
+	cmd.AddCommand(newPackAddCmd(env, jsonOut), newPackUpdateCmd(env, jsonOut), newPackRemoveCmd(env, jsonOut), newPackListCmd(env, jsonOut), newPackNewCmd(env, jsonOut), newPackCopyCmd(env, jsonOut))
 	return cmd
 }
 
@@ -280,6 +280,44 @@ func newPackListCmd(env Env, jsonOut *bool) *cobra.Command {
 				}
 			}
 			_, err = io.WriteString(env.Stdout, b.String())
+			return err
+		},
+	}
+}
+
+// newPackCopyCmd is dotai pack copy: the copy of the web UI's Packs board
+// (decision 0046).
+func newPackCopyCmd(env Env, jsonOut *bool) *cobra.Command {
+	return &cobra.Command{
+		Use:   "copy <pack-dir> [<to>]",
+		Short: "Copy a pack to a new directory to edit",
+		Long: "Copy the pack in <pack-dir>, which needs a dotai.yaml dotai can read, to <to>, a new directory whose parent\n" +
+			"exists, outside the pack (default: the first free <name>-copy, <name>-copy-2 and on next to the pack). Regular\n" +
+			"files and directories are copied with their permissions, .git is skipped, and a link or any other kind of file,\n" +
+			"a file over 1 MiB, or more files or bytes than a copy takes, is refused before anything is written. The copy\n" +
+			"is not added: edit it, then run dotai pack add --dir <to>.",
+		Args: cobra.RangeArgs(1, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			from, err := filepath.Abs(args[0])
+			if err != nil {
+				return err
+			}
+			to := ""
+			if len(args) == 2 {
+				if to, err = filepath.Abs(args[1]); err != nil {
+					return err
+				}
+			}
+			ctx, stop := interruptible(cmd)
+			defer stop()
+			res, err := env.CopyPack(ctx, from, to)
+			if err != nil {
+				return err
+			}
+			if *jsonOut {
+				return envelope.Write(env.Stdout, envelope.Success(commandName(cmd), res))
+			}
+			_, err = fmt.Fprintf(env.Stdout, "copied %s to %s, %d files\nnext:   edit it, then run dotai pack add --dir %s\n", termSafe(res.From), termSafe(res.To), res.Files, termSafe(res.To))
 			return err
 		},
 	}

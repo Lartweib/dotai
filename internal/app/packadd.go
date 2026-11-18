@@ -89,7 +89,7 @@ func AddGitPack(ctx context.Context, home, rawURL string, opts PackGitOptions) (
 	}
 	defer f.cleanUp(&res, &err)
 	source := PackSource{URL: src.URL, Ref: opts.Ref, FullRef: f.fullRef, Commit: f.commit}
-	warnings := refWarnings(source)
+	warnings := append(refWarnings(source), f.warnings...)
 	list, deleteWarn, err := placePack(home, src.ID, f.dir, source, func(doc packsDoc) error {
 		if slices.ContainsFunc(doc.Packs, func(p packsItem) bool { return p.ID == src.ID }) {
 			return fmt.Errorf("the pack %s was added while it was fetched: run the command again", src.ID)
@@ -116,6 +116,9 @@ type fetched struct {
 	commit  string
 	fullRef string
 	modes   map[string]string
+	// warnings are what the validation found to tell, such as files of the
+	// template left unchanged.
+	warnings []PackWarning
 }
 
 // cleanUp removes what is left of the fetch once the operation that holds
@@ -158,8 +161,8 @@ func fetchChecked(ctx context.Context, g packGit, home string, src GitSource, re
 		return fetched{}, err
 	}
 	got, err := g.fetchPack(ctx, dir, src.URL, ref)
+	var res ValidateResult
 	if err == nil {
-		var res ValidateResult
 		res, err = Validate(dir, Selection{})
 		if err == nil && (!res.Valid || res.Pack == nil) {
 			err = &PackInvalidError{Path: fmt.Sprintf("%s at %s", src.URL, ShortCommit(got.Commit)), Result: res}
@@ -171,7 +174,7 @@ func fetchChecked(ctx context.Context, g packGit, home string, src GitSource, re
 		}
 		return fetched{}, err
 	}
-	return fetched{dir: dir, commit: got.Commit, fullRef: got.FullRef, modes: got.Modes}, nil
+	return fetched{dir: dir, commit: got.Commit, fullRef: got.FullRef, modes: got.Modes, warnings: templatePackWarnings(res)}, nil
 }
 
 // refWarnings warns of a branch, which can move.

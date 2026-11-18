@@ -172,7 +172,8 @@ type executeFS interface {
 // *RunningError, unless opts.IgnoreRunning; or when it wipes or
 // overwrites anything dotai does not own and consent, asked once with the
 // plan before the lock, does not answer true, a *ConsentError (a nil
-// consent refuses). Each wiped entry is then moved into the backup and
+// consent refuses). In either mode, a plan that installs files of the
+// pack's template unchanged (decision 0046) asks the same consent. Each wiped entry is then moved into the backup and
 // each split file rewritten by key before the pack's files are written.
 //
 // Only then, when there is something to write, it takes ~/.dotai/lock and
@@ -195,8 +196,10 @@ func Install(ctx context.Context, cacheDir, dir, home string, opts InstallOption
 	return Ports{}.Install(ctx, cacheDir, dir, home, opts, progress, warn, consent)
 }
 
-// Consent is asked, with the plan, whether a replace install may wipe or
-// overwrite what dotai does not own (decision 0038).
+// Consent is asked, with the plan, whether the install may go on with what
+// the plan asks to confirm: what a replace install wipes or overwrites
+// that dotai does not own (decision 0038), and the files of the pack's
+// template it installs unchanged (decision 0046).
 type Consent = func(InstallPlan) (bool, error)
 
 // Warn receives a warning, text for people, that must be read before
@@ -240,7 +243,7 @@ func install(ctx context.Context, d executeFS, h host, fetch fetchFunc, run runF
 		if err != nil {
 			return err
 		}
-		if entries+keys+files > 0 {
+		if templates := p.plan.TemplateFiles(); entries+keys+files > 0 || len(templates) > 0 {
 			ok := false
 			if consent != nil {
 				if ok, err = consent(p.plan); err != nil {
@@ -248,7 +251,7 @@ func install(ctx context.Context, d executeFS, h host, fetch fetchFunc, run runF
 				}
 			}
 			if !ok {
-				return &ConsentError{Plan: p.plan, Entries: entries, Keys: keys, Files: files}
+				return &ConsentError{Plan: p.plan, Entries: entries, Keys: keys, Files: files, Templates: templates}
 			}
 		}
 		for _, w := range append(sharedWarnings(p.plan.SharedSkills), settingsWarning(p), reminder) {

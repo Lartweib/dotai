@@ -8,6 +8,7 @@
 import { actions, boardHead, busy, failure, h, hint, lm, loading, mount, notice, op, sec, warning } from "./dom.js";
 import { guard, rel } from "./flows.js";
 import { diagnostics } from "./packreview.js";
+import { consentLabel, foreignWarned } from "./planconsent.js";
 import { t } from "./i18n.js";
 import { act, harnessName, installed, isInstalled, loadPack, post, selectedPack, shared, tilde } from "./store.js";
 
@@ -46,6 +47,7 @@ export async function render(root, ctx) {
     state.variant = p.variant;
     const out = h("div", { class: "out" });
     const consent = h("input", { type: "checkbox" });
+    const accepts = consentLabel(p);
     consent.checked = state.consent;
     const go = h("button", { class: "btn primary", type: "button", text: t("plan.install") });
     const says = h("p", { class: "help" });
@@ -101,7 +103,7 @@ export async function render(root, ctx) {
             h("p", { class: "body", text: t(p.mode === "replace" ? "plan.backupReplace" : "plan.backupIsolated") })),
           h("p", { class: "help", text: t("plan.backupId") })),
         h("div", { class: "confirmbar" },
-          p.consent ? h("label", { class: "check" }, consent, h("span", { text: t("plan.consent") })) : null,
+          p.consent ? h("label", { class: "check" }, consent, h("span", { text: t(accepts.key, { n: accepts.n }) })) : null,
           actions([go, h("a", { class: "btn quiet", href: "#/packs", text: t("common.cancel") })], ""),
           says, out)));
   };
@@ -178,7 +180,9 @@ function warnings(p) {
     ...p.harnesses.filter((x) => x.managed && x.leaks.length).map((x) => warning("still-shared", t("plan.stillShared", { name: harnessName(x.id) }), x.leaks.join("; ") + ".")),
     p.notices.length ? warning("notice", t("plan.notices", { n: p.notices.length }), p.notices.join("\n")) : null,
   ].filter(Boolean);
-  if (p.consent) {
+  // The consent for what a replace install moves into its backup; the
+  // template files left unchanged come as warnings of their own.
+  if (foreignWarned(p)) {
     list.unshift(warning("consent-required", t("plan.consentWarn", { entries: t("plan.entries", { n: p.wipes.length }), keys: t("plan.keyCount", { n: p.wipeKeys.length }) })));
   }
   return list.length ? h("ul", { class: "list" }, list) : h("p", { class: "quietp", text: t("plan.noWarnings") });

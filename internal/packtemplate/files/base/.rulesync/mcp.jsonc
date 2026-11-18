@@ -1,0 +1,11 @@
+{
+  // The MCP servers of the layer, by name. The example below is a comment,
+  // so no server runs: uncomment and adapt it, or delete this file.
+  "mcpServers": {
+    // "example-server": {
+    //   "type": "stdio",
+    //   "command": "example-mcp-server",
+    //   "args": ["--read-only"]
+    // }
+  }
+}

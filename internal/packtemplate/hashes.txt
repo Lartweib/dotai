@@ -1,0 +1,21 @@
+# The hashes of every file each released version of the pack template
+# writes below a pack's top: "<version> <sha256 of the file, LF line
+# endings> <path in the template>". A released version's lines are never
+# changed or removed, as TestReleasedHashesNeverChange pins; a new
+# version appends its own (go test ./internal/packtemplate -update).
+1 1762b639a5be20d1339f460ad82e4fdda88b428c2d0656a6fc15a39ce3c2ea5e base/.rulesync/commands/example-command.md
+1 38fd4d4fd960c4aa87a9622e0c27680420470538532f1f56644e0041d01f8e00 base/.rulesync/hooks.jsonc
+1 f40cfbcb921a16f110ad63108141b7f73923a0c8105a58806eddc86e1a399662 base/.rulesync/mcp.jsonc
+1 4a7ff83ac58382649231e5107f1fd3c327727d6cd08371028c746f94dc9e8828 base/.rulesync/permissions.jsonc
+1 cdfeaad1511f48785664bef35e457dc6ad923d37ab4d8c38317af12d27c2e515 base/.rulesync/rules/example-rule.md
+1 a4c9b7c9681b8d98b45e66ebb1d4b170d0d43fbe0bef0efa57f522699b696493 base/.rulesync/rules/overview.md
+1 8b80979705484c99402ce8f17ed655b0a2aa7514224a958f9c048a492b8ab63c base/.rulesync/skills/example-skill/SKILL.md
+1 f7e3eb2f9f428f72a2f1da8205410d8497c02b1c5a0ccdbb0cb927a29f978397 base/.rulesync/subagents/example-agent.md
+1 4ff4301db3c69d8bbff65a262bfcaa5379134141040bc81ce0f3369db7fbca48 base/dotai/settings.yaml
+1 8a5adf52c04af84348d05bbbd6987cd115f7a61a3e06792c20a594293739ec36 base/dotai/settings.yaml
+1 f45b8bbbbc1445eada3796a12444c9425bf62aa8d674ad05ba982e791b675087 base/dotai/tools/example-tool.ps1
+1 a9c32b031388e2b6041f878353bae95c2ca190f2cab58ffc62cbf1a6e81ff70d base/dotai/tools/example-tool.sh
+1 eecd1a8abb9da37e08d6f04820aea2d1426eb6c0583df5b1883ef6b03247d397 mods/example-mod/hooks/example-mod.js
+1 4064c7df6b5826820eaa29212501c59bc4915c8ce7ed5c6b3793bf439f121d27 mods/example-mod/hooks/hooks.json
+1 72316020fff8d479ab574e2c3cf14c268072aaf4419bb252f9a000aaf2dadecd profiles/example/.rulesync/rules/example.md
+1 12d00a30a259a3bd9a466abfeafd14541114d929f9ae23bcedc43d97127e9470 variants/default/.rulesync/rules/example-variant.md
