@@ -156,14 +156,35 @@ func TestCopyPackCopiesFilesWithoutGitOrImport(t *testing.T) {
 	}
 }
 
-func TestSummarizePackOfAPackWithoutAnOnboardingAgentHasNone(t *testing.T) {
+// TestSummarizePackShowsDotaiOnboarding checks the onboarding of the pack
+// detail (decision 0045): dotai's profiling skill as an install generates
+// it, or the custom item that replaces it, with its file.
+func TestSummarizePackShowsDotaiOnboarding(t *testing.T) {
 	dir := packCopy(t)
-	if err := os.Remove(filepath.Join(dir, "base", ".rulesync", "subagents", "onboarding.md")); err != nil {
+	sum, err := app.SummarizePack(dir)
+	if err != nil {
 		t.Fatal(err)
 	}
-	sum, err := app.SummarizePack(dir)
-	if err != nil || sum.Onboarding != nil {
-		t.Errorf("SummarizePack() = %+v, %v, want no onboarding agent", sum.Onboarding, err)
+	res, err := app.Validate(dir, app.Selection{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := sum.Onboarding
+	if o.Mode != "dotai" || o.Kind != "skill" || o.Name != "dotai-profiles" || o.Layer != "" || o.Path != "" || o.Content != string(app.ProfilesSkill(*res.Pack)) {
+		t.Errorf("onboarding = %+v, want dotai's profiling skill", o)
+	}
+	writeFile(t, filepath.Join(dir, "variants", "tmux", ".rulesync", "skills", "setup", "SKILL.md"), "---\nname: setup\n---\nSet up.\n")
+	m, err := os.ReadFile(filepath.Join(dir, "dotai.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(dir, "dotai.yaml"), string(m)+"onboarding:\n  custom: variants/tmux/.rulesync/skills/setup\n")
+	if sum, err = app.SummarizePack(dir); err != nil {
+		t.Fatal(err)
+	}
+	want := app.OnboardingOutline{Mode: "custom", Kind: "skill", Name: "setup", Layer: "tmux", Path: "variants/tmux/.rulesync/skills/setup/SKILL.md", Content: "---\nname: setup\n---\nSet up.\n"}
+	if sum.Onboarding != want {
+		t.Errorf("onboarding = %+v, want %+v", sum.Onboarding, want)
 	}
 }
 
@@ -212,7 +233,7 @@ func TestSummarizePackListsEachLayerByType(t *testing.T) {
 	}
 	base := byName["base/base"]
 	if !reflect.DeepEqual(base.Rules, []string{"overview"}) || !reflect.DeepEqual(base.Skills, []string{"commit-message"}) ||
-		!reflect.DeepEqual(base.Subagents, []string{"onboarding", "reviewer"}) || !base.Permissions || base.Hooks ||
+		!reflect.DeepEqual(base.Subagents, []string{"reviewer"}) || !base.Permissions || base.Hooks ||
 		!reflect.DeepEqual(base.Tools, []string{"hello.ps1", "hello.sh"}) || len(base.Settings) == 0 {
 		t.Errorf("base = %+v", base)
 	}
@@ -224,13 +245,6 @@ func TestSummarizePackListsEachLayerByType(t *testing.T) {
 	}
 	if !reflect.DeepEqual(sum.Mods, []string{"hello"}) {
 		t.Errorf("mods = %v", sum.Mods)
-	}
-	want, err := os.ReadFile(filepath.Join("..", "..", "examples", "minimal-pack", "base", ".rulesync", "subagents", "onboarding.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if o := sum.Onboarding; o == nil || o.Layer != "base" || o.Path != "base/.rulesync/subagents/onboarding.md" || o.Content != string(want) {
-		t.Errorf("onboarding = %+v, want the base's onboarding subagent", o)
 	}
 }
 

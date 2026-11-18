@@ -2,8 +2,6 @@ package cli_test
 
 import (
 	"bytes"
-	"os"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -13,20 +11,10 @@ import (
 	"github.com/lartweib/dotai/internal/cli"
 )
 
-// TestTheOnboardingTemplateNamesOnlyRealCommands checks that every dotai
-// command the example pack's onboarding agent tells an agent to run exists,
-// with every flag it names: the agent runs them as written.
-func TestTheOnboardingTemplateNamesOnlyRealCommands(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "examples", "minimal-pack", "base", ".rulesync", "subagents", "onboarding.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	checkCommands(t, string(data), 4)
-}
-
-// TestTheProfilesSkillNamesOnlyRealCommands checks the same of the
-// profiling skill dotai generates (decision 0045), which an agent follows
-// as written.
+// TestTheProfilesSkillNamesOnlyRealCommands checks that every dotai
+// command the profiling skill dotai generates (decision 0045) tells an
+// agent to run exists, with every flag it names: the agent runs them as
+// written.
 func TestTheProfilesSkillNamesOnlyRealCommands(t *testing.T) {
 	res, err := app.Validate(examplePack, app.Selection{})
 	if err != nil || res.Pack == nil {

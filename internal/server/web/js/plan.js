@@ -171,6 +171,9 @@ function warnings(p) {
   const relogin = p.harnesses.filter((x) => x.managed && x.relogin === "yes").map((x) => harnessName(x.id));
   const list = [
     ...p.refusals.map((r) => warning(r.code, t("note." + r.code, {}, ""), r.message)),
+    // Read before confirming: a pack that replaces dotai's onboarding, or a
+    // harness without its session-start hook (decision 0045).
+    ...(p.warnings || []).map((w) => warning(w.code, t("note." + w.code, { harness: harnessName(w.harness), item: w.item }, ""), w.message)),
     relogin.length ? warning("relogin", t("plan.relogin", { n: relogin.length, list: relogin.join(", ") })) : null,
     ...p.harnesses.filter((x) => x.managed && x.leaks.length).map((x) => warning("still-shared", t("plan.stillShared", { name: harnessName(x.id) }), x.leaks.join("; ") + ".")),
     p.notices.length ? warning("notice", t("plan.notices", { n: p.notices.length }), p.notices.join("\n")) : null,

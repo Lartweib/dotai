@@ -6,7 +6,7 @@
 // (packadd.js, packupdate.js); copy makes a new folder to edit, and remove,
 // once confirmed, forgets the entry and deletes a git pack's clone.
 
-import { actions, boardHead, closeMenu, failure, h, hint, icon, kv, lm, loading, menu, mount, notice, sec, settle, submitGuard, tech } from "./dom.js";
+import { actions, boardHead, closeMenu, failure, h, hint, icon, kv, lm, loading, menu, mount, notice, sec, settle, submitGuard, tech, warning } from "./dom.js";
 import { diagnostics, packWarnings, sourceLine } from "./packreview.js";
 import { shortCommit, visible } from "./packsource.js";
 import { fmtDate, lower, t } from "./i18n.js";
@@ -174,9 +174,25 @@ async function showPack(detail, entry, ctx, doImport) {
         return layerBody(l, [lm(l.name), pr.description ? h("span", { class: "authored" }, h("span", { class: "by", text: t("packs.fromPack") }), pr.description) : null,
           pr.hints.length ? h("span", { class: "t-meta full", text: t("packs.hints", { list: pr.hints.join(", ") }) }) : null]);
       }))) : null,
+      outline.ok ? onboarding(outline.data.onboarding) : null,
       outline.ok && outline.data.mods.length ? sec(t("packs.modsTitle"), t("hint.mod"), h("ul", { class: "fls" }, outline.data.mods.map((m) => h("li", { class: "fl" }, h("span", { class: "name mono", text: m }),
         h("span", { class: "t-meta", text: t("packs.namedBy", { list: pack.profiles.filter((p) => p.mods.includes(m)).map((p) => p.name).join(", ") || "—" }) }))))) : null),
     warnings && warnings.length ? sec(t(res.ok ? "packs.warnings" : "packs.problems"), "", diagnostics(warnings)) : null));
+}
+
+// onboarding is how a repository gets the pack's profiles (decision 0045):
+// dotai's profiling skill, which an install writes from the profiles, with
+// the skill as it would be, or the pack's own item that replaces it.
+function onboarding(o) {
+  if (o.mode === "dotai") {
+    return sec(t("packs.onboarding"), t("hint.onboarding"),
+      h("p", { class: "body", text: t("packs.onboarding.dotai") }),
+      h("details", { class: "fold" }, h("summary", { text: t("packs.onboarding.preview") }), h("pre", { class: "src", text: o.content })));
+  }
+  if (!o.name) return sec(t("packs.onboarding"), t("hint.onboarding"), h("ul", { class: "list" }, warning("onboarding-invalid", t("packs.onboarding.invalid", { path: o.path }))));
+  return sec(t("packs.onboarding"), t("hint.onboarding"),
+    h("ul", { class: "list" }, warning("onboarding-replaced", t("packs.onboarding.custom", { path: o.path }))),
+    o.content ? h("details", { class: "fold" }, h("summary", { text: t("packs.inFolder", { path: o.path }) }), h("pre", { class: "src", text: o.content })) : null);
 }
 
 // origin says where the pack comes from: its identity, and for a git pack
@@ -245,7 +261,7 @@ function highlights(pack, outline) {
   if (pack.variants.length) out.push(t("packs.hl.variants", { n: pack.variants.length, list: pack.variants.join(", ") }));
   if (pack.profiles.length) out.push(t("packs.hl.profiles", { n: pack.profiles.length, list: pack.profiles.map((p) => p.name).join(", ") }));
   if (outline && outline.mods.length) out.push(t("packs.hl.mods", { n: outline.mods.length, list: outline.mods.join(", ") }));
-  if (outline && outline.onboarding) out.push(t("packs.hl.onboarding"));
+  if (outline) out.push(t(outline.onboarding.mode === "dotai" ? "packs.hl.onboardingDotai" : "packs.hl.onboardingCustom"));
   out.push(t("packs.hl.isolated"));
   return out;
 }

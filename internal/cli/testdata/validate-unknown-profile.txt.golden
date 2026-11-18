@@ -3,4 +3,3 @@
 dotai.yaml
   layer-selection  unknown profile "nope"
                    fix:   use one of [web]
-warning: base/.rulesync/subagents/onboarding.md: onboarding-duplicate: subagent "onboarding" is an onboarding of the pack's own besides dotai's, which the install generates from the manifest's profiles (fix: remove it, or declare it as onboarding.custom in dotai.yaml to replace dotai's onboarding)
