@@ -115,13 +115,17 @@ export function setRegistry(data) {
 export const isAbsolute = (p) => /^(\/|[A-Za-z]:[\\/]|\\\\)/.test(p);
 
 // The state every page reads, loaded once and again after an action: the
-// status, the packs read this visit and the names of the harnesses.
-export const shared = { status: null, registry: null, registryError: null, packs: new Map(), harnesses: new Map() };
+// status, the packs read this visit, the names of the harnesses and each
+// harness as /api/harnesses gives it, with its status (decision 0047).
+export const shared = { status: null, registry: null, registryError: null, packs: new Map(), harnesses: new Map(), harnessInfo: [] };
 
 export async function loadStatus() {
   const [res, hs] = await Promise.all([api("/api/status"), shared.harnesses.size ? null : api("/api/harnesses"), loadRegistry()]);
   shared.status = res.ok ? res.data : null;
-  if (hs && hs.ok) for (const x of hs.data.harnesses) shared.harnesses.set(x.id, x.name);
+  if (hs && hs.ok) {
+    shared.harnessInfo = hs.data.harnesses;
+    for (const x of hs.data.harnesses) shared.harnesses.set(x.id, x.name);
+  }
   return res;
 }
 
@@ -166,6 +170,10 @@ export function isInstalled(path) {
 }
 
 export const samePath = (a, b) => slash(a).toLowerCase() === slash(b).toLowerCase();
+
+// previewReason is why the harness id is a preview, in the page's words,
+// falling back to the reason dotai gives, fallback.
+export const previewReason = (id, fallback) => t("reason." + id, {}, fallback);
 
 // harnessName names the harness id the same way on every board, as the
 // page's words say, falling back to the name dotai gives it; without an id

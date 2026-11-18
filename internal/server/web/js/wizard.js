@@ -3,6 +3,8 @@
 // folder. They hold no rule of a pack: the server fills in the template,
 // checks the names and validates the result.
 
+import { wizardRequest } from "./harnesspick.js";
+
 // splitList reads a list the user typed, split by commas or lines,
 // without blanks.
 export function splitList(text) {
@@ -14,13 +16,14 @@ export function splitList(text) {
 export const emptyProfile = () => ({ name: "", description: "", hints: "", mods: "" });
 
 // newRequest is the body of POST /api/packs/new/plan for the form's state:
-// the directory, the name, the harnesses and the profiles, as dotai pack
-// new takes them.
+// the directory, the name, the compatible harnesses, the required ones
+// among them (decision 0047) and the profiles, as dotai pack new takes
+// them.
 export function newRequest(state) {
   return {
     dir: state.dir.trim(),
     name: state.name.trim(),
-    harnesses: [...state.harnesses],
+    ...wizardRequest({ harnesses: state.harnesses, requires: state.requires || [] }),
     profiles: state.profiles.map((p) => ({
       name: p.name.trim(),
       description: p.description.trim(),

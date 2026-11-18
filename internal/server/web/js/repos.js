@@ -163,12 +163,21 @@ async function pickProfiles(area, project, packs, packPath, chosen, ctx) {
     actions([planBtn], t("repos.planNote")), out);
 }
 
+// applyFailure is the failure of an apply plan or of an apply: a refused
+// selection of harnesses says where to change it, since an apply follows
+// the install's choice and takes none of its own (decision 0047).
+function applyFailure(error) {
+  return error && error.code === "harness-refused"
+    ? h("div", { class: "stack" }, failure(error), h("p", { class: "help", text: t("repos.harnessRefused") }))
+    : failure(error);
+}
+
 async function planApply(out, req, ctx, msg) {
   mount(out, busy(t("repos.planning")));
   const res = await post("/api/apply/plan", req, ctx.signal);
   if (ctx.stale()) return;
   if (!res.data || !res.data.ops) {
-    mount(out, failure(res.error));
+    mount(out, applyFailure(res.error));
     return;
   }
   showPlan(out, req, res.data, ctx, msg);
@@ -198,7 +207,7 @@ function showPlan(out, req, p, ctx, msg) {
       showPlan(out, req, r.data, ctx, failure(r.error));
       return;
     }
-    mount(result, failure(r.error));
+    mount(result, applyFailure(r.error));
   });
   const notes = [
     ...(p.refusals || []).map((x) => warning(x.code, t("note." + x.code, { harness: harnessName(x.harness), item: x.item }, ""), x.message)),
