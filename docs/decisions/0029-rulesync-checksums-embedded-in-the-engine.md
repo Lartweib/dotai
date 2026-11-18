@@ -38,3 +38,5 @@ A pack can only pin a rulesync version the engine knows; `dotai validate` report
 ## Evidence
 
 - rulesync v41.0.0 release assets, checked 2026-10-28: all five binaries (Windows x64, Linux x64 and arm64, macOS x64 and arm64) were downloaded and hashed independently, and each hash matched both the release's `SHA256SUMS` and the GitHub API digest.
+
+Update 2026-11-18: the engine embeds rulesync 43.9.2 in place of 41.0.0, so a pack pins 43.9.2. All five v43.9.2 binaries were downloaded from the release's download URLs and hashed independently, and each hash matched both the release's `SHA256SUMS` and the asset digest the GitHub API reports. The asset names are unchanged.

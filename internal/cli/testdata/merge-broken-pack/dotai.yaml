@@ -3,7 +3,7 @@ schema: dotai.pack/v1
 name: merge-broken-pack
 version: 0.1.0
 engine: ">=0.1.0"
-rulesync: 41.0.0
+rulesync: 43.9.2
 harnesses: [claudecode]
 
 profiles:

@@ -147,7 +147,7 @@ func TestStageRefusesAForeignDirectoryEvenWithForce(t *testing.T) {
 
 func TestStageRejectsOutInsideThePack(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, "dotai.yaml"), "schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\nrulesync: 41.0.0\nharnesses: [opencode]\n")
+	writeFile(t, filepath.Join(dir, "dotai.yaml"), "schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\nrulesync: 43.9.2\nharnesses: [opencode]\n")
 	writeFile(t, filepath.Join(dir, "base", ".rulesync", "rules", "r.md"), "# R\n")
 	for _, out := range []string{dir, filepath.Join(dir, "staging"), filepath.Join(dir, "base", "..", "x")} {
 		_, err := quiet(t).stage(dir, out, app.Selection{}, true)
@@ -259,6 +259,7 @@ type fakeRulesync struct {
 	quiet            bool
 	settings         string
 	files            map[string]string
+	modes            map[string]os.FileMode // of files, by name, when not 0o644
 	tools            app.ToolPaths
 	fetchErr, runErr error
 	runs             []rulesyncRun
@@ -298,11 +299,35 @@ func (f *fakeRulesync) run(_ context.Context, bin rulesync.Result, targets []str
 		}
 		for name, data := range f.files {
 			if rest, ok := strings.CutPrefix(name, filepath.Base(j.Dir)+"/"); ok {
+				data = rulesyncHome(data, j.Dir)
 				writeFile(f.t, filepath.Join(j.Dir, filepath.FromSlash(rest)), data)
+				if mode, ok := f.modes[name]; ok {
+					if err := os.Chmod(filepath.Join(j.Dir, filepath.FromSlash(rest)), mode); err != nil {
+						f.t.Fatal(err)
+					}
+				}
 			}
 		}
 	}
 	return nil
+}
+
+// rulesyncHome writes the scope's home directory dir in data, in the form
+// each placeholder names: <home> with forward slashes, as rulesync writes
+// it, <home-native> with the OS's separators, <home-json> that with each
+// backslash escaped as in a JSON string, <home-upper> with forward slashes,
+// its first character, the drive letter on Windows, in lower case and the
+// rest in upper case, and <home-escaped-slash> with each forward slash
+// escaped as \/, which JSON allows.
+func rulesyncHome(data, dir string) string {
+	slash := filepath.ToSlash(dir)
+	return strings.NewReplacer(
+		"<home-native>", dir,
+		"<home-json>", strings.ReplaceAll(dir, `\`, `\\`),
+		"<home-upper>", strings.ToLower(slash[:1])+strings.ToUpper(slash[1:]),
+		"<home-escaped-slash>", strings.ReplaceAll(slash, "/", `\/`),
+		"<home>", slash,
+	).Replace(data)
 }
 
 func (f *fakeRulesync) stage(dir, out string, sel app.Selection, force bool) (app.StageResult, error) {
@@ -330,7 +355,7 @@ func TestStageRunsRulesyncInEachScope(t *testing.T) {
 		source           string
 	}{{app.ScopeUser, ".claude/CLAUDE.md", true, ".rulesync/rules/overview.md"}, {app.ScopeProject, "CLAUDE.md", false, ".rulesync/rules/web.md"}} {
 		r := f.runs[i]
-		if filepath.Base(r.dir) != want.scope || filepath.Dir(r.dir) == out || r.global != want.global || r.version != "41.0.0" ||
+		if filepath.Base(r.dir) != want.scope || filepath.Dir(r.dir) == out || r.global != want.global || r.version != "43.9.2" ||
 			!reflect.DeepEqual(r.targets, harnesses) || !slices.Contains(r.tree, want.source) {
 			t.Errorf("run %d = %+v, want %s in a temporary tree before the swap, global %v, the pack's rulesync and harnesses", i, r, want.scope, want.global)
 		}
@@ -398,7 +423,7 @@ func TestStageRunsRulesyncOnlyWhereThereAreSources(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
-			writeFile(t, filepath.Join(dir, "dotai.yaml"), "schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\nrulesync: 41.0.0\nharnesses: [opencode]\nprofiles:\n  p:\n    path: profiles/p\n    description: P.\n")
+			writeFile(t, filepath.Join(dir, "dotai.yaml"), "schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\nrulesync: 43.9.2\nharnesses: [opencode]\nprofiles:\n  p:\n    path: profiles/p\n    description: P.\n")
 			writeFile(t, filepath.Join(dir, "base", "dotai", "settings.yaml"), "{}\n")
 			writeFile(t, filepath.Join(dir, "profiles", "p", "dotai", "settings.yaml"), "{}\n")
 			writeFile(t, filepath.Join(dir, tt.source), "# R\n")
@@ -509,7 +534,7 @@ func TestStageSettingsConflictWritesNothing(t *testing.T) {
 
 func TestStageRendersSettingsWithoutOtherFiles(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, "dotai.yaml"), "schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\nrulesync: 41.0.0\nharnesses: [opencode]\nprofiles:\n  p:\n    path: profiles/p\n    description: P.\n")
+	writeFile(t, filepath.Join(dir, "dotai.yaml"), "schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\nrulesync: 43.9.2\nharnesses: [opencode]\nprofiles:\n  p:\n    path: profiles/p\n    description: P.\n")
 	writeFile(t, filepath.Join(dir, "base", "dotai", "settings.yaml"), "opencode: {model: a}\n")
 	writeFile(t, filepath.Join(dir, "profiles", "p", "dotai", "settings.yaml"), "opencode: {model: b}\n")
 	out := filepath.Join(t.TempDir(), "s")
@@ -531,24 +556,80 @@ func TestStageRendersSettingsWithoutOtherFiles(t *testing.T) {
 	}
 }
 
-// openCodePlugin41 is the OpenCode plugin rulesync 41.0.0 renders from
-// hooks, the same at both scopes but for the commands.
-func openCodePlugin41(t *testing.T) string {
+// TestStageWritesTheRealHomeForRulesyncsHome checks that the home
+// directory rulesync ran with, the staging tree of its scope, becomes the
+// real home directory in every file rulesync wrote, as rulesync 43.9.2
+// writes a ~/ path of agy's permissions.
+func TestStageWritesTheRealHomeForRulesyncsHome(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "staging")
+	home := filepath.Join(t.TempDir(), "home")
+	settings := `{"permissions":{"deny":["read_file(<home>/.ssh)","read_file(<home>)"]}}`
+	f := &fakeRulesync{t: t, tools: app.ToolsIn(home, "project"), files: map[string]string{
+		"user/.gemini/antigravity-cli/settings.json": settings,
+		"project/.agents/rules/home.md":              "# <home>/notes\n",
+	}}
+	res, err := f.stage(examplePack, out, app.Selection{Profiles: []string{"web"}}, false)
+	if err != nil || len(res.Diagnostics) > 0 {
+		t.Fatalf("Stage() = %+v, %v", res.Diagnostics, err)
+	}
+	real := filepath.ToSlash(home)
+	got, err := os.ReadFile(filepath.Join(out, "user", ".gemini", "antigravity-cli", "settings.json"))
+	if err != nil || !strings.Contains(string(got), `"read_file(`+real+`/.ssh)"`) || !strings.Contains(string(got), `"read_file(`+real+`)"`) ||
+		strings.Contains(string(got), ".dotai-stage") {
+		t.Errorf("agy settings = %q, %v, want the permissions under %s", got, err, real)
+	}
+	if got, err := os.ReadFile(filepath.Join(out, "project", ".agents", "rules", "home.md")); err != nil || string(got) != "# "+real+"/notes\n" {
+		t.Errorf("project rule = %q, %v, want it under %s", got, err, real)
+	}
+}
+
+// TestStageFailsWhenRulesyncsHomeHasNoRealHome checks that a file rulesync
+// wrote with its home directory in it fails the stage when the real home
+// directory is unknown, rather than naming a staging tree that is gone.
+func TestStageFailsWhenRulesyncsHomeHasNoRealHome(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "staging")
+	tools := app.ToolsIn("home", "project")
+	tools.UserErr = errors.New("no home directory")
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "dotai.yaml"), "schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\nrulesync: 43.9.2\nharnesses: [antigravity-cli]\n")
+	writeFile(t, filepath.Join(dir, "base", ".rulesync", "rules", "r.md"), "# R\n")
+	f := &fakeRulesync{t: t, tools: tools, files: map[string]string{
+		"user/.gemini/antigravity-cli/settings.json": `{"permissions":{"deny":["read_file(<home>/.ssh)"]}}`,
+	}}
+	_, err := f.stage(dir, out, app.Selection{}, false)
+	if err == nil || !strings.Contains(err.Error(), "user/.gemini/antigravity-cli/settings.json") || !strings.Contains(err.Error(), "no home directory") {
+		t.Fatalf("Stage() error = %v, want one that names the file and why the home directory is unknown", err)
+	}
+	if _, err := os.Stat(out); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("out was written: %v", err)
+	}
+}
+
+// openCodePlugin is the OpenCode plugin rulesync 43.9.2 renders from
+// hooks, the same at both scopes but for the commands: its id is derived
+// from the file's URL.
+func openCodePlugin(t *testing.T) string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("testdata", "rulesync-41.0.0", "opencode-project-plugin.js"))
+	data, err := os.ReadFile(filepath.Join("testdata", "rulesync-43.9.2", "opencode-project-plugin.js"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	return string(data)
 }
 
+// openCodePluginID is the id line of the plugin rulesync 43.9.2 renders.
+const openCodePluginID = `id: "rulesync-hooks:" + import.meta.url,`
+
 // TestStageGivesTheProjectOpenCodePluginItsOwnName checks that the project
-// scope's OpenCode plugin is renamed and gets an id of its own, so that it
-// loads next to the user scope's, which rulesync names the same, and that
-// the user scope's is left as rulesync wrote it.
+// scope's OpenCode plugin is renamed, as rulesync wrote it, since its id
+// is already its own file's, and that the user scope's is left as rulesync
+// wrote it.
 func TestStageGivesTheProjectOpenCodePluginItsOwnName(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "staging")
-	plugin := openCodePlugin41(t)
+	plugin := openCodePlugin(t)
+	if strings.Count(plugin, openCodePluginID) != 1 {
+		t.Fatalf("the fixture does not hold %s once", openCodePluginID)
+	}
 	f := &fakeRulesync{t: t, files: map[string]string{
 		"project/.opencode/plugins/rulesync-hooks.js":     plugin,
 		"user/.config/opencode/plugins/rulesync-hooks.js": plugin,
@@ -560,10 +641,8 @@ func TestStageGivesTheProjectOpenCodePluginItsOwnName(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(out, "project", ".opencode", "plugins", "rulesync-hooks.js")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the project plugin is still staged under rulesync's name: %v", err)
 	}
-	got, err := os.ReadFile(filepath.Join(out, "project", ".opencode", "plugins", "rulesync-hooks-project.js"))
-	want := strings.Replace(plugin, `id: "rulesync-hooks",`, `id: "rulesync-hooks-project",`, 1)
-	if err != nil || string(got) != want || want == plugin {
-		t.Errorf("project plugin = %q, %v, want %q", got, err, want)
+	if got, err := os.ReadFile(filepath.Join(out, "project", ".opencode", "plugins", "rulesync-hooks-project.js")); err != nil || string(got) != plugin {
+		t.Errorf("project plugin = %q, %v, want it as rulesync wrote it", got, err)
 	}
 	if got, err := os.ReadFile(filepath.Join(out, "user", ".config", "opencode", "plugins", "rulesync-hooks.js")); err != nil || string(got) != plugin {
 		t.Errorf("user plugin = %q, %v, want it as rulesync wrote it", got, err)
@@ -577,23 +656,24 @@ func TestStageGivesTheProjectOpenCodePluginItsOwnName(t *testing.T) {
 	}
 }
 
-// TestStageRefusesAnOpenCodePluginItCannotRename checks that a project
-// plugin without exactly one id of the form rulesync 41.0.0 writes fails
-// the stage and writes nothing, so a rulesync that renders another form is
-// caught rather than installed with a clashing id.
-func TestStageRefusesAnOpenCodePluginItCannotRename(t *testing.T) {
-	plugin := openCodePlugin41(t)
+// TestStageRefusesAnOpenCodePluginWithoutItsOwnID checks that a project
+// plugin without exactly one id of the form rulesync 43.9.2 writes, the
+// fixed id of rulesync 41.0.0 included, fails the stage and writes
+// nothing, so a rulesync that renders another form is caught rather than
+// installed with an id that may clash with the user scope's.
+func TestStageRefusesAnOpenCodePluginWithoutItsOwnID(t *testing.T) {
+	plugin := openCodePlugin(t)
 	for name, data := range map[string]string{
-		"no id":    strings.Replace(plugin, `id: "rulesync-hooks",`, `name: "rulesync-hooks",`, 1),
-		"other id": strings.Replace(plugin, `id: "rulesync-hooks",`, `id: "rulesync-hooks-v2",`, 1),
-		"two ids":  plugin + "\nexport const other = {\n  id: \"rulesync-hooks\",\n};\n",
+		"fixed id": strings.Replace(plugin, openCodePluginID, `id: "rulesync-hooks",`, 1),
+		"no id":    strings.Replace(plugin, openCodePluginID, `name: "rulesync-hooks:" + import.meta.url,`, 1),
+		"two ids":  plugin + "\nexport const other = {\n  " + openCodePluginID + "\n};\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			out := filepath.Join(t.TempDir(), "staging")
 			f := &fakeRulesync{t: t, files: map[string]string{"project/.opencode/plugins/rulesync-hooks.js": data}}
 			_, err := f.stage(examplePack, out, app.Selection{Profiles: []string{"web"}}, false)
 			if err == nil || !strings.Contains(err.Error(), ".opencode/plugins/rulesync-hooks.js") ||
-				!strings.Contains(err.Error(), `id: "rulesync-hooks",`) || !strings.Contains(err.Error(), "41.0.0") {
+				!strings.Contains(err.Error(), openCodePluginID) || !strings.Contains(err.Error(), "43.9.2") {
 				t.Fatalf("Stage() error = %v, want one that names the plugin, the id it looks for and the rulesync", err)
 			}
 			if _, err := os.Stat(out); !errors.Is(err, os.ErrNotExist) {

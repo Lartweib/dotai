@@ -42,3 +42,5 @@ There are no model tiers.
 
 - Internal research (not published): pack format verifications, 2026-10-24.
 - rulesync 41.0.0 subagent generation test with per-target model blocks, 2026-10-25.
+
+Update 2026-11-18: rulesync 43.9.2 passes the per-target subagent blocks the same way, and still drops a subagent `antigravity:` block silently ([HARNESS-NOTES](../HARNESS-NOTES.md#rulesync-4392)).

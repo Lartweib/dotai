@@ -38,7 +38,7 @@ const sessionStart = "sessionStart"
 // sessionStart, in the merged hooks.jsonc, which gets an empty object of
 // shared hooks when it has none. A block that does not declare
 // sessionStart gets the shared sessionStart hooks first, since it replaces
-// them for its harness (rulesync 41), so that the pack's hooks still reach
+// them for its harness (rulesync 43), so that the pack's hooks still reach
 // it; an entry that is there already is kept once. A pack without hooks
 // gets a hooks file of the engine's hooks alone.
 func (s *Staging) AddEngine(e Engine) {
@@ -51,7 +51,7 @@ func (s *Staging) AddEngine(e Engine) {
 			n.set("version", engineLeaf([]byte("1")))
 			u.lists[HooksFile] = n
 		}
-		// rulesync 41 refuses a hooks file without the shared hooks.
+		// rulesync 43 refuses a hooks file without the shared hooks.
 		n.child(sharedHooks)
 		var shared []*node
 		if h := n.vals[sharedHooks]; h != nil && h.kind == '{' {

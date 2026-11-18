@@ -76,6 +76,7 @@ type stageFS interface {
 	TempDir(beside string) (string, error)                           // a new empty directory next to beside, on its volume
 	WriteFile(dir, name string, data []byte, perm fs.FileMode) error // name is a slash path inside dir; nothing outside dir is written
 	ReadFile(dir, name string) ([]byte, error)                       // name is a slash path inside dir; an fs.ErrNotExist error when it is missing
+	Mode(dir, name string) (fs.FileMode, error)                      // the permission bits of the file name, a slash path inside dir
 	Rename(from, to string) error
 	RemoveAll(path string) error
 }
@@ -90,8 +91,9 @@ type stageFS interface {
 // the rulesync the pack pins runs over the .rulesync/ of each scope tree,
 // with that tree as its home directory, and writes the output of the
 // pack's harnesses into it: the user scope at the paths it has under the
-// home directory, the project scope at those of a project. Each scope's
-// tools are staged at their install path, .dotai/tools/, and the path
+// home directory, the project scope at those of a project; where rulesync
+// names that home directory, the real one of tools takes its place. Each
+// scope's tools are staged at their install path, .dotai/tools/, and the path
 // variables of every staged text file become the paths in tools before
 // rulesync runs. After rulesync, the merged settings of each scope are
 // written into each harness's settings file, after the keys rulesync wrote
@@ -213,6 +215,11 @@ func stage(ctx context.Context, w stageFS, fetch fetchFunc, run runFunc, cacheDi
 		}
 		if err := renameProjectFiles(w, filepath.Join(tmp, ScopeProject), adapters, p.Manifest.Rulesync); err != nil {
 			return nil, err
+		}
+		for _, j := range jobs {
+			if err := writeRealHome(w, tmp, filepath.Base(j.Dir), files, tools); err != nil {
+				return nil, err
+			}
 		}
 		var rendered []StagedFile
 		for _, t := range []struct {
@@ -401,6 +408,19 @@ func (osStageFS) ReadFile(dir, name string) ([]byte, error) {
 	}
 	defer root.Close()
 	return root.ReadFile(name)
+}
+
+func (osStageFS) Mode(dir, name string) (fs.FileMode, error) {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return 0, err
+	}
+	defer root.Close()
+	fi, err := root.Stat(name)
+	if err != nil {
+		return 0, err
+	}
+	return fi.Mode().Perm(), nil
 }
 
 func (osStageFS) Files(dir string) ([]string, error) {

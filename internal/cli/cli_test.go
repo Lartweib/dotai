@@ -507,12 +507,12 @@ func TestRunRulesyncFetch(t *testing.T) {
 		t.Fatal(err)
 	}
 	fetched := app.RulesyncResult{
-		Version: "41.0.0", Asset: "rulesync-linux-x64", Path: "cache/rulesync/41.0.0/rulesync-linux-x64",
+		Version: "43.9.2", Asset: "rulesync-linux-x64", Path: "cache/rulesync/43.9.2/rulesync-linux-x64",
 		SHA256: "6598756e1f57959645589de9c2ce7b686018eb754bf1c994e8137ea2fba80ed6", Diagnostics: []app.Diagnostic{},
 	}
 	invalid := app.RulesyncResult{
 		Diagnostics: []app.Diagnostic{{File: "dotai.yaml", Line: 5, Column: 11, Code: "rulesync-unsupported",
-			Message: "rulesync 40.0.0 is not supported by this engine", Hint: "pin one of: 41.0.0"}},
+			Message: "rulesync 40.0.0 is not supported by this engine", Hint: "pin one of: 43.9.2"}},
 		Pack: &app.PackSummary{Name: "p", Version: "1.0.0"},
 	}
 	tests := []struct {
@@ -525,7 +525,7 @@ func TestRunRulesyncFetch(t *testing.T) {
 		wantStderr string
 	}{
 		{name: "text", args: []string{"rulesync", "fetch", "p"}, res: fetched, golden: "rulesync-fetch.txt.golden",
-			wantStderr: "downloading rulesync 41.0.0 (106 MB)...\n"},
+			wantStderr: "downloading rulesync 43.9.2 (109 MB)...\n"},
 		{name: "json", args: []string{"rulesync", "fetch", "p", "--json"}, res: fetched, golden: "rulesync-fetch.json.golden"},
 		{name: "invalid pack", args: []string{"rulesync", "fetch", "p", "--json"}, res: invalid, wantCode: cli.ExitInvalid,
 			golden: "rulesync-fetch-invalid.json.golden"},
@@ -541,7 +541,7 @@ func TestRunRulesyncFetch(t *testing.T) {
 					t.Errorf("FetchRulesync(%v, %q, %q), want a context, %q and p", ctx, cacheDir, dir, wantCache)
 				}
 				if progress != nil {
-					progress("41.0.0", 105782784)
+					progress("43.9.2", 108681216)
 				}
 				return tt.res, tt.err
 			}

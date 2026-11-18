@@ -89,7 +89,7 @@ func TestHookToolCommands(t *testing.T) {
 // TestSharedHookSkipsTheHarnessesThatShadowIt checks that the form of a
 // shared hook is chosen only over the harnesses that render it: one whose
 // own block declares the same event gets that block's hooks instead
-// (rulesync 41), so an agy block for sessionStart lets the shared
+// (rulesync 43), so an agy block for sessionStart lets the shared
 // sessionStart be quoted for Claude Code and OpenCode, from a tools
 // directory with a space, and a shared hook that no rendered harness gets
 // is left as written.
@@ -162,7 +162,7 @@ func hookCommand(t *testing.T, data []byte, block string) string {
 // hook and agy, and writes nothing.
 func TestStageRefusesAnUnquotableHookPath(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, "dotai.yaml"), "schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\nrulesync: 41.0.0\nharnesses: [claudecode, antigravity-cli]\n")
+	writeFile(t, filepath.Join(dir, "dotai.yaml"), "schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\nrulesync: 43.9.2\nharnesses: [claudecode, antigravity-cli]\n")
 	writeFile(t, filepath.Join(dir, "base", ".rulesync", "hooks.jsonc"), `{"hooks": {"sessionStart": [{"command": "${DOTAI_TOOL:hello}"}]}}`)
 	writeFile(t, filepath.Join(dir, "base", "dotai", "tools", "hello.sh"), "echo hello\n")
 	writeFile(t, filepath.Join(dir, "base", "dotai", "tools", "hello.ps1"), "'hello'\n")

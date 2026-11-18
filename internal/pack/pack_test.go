@@ -15,7 +15,7 @@ const manifest = `schema: dotai.pack/v1
 name: test-pack
 version: 0.1.0
 engine: ">=0.1.0"
-rulesync: 41.0.0
+rulesync: 43.9.2
 harnesses: [claudecode, opencode]
 profiles:
   web:
@@ -97,7 +97,7 @@ func TestLoadValidPack(t *testing.T) {
 	}
 
 	m := p.Manifest
-	if m.Name != "test-pack" || m.Version != "0.1.0" || m.Engine != ">=0.1.0" || m.Rulesync != "41.0.0" {
+	if m.Name != "test-pack" || m.Version != "0.1.0" || m.Engine != ">=0.1.0" || m.Rulesync != "43.9.2" {
 		t.Errorf("identity = %+v", m)
 	}
 	if !reflect.DeepEqual(m.Harnesses, []string{"claudecode", "opencode"}) {
@@ -239,8 +239,8 @@ func TestLoadDiagnostics(t *testing.T) {
 		},
 		{
 			name:   "rulesync is a range, not an exact version",
-			mutate: editManifest("rulesync: 41.0.0", `rulesync: "^41.0.0"`),
-			want:   []string{`dotai.yaml:5:11: rulesync-invalid: rulesync "^41.0.0" must be an exact version such as 41.0.0`},
+			mutate: editManifest("rulesync: 43.9.2", `rulesync: "^43.9.2"`),
+			want:   []string{`dotai.yaml:5:11: rulesync-invalid: rulesync "^43.9.2" must be an exact version such as 43.9.2`},
 		},
 		{
 			name:   "unknown harness",
@@ -608,15 +608,15 @@ func editManifest(old, new string) func(fstest.MapFS) {
 
 func TestLoadWithRulesyncVersions(t *testing.T) {
 	tests := []struct{ pin, want string }{
-		{pin: "41.0.0"},
-		{pin: "40.0.0", want: "dotai.yaml:5:11: rulesync-unsupported: rulesync 40.0.0 is not supported by this engine (fix: pin one of: 41.0.0, 42.0.0)"},
-		{pin: "latest", want: `dotai.yaml:5:11: rulesync-invalid: rulesync "latest" must be an exact version such as 41.0.0`},
+		{pin: "43.9.2"},
+		{pin: "40.0.0", want: "dotai.yaml:5:11: rulesync-unsupported: rulesync 40.0.0 is not supported by this engine (fix: pin one of: 43.9.2, 44.0.0)"},
+		{pin: "latest", want: `dotai.yaml:5:11: rulesync-invalid: rulesync "latest" must be an exact version such as 43.9.2`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.pin, func(t *testing.T) {
 			fsys := validPack()
-			fsys["dotai.yaml"].Data = []byte(strings.Replace(manifest, "41.0.0", tt.pin, 1))
-			_, diags, err := pack.LoadWith(fsys, []string{"41.0.0", "42.0.0"})
+			fsys["dotai.yaml"].Data = []byte(strings.Replace(manifest, "43.9.2", tt.pin, 1))
+			_, diags, err := pack.LoadWith(fsys, []string{"43.9.2", "44.0.0"})
 			var got []string
 			for _, d := range diags {
 				got = append(got, d.String())

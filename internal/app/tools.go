@@ -221,11 +221,21 @@ const homeToken = "${DOTAI_HOME}"
 // quotes, or a network path on Windows, whose leading \\ bash reads as one
 // \. Spaces are kept: a command quotes the path.
 func checkHome(home, goos string) error {
+	if err := commandHome(home, goos); err != nil {
+		return fmt.Errorf("%s cannot be expanded: %w", homeToken, err)
+	}
+	return nil
+}
+
+// commandHome refuses a home directory that a command cannot name inside
+// double quotes, for checkHome and for a command rulesync wrote with its
+// home directory in it.
+func commandHome(home, goos string) error {
 	if goos == "windows" && (strings.HasPrefix(home, `\\`) || strings.HasPrefix(home, "//")) {
-		return fmt.Errorf(`%s cannot be expanded: the home directory %s starts with \\ or //, as a network path does, and bash reads \\ inside double quotes as a single \: put the home directory on a local drive`, homeToken, home)
+		return fmt.Errorf(`the home directory %s starts with \\ or //, as a network path does, and bash reads \\ inside double quotes as a single \: put the home directory on a local drive`, home)
 	}
 	if i := strings.IndexAny(home, unquoted(goos)); i >= 0 {
-		return fmt.Errorf("%s cannot be expanded: the home directory %s holds %q, which a harness's shell would not take literally inside double quotes", homeToken, home, home[i])
+		return fmt.Errorf("the home directory %s holds %q, which a harness's shell would not take literally inside double quotes", home, home[i])
 	}
 	return nil
 }

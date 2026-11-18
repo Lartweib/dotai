@@ -7,7 +7,7 @@ Release notes for each version are generated per tag and published with its rele
 The first release, `v0.1.0`, will contain:
 
 - **Packs.** `dotai validate` and `dotai stage` load a pack (`dotai.yaml`, a base, variants and profiles in the rulesync layout), apply the layer merge rules and report diagnostics with stable codes.
-- **Rendering.** A pinned rulesync binary, verified against checksums embedded in the engine, renders rules, commands, subagents, skills, MCP, hooks and permissions; dotai adds per-harness settings, tools and their path variables.
+- **Rendering.** A pinned rulesync binary, 43.9.2, verified against checksums embedded in the engine, renders rules, commands, subagents, skills, MCP, hooks and permissions; dotai adds per-harness settings, tools and their path variables.
 - **Install.** `dotai install` installs a pack's user scope for Claude Code, agy and OpenCode (preview), isolated under `~/.dotai/isolated/` or in replace mode, with harness detection, a backup before every write, a journal and a rollback; `dotai run <harness>` launches a harness against its isolated install.
 - **Restore.** `dotai restore` undoes installs from the backups, newest first, and `dotai restore --project` undoes a project apply.
 - **Project scope.** `dotai apply --profile <p>` applies profiles to a project in local, untracked files only, listed in `.git/info/exclude`, with mods as Claude Code plugins.

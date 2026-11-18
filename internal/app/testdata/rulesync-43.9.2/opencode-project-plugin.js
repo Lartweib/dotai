@@ -1,5 +1,5 @@
 export default {
-  id: "rulesync-hooks",
+  id: "rulesync-hooks:" + import.meta.url,
   setup: async (ctx) => {
     const directory = ctx.location?.directory ?? process.cwd();
     const $ = new Bun.$.Shell();
@@ -7,7 +7,10 @@ export default {
 
     const __rulesyncEvents = new AbortController();
     void (async () => {
-      for await (const event of ctx.event.subscribe({ signal: __rulesyncEvents.signal })) {
+      for await (const event of ctx.event.subscribe({
+        types: ["session.created", "session.execution.succeeded"],
+        signal: __rulesyncEvents.signal,
+      })) {
         if (event.type === "session.created") {
           try {
             await $`echo hi`;

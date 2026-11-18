@@ -25,8 +25,8 @@ func TestFetchRulesync(t *testing.T) {
 	}
 
 	res, err := app.FetchRulesyncWith(ctx, fetch, "cache", example)
-	want := app.RulesyncResult{Version: "41.0.0", Asset: "a", Path: "p", SHA256: "s", Cached: true, Diagnostics: []app.Diagnostic{}}
-	if err != nil || res.Pack == nil || len(asked) != 1 || asked[0] != "cache 41.0.0" {
+	want := app.RulesyncResult{Version: "43.9.2", Asset: "a", Path: "p", SHA256: "s", Cached: true, Diagnostics: []app.Diagnostic{}}
+	if err != nil || res.Pack == nil || len(asked) != 1 || asked[0] != "cache 43.9.2" {
 		t.Fatalf("result = %+v, %v, asked %v, want the example pack's rulesync", res, err, asked)
 	}
 	res.Pack = nil

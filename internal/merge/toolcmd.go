@@ -135,7 +135,7 @@ func (s *scope) checkToolRefs(file string, line, column int, what, v string) []p
 // Hook is an entry of a hooks file: the tool-scoped block that holds it,
 // such as claudecode, "" for the shared hooks, its event and its place
 // among the event's entries. Shadowed, for a shared hook, is the blocks
-// that declare its event too, in file order: rulesync 41 renders their
+// that declare its event too, in file order: rulesync 43 renders their
 // own hooks of the event for their harnesses, not this one.
 type Hook struct {
 	Block, Event string
@@ -193,7 +193,7 @@ func eachHook(n *node, f func(h Hook, it *node, command string)) {
 }
 
 // shadowing is the tool-scoped blocks of the hooks file n that declare
-// event, whose harness rulesync 41 renders them for instead of the shared
+// event, whose harness rulesync 43 renders them for instead of the shared
 // hooks of event.
 func shadowing(n *node, event string) []string {
 	var out []string
