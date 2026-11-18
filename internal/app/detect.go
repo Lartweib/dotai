@@ -119,7 +119,7 @@ func (d Detection) Why(a harness.Adapter) string {
 
 // detectAll detects every harness of m in home.
 func detectAll(d installFS, h host, home string, m pack.Manifest) (map[string]Detection, error) {
-	adapters, err := harness.Lookup(m.AllHarnesses())
+	adapters, err := harness.Lookup(m.Harnesses)
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +145,7 @@ func detectAll(d installFS, h host, home string, m pack.Manifest) (map[string]De
 // out, and a name asked that the pack does not support, are a *UsageError.
 // An optional harness that is not managed gets a notice, text for people.
 func selectHarnesses(m pack.Manifest, asked []string, prev *state.State, det map[string]Detection) (selected, notices, choice []string, err error) {
-	all := m.AllHarnesses()
+	all := m.Harnesses
 	adapters, err := harness.Lookup(all)
 	if err != nil {
 		return nil, nil, nil, err
@@ -168,7 +168,7 @@ func selectHarnesses(m pack.Manifest, asked []string, prev *state.State, det map
 	}
 	var missing []string
 	for _, a := range adapters {
-		required := slices.Contains(m.Harnesses, a.ID)
+		required := slices.Contains(m.Requires, a.ID)
 		d := det[a.ID]
 		switch {
 		case asked != nil && !slices.Contains(asked, a.ID) && required:

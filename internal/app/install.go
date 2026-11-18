@@ -425,16 +425,16 @@ func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run run
 		return err
 	}
 	res.SharedSkills = sp
-	all, err := harness.Lookup(append(slices.Clone(s.Pack.Harnesses), s.Pack.OptionalHarnesses...))
+	all, err := harness.Lookup(s.Pack.Harnesses)
 	if err != nil {
 		return err
 	}
 	for _, a := range all {
-		hp := HarnessPlan{ID: a.ID, Required: slices.Contains(s.Pack.Harnesses, a.ID), Detection: detected[a.ID],
+		hp := HarnessPlan{ID: a.ID, Required: slices.Contains(s.Pack.Requires, a.ID), Detection: detected[a.ID],
 			Pointers: []PointerPlan{}, Leaks: []string{}, Tools: []ToolCommand{}}
 		if slices.Contains(s.Harnesses, a.ID) {
 			hp = harnessPlan(harness.Mode(mode), home, a, h.goos, shared)
-			hp.Required, hp.Managed, hp.Detection = slices.Contains(s.Pack.Harnesses, a.ID), true, detected[a.ID]
+			hp.Required, hp.Managed, hp.Detection = slices.Contains(s.Pack.Requires, a.ID), true, detected[a.ID]
 		}
 		for _, c := range s.ToolCommands {
 			if hp.Managed && c.Scope == ScopeUser && c.Harness == a.ID {

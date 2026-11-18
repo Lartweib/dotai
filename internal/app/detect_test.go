@@ -114,7 +114,7 @@ func adapterOf(t *testing.T, id string) harness.Adapter {
 // explicit choice is saved, and a harness skipped as undetected never
 // changes it.
 func TestSelectHarnesses(t *testing.T) {
-	m := pack.Manifest{Name: "p", Harnesses: []string{"claudecode"}, OptionalHarnesses: []string{"antigravity-cli", "opencode"}}
+	m := pack.Manifest{Name: "p", Harnesses: []string{"claudecode", "antigravity-cli", "opencode"}, Requires: []string{"claudecode"}}
 	det := func(ids ...string) map[string]app.Detection {
 		out := map[string]app.Detection{}
 		for _, id := range pack.Harnesses {
@@ -192,7 +192,7 @@ func TestSelectHarnesses(t *testing.T) {
 func TestPlanInstallSkipsAMissingOptionalHarness(t *testing.T) {
 	home, _ := installHome(t)
 	dir := copyPack(t)
-	editPack(t, dir, "dotai.yaml", "harnesses: [claudecode, antigravity-cli, opencode]", "harnesses: [claudecode, opencode]\noptional-harnesses: [antigravity-cli]")
+	editPack(t, dir, "dotai.yaml", "harnesses: [claudecode, antigravity-cli, opencode]", "harnesses: [claudecode, opencode, antigravity-cli]\nrequires: [claudecode, opencode]")
 	h := app.NewHost(found(at(home, "bin"), "claude", "opencode"), nil, "")
 	f := quiet(t)
 	p, err := app.PlanInstallHost(context.Background(), app.OSInstallFS{}, h, f.fetch, f.run, dir, home, app.InstallOptions{})
@@ -257,7 +257,9 @@ func TestInstallStopsOnAMissingRequiredHarness(t *testing.T) {
 	home, _ := installHome(t)
 	h := app.NewHost(found(at(home, "bin"), "claude", "opencode"), nil, "")
 	f := quiet(t)
-	_, err := app.InstallHost(context.Background(), newClockFS(t), h, f.fetch, f.run, examplePack, home, app.InstallOptions{})
+	dir := copyPack(t)
+	editPack(t, dir, "dotai.yaml", "harnesses: [claudecode, antigravity-cli, opencode]", "harnesses: [claudecode, antigravity-cli, opencode]\nrequires: [antigravity-cli]")
+	_, err := app.InstallHost(context.Background(), newClockFS(t), h, f.fetch, f.run, dir, home, app.InstallOptions{})
 	if err == nil || err.Error() != "the pack requires antigravity-cli, which is not installed (agy not found on PATH)" {
 		t.Fatalf("Install() error = %v, want the missing agy named", err)
 	}

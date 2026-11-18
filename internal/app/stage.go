@@ -133,7 +133,7 @@ func stage(ctx context.Context, w stageFS, fetch fetchFunc, run runFunc, cacheDi
 		res.Diagnostics = diags
 		return res, nil
 	}
-	harnesses := p.Manifest.AllHarnesses()
+	harnesses := p.Manifest.Harnesses
 	if pick != nil {
 		if harnesses, err = pick(p.Manifest); err != nil {
 			return StageResult{}, err

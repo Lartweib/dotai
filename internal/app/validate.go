@@ -34,18 +34,18 @@ type ValidateResult struct {
 
 // PackSummary describes a loaded pack. Lists are never nil.
 type PackSummary struct {
-	Name      string   `json:"name"`
-	Version   string   `json:"version"`
-	Engine    string   `json:"engine"`
-	Rulesync  string   `json:"rulesync"`
-	Harnesses []string `json:"harnesses"`
-	// OptionalHarnesses are the harnesses an install skips when they are
-	// not installed (decision 0038).
-	OptionalHarnesses []string         `json:"optionalHarnesses"`
-	Profiles          []ProfileSummary `json:"profiles"` // in declaration order
-	Variants          []string         `json:"variants"`
-	DefaultVariant    string           `json:"defaultVariant"`
-	SharedSkills      []string         `json:"sharedSkills"` // the variants that share the user's skills (decision 0036)
+	Name     string `json:"name"`
+	Version  string `json:"version"`
+	Engine   string `json:"engine"`
+	Rulesync string `json:"rulesync"`
+	// Harnesses are the harnesses the pack is compatible with, and
+	// Requires those an install cannot do without (decision 0047).
+	Harnesses      []string         `json:"harnesses"`
+	Requires       []string         `json:"requires"`
+	Profiles       []ProfileSummary `json:"profiles"` // in declaration order
+	Variants       []string         `json:"variants"`
+	DefaultVariant string           `json:"defaultVariant"`
+	SharedSkills   []string         `json:"sharedSkills"` // the variants that share the user's skills (decision 0036)
 	// Onboarding is the pack's onboarding (decision 0045): dotai's, or the
 	// custom item that replaces it.
 	Onboarding OnboardingSummary `json:"onboarding"`
@@ -142,7 +142,7 @@ func validate(fsys fs.FS, sel Selection) (ValidateResult, *pack.Pack, error) {
 	m := p.Manifest
 	s := &PackSummary{
 		Name: m.Name, Version: m.Version, Engine: m.Engine, Rulesync: m.Rulesync,
-		Harnesses: append([]string{}, m.Harnesses...), OptionalHarnesses: append([]string{}, m.OptionalHarnesses...),
+		Harnesses: append([]string{}, m.Harnesses...), Requires: append([]string{}, m.Requires...),
 		Profiles: []ProfileSummary{}, Variants: []string{}, SharedSkills: []string{}, Layers: []LayerSummary{},
 		Onboarding: OnboardingSummary{Mode: m.Onboarding.Mode()},
 	}

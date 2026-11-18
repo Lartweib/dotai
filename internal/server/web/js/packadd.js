@@ -196,7 +196,7 @@ function summary(data, pack, ctx) {
   const e = data.pack;
   const enc = encodeURIComponent(e.path);
   const n = pack ? [
-    ["harnesses", pack.harnesses.length + pack.optionalHarnesses.length],
+    ["harnesses", pack.harnesses.length],
     ["variants", pack.variants.length],
     ["profiles", pack.profiles.length],
   ] : [];

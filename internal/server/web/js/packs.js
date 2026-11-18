@@ -156,12 +156,12 @@ async function showPack(detail, entry, ctx, doImport) {
   const warnings = res.ok ? res.data.warnings : res.data.diagnostics;
   const layers = outline.ok ? outline.data.layers : [];
   const of = (kind) => layers.filter((l) => l.kind === kind);
-  const optional = pack.optionalHarnesses.length > 0;
+  const requires = pack.requires.length > 0;
   mount(detail, intro, h("div", { class: "col" },
     !res.ok ? failure(res.error) : null,
     sec(t("packs.gives"), "", h("ul", { class: "facts" }, highlights(pack, outline.ok ? outline.data : null).map((x) => h("li", { text: x })))),
-    sec(t("packs.harnesses"), t(optional ? "packs.harnessesSome" : "packs.harnessesAll"), h("ul", { class: "fls" },
-      [...pack.harnesses.map((id) => harnessRow(id, false)), ...pack.optionalHarnesses.map((id) => harnessRow(id, true))]),
+    sec(t("packs.harnesses"), t(requires ? "packs.harnessesSome" : "packs.harnessesAll"), h("ul", { class: "fls" },
+      pack.harnesses.map((id) => harnessRow(id, pack.requires.includes(id)))),
     hint(t("hint.harness"))),
     !outline.ok ? failure(outline.error) : null,
     // The layers, from the base to the mods, on one lane.
@@ -258,7 +258,7 @@ function layerBody(l, head) {
 }
 
 function highlights(pack, outline) {
-  const names = [...pack.harnesses, ...pack.optionalHarnesses].map(harnessName);
+  const names = pack.harnesses.map(harnessName);
   const out = [t("packs.hl.source", { list: names.join(", ") })];
   if (pack.variants.length) out.push(t("packs.hl.variants", { n: pack.variants.length, list: pack.variants.join(", ") }));
   if (pack.profiles.length) out.push(t("packs.hl.profiles", { n: pack.profiles.length, list: pack.profiles.map((p) => p.name).join(", ") }));
@@ -268,9 +268,9 @@ function highlights(pack, outline) {
   return out;
 }
 
-function harnessRow(id, optional) {
+function harnessRow(id, required) {
   return h("li", { class: "fl" }, h("span", { class: "name", text: harnessName(id) }), h("span", { class: "id", text: id }),
-    optional ? h("span", { class: "pill sm state end", text: t("packs.optional") }) : null);
+    required ? h("span", { class: "pill sm state end", text: t("packs.required") }) : null);
 }
 
 // copyForm asks where to copy the pack, by default the free <name>-copy

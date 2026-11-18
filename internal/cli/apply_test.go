@@ -18,7 +18,7 @@ import (
 // projectPlan is a project plan with fixed paths, so that its output reads
 // the same on every OS.
 var projectPlan = app.ProjectPlan{
-	Pack:    &app.PackSummary{Name: "minimal-pack", Version: "0.1.0", Harnesses: []string{"claudecode", "antigravity-cli", "opencode"}, OptionalHarnesses: []string{}, Profiles: []app.ProfileSummary{}, Variants: []string{}, SharedSkills: []string{}, Layers: []app.LayerSummary{}},
+	Pack:    &app.PackSummary{Name: "minimal-pack", Version: "0.1.0", Harnesses: []string{"claudecode", "antigravity-cli", "opencode"}, Requires: []string{}, Profiles: []app.ProfileSummary{}, Variants: []string{}, SharedSkills: []string{}, Layers: []app.LayerSummary{}},
 	Variant: "standalone", Profiles: []string{"web"}, Project: "/work/site", Record: "/home/u/.dotai/projects/0123456789abcdef/record.json", Marker: "/work/site/.dotai/state.json",
 	Harnesses: []string{"claudecode", "antigravity-cli", "opencode"},
 	Ops: []plan.ProjectOp{

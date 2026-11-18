@@ -4,8 +4,14 @@ name: example-pack
 version: 0.1.0
 engine: ">=0.1.0"
 rulesync: 43.9.2
-# The harnesses the pack requires, by their rulesync target names.
+# The harnesses the pack is compatible with, by their rulesync target
+# names: an install manages those that are installed, and the user may
+# pick fewer. A preview harness, such as opencode, is managed only when
+# the user chooses it, or the previous install of the pack managed it.
 harnesses: [claudecode, antigravity-cli, opencode]
+# The harnesses of harnesses the pack cannot do without: an install
+# stops when one is not installed. Empty, the pack needs none.
+requires: []
 
 # Profiles are project scope: dotai apply --profile installs them in a
 # repository. The description and the hints are all dotai's onboarding

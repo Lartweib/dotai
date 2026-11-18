@@ -5,7 +5,14 @@ description: A minimal example pack for the dotai engine.
 author: dotai examples
 engine: ">=0.1.0"
 rulesync: 43.9.2
+# The harnesses the pack is compatible with; an install manages those
+# that are installed, and --harness picks fewer. A preview harness, such
+# as opencode, is managed only when --harness or the saved choice names
+# it, or the previous install of the pack managed it.
 harnesses: [claudecode, antigravity-cli, opencode]
+# requires lists the harnesses of harnesses the pack cannot do without:
+# an install stops when one is not installed. This pack needs none.
+# requires: [claudecode]
 
 profiles:
   web:
