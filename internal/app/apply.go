@@ -245,7 +245,8 @@ func (a applier) nextRecord() state.Project {
 	r := state.Project{
 		Schema: state.ProjectSchema, Pack: p.pack, Variant: p.plan.Variant, Profiles: slices.Clone(p.plan.Profiles), Harnesses: slices.Clone(p.plan.Harnesses),
 		Project: p.plan.Project, ID: p.scope.id, MCPKey: p.scope.mcpKey, Backups: []string{}, Files: []state.ProjectFile{}, Dirs: []string{},
-		Exclude: state.ProjectExclude{File: p.plan.Exclude.File, Pending: p.plan.Exclude.Pending, Entries: slices.Clone(p.plan.Exclude.Entries)},
+		Exclude:     state.ProjectExclude{File: p.plan.Exclude.File, Pending: p.plan.Exclude.Pending, Entries: slices.Clone(p.plan.Exclude.Entries)},
+		DismissOnly: p.dismissOnly,
 	}
 	if p.prev != nil {
 		r.FirstApply, r.Backups, r.Dirs = p.prev.FirstApply, slices.Clone(p.prev.Backups), slices.Clone(p.prev.Dirs)
@@ -312,7 +313,11 @@ func (a applier) write(res *ApplyResult, next state.Project) error {
 	if p.prev != nil {
 		base = *p.prev
 	}
-	ref, lost, err := a.journaled(journaledWrite{project: project, operation: backup.OperationApply, what: "apply", base: base, prior: p.prev != nil, writes: writes},
+	operation, what := backup.OperationApply, "apply"
+	if p.operation != "" {
+		operation, what = p.operation, p.operation
+	}
+	ref, lost, err := a.journaled(journaledWrite{project: project, operation: operation, what: what, base: base, prior: p.prev != nil, writes: writes},
 		func(id string, now time.Time) error {
 			next.Backups = append(next.Backups, id)
 			// A file dotai writes over one it does not own is given back from

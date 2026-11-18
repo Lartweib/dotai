@@ -228,8 +228,10 @@ func TestDoctorFixCompletesPendingExcludeEntriesOnceInARepository(t *testing.T) 
 	if r.Exclude.Pending || r.Exclude.File != exclude || !r.Exclude.Created {
 		t.Errorf("record exclude = %+v, want the file it created, no longer pending", r.Exclude)
 	}
-	if res := runDoctor(t, g, home, false); len(res.Findings) != 0 {
-		t.Errorf("Doctor() after --fix = %q, want nothing", codes(res))
+	// An apply outside git took no fingerprint, which the project in a
+	// repository needs now (decision 0045): the next apply takes one.
+	if res := runDoctor(t, g, home, false); !reflect.DeepEqual(codes(res), []string{"onboarding-record-invalid " + at(project, ".dotai/onboarding.json")}) {
+		t.Errorf("Doctor() after --fix = %q, want only the missing onboarding record", codes(res))
 	}
 	if _, err := restoreProject(t, g, project, home, nil); err != nil {
 		t.Fatalf("RestoreProject() after --fix error = %v", err)

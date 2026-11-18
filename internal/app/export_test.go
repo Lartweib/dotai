@@ -328,3 +328,9 @@ type listGit []string
 func (listGit) Repo(context.Context, string) (*Repo, error)                        { return nil, nil }
 func (listGit) Tracked(context.Context, string, []string) (map[string]bool, error) { return nil, nil }
 func (g listGit) Files(context.Context, string) ([]string, error)                  { return g, nil }
+
+// DismissOnboardingWith is DismissOnboarding writing through d and asking
+// git through g.
+func DismissOnboardingWith(ctx context.Context, d executeFS, g gitPort, cwd, home string) (DismissResult, error) {
+	return dismissOnboarding(ctx, d, g, cwd, home)
+}

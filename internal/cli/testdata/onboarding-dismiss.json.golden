@@ -1,0 +1,29 @@
+{
+  "schema": "dotai.cli/v1",
+  "command": "onboarding dismiss",
+  "ok": true,
+  "data": {
+    "project": "/work/site",
+    "onboarding": "/work/site/.dotai/onboarding.json",
+    "record": "/home/u/.dotai/projects/x/record.json",
+    "fingerprint": {
+      "schema": "dotai.onboarding/v1",
+      "source": "dismiss",
+      "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "pack": {
+        "id": "local/minimal-pack",
+        "revision": "0.1.0"
+      },
+      "profiles": [
+        "web"
+      ],
+      "hinted": []
+    },
+    "unchanged": false,
+    "backup": {
+      "id": "20261118T100000Z-dismiss",
+      "path": "/home/u/.dotai/projects/x/backups/20261118T100000Z-dismiss"
+    },
+    "warnings": []
+  }
+}

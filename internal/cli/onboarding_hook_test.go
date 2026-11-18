@@ -5,12 +5,17 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/lartweib/dotai/internal/app"
 	"github.com/lartweib/dotai/internal/cli"
+	"github.com/lartweib/dotai/internal/envelope"
+	"github.com/lartweib/dotai/internal/plan"
+	"github.com/lartweib/dotai/internal/state"
 )
 
 func TestRunOnboardingHook(t *testing.T) {
@@ -109,4 +114,50 @@ func TestRunOnboardingHookIgnoresAnUnknownHarness(t *testing.T) {
 	if code != cli.ExitOK || stdout.Len() != 0 || !strings.Contains(stderr.String(), "unknown harness") || strings.Count(stderr.String(), "\n") != 1 {
 		t.Errorf("exit code = %d, stdout = %q, stderr = %q, want 0, nothing and one note", code, stdout.String(), stderr.String())
 	}
+}
+
+func TestRunOnboardingDismiss(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := app.DismissResult{Project: "/work/site", Onboarding: "/work/site/.dotai/onboarding.json", Record: "/home/u/.dotai/projects/x/record.json",
+		Fingerprint: state.Onboarding{Schema: state.OnboardingSchema, Source: state.OnboardingDismissed, Digest: strings.Repeat("a", 64),
+			Pack: state.OnboardingPack{ID: "local/minimal-pack", Revision: "0.1.0"}, Profiles: []string{"web"}, Hinted: []string{}},
+		Backup: &app.BackupRef{ID: "20261118T100000Z-dismiss", Path: "/home/u/.dotai/projects/x/backups/20261118T100000Z-dismiss"}, Warnings: []plan.Warning{}}
+	for _, tt := range []struct {
+		name, golden string
+		args         []string
+	}{
+		{name: "text", args: []string{"onboarding", "dismiss"}, golden: "onboarding-dismiss.txt.golden"},
+		{name: "json", args: []string{"onboarding", "dismiss", "--json"}, golden: "onboarding-dismiss.json.golden"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			env := testEnv(&stdout, &stderr)
+			env.DismissOnboarding = func(ctx context.Context, gotCwd, gotHome string) (app.DismissResult, error) {
+				if ctx == nil || gotCwd != cwd || gotHome != home {
+					t.Errorf("DismissOnboarding(%q, %q), want the current and the home directory", gotCwd, gotHome)
+				}
+				return res, nil
+			}
+			if code := cli.Run(tt.args, env); code != cli.ExitOK || stderr.Len() != 0 {
+				t.Errorf("exit code = %d, stderr = %q", code, stderr.String())
+			}
+			assertGolden(t, filepath.Join("testdata", tt.golden), stdout.Bytes())
+		})
+	}
+	t.Run("a usage error", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		env := testEnv(&stdout, &stderr)
+		env.DismissOnboarding = func(context.Context, string, string) (app.DismissResult, error) {
+			return app.DismissResult{}, envelope.Usage("not in a git repository")
+		}
+		if code := cli.Run([]string{"onboarding", "dismiss", "--json"}, env); code != cli.ExitUsage || !strings.Contains(stdout.String(), `"code": "usage"`) {
+			t.Errorf("exit code = %d, stdout = %s, want a usage envelope", code, stdout.String())
+		}
+	})
 }

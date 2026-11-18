@@ -69,6 +69,8 @@ type Env struct {
 	// OnboardingHook is dotai onboarding hook: the line the session-start
 	// hook prints in the directory cwd, "" for none (decision 0045).
 	OnboardingHook func(ctx context.Context, cwd, home string) (string, error)
+	// DismissOnboarding is dotai onboarding dismiss in the directory cwd.
+	DismissOnboarding func(ctx context.Context, cwd, home string) (app.DismissResult, error)
 }
 
 // UIOptions holds the choices of dotai ui that Env.UI receives: the

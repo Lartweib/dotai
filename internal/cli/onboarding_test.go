@@ -5,9 +5,11 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/lartweib/dotai/internal/app"
 	"github.com/lartweib/dotai/internal/cli"
 )
 
@@ -19,9 +21,31 @@ func TestTheOnboardingTemplateNamesOnlyRealCommands(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	uses := codeCommands(string(data))
-	if len(uses) < 4 {
-		t.Fatalf("found %d dotai commands in the template, want the ones it runs", len(uses))
+	checkCommands(t, string(data), 4)
+}
+
+// TestTheProfilesSkillNamesOnlyRealCommands checks the same of the
+// profiling skill dotai generates (decision 0045), which an agent follows
+// as written.
+func TestTheProfilesSkillNamesOnlyRealCommands(t *testing.T) {
+	res, err := app.Validate(examplePack, app.Selection{})
+	if err != nil || res.Pack == nil {
+		t.Fatalf("Validate() = %+v, %v", res, err)
+	}
+	checkCommands(t, string(app.ProfilesSkill(*res.Pack)), 3)
+}
+
+// commandsWithSubcommands are the commands whose second word is a
+// subcommand; the rest are arguments.
+var commandsWithSubcommands = []string{"rulesync", "onboarding", "pack"}
+
+// checkCommands checks that md names at least `least` dotai commands in its
+// code, and that each exists with every flag it names.
+func checkCommands(t *testing.T, md string, least int) {
+	t.Helper()
+	uses := codeCommands(md)
+	if len(uses) < least {
+		t.Fatalf("found %d dotai commands in the text, want the ones it runs", len(uses))
 	}
 	word := regexp.MustCompile(`^[a-z][a-z-]*$`)
 	for _, u := range uses {
@@ -30,9 +54,7 @@ func TestTheOnboardingTemplateNamesOnlyRealCommands(t *testing.T) {
 			switch {
 			case strings.HasPrefix(w, "--"):
 				flags = append(flags, strings.SplitN(w, "=", 2)[0])
-			// The command, and a subcommand of rulesync, the one command
-			// that has subcommands; the rest are arguments.
-			case len(flags) == 0 && word.MatchString(w) && (len(path) == 0 || path[0] == "rulesync"):
+			case len(flags) == 0 && word.MatchString(w) && (len(path) == 0 || len(path) == 1 && slices.Contains(commandsWithSubcommands, path[0])):
 				path = append(path, w)
 			}
 		}

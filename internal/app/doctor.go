@@ -42,6 +42,11 @@ const (
 	// such as a file it may not read or git, which failed or timed out;
 	// what depends on it is not checked, and the rest is.
 	CodeCheckFailed = "check-failed"
+	// CodeOnboardingRecordInvalid: the onboarding record of a project in a
+	// git repository, .dotai/onboarding.json, is missing or is not one
+	// dotai writes, so its session-start hook says the profiles may no
+	// longer fit (decision 0045).
+	CodeOnboardingRecordInvalid = "onboarding-record-invalid"
 )
 
 // DoctorOptions are the choices of dotai doctor: Fix completes the

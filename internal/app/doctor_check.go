@@ -196,6 +196,9 @@ func (doc *doctorRun) checkRecords() ([]exclusion, error) {
 		if err := doc.checkMarker(l.record); err != nil {
 			return nil, err
 		}
+		if err := doc.checkOnboarding(l.record); err != nil {
+			return nil, err
+		}
 		fx, err := doc.checkExclude(l.record, l.scope)
 		if err != nil {
 			return nil, err
@@ -349,6 +352,9 @@ func (doc *doctorRun) checkKeys(found Finding, f state.ProjectFile, data []byte)
 // checkMarker checks that the project marker says what the record r says,
 // as an apply writes it.
 func (doc *doctorRun) checkMarker(r state.Project) error {
+	if r.DismissOnly {
+		return nil // no apply ran, so there is no marker (decision 0045)
+	}
 	want, err := state.EncodeMarker(state.Marker{Schema: state.MarkerSchema, ID: r.ID, Pack: r.Pack, Variant: r.Variant, Profiles: r.Profiles})
 	if err != nil {
 		return err
@@ -362,6 +368,29 @@ func (doc *doctorRun) checkMarker(r state.Project) error {
 		doc.add(Finding{Code: CodeMarkerMismatch, Project: r.Project, Path: target,
 			Message: fmt.Sprintf("%s does not say what the record %s says; the record wins, and the next apply rewrites the marker", target, recordPath(doc.home, r.Project))})
 	}
+	return nil
+}
+
+// checkOnboarding checks the onboarding record of the project of r, in a
+// git repository, as an apply or a dismissal writes it: one dotai can
+// read. What it holds is checked by the session-start hook, which compares
+// its fingerprint, never by doctor.
+func (doc *doctorRun) checkOnboarding(r state.Project) error {
+	if r.Exclude.File == "" {
+		return nil // outside a git repository, where neither writes it
+	}
+	target := filepath.Join(r.Project, filepath.FromSlash(plan.OnboardingFile))
+	data, _, ok, err := readTarget(doc.ctx, doc.d, r.Project, target)
+	if _, notRegular := errors.AsType[*NotRegularError](err); !notRegular && err != nil {
+		return doc.failed(r.Project, target, err)
+	}
+	if ok {
+		if _, err = state.DecodeOnboarding(data); err == nil {
+			return nil
+		}
+	}
+	doc.add(Finding{Code: CodeOnboardingRecordInvalid, Project: r.Project, Path: target,
+		Message: fmt.Sprintf("%s is missing or is not an onboarding record dotai writes, so the session-start hook says the profiles may no longer fit; dotai doctor --fix cannot take its fingerprint: run dotai apply, or dotai onboarding dismiss, in %s", target, r.Project)})
 	return nil
 }
 

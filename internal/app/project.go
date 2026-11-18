@@ -140,6 +140,11 @@ type projectPlanned struct {
 	kept    map[string]plan.ProjectOwned
 	shared  state.Projects
 	homeMCP string
+	// operation is the operation of the write's backup, an apply's when
+	// empty, and dismissOnly marks the record of a dismissal where no apply
+	// ran (decision 0045).
+	operation   string
+	dismissOnly bool
 }
 
 // findProject is the project of the current directory cwd, as PlanProject
@@ -230,7 +235,7 @@ func withProjectPlan(ctx context.Context, d installFS, h host, g gitPort, fetch 
 	}
 	res := ProjectPlan{
 		Pack: s.Pack, Variant: variant, Profiles: append([]string{}, opts.Profiles...), Project: project,
-		Record: recordPath(home, project), Marker: filepath.Join(project, filepath.FromSlash(plan.MarkerFile)), FirstApply: record == nil, Harnesses: []string{}, Ops: []plan.ProjectOp{}, Skipped: []plan.Skipped{},
+		Record: recordPath(home, project), Marker: filepath.Join(project, filepath.FromSlash(plan.MarkerFile)), FirstApply: record == nil || record.DismissOnly, Harnesses: []string{}, Ops: []plan.ProjectOp{}, Skipped: []plan.Skipped{},
 		Exclude: ExcludePlan{Pending: repo == nil, Entries: []string{}}, Warnings: []plan.Warning{}, Refusals: []plan.Warning{}, Notices: []string{}, Diagnostics: s.Diagnostics,
 	}
 	if s.Pack != nil {
