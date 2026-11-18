@@ -134,6 +134,19 @@ Decided in [0046](decisions/0046-pack-templates-and-wizard.md). dotai embeds one
 
 It has no `dotai-profiles` item and no `onboarding` subagent: dotai generates the onboarding ([Onboarding](#onboarding)).
 
+`dotai pack new <dir>` writes the template into a new or empty directory, filled in with the pack's name, the harnesses it requires and its profiles, each with its `description`, `hints` and mods, from flags or an answers file, and adds it as `dotai pack add --dir` does; `--dry-run` shows the files and the profiling skill dotai will generate from them, and writes nothing ([CLI-JSON](CLI-JSON.md#commands)). Each profile gets the template's example rule, as `profiles/<name>/.rulesync/rules/<name>.md`, each mod a profile names the example mod, and `dotai/settings.yaml` only the blocks of the chosen harnesses. The names of the pack, its profiles and its mods follow the rule for mod names, so that each is safe as a folder.
+
+```yaml
+# dotai pack new my-pack --answers answers.yaml
+name: my-pack
+harnesses: [claudecode, opencode]
+profiles:
+  - name: web
+    description: Web apps with a JavaScript toolchain.
+    hints: [package.json]
+    mods: [panel]
+```
+
 **Unchanged example files.** The engine keeps the SHA-256 of every file below the top of the pack that each released version of the template writes, with line endings normalized, so that a file checked out with CRLF still matches; a new version of the template appends its hashes. A file of a pack, below its top and outside `.git`, whose content is one of them is `template-unchanged`: `dotai validate` warns about each one, and `dotai pack add` warns, listing them. Edit each example for the pack, or delete it; any change clears the warning.
 
 The plans of `dotai install` and `dotai apply` warn `template-unchanged` about each such file of the layers they install, the base and the variant for an install, the profiles and the mods they name for an apply, and carrying such a plan out needs the consent those commands already ask for: once on a terminal, after the plan; refused without a terminal or with `--json` unless `--yes`, which accepts what the plan asks to confirm; and, in the web UI, the plan's digest with `yes`. An isolated install, which otherwise never asks, asks while the pack keeps an example file of its user scope ([CLI-JSON](CLI-JSON.md#commands)). A published pack that kept the examples is flagged as well.

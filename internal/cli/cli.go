@@ -66,6 +66,11 @@ type Env struct {
 	UpdatePack   func(ctx context.Context, home, id string, opts app.PackGitOptions) (app.PackAddResult, error)
 	RemovePackID func(home, id string) (app.PackRemoveResult, error)
 	ListPacks    func(home string) (app.PackList, error)
+	// PlanPackNew and NewPack are dotai pack new, with and without
+	// --dry-run: a pack written from the template and added (decision
+	// 0046).
+	PlanPackNew func(home, dir string, in app.PackNewInput) (app.PackNewPlan, error)
+	NewPack     func(home, dir string, in app.PackNewInput, opts app.PackNewOptions) (app.PackNewResult, error)
 	// OnboardingHook is dotai onboarding hook: the line the session-start
 	// hook prints in the directory cwd, "" for none (decision 0045).
 	OnboardingHook func(ctx context.Context, cwd, home string) (string, error)

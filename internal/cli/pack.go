@@ -21,13 +21,13 @@ import (
 func newPackCmd(env Env, jsonOut *bool) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "pack",
-		Short: "Add, update, list and remove the packs of ~/.dotai/packs.json",
+		Short: "Create, add, update, list and remove the packs of ~/.dotai/packs.json",
 		Long: "The pack registry, ~/.dotai/packs.json, which the web UI shows too. A pack comes from a GitHub repository,\n" +
 			"fetched with the git on PATH (2.41 or later) into ~/.dotai/packs/<identity>, or from a local directory, which\n" +
 			"stays where it is. A git pack's identity is github.com/<owner>/<repo>, a local one's local/<name>.",
 		Args: cobra.NoArgs,
 	}
-	cmd.AddCommand(newPackAddCmd(env, jsonOut), newPackUpdateCmd(env, jsonOut), newPackRemoveCmd(env, jsonOut), newPackListCmd(env, jsonOut))
+	cmd.AddCommand(newPackAddCmd(env, jsonOut), newPackUpdateCmd(env, jsonOut), newPackRemoveCmd(env, jsonOut), newPackListCmd(env, jsonOut), newPackNewCmd(env, jsonOut))
 	return cmd
 }
 

@@ -51,6 +51,8 @@ func Classify(err error) (code string, data any) {
 		code, data = CodeInvalid, packInvalid.Result
 	case errors.As(err, new(*app.CopyRefusedError)):
 		code = CodeCopyRefused
+	case errors.As(err, new(*app.NewRefusedError)):
+		code = CodeNewRefused
 	case errors.As(err, new(*app.PackNameTakenError)):
 		code = CodePackNameTaken
 	case errors.As(err, new(*app.HostUnsupportedError)):

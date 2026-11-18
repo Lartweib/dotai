@@ -36,6 +36,9 @@ const (
 	// A copy of a pack refused before it wrote anything: its target exists
 	// or has no parent, or the pack holds a link.
 	CodeCopyRefused = "copy-refused"
+	// A new pack refused before it wrote anything: its directory is not
+	// empty, is not a directory, or has no parent (decision 0046).
+	CodeNewRefused = "new-refused"
 	// The pack registry, ~/.dotai/packs.json, is not JSON of its schema;
 	// it is left as it is.
 	CodeRegistryInvalid = "registry-invalid"
@@ -64,7 +67,7 @@ const (
 // all.
 var Codes = []string{
 	CodeUsage, CodeInternal, CodeInvalid, CodeConsent, CodeRefused, CodeRunning,
-	CodeProjectRefused, CodeApplyRefused, CodeRecordInvalid, CodeCopyRefused, CodeRegistryInvalid,
+	CodeProjectRefused, CodeApplyRefused, CodeRecordInvalid, CodeCopyRefused, CodeNewRefused, CodeRegistryInvalid,
 	CodePackNameTaken, CodeHostUnsupported, CodeGitMissing, CodeGitTooOld, CodeFetchFailed, CodeFetchByCommit, CodeTreeRefused,
 }
 

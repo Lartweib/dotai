@@ -1,0 +1,12 @@
+# The answers of dotai pack new: the pack's name, its harnesses and its
+# profiles.
+name: my-pack
+harnesses: [claudecode, opencode]
+profiles:
+  - name: web
+    description: Web apps with a JavaScript toolchain.
+    hints: [package.json, "*.config.js"]
+    mods: [panel]
+  - name: go
+    description: Go services.
+    hints: [go.mod]
