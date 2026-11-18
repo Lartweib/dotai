@@ -259,6 +259,7 @@ type fakeRulesync struct {
 	quiet            bool
 	settings         string
 	files            map[string]string
+	modes            map[string]os.FileMode // of files, by name, when not 0o644
 	tools            app.ToolPaths
 	fetchErr, runErr error
 	runs             []rulesyncRun
@@ -298,11 +299,35 @@ func (f *fakeRulesync) run(_ context.Context, bin rulesync.Result, targets []str
 		}
 		for name, data := range f.files {
 			if rest, ok := strings.CutPrefix(name, filepath.Base(j.Dir)+"/"); ok {
+				data = rulesyncHome(data, j.Dir)
 				writeFile(f.t, filepath.Join(j.Dir, filepath.FromSlash(rest)), data)
+				if mode, ok := f.modes[name]; ok {
+					if err := os.Chmod(filepath.Join(j.Dir, filepath.FromSlash(rest)), mode); err != nil {
+						f.t.Fatal(err)
+					}
+				}
 			}
 		}
 	}
 	return nil
+}
+
+// rulesyncHome writes the scope's home directory dir in data, in the form
+// each placeholder names: <home> with forward slashes, as rulesync writes
+// it, <home-native> with the OS's separators, <home-json> that with each
+// backslash escaped as in a JSON string, <home-upper> with forward slashes,
+// its first character, the drive letter on Windows, in lower case and the
+// rest in upper case, and <home-escaped-slash> with each forward slash
+// escaped as \/, which JSON allows.
+func rulesyncHome(data, dir string) string {
+	slash := filepath.ToSlash(dir)
+	return strings.NewReplacer(
+		"<home-native>", dir,
+		"<home-json>", strings.ReplaceAll(dir, `\`, `\\`),
+		"<home-upper>", strings.ToLower(slash[:1])+strings.ToUpper(slash[1:]),
+		"<home-escaped-slash>", strings.ReplaceAll(slash, "/", `\/`),
+		"<home>", slash,
+	).Replace(data)
 }
 
 func (f *fakeRulesync) stage(dir, out string, sel app.Selection, force bool) (app.StageResult, error) {
@@ -528,6 +553,55 @@ func TestStageRendersSettingsWithoutOtherFiles(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(out, want.Scope, filepath.FromSlash(want.Path))); err != nil {
 			t.Errorf("settings file missing: %v", err)
 		}
+	}
+}
+
+// TestStageWritesTheRealHomeForRulesyncsHome checks that the home
+// directory rulesync ran with, the staging tree of its scope, becomes the
+// real home directory in every file rulesync wrote, as rulesync 43.9.2
+// writes a ~/ path of agy's permissions.
+func TestStageWritesTheRealHomeForRulesyncsHome(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "staging")
+	home := filepath.Join(t.TempDir(), "home")
+	settings := `{"permissions":{"deny":["read_file(<home>/.ssh)","read_file(<home>)"]}}`
+	f := &fakeRulesync{t: t, tools: app.ToolsIn(home, "project"), files: map[string]string{
+		"user/.gemini/antigravity-cli/settings.json": settings,
+		"project/.agents/rules/home.md":              "# <home>/notes\n",
+	}}
+	res, err := f.stage(examplePack, out, app.Selection{Profiles: []string{"web"}}, false)
+	if err != nil || len(res.Diagnostics) > 0 {
+		t.Fatalf("Stage() = %+v, %v", res.Diagnostics, err)
+	}
+	real := filepath.ToSlash(home)
+	got, err := os.ReadFile(filepath.Join(out, "user", ".gemini", "antigravity-cli", "settings.json"))
+	if err != nil || !strings.Contains(string(got), `"read_file(`+real+`/.ssh)"`) || !strings.Contains(string(got), `"read_file(`+real+`)"`) ||
+		strings.Contains(string(got), ".dotai-stage") {
+		t.Errorf("agy settings = %q, %v, want the permissions under %s", got, err, real)
+	}
+	if got, err := os.ReadFile(filepath.Join(out, "project", ".agents", "rules", "home.md")); err != nil || string(got) != "# "+real+"/notes\n" {
+		t.Errorf("project rule = %q, %v, want it under %s", got, err, real)
+	}
+}
+
+// TestStageFailsWhenRulesyncsHomeHasNoRealHome checks that a file rulesync
+// wrote with its home directory in it fails the stage when the real home
+// directory is unknown, rather than naming a staging tree that is gone.
+func TestStageFailsWhenRulesyncsHomeHasNoRealHome(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "staging")
+	tools := app.ToolsIn("home", "project")
+	tools.UserErr = errors.New("no home directory")
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "dotai.yaml"), "schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\nrulesync: 43.9.2\nharnesses: [antigravity-cli]\n")
+	writeFile(t, filepath.Join(dir, "base", ".rulesync", "rules", "r.md"), "# R\n")
+	f := &fakeRulesync{t: t, tools: tools, files: map[string]string{
+		"user/.gemini/antigravity-cli/settings.json": `{"permissions":{"deny":["read_file(<home>/.ssh)"]}}`,
+	}}
+	_, err := f.stage(dir, out, app.Selection{}, false)
+	if err == nil || !strings.Contains(err.Error(), "user/.gemini/antigravity-cli/settings.json") || !strings.Contains(err.Error(), "no home directory") {
+		t.Fatalf("Stage() error = %v, want one that names the file and why the home directory is unknown", err)
+	}
+	if _, err := os.Stat(out); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("out was written: %v", err)
 	}
 }
 
