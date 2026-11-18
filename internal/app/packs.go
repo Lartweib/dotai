@@ -444,7 +444,9 @@ type packEntryCopy struct {
 // maxCopyFiles files or maxCopyBytes bytes, before it writes anything. It
 // copies into a new directory next to to and renames it to to at the end,
 // so that a copy that stops partway, or whose ctx ends, leaves nothing at
-// to; that directory is removed when the copy fails. A to that another
+// to; that directory is removed when the copy fails. An empty to is the
+// first free <name>-copy, <name>-copy-2 and on next to the pack, which the
+// web UI offers too. A to that another
 // program creates meanwhile is refused, not replaced (on Linux, an empty
 // directory created in the instant before the rename is replaced). It does
 // not import the copy.
@@ -457,8 +459,14 @@ func copyPack(ctx context.Context, from, to string, hooks copyHooks) (CopyResult
 	if err != nil {
 		return CopyResult{}, err
 	}
-	if p, _, err := pack.LoadWith(os.DirFS(from), rulesync.Versions()); err != nil || p == nil {
+	p, _, err := pack.LoadWith(os.DirFS(from), rulesync.Versions())
+	if err != nil || p == nil {
 		return CopyResult{}, &UsageError{msg: fmt.Sprintf("%s is not a pack dotai can read: it needs a dotai.yaml manifest (run dotai validate)", from)}
+	}
+	if to == "" {
+		if to = copyTarget(from, p.Manifest.Name); to == "" {
+			return CopyResult{}, &CopyRefusedError{msg: fmt.Sprintf("none of the first hundred names <name>-copy next to %s is free: name a directory for the copy", from)}
+		}
 	}
 	if !filepath.IsAbs(to) {
 		return CopyResult{}, &UsageError{msg: fmt.Sprintf("the copy path %q is not absolute", to)}
@@ -733,19 +741,33 @@ func SummarizePack(dir string) (PackContents, error) {
 
 // copyTarget is the first of <name>-copy, <name>-copy-2 and on next to the
 // pack in dir that does not exist, "" when none of the first hundred is free.
+// The manifest's name is the pack author's: when it is not one path
+// segment every OS dotai supports can store, such as ../../x, the name of
+// dir stands in for it, so that the copy never leaves dir's parent.
 func copyTarget(dir, name string) string {
-	if name == "" {
+	dir = filepath.Clean(dir)
+	if !pathSegment(name) {
 		name = filepath.Base(dir)
 	}
-	parent := filepath.Dir(filepath.Clean(dir))
+	parent := filepath.Dir(dir)
 	for i := 1; i <= 100; i++ {
 		target := filepath.Join(parent, name+"-copy")
 		if i > 1 {
 			target += fmt.Sprintf("-%d", i)
+		}
+		if filepath.Dir(target) != parent {
+			return ""
 		}
 		if _, err := os.Lstat(target); errors.Is(err, fs.ErrNotExist) {
 			return target
 		}
 	}
 	return ""
+}
+
+// pathSegment reports whether name is one path segment, neither . nor ..,
+// that every OS dotai supports can store: no separator, no volume and no
+// character or device name Windows refuses.
+func pathSegment(name string) bool {
+	return name != "" && name != "." && name != ".." && !strings.Contains(name, "/") && !pack.BadName(name) && filepath.VolumeName(name) == ""
 }

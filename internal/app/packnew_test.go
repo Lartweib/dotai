@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -138,4 +139,63 @@ func TestNewPackRefusesBeforeWritingAnything(t *testing.T) {
 func is[T error](err error) bool {
 	_, ok := errors.AsType[T](err)
 	return ok
+}
+
+func TestCopyPackWithoutATargetCopiesNextToThePack(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "my-pack")
+	if _, err := app.NewPack(t.TempDir(), dir, newPackInput, app.PackNewOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	res, err := app.CopyPack(t.Context(), dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(filepath.Dir(dir), "my-pack-copy"); res.To != want || res.Files == 0 {
+		t.Errorf("copy = %+v, want %d files at %s", res, res.Files, want)
+	}
+	again, err := app.CopyPack(t.Context(), dir, "")
+	if err != nil || again.To != filepath.Join(filepath.Dir(dir), "my-pack-copy-2") {
+		t.Errorf("a second copy = %+v, %v; want my-pack-copy-2", again, err)
+	}
+}
+
+// TestCopyPackWithoutATargetNeverLeavesThePacksParent: the manifest's name
+// is the pack author's, so a name that is not one path segment, such as
+// ../../x, never takes the copy out of the directory that holds the pack;
+// the directory's own name stands in for it.
+func TestCopyPackWithoutATargetNeverLeavesThePacksParent(t *testing.T) {
+	hostile := []string{"../../escaped", "..", "a/b", `..\..\escaped`, `C:\escaped`, "C:escaped", "/escaped"}
+	for _, name := range hostile {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			dir := filepath.Join(root, "a", "b", "my-pack")
+			if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := app.NewPack(t.TempDir(), dir, newPackInput, app.PackNewOptions{}); err != nil {
+				t.Fatal(err)
+			}
+			manifest := filepath.Join(dir, "dotai.yaml")
+			data, err := os.ReadFile(manifest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			data = []byte(strings.Replace(string(data), "name: my-pack\n", "name: "+strconv.Quote(name)+"\n", 1))
+			if err := os.WriteFile(manifest, data, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			res, err := app.CopyPack(t.Context(), dir, "")
+			if err != nil {
+				t.Fatalf("CopyPack() = %v, want a copy next to the pack", err)
+			}
+			if want := filepath.Join(filepath.Dir(dir), "my-pack-copy"); res.To != want {
+				t.Errorf("the copy went to %s, want %s", res.To, want)
+			}
+			for _, outside := range []string{filepath.Join(root, "escaped-copy"), filepath.Join(root, "a", "escaped-copy"), filepath.Join(root, "a", "b", "a")} {
+				if _, err := os.Lstat(outside); err == nil {
+					t.Errorf("the copy wrote %s", outside)
+				}
+			}
+		})
+	}
 }

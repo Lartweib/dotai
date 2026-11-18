@@ -16,7 +16,7 @@ import (
 // newEnv runs the real use cases of dotai pack new.
 func newEnv(stdout, stderr *bytes.Buffer) cli.Env {
 	env := testEnv(stdout, stderr)
-	env.PlanPackNew, env.NewPack = app.PlanPackNew, app.NewPack
+	env.PlanPackNew, env.NewPack, env.CopyPack = app.PlanPackNew, app.NewPack, app.CopyPack
 	return env
 }
 

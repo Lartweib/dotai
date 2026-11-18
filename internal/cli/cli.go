@@ -71,6 +71,9 @@ type Env struct {
 	// 0046).
 	PlanPackNew func(home, dir string, in app.PackNewInput) (app.PackNewPlan, error)
 	NewPack     func(home, dir string, in app.PackNewInput, opts app.PackNewOptions) (app.PackNewResult, error)
+	// CopyPack is dotai pack copy, the copy the web UI's Packs board
+	// makes.
+	CopyPack func(ctx context.Context, from, to string) (app.CopyResult, error)
 	// OnboardingHook is dotai onboarding hook: the line the session-start
 	// hook prints in the directory cwd, "" for none (decision 0045).
 	OnboardingHook func(ctx context.Context, cwd, home string) (string, error)

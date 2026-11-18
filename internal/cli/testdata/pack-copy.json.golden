@@ -1,0 +1,10 @@
+{
+  "schema": "dotai.cli/v1",
+  "command": "pack copy",
+  "ok": true,
+  "data": {
+    "from": "/work/template-pack",
+    "to": "/work/mine",
+    "files": 3
+  }
+}

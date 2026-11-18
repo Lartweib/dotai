@@ -203,7 +203,7 @@ func newUI(cfg Config, deps Deps, web fs.FS) *ui {
 		"/api/packs/update/plan":       {"pack update", http.MethodPost, s.planUpdate},
 		"/api/packs/update":            {"pack update", http.MethodPost, s.updatePack},
 		"/api/packs/remove":            {"pack remove", http.MethodPost, s.removePack},
-		"/api/packs/copy":              {command, http.MethodPost, s.copyPack},
+		"/api/packs/copy":              {"pack copy", http.MethodPost, s.copyPack},
 		"/api/pack/summary":            {command, http.MethodGet, s.packSummary},
 	}
 	files := http.FileServerFS(web)

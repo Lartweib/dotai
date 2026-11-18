@@ -73,8 +73,8 @@ func TestCopyPackThroughTheAppCopiesWithoutImporting(t *testing.T) {
 	dir := copiedExample(t)
 	to := dir + "-copy"
 	w := serve(h, post("/api/packs/copy", `{"from":`+jsonString(dir)+`,"to":`+jsonString(to)+`}`, testToken))
-	if w.Code != http.StatusOK {
-		t.Fatalf("copy = %d; body %s", w.Code, w.Body)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"command": "pack copy"`) {
+		t.Fatalf("copy = %d; body %s; want the envelope of pack copy", w.Code, w.Body)
 	}
 	if _, err := os.Stat(filepath.Join(to, "dotai.yaml")); err != nil {
 		t.Errorf("the copy has no manifest: %v", err)
