@@ -330,8 +330,9 @@ func TestInstallReplaceRollsBackExactly(t *testing.T) {
 	for i := 6; i < n-3; i += 4 {
 		points = append(points, point{fmt.Sprintf("write %d", i), i, false})
 	}
-	for _, p := range points {
+	for i, p := range points {
 		t.Run(p.name, func(t *testing.T) {
+			heavy(t, i)
 			home, h, outside := replaceHome(t)
 			before, outsideBefore := homeEntries(t, home), entries(t, outside)
 			_, err := installReplace(t, &stepFS{clockFS: newClockFS(t), at: p.at, state: p.state}, h, home)

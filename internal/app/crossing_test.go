@@ -157,10 +157,14 @@ func TestReplaceMovesAcrossVolumes(t *testing.T) {
 // install or restore settles the move from its journal first, and a
 // restore then puts the home back as it was.
 func TestKilledMoveAcrossVolumesIsSettled(t *testing.T) {
+	n := 0
 	for _, k := range []int{1, 2, 3, 4, 7} {
 		for _, after := range []bool{false, true} {
 			for _, next := range []string{"install", "restore"} {
+				i := n
+				n++
 				t.Run(fmt.Sprintf("step %d after %v then %s", k, after, next), func(t *testing.T) {
+					heavy(t, i)
 					home, h, outside := replaceHome(t)
 					before, outsideBefore := homeEntries(t, home), entries(t, outside)
 					killInstall(t, &volumesFS{clockFS: newClockFS(t), killAt: k, after: after}, h, home)
