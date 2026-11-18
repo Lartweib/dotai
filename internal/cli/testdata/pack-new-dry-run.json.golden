@@ -10,6 +10,9 @@
       "claudecode",
       "opencode"
     ],
+    "requires": [
+      "claudecode"
+    ],
     "profiles": [
       {
         "name": "web",

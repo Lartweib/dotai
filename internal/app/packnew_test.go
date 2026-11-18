@@ -19,6 +19,35 @@ var newPackInput = app.PackNewInput{
 	Profiles:  []app.PackNewProfile{{Name: "web", Description: "Web apps with a JavaScript toolchain.", Hints: []string{"package.json"}, Mods: []string{"panel"}}},
 }
 
+// TestPlanPackNewAsksCompatibleAndRequiredHarnesses checks the harnesses
+// of a new pack (decision 0047): the plan reports the compatible and the
+// required ones as the answers give them; without harnesses, the pack is
+// compatible with every supported harness and no preview one; a required
+// harness that is not compatible is invalid.
+func TestPlanPackNewAsksCompatibleAndRequiredHarnesses(t *testing.T) {
+	home := t.TempDir()
+	in := newPackInput
+	in.Requires = []string{"claudecode"}
+	p, err := app.PlanPackNew(home, filepath.Join(t.TempDir(), "my-pack"), in)
+	if err != nil || !slices.Equal(p.Harnesses, []string{"claudecode", "opencode"}) || !slices.Equal(p.Requires, []string{"claudecode"}) {
+		t.Errorf("PlanPackNew() = harnesses %v, requires %v, %v, want the answers'", p.Harnesses, p.Requires, err)
+	}
+
+	in = app.PackNewInput{Name: "my-pack"}
+	p, err = app.PlanPackNew(home, filepath.Join(t.TempDir(), "my-pack"), in)
+	if err != nil || !slices.Equal(p.Harnesses, []string{"claudecode", "antigravity-cli"}) || len(p.Requires) != 0 || p.Requires == nil {
+		t.Errorf("PlanPackNew() = harnesses %v, requires %v, %v, want every supported harness and none required", p.Harnesses, p.Requires, err)
+	}
+
+	in = newPackInput
+	in.Requires = []string{"antigravity-cli"}
+	_, err = app.PlanPackNew(home, filepath.Join(t.TempDir(), "my-pack"), in)
+	invalid, ok := errors.AsType[*app.PackInvalidError](err)
+	if !ok || !slices.ContainsFunc(invalid.Result.Diagnostics, func(d app.Diagnostic) bool { return d.Code == "harness-not-compatible" }) {
+		t.Errorf("PlanPackNew() error = %v, want an invalid pack with harness-not-compatible", err)
+	}
+}
+
 func TestPlanPackNewShowsTheFilesAndTheSkillAndWritesNothing(t *testing.T) {
 	home := t.TempDir()
 	dir := filepath.Join(t.TempDir(), "my-pack")
@@ -105,7 +134,7 @@ func TestNewPackRefusesBeforeWritingAnything(t *testing.T) {
 	bad := newPackInput
 	bad.Profiles = []app.PackNewProfile{{Name: "web", Description: "Web.", Mods: []string{"Bad_Mod"}}}
 	noHarness := newPackInput
-	noHarness.Harnesses = nil
+	noHarness.Harnesses = []string{} // nil is every supported harness
 	for _, tt := range []struct {
 		name string
 		dir  string

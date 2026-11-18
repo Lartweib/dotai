@@ -65,7 +65,8 @@ func TestFillWithTheTemplatesOwnAnswersWritesTheEmbeddedTemplate(t *testing.T) {
 func TestFillGivesEachProfileAndModItsOwnFiles(t *testing.T) {
 	files, err := packtemplate.Fill(packtemplate.Answers{
 		Name:      "my-pack",
-		Harnesses: []string{"opencode"},
+		Harnesses: []string{"opencode", "antigravity-cli"},
+		Requires:  []string{"opencode"},
 		Profiles: []packtemplate.Profile{
 			{Name: "web", Description: `Web apps: "quoted" and #hash`, Hints: []string{"*.config.js", "package.json"}, Mods: []string{"panel"}},
 			{Name: "go", Description: "Go services.", Mods: []string{"panel", "lint"}},
@@ -97,7 +98,7 @@ func TestFillGivesEachProfileAndModItsOwnFiles(t *testing.T) {
 		t.Errorf("the .sh tool has mode %v, want it executable", mode)
 	}
 	manifest := string(byPath["dotai.yaml"].Data)
-	for _, want := range []string{"name: my-pack\n", "harnesses: [opencode]\n", `description: "Web apps: \"quoted\" and #hash"`, `hints: ["*.config.js", package.json]`, "mods: [panel, lint]"} {
+	for _, want := range []string{"name: my-pack\n", "harnesses: [opencode, antigravity-cli]\n", "requires: [opencode]\n", `description: "Web apps: \"quoted\" and #hash"`, `hints: ["*.config.js", package.json]`, "mods: [panel, lint]"} {
 		if !strings.Contains(manifest, want) {
 			t.Errorf("dotai.yaml lacks %q:\n%s", want, manifest)
 		}

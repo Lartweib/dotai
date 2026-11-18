@@ -9,6 +9,7 @@ import (
 	"slices"
 	"testing/fstest"
 
+	"github.com/lartweib/dotai/internal/harness"
 	"github.com/lartweib/dotai/internal/pack"
 	"github.com/lartweib/dotai/internal/packtemplate"
 )
@@ -18,7 +19,9 @@ import (
 // empty directory and added as a local pack, as dotai pack add --dir does.
 
 // PackNewInput is what a new pack is made of: its name, which follows the
-// rule for mod names, the harnesses it requires, and its profiles.
+// rule for mod names, the harnesses it is compatible with, every
+// supported harness when nil, those of them it requires, and its profiles
+// (decision 0047).
 type PackNewInput = packtemplate.Answers
 
 // PackNewProfile is a profile of a new pack: its name, which follows the
@@ -27,7 +30,8 @@ type PackNewInput = packtemplate.Answers
 type PackNewProfile = packtemplate.Profile
 
 // PackNewPlan is what dotai pack new writes: the directory, the identity
-// the pack gets, its harnesses and profiles, the files, the profiling
+// the pack gets, its compatible and required harnesses and its profiles,
+// the files, the profiling
 // skill dotai will generate from its manifest (decision 0045), and the
 // warnings of its validation. Every file below the pack's top is the
 // template's, so its template-unchanged warnings are left out. Lists are
@@ -37,6 +41,7 @@ type PackNewPlan struct {
 	ID        string            `json:"id"`
 	Name      string            `json:"name"`
 	Harnesses []string          `json:"harnesses"`
+	Requires  []string          `json:"requires"`
 	Profiles  []ProfileSummary  `json:"profiles"`
 	Files     []string          `json:"files"`
 	Skill     string            `json:"skill"`
@@ -88,6 +93,9 @@ func planPackNew(home, dir string, in PackNewInput) (PackNewPlan, []packtemplate
 	if problem := localNameProblem(in.Name); problem != "" {
 		return PackNewPlan{}, nil, &UsageError{msg: fmt.Sprintf("the pack name %q %s, as a mod name does", in.Name, problem)}
 	}
+	if in.Harnesses == nil {
+		in.Harnesses = SupportedHarnesses()
+	}
 	files, err := packtemplate.Fill(in)
 	if err != nil {
 		return PackNewPlan{}, nil, &UsageError{msg: err.Error()}
@@ -119,8 +127,21 @@ func planPackNew(home, dir string, in PackNewInput) (PackNewPlan, []packtemplate
 		return PackNewPlan{}, nil, &PackInvalidError{Path: dir, Result: res}
 	}
 	warnings := slices.DeleteFunc(slices.Clone(res.Warnings), func(d pack.Diagnostic) bool { return d.Code == CodeTemplateUnchanged })
-	return PackNewPlan{Dir: dir, ID: id, Name: in.Name, Harnesses: append([]string{}, res.Pack.Harnesses...), Profiles: res.Pack.Profiles,
+	return PackNewPlan{Dir: dir, ID: id, Name: in.Name, Harnesses: append([]string{}, res.Pack.Harnesses...), Requires: append([]string{}, res.Pack.Requires...), Profiles: res.Pack.Profiles,
 		Files: paths, Skill: string(ProfilesSkill(*res.Pack)), Warnings: warnings}, files, nil
+}
+
+// SupportedHarnesses are the ids of the harnesses whose status is
+// supported, not preview (decision 0047), in dotai's order: what a new
+// pack is compatible with unless its answers name its harnesses.
+func SupportedHarnesses() []string {
+	out := []string{}
+	for _, a := range harness.All() {
+		if a.Status == harness.Supported {
+			out = append(out, a.ID)
+		}
+	}
+	return out
 }
 
 // newTarget checks that dir is a new directory whose parent is a

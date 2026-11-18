@@ -21,26 +21,29 @@ import (
 // the UI, its answers as flags or as a file.
 func newPackNewCmd(env Env, jsonOut *bool) *cobra.Command {
 	var name, answers string
-	var harnesses, profiles, hints, mods []string
+	var harnesses, requires, profiles, hints, mods []string
 	var dryRun bool
 	cmd := &cobra.Command{
-		Use:   "new <dir> (--name <n> --harness a,b [--profile <p>:<description>]... | --answers <file>) [--dry-run]",
+		Use:   "new <dir> (--name <n> [--harness a,b] [--require a,b] [--profile <p>:<description>]... | --answers <file>) [--dry-run]",
 		Short: "Create a pack from dotai's template and add it",
 		Long: "Write dotai's pack template into <dir>, a new directory whose parent exists or an empty one, filled in with\n" +
-			"the pack's name, the harnesses it requires and its profiles, then add it as dotai pack add --dir does. The\n" +
+			"the pack's name, the harnesses it is compatible with, those it requires and its profiles, then add it as\n" +
+			"dotai pack add --dir does. --harness lists the compatible harnesses, every supported one when it is not\n" +
+			"given, and a preview one, such as opencode, only when it names it; --require lists those the pack cannot do\n" +
+			"without, none by default, each one of the compatible harnesses. The\n" +
 			"template holds one commented example of each file and folder a pack holds; every example below the top is\n" +
 			"template-unchanged until you edit it, and dotai install and dotai apply ask before installing it.\n" +
 			"--profile <name>:<description> adds a profile, in order; --hint <profile>:<glob> and --mod <profile>:<mod> add\n" +
 			"its hints and mods, and each mod gets the template's example mod. The names follow the rule for mod names:\n" +
 			"lower-case letters, digits and single hyphens. --answers reads the same answers from a YAML or JSON file:\n" +
-			"name, harnesses, and profiles, each with name, description, hints and mods. --dry-run prints the files and the\n" +
+			"name, harnesses, requires, and profiles, each with name, description, hints and mods. --dry-run prints the files and the\n" +
 			"profiling skill dotai generates from the manifest, and writes nothing.",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return errors.New("give the directory of the new pack")
 			}
 			if answers != "" {
-				for _, f := range []string{"name", "harness", "profile", "hint", "mod"} {
+				for _, f := range []string{"name", "harness", "require", "profile", "hint", "mod"} {
 					if cmd.Flags().Changed(f) {
 						return fmt.Errorf("give --answers or --%s, not both", f)
 					}
@@ -50,7 +53,8 @@ func newPackNewCmd(env Env, jsonOut *bool) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "the pack's name, which a local pack's identity local/<name> takes")
-	cmd.Flags().StringSliceVar(&harnesses, "harness", nil, "the harnesses the pack requires, comma-separated: claudecode, antigravity-cli, opencode")
+	cmd.Flags().StringSliceVar(&harnesses, "harness", nil, "the harnesses the pack is compatible with, comma-separated: claudecode, antigravity-cli, opencode (default: every supported one, no preview one)")
+	cmd.Flags().StringSliceVar(&requires, "require", nil, "the harnesses of --harness the pack requires, comma-separated (default: none)")
 	cmd.Flags().StringArrayVar(&profiles, "profile", nil, "a profile, as <name>:<description>; repeat it for each profile")
 	cmd.Flags().StringArrayVar(&hints, "hint", nil, "a hint of a profile, as <profile>:<glob>; repeat it for each hint")
 	cmd.Flags().StringArrayVar(&mods, "mod", nil, "a mod of a profile, as <profile>:<mod>; repeat it for each mod")
@@ -69,7 +73,10 @@ func newPackNewCmd(env Env, jsonOut *bool) *cobra.Command {
 		if answers != "" {
 			in, err = readAnswers(answers)
 		} else {
-			in, err = flagAnswers(name, harnesses, profiles, hints, mods)
+			if !cmd.Flags().Changed("harness") {
+				harnesses = nil
+			}
+			in, err = flagAnswers(name, harnesses, requires, profiles, hints, mods)
 		}
 		if err != nil {
 			return err
@@ -105,10 +112,11 @@ func newPackNewCmd(env Env, jsonOut *bool) *cobra.Command {
 	return cmd
 }
 
-// flagAnswers are the answers of the flags: each profile in the order
-// given, then its hints and mods.
-func flagAnswers(name string, harnesses, profiles, hints, mods []string) (app.PackNewInput, error) {
-	in := app.PackNewInput{Name: name, Harnesses: append([]string{}, harnesses...), Profiles: []app.PackNewProfile{}}
+// flagAnswers are the answers of the flags: the harnesses, nil for every
+// supported one, the required ones, then each profile in the order given,
+// then its hints and mods.
+func flagAnswers(name string, harnesses, requires, profiles, hints, mods []string) (app.PackNewInput, error) {
+	in := app.PackNewInput{Name: name, Harnesses: slices.Clone(harnesses), Requires: append([]string{}, requires...), Profiles: []app.PackNewProfile{}}
 	for _, p := range profiles {
 		n, desc, ok := strings.Cut(p, ":")
 		if !ok || n == "" {
@@ -147,7 +155,7 @@ func readAnswers(path string) (app.PackNewInput, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(&in); err != nil && !errors.Is(err, io.EOF) {
-		return app.PackNewInput{}, envelope.Usage(fmt.Sprintf("the answers file %s is not YAML or JSON of name, harnesses and profiles: %v", path, err))
+		return app.PackNewInput{}, envelope.Usage(fmt.Sprintf("the answers file %s is not YAML or JSON of name, harnesses, requires and profiles: %v", path, err))
 	}
 	return in, nil
 }

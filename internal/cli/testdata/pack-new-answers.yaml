@@ -1,7 +1,8 @@
-# The answers of dotai pack new: the pack's name, its harnesses and its
-# profiles.
+# The answers of dotai pack new: the pack's name, the harnesses it is
+# compatible with, those it requires, and its profiles.
 name: my-pack
 harnesses: [claudecode, opencode]
+requires: [claudecode]
 profiles:
   - name: web
     description: Web apps with a JavaScript toolchain.

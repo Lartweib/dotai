@@ -128,7 +128,7 @@ Before any release, `validate` reported `merge-pending` for `.rulesync/hooks.jso
 | [pack add](#pack-add) | `pack add <github-url> [--ref r] [--yes]` |
 | [pack add --dir](#pack-add---dir) | `pack add --dir <path>` |
 | [pack update](#pack-update) | `pack update <identity> [--yes]` |
-| [pack new](#pack-new) | `pack new <dir> (--name n --harness a,b [--profile p:description]... [--hint p:glob]... [--mod p:mod]... \| --answers file) [--dry-run]` |
+| [pack new](#pack-new) | `pack new <dir> (--name n [--harness a,b] [--require a,b] [--profile p:description]... [--hint p:glob]... [--mod p:mod]... \| --answers file) [--dry-run]` |
 | [pack copy](#pack-copy) | `pack copy <pack-dir> [<to>]` |
 | [pack remove](#pack-remove) | `pack remove <identity>` |
 | [onboarding hook --harness](#onboarding-hook---harness) | `onboarding hook --harness <name>` |
@@ -732,17 +732,17 @@ On the terminal, every path, ref, URL, message and git's stderr is printed with 
 
 ### pack new
 
-Usage: `pack new <dir> (--name n --harness a,b [--profile p:description]... [--hint p:glob]... [--mod p:mod]... | --answers file) [--dry-run]`
+Usage: `pack new <dir> (--name n [--harness a,b] [--require a,b] [--profile p:description]... [--hint p:glob]... [--mod p:mod]... | --answers file) [--dry-run]`
 
 Writes dotai's pack template ([PACK-FORMAT](PACK-FORMAT.md#creating-a-pack), [0046](decisions/0046-pack-templates-and-wizard.md)) into `dir`, a new directory whose parent exists or an empty one (`new-refused` otherwise), filled in with the answers, then adds it as `pack add --dir` does.
 
-The answers are the pack's `name`, which follows the rule for mod names (else `usage`) and whose `local/<name>` the registry must not have (`pack-name-taken`), the `harnesses` it requires, and its `profiles` in order, each a `name`, which follows the rule for mod names, a `description` and its `hints` and `mods`.
+The answers are the pack's `name`, which follows the rule for mod names (else `usage`) and whose `local/<name>` the registry must not have (`pack-name-taken`), the `harnesses` it is compatible with, every supported harness when none is given, a preview one only when named ([0047](decisions/0047-harness-selection-and-preview-harnesses.md)), the `requires`, those of them it cannot do without, none by default, and its `profiles` in order, each a `name`, which follows the rule for mod names, a `description` and its `hints` and `mods`.
 
-As flags, `--profile <name>:<description>` adds a profile and `--hint <profile>:<glob>` and `--mod <profile>:<mod>` add to one (`usage` for another form or a profile not given); `--answers` reads them instead from a YAML or JSON file with those keys, an unknown key being `usage`, and with any of those flags is `usage`.
+As flags, `--harness a,b` gives the compatible harnesses and `--require a,b` the required ones; `--profile <name>:<description>` adds a profile and `--hint <profile>:<glob>` and `--mod <profile>:<mod>` add to one (`usage` for another form or a profile not given); `--answers` reads them instead from a YAML or JSON file with those keys, an unknown key being `usage`, and with any of those flags is `usage`.
 
-Each profile gets the template's example rule as `profiles/<name>/.rulesync/rules/<name>.md`, each mod named the template's example mod at `mods/<mod>/`, and `dotai/settings.yaml` keeps only the blocks of the harnesses given. The filled template is validated before anything is written: a pack with problems, such as no harness, is `invalid` with the result of `validate`, and nothing is written.
+Each profile gets the template's example rule as `profiles/<name>/.rulesync/rules/<name>.md`, each mod named the template's example mod at `mods/<mod>/`, and `dotai/settings.yaml` keeps only the blocks of the harnesses given. The filled template is validated before anything is written: a pack with problems, such as an empty `harnesses` or a required harness that is not compatible (`harness-not-compatible`), is `invalid` with the result of `validate`, and nothing is written.
 
-`--dry-run` writes nothing; `data` is the plan: `dir`, `id` (`local/<name>`), `name`, `harnesses`, `profiles` (as `validate` gives them), `files`, every path the pack gets, in order, `skill`, the profiling skill `dotai-profiles` that `install` generates from the manifest ([PACK-FORMAT](PACK-FORMAT.md#onboarding)), and `warnings`, those of `validate` but `template-unchanged`, which every example file is.
+`--dry-run` writes nothing; `data` is the plan: `dir`, `id` (`local/<name>`), `name`, `harnesses`, `requires`, `profiles` (as `validate` gives them), `files`, every path the pack gets, in order, `skill`, the profiling skill `dotai-profiles` that `install` generates from the manifest ([PACK-FORMAT](PACK-FORMAT.md#onboarding)), and `warnings`, those of `validate` but `template-unchanged`, which every example file is.
 
 In text, the plan prints the files and the skill. Without `--dry-run` it writes the files into a new sibling of `dir` and renames it to `dir`, replacing an empty one, so that a write that fails leaves nothing, then adds the pack; `data` is the plan with `added`, the result of `pack add --dir`, whose `warnings` list the template files as `template-unchanged`.
 
@@ -1114,7 +1114,7 @@ A wrong code is refused and leaves the code good. The embedded frontend itself i
     A `to` that exists, has no parent or is inside `from`, a pack that holds a link or another kind of file, a file larger than 1 MiB, or more than 10000 files or 64 MiB is refused with `copy-refused` before anything is written.
 
     The copy is written into a new directory next to `to` and renamed to `to` at the end, so a copy that fails or stops partway leaves nothing at `to`, and that directory is removed; a `to` created meanwhile is refused with `copy-refused`.
-- **`POST /api/packs/new/plan`** (command `pack new`; input: Body `{"dir", "name", "harnesses", "profiles"}`: `dir` absolute and required, the answers as `pack new --answers` takes them): As `pack new --dry-run`: the plan, with its `digest`. Writes nothing. The wizard of the Packs board ([0046](decisions/0046-pack-templates-and-wizard.md)).
+- **`POST /api/packs/new/plan`** (command `pack new`; input: Body `{"dir", "name", "harnesses", "requires", "profiles"}`: `dir` absolute and required, the answers as `pack new --answers` takes them): As `pack new --dry-run`: the plan, with its `digest`. Writes nothing. The wizard of the Packs board ([0046](decisions/0046-pack-templates-and-wizard.md)).
 - **`POST /api/packs/new`** (command `pack new`; input: The body of `POST /api/packs/new/plan`, with `digest` (required)): As `pack new`, for the plan of `digest`, which is the consent, as for `POST /api/packs/update`: another plan stops with `plan-changed` and the new plan before anything is written.
 - **`GET /api/pack/summary`** (command `ui`; input: Query `path` (required, absolute): the pack directory):
   What each layer holds, for people to read:
