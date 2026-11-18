@@ -1,5 +1,11 @@
-# dotai runtime state (delegation jobs, results, logs)
+# dotai's per-project directory, which dotai apply writes into a project
+# (its marker, the onboarding record and the pack's project files); never committed
 .dotai/
+
+# Local tooling and agent working directories
+.claude/
+.lab/
+.atl/
 
 # OS and editor files
 .DS_Store

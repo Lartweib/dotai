@@ -1,0 +1,63 @@
+name: Bug report
+description: Something in dotai does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. For a security issue, do not use this form: report it privately, as SECURITY.md describes.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you ran, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The commands, in order, ideally against examples/minimal-pack or a minimal pack, in a temporary home directory.
+      placeholder: |
+        1. dotai pack new my-pack --name my-pack --harness claudecode
+        2. dotai install my-pack --dry-run
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: The output of the failing command, with --json if it helps. Remove any personal paths or secrets.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: dotai version
+      description: The output of `dotai version`.
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS
+      options:
+        - Windows
+        - Linux
+        - macOS
+    validations:
+      required: true
+  - type: dropdown
+    id: harness
+    attributes:
+      label: Harness
+      multiple: true
+      options:
+        - Claude Code
+        - agy (Google Antigravity CLI)
+        - OpenCode
+        - Not harness-specific
+  - type: input
+    id: harness-version
+    attributes:
+      label: Harness version
+      description: The version of each harness involved, if any.
