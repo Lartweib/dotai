@@ -66,6 +66,9 @@ type Env struct {
 	UpdatePack   func(ctx context.Context, home, id string, opts app.PackGitOptions) (app.PackAddResult, error)
 	RemovePackID func(home, id string) (app.PackRemoveResult, error)
 	ListPacks    func(home string) (app.PackList, error)
+	// OnboardingHook is dotai onboarding hook: the line the session-start
+	// hook prints in the directory cwd, "" for none (decision 0045).
+	OnboardingHook func(ctx context.Context, cwd, home string) (string, error)
 }
 
 // UIOptions holds the choices of dotai ui that Env.UI receives: the
@@ -112,7 +115,7 @@ func Run(args []string, env Env) int {
 	root.SetArgs(args)
 	root.SetOut(env.Stdout)
 	root.SetErr(env.Stderr)
-	root.AddCommand(newVersionCmd(env, &jsonOut), newValidateCmd(env, &jsonOut), newStageCmd(env, &jsonOut), newRulesyncCmd(env, &jsonOut), newInstallCmd(env, &jsonOut), newApplyCmd(env, &jsonOut), newRestoreCmd(env, &jsonOut), newDoctorCmd(env, &jsonOut), newRunCmd(env, &jsonOut, &parsed), newUICmd(env, &jsonOut), newPackCmd(env, &jsonOut))
+	root.AddCommand(newVersionCmd(env, &jsonOut), newValidateCmd(env, &jsonOut), newStageCmd(env, &jsonOut), newRulesyncCmd(env, &jsonOut), newInstallCmd(env, &jsonOut), newApplyCmd(env, &jsonOut), newRestoreCmd(env, &jsonOut), newDoctorCmd(env, &jsonOut), newRunCmd(env, &jsonOut, &parsed), newUICmd(env, &jsonOut), newPackCmd(env, &jsonOut), newOnboardingCmd(env, &jsonOut))
 
 	// In JSON mode help is a result like any other: one envelope whose data
 	// holds the help text.

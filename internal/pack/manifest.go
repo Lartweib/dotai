@@ -1,6 +1,7 @@
 package pack
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -40,6 +41,14 @@ type Manifest struct {
 	// Onboarding is the onboarding block: dotai's onboarding unless it
 	// names a custom item (decision 0045).
 	Onboarding Onboarding
+
+	hints []hintAt // where each profile's hints are, for Warnings
+}
+
+// hintAt is where the manifest gives the hint of a profile.
+type hintAt struct {
+	profile, hint string
+	line, column  int
 }
 
 // AllHarnesses is every harness the pack supports: the required ones,
@@ -77,7 +86,7 @@ func decodeManifest(fsys fs.FS, r reader, root *yaml.Node, rulesyncVersions []st
 	m := decodeIdentity(r, o, rulesyncVersions)
 	m.Harnesses = decodeHarnesses(r, o)
 	m.OptionalHarnesses = decodeOptionalHarnesses(r, o, m.Harnesses)
-	m.Profiles = decodeProfiles(fsys, r, o)
+	m.Profiles, m.hints = decodeProfiles(fsys, r, o)
 	m.Onboarding = decodeOnboarding(r, o)
 	var declared int
 	m.Variants, declared = decodeVariants(fsys, r, o)
@@ -148,19 +157,48 @@ func decodeOptionalHarnesses(r reader, o object, required []string) []string {
 	return hs
 }
 
-func decodeProfiles(fsys fs.FS, r reader, o object) []Profile {
+func decodeProfiles(fsys fs.FS, r reader, o object) ([]Profile, []hintAt) {
 	if !o.has("profiles") {
-		return nil
+		return nil, nil
 	}
 	var out []Profile
+	var hints []hintAt
 	ps := r.object(o.keys["profiles"], o.vals["profiles"], "profiles")
 	for _, name := range ps.order {
 		p := r.object(ps.keys[name], ps.vals[name], "profile "+name, "path", "description", "hints", "mods")
 		pr := Profile{Name: name, Path: layerPath(fsys, p)}
 		pr.Description, _ = p.str("description", true)
-		pr.Hints, _ = p.list("hints", false)
+		var nodes []*yaml.Node
+		pr.Hints, nodes = p.list("hints", false)
+		for i, n := range nodes {
+			hints = append(hints, hintAt{profile: name, hint: pr.Hints[i], line: n.Line + r.offset, column: n.Column})
+		}
 		pr.Mods = decodeMods(fsys, p)
 		out = append(out, pr)
+	}
+	return out, hints
+}
+
+// CodeProfileHintInvalid is the warning of a profile hint that the
+// fingerprint of decision 0045 cannot match as its author means: one that
+// path.Match refuses, which matches nothing, or one with **, which
+// path.Match reads as * within one path segment, not across directories.
+const CodeProfileHintInvalid = "profile-hint-invalid"
+
+// hintWarnings are the warnings of the hints of m.
+func hintWarnings(m Manifest) []Diagnostic {
+	var out []Diagnostic
+	for _, h := range m.hints {
+		switch _, err := path.Match(h.hint, ""); {
+		case err != nil:
+			out = append(out, NewDiagnostic(ManifestFile, h.line, h.column, CodeProfileHintInvalid,
+				"profile %s: hint %q is not a valid pattern, so it matches no file", h.profile, h.hint).
+				WithHint("write a glob as Go's path.Match reads it, matched against the whole path from the top of the repository, such as package.json or src/*.go"))
+		case strings.Contains(h.hint, "**"):
+			out = append(out, NewDiagnostic(ManifestFile, h.line, h.column, CodeProfileHintInvalid,
+				"profile %s: hint %q holds **, which matches within one path segment only, as *, and never across directories", h.profile, h.hint).
+				WithHint("name the path from the top of the repository, one * per segment, such as src/*.rs, or give one hint per depth"))
+		}
 	}
 	return out
 }
@@ -247,4 +285,30 @@ func Identity(fsys fs.FS) (name, version string, err error) {
 		return "", "", fmt.Errorf("%s has no name", ManifestFile)
 	}
 	return id.Name, id.Version, nil
+}
+
+// ReadManifest decodes the manifest of the pack in fsys without loading
+// its layers, for a reader that needs only the manifest and must be quick,
+// such as the session-start hook of decision 0045. It reports what Load
+// reports of the manifest alone; the manifest is nil when it cannot be
+// used.
+func ReadManifest(fsys fs.FS) (*Manifest, []Diagnostic, error) {
+	src, d, err := readRegular(fsys, ManifestFile)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return nil, []Diagnostic{NewDiagnostic(ManifestFile, 0, 0, CodeManifestMissing, "the pack has no %s", ManifestFile)}, nil
+	case err != nil:
+		return nil, nil, err
+	case d != nil:
+		return nil, []Diagnostic{*d}, nil
+	}
+	var diags []Diagnostic
+	r := reader{file: ManifestFile, diags: &diags}
+	root, ok := r.parse(normalize(src), CodeYAMLInvalid)
+	if !ok {
+		return nil, diags, nil
+	}
+	m := decodeManifest(fsys, r, root, nil)
+	sortFrom(diags, 0)
+	return &m, diags, nil
 }

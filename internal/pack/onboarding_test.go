@@ -168,3 +168,40 @@ func TestOnboardingWarnings(t *testing.T) {
 		})
 	}
 }
+
+func TestReadManifestReadsTheManifestAlone(t *testing.T) {
+	f := validPack()
+	withCustom("base/.rulesync/subagents/review/reviewer.md")(f)
+	f["base/.rulesync/rules/broken.md"] = file("---\nroot: [\n---\n") // a layer's problem, not the manifest's
+	m, diags, err := pack.ReadManifest(f)
+	if err != nil || len(diags) > 0 || m == nil {
+		t.Fatalf("ReadManifest() = %v, %v, %v", m, diags, err)
+	}
+	if m.Name != "test-pack" || len(m.Profiles) != 1 || m.Profiles[0].Hints[0] != "astro.config.*" || m.Onboarding.Custom != "base/.rulesync/subagents/review/reviewer.md" {
+		t.Errorf("manifest = %+v", m)
+	}
+	delete(f, "dotai.yaml")
+	if m, diags, err := pack.ReadManifest(f); m != nil || len(diags) != 1 || err != nil {
+		t.Errorf("ReadManifest() without a manifest = %v, %v, %v", m, diags, err)
+	}
+}
+
+// TestHintWarnings checks that a hint the fingerprint of decision 0045
+// cannot match as its author means is a warning: one path.Match refuses,
+// which matches nothing, and one with **, which path.Match reads as * in
+// one path segment.
+func TestHintWarnings(t *testing.T) {
+	f := validPack()
+	f["dotai.yaml"] = file(strings.Replace(manifest, "hints: [astro.config.*]", `hints: [astro.config.*, "[bad", "**/*.rs", src/*.go]`, 1))
+	p, diags, err := pack.Load(f)
+	if err != nil || len(diags) > 0 {
+		t.Fatalf("Load() = %v, %v", diags, err)
+	}
+	w := p.Warnings()
+	if got, want := at(w), []string{"dotai.yaml:11:29: profile-hint-invalid", "dotai.yaml:11:37: profile-hint-invalid"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Warnings() = %v, want %v", got, want)
+	}
+	if !strings.Contains(w[0].Message, `"[bad"`) || !strings.Contains(w[0].Message, "web") || !strings.Contains(w[1].Message, "**") {
+		t.Errorf("Warnings() = %v, want each to name the profile and its hint", w)
+	}
+}

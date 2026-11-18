@@ -121,6 +121,33 @@ func hookCommand(bin, goos, id string) (string, error) {
 	return `"` + strings.ReplaceAll(bin, `\`, "/") + `"` + suffix, nil
 }
 
+// HookHarness reports whether id is a harness the session-start hook of
+// decision 0045 is installed in, which dotai onboarding hook --harness
+// names: one an adapter knows.
+func HookHarness(id string) bool {
+	_, err := harness.Lookup([]string{id})
+	return err == nil
+}
+
+// HookOutput is what the session-start hook of the harness id prints for
+// line, "" for none: agy reads a SessionStart hook's output as JSON and
+// drops plain text (HARNESS-NOTES), and the other harnesses take the line
+// as it is, with a line break. A harness HookHarness does not know gets
+// nothing.
+func HookOutput(id, line string) string {
+	if line == "" || !HookHarness(id) {
+		return ""
+	}
+	if id == "antigravity-cli" {
+		data, err := json.Marshal(map[string][]map[string]map[string]string{"injectSteps": {{"systemMessage": {"systemMessage": line}}}})
+		if err != nil {
+			return ""
+		}
+		return string(data) + "\n"
+	}
+	return line + "\n"
+}
+
 // hookEntry is the sessionStart entry of the hooks file that runs command
 // for the harness id: Claude Code's runs at a new session only, not at a
 // resumed or compacted one, which agy and OpenCode cannot tell apart.

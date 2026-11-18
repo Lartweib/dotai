@@ -3,11 +3,13 @@ package app
 import (
 	"cmp"
 	"context"
+	"fmt"
 	"path/filepath"
 	"runtime"
 	"time"
 
 	"github.com/lartweib/dotai/internal/proc"
+	"github.com/lartweib/dotai/internal/state"
 )
 
 // OSStageFS is the real file system port, for fakes that wrap it.
@@ -304,3 +306,25 @@ var EveryHarness = everyHarness
 func DotaiBinaryWith(lookPath func(string) (string, error), executable func() (string, error)) (string, error) {
 	return dotaiBinary(lookPath, executable)
 }
+
+// OnboardingHookWith is OnboardingHook asking git through g.
+func OnboardingHookWith(ctx context.Context, g gitPort, cwd, home string) (string, error) {
+	return onboardingHook(ctx, osInstallFS{}, g, cwd, home)
+}
+
+// TakeFingerprint is the onboarding record an apply takes in a repository
+// whose index holds files, for the pack the install state of home records.
+func TakeFingerprint(home string, files []string) (state.Onboarding, error) {
+	f, _, err := currentFingerprint(context.Background(), osInstallFS{}, listGit(files), home, "")
+	if err != nil || f == nil {
+		return state.Onboarding{}, fmt.Errorf("no fingerprint: %v", err)
+	}
+	return f.record(state.OnboardingApplied), nil
+}
+
+// listGit is a git whose index holds files.
+type listGit []string
+
+func (listGit) Repo(context.Context, string) (*Repo, error)                        { return nil, nil }
+func (listGit) Tracked(context.Context, string, []string) (map[string]bool, error) { return nil, nil }
+func (g listGit) Files(context.Context, string) ([]string, error)                  { return g, nil }

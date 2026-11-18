@@ -60,9 +60,18 @@ type fakeGit struct {
 	asked   []string
 	repos   map[string]*app.Repo
 	fail    map[string]error
+	files   []string // what the index holds
+	// filesAsked and repoAsked count the calls of Files and Repo.
+	filesAsked, repoAsked int
+}
+
+func (g *fakeGit) Files(context.Context, string) ([]string, error) {
+	g.filesAsked++
+	return g.files, nil
 }
 
 func (g *fakeGit) Repo(_ context.Context, dir string) (*app.Repo, error) {
+	g.repoAsked++
 	if err := g.fail[dir]; err != nil {
 		return nil, err
 	}
@@ -125,6 +134,7 @@ func TestPlanProjectListsEachTargetAndWritesNothing(t *testing.T) {
 		"create claudecode " + at(project, ".claude/skills/hello/hooks/hooks.json"),
 		"create claudecode " + at(project, ".claude/skills/hello/hooks/register.js"),
 		"create  " + at(project, ".dotai/state.json"),
+		"create  " + at(project, ".dotai/onboarding.json"),
 		"create opencode " + at(project, ".opencode/memories/web.md"),
 		"create opencode " + at(project, ".opencode/opencode.json"),
 	}

@@ -42,6 +42,9 @@ type Repo struct {
 type gitPort interface {
 	Repo(ctx context.Context, dir string) (*Repo, error)
 	Tracked(ctx context.Context, dir string, paths []string) (map[string]bool, error)
+	// Files are the paths the index of dir's repository holds, slash paths
+	// relative to dir, for the fingerprint of decision 0045.
+	Files(ctx context.Context, dir string) ([]string, error)
 }
 
 // GitMissingError is a project inside a git repository, as a .git found
@@ -55,8 +58,12 @@ func (e *GitMissingError) Error() string {
 	return fmt.Sprintf("%s is in a git repository (%s), but git is not on PATH, and dotai needs it to tell which files the repository tracks: install git, then plan again", e.Dir, e.Git)
 }
 
-// osGit is the gitPort of the git on PATH.
-type osGit struct{}
+// osGit is the gitPort of the git on PATH. waitDelay, when it is set,
+// replaces gitWaitDelay: how long a command waits for git to exit, and
+// for its output, once its ctx ended and git was killed, or git exited.
+type osGit struct {
+	waitDelay time.Duration
+}
 
 // gitDropped are the variables of the user's environment that would point
 // git at another repository, index or configuration than the project's;
@@ -89,15 +96,23 @@ func gitEnv(environ []string, fold bool) []string {
 
 // git runs git with args in dir, without the file system monitor, and
 // gives its standard output.
-func (osGit) git(ctx context.Context, dir string, args ...string) ([]byte, error) {
+//
+// When ctx ends, git is killed with what it started (runTree), and the
+// call waits for it to exit. On Windows this also ends the git.exe that
+// Git for Windows' cmd\git.exe launcher starts, which killing the
+// launcher alone leaves running.
+func (g osGit) git(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-c", "core.fsmonitor=false", "-C", dir}, args...)...)
 	cmd.Env = gitEnv(os.Environ(), foldCase)
 	cmd.WaitDelay = gitWaitDelay
+	if g.waitDelay > 0 {
+		cmd.WaitDelay = g.waitDelay
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	err := cmd.Run()
+	err := runTree(cmd)
 	if ctx.Err() != nil {
 		return nil, fmt.Errorf("git %s in %s: %w", args[0], dir, ctx.Err())
 	}
@@ -199,6 +214,22 @@ func (g osGit) Tracked(ctx context.Context, dir string, paths []string) (map[str
 					out[p] = true
 				}
 			}
+		}
+	}
+	return out, nil
+}
+
+// Files asks git ls-files for every path the index of dir's repository
+// holds under dir, which reads only the index.
+func (g osGit) Files(ctx context.Context, dir string) ([]string, error) {
+	list, err := g.git(ctx, dir, "ls-files", "-z")
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for name := range strings.SplitSeq(string(list), "\x00") {
+		if name != "" {
+			out = append(out, name)
 		}
 	}
 	return out, nil

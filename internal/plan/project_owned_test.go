@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/lartweib/dotai/internal/plan"
@@ -249,6 +250,33 @@ func TestBuildProjectRefusesATrackedMarker(t *testing.T) {
 	}
 	if len(p.Refusals) != 1 || p.Refusals[0].Code != plan.CodeMarkerTracked || p.Refusals[0].Path != marker {
 		t.Errorf("refusals = %+v, want the tracked marker refused", p.Refusals)
+	}
+}
+
+// TestBuildProjectOnboardingRecord checks the op of .dotai/onboarding.json
+// (decision 0045): planned like the marker inside a git repository, where
+// git tracking it is a refusal, and not at all outside one, where the
+// session-start hook never speaks.
+func TestBuildProjectOnboardingRecord(t *testing.T) {
+	in := projectInput(t)
+	record := filepath.Join(in.Project, ".dotai", "onboarding.json")
+	in.Tracked[record] = true
+	p, err := plan.BuildProject(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Refusals) != 1 || p.Refusals[0].Code != plan.CodeOnboardingRecordTracked || p.Refusals[0].Path != record || !strings.Contains(p.Refusals[0].Message, "onboarding record") {
+		t.Errorf("refusals = %+v, want the tracked onboarding record refused", p.Refusals)
+	}
+	in = projectInput(t)
+	in.Repo = false
+	if p, err = plan.BuildProject(in); err != nil {
+		t.Fatal(err)
+	}
+	for _, op := range p.Ops {
+		if op.Kind == plan.KindOnboarding || op.Target == record {
+			t.Errorf("op %+v outside a git repository", op)
+		}
 	}
 }
 

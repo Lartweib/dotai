@@ -132,9 +132,14 @@ func (p *Pack) CustomOnboarding() (Layer, Item, bool) {
 
 // Warnings are what the pack's manifest and layers may not do as its
 // author means but is no error: a custom item that replaces dotai's
-// onboarding, at the pack author's own risk, and an onboarding subagent
-// shipped besides dotai's onboarding, as packs did before decision 0045.
+// onboarding, at the pack author's own risk, an onboarding subagent
+// shipped besides dotai's onboarding, as packs did before decision 0045,
+// and a profile hint the fingerprint cannot match as written.
 func (p *Pack) Warnings() []Diagnostic {
+	return append(p.onboardingWarnings(), hintWarnings(p.Manifest)...)
+}
+
+func (p *Pack) onboardingWarnings() []Diagnostic {
 	out := []Diagnostic{}
 	if _, it, ok := p.CustomOnboarding(); ok {
 		o := p.Manifest.Onboarding

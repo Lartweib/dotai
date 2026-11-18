@@ -72,6 +72,19 @@ type ProfileSummary struct {
 	Mods        []string `json:"mods"`
 }
 
+// profileSummaries are the profiles ps of a manifest in the one shape
+// dotai reads their names and hints from: the summary validate gives, the
+// profiling skill, the fingerprint an apply and a dismissal take and the
+// one the session-start hook compares (decision 0045), so that they cannot
+// drift apart.
+func profileSummaries(ps []pack.Profile) []ProfileSummary {
+	out := make([]ProfileSummary, 0, len(ps))
+	for _, pr := range ps {
+		out = append(out, ProfileSummary{Name: pr.Name, Path: pr.Path, Description: pr.Description, Hints: append([]string{}, pr.Hints...), Mods: append([]string{}, pr.Mods...)})
+	}
+	return out
+}
+
 // LayerSummary describes one layer and how many items it defines.
 type LayerSummary struct {
 	Kind  string `json:"kind"`
@@ -136,9 +149,7 @@ func validate(fsys fs.FS, sel Selection) (ValidateResult, *pack.Pack, error) {
 	if c := m.Onboarding.Custom; c != "" {
 		s.Onboarding.Path = &c
 	}
-	for _, pr := range m.Profiles {
-		s.Profiles = append(s.Profiles, ProfileSummary{Name: pr.Name, Path: pr.Path, Description: pr.Description, Hints: append([]string{}, pr.Hints...), Mods: append([]string{}, pr.Mods...)})
-	}
+	s.Profiles = profileSummaries(m.Profiles)
 	for _, v := range m.Variants {
 		s.Variants = append(s.Variants, v.Name)
 		if v.Default {
