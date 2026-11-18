@@ -11,6 +11,7 @@ import (
 // TestVersionStampedAtBuild builds dotai with the linker flag that the
 // release script sets and checks that `dotai version` prints the tag.
 func TestVersionStampedAtBuild(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("builds the binary")
 	}
