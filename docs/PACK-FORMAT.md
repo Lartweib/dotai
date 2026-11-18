@@ -116,6 +116,26 @@ Decided in [0045](decisions/0045-dotai-owned-project-onboarding.md). `dotai inst
 
 `stage` adds the same layer, with the path of the binary that runs it. With `onboarding.custom`, dotai stages neither item, and the install plan warns `onboarding-replaced`, naming the pack and the item, in the command line and the web UI before the user confirms; `--yes` still prints it, and `install --json` reports it in `warnings` ([CLI-JSON](CLI-JSON.md)). A custom item in a variant comes only with that variant.
 
+## Creating a pack
+
+Decided in [0046](decisions/0046-pack-templates-and-wizard.md). dotai embeds one pack template, versioned with the engine: a minimal, commented and harmless example of each file and folder a pack holds, so that a new pack is valid from the start. Then the pack is the author's to write.
+
+| Path | Example |
+|---|---|
+| `dotai.yaml` | The manifest, with one profile, its `description`, `hints` and `mods`, and a default variant |
+| `base/.rulesync/rules/overview.md` | The root rule |
+| `base/.rulesync/rules/example-rule.md`, `commands/example-command.md`, `subagents/example-agent.md`, `skills/example-skill/SKILL.md` | A rule, a command, a subagent and a skill |
+| `base/.rulesync/mcp.jsonc` | MCP servers: the example server is a comment, so none runs |
+| `base/.rulesync/hooks.jsonc` | A `stop` hook that runs `echo` |
+| `base/.rulesync/permissions.jsonc`, `base/dotai/settings.yaml` | A permission and a Claude Code `env` setting |
+| `base/dotai/tools/example-tool.sh`, `.ps1` | A tool, once per OS |
+| `variants/default/`, `profiles/<profile>/`, `mods/<mod>/` | A rule of the default variant, a rule of each profile, and a Claude Code plugin with a hooks module for each mod a profile names |
+| `README.md` | The layout, at the top, where dotai reads only `dotai.yaml` |
+
+It has no `dotai-profiles` item and no `onboarding` subagent: dotai generates the onboarding ([Onboarding](#onboarding)).
+
+**Unchanged example files.** The engine keeps the SHA-256 of every file below the top of the pack that each released version of the template writes, with line endings normalized, so that a file checked out with CRLF still matches; a new version of the template appends its hashes. A file of a pack, below its top and outside `.git`, whose content is one of them is `template-unchanged`: `dotai validate` warns about each one, and `dotai pack add` warns, listing them. Edit each example for the pack, or delete it; any change clears the warning.
+
 ## Adding a pack
 
 `dotai pack add` adds a pack to the registry, `~/.dotai/packs.json`, which the web UI shows too ([0044](decisions/0044-git-pack-distribution.md)). A pack comes from a GitHub repository, fetched with the git on `PATH` (2.41 or later) into `~/.dotai/packs/github.com/<owner>/<repo>`, or from a local directory, added with `--dir`, which stays where it is. A git pack's identity is `github.com/<owner>/<repo>` in lower case, and its manifest `name` is only a label; a local pack's is `local/<name>`, and a new local name follows the rule for mod names. A fetched pack never runs its hooks, its `.gitattributes` has no effect, so the files are the committed bytes, and its tree is checked before it is validated: no symbolic link, no submodule, no `.git` path, at most 10000 files and 64 MiB. `dotai pack update` shows what changed in executable content, every layer's `.rulesync/hooks.jsonc`, `.rulesync/mcp.jsonc` and `dotai/settings.yaml`, `dotai/tools/` and `mods/`, and also `.rulesync/permissions.jsonc`, the scripts of skills, commands and subagents, `dotai.yaml` and every executable file, before it replaces the clone. See the `pack` commands in [CLI JSON output](CLI-JSON.md#commands).

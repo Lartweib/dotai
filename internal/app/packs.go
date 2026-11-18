@@ -205,7 +205,7 @@ func AddLocalPack(home, dir string) (PackAddResult, error) {
 	if err != nil {
 		return PackAddResult{}, err
 	}
-	return addResult(list, func(e PackEntry) bool { return samePath(e.Path, dir) }, outcome, nil), nil
+	return addResult(list, func(e PackEntry) bool { return samePath(e.Path, dir) }, outcome, templatePackWarnings(res)), nil
 }
 
 // packDir checks that dir is the absolute path of a directory.

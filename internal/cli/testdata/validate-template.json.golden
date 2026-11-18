@@ -1,0 +1,45 @@
+{
+  "schema": "dotai.cli/v1",
+  "command": "validate",
+  "ok": true,
+  "data": {
+    "valid": true,
+    "pack": {
+      "name": "template-pack",
+      "version": "0.1.0",
+      "engine": ">=0.1.0",
+      "rulesync": "41.0.0",
+      "harnesses": [
+        "opencode"
+      ],
+      "optionalHarnesses": [],
+      "profiles": [],
+      "variants": [],
+      "defaultVariant": "",
+      "sharedSkills": [],
+      "onboarding": {
+        "mode": "dotai",
+        "path": null
+      },
+      "layers": [
+        {
+          "kind": "base",
+          "name": "base",
+          "path": "base",
+          "items": 2
+        }
+      ]
+    },
+    "diagnostics": [],
+    "warnings": [
+      {
+        "file": "base/.rulesync/rules/example-rule.md",
+        "line": 0,
+        "column": 0,
+        "code": "template-unchanged",
+        "message": "this file is an example file of dotai's pack template, unchanged",
+        "hint": "edit it for your pack, or delete it; while it is unchanged, dotai install and dotai apply ask before installing it"
+      }
+    ]
+  }
+}
