@@ -28,6 +28,16 @@ import (
 // directory, where a repository cannot ship one.
 const MarkerFile = ".dotai/state.json"
 
+// OnboardingFile is the onboarding record of decision 0045, relative to the
+// project directory: the fingerprint an apply or a dismissal took, which
+// the session-start hook compares, and which dotai never trusts for
+// ownership.
+const OnboardingFile = ".dotai/onboarding.json"
+
+// CodeOnboardingRecordTracked is the refusal of a project apply whose
+// onboarding record, which must stay local, git tracks.
+const CodeOnboardingRecordTracked = "onboarding-record-tracked"
+
 // Actions of a project plan besides Create, Replace and Unchanged: an
 // existing file merged by key, and an existing file that is not dotai's
 // and holds something else, which dotai leaves as it is.
@@ -37,10 +47,11 @@ const (
 )
 
 // The kinds of the ops no harness owns: the project's tools, under
-// .dotai/tools/, and the project marker.
+// .dotai/tools/, the project marker and the onboarding record.
 const (
-	KindTools  = "tools"
-	KindMarker = "marker"
+	KindTools      = "tools"
+	KindMarker     = "marker"
+	KindOnboarding = "onboarding"
 )
 
 // Warning codes of a project plan.
@@ -61,6 +72,7 @@ const (
 	hooksSource         = ".rulesync/hooks.jsonc"
 	importItem          = "import of AGENTS.md"
 	markerItem          = "project marker"
+	onboardingItem      = "onboarding record"
 	projectSourcesMatch = ".rulesync/"
 )
 
@@ -393,9 +405,13 @@ func BuildProject(in ProjectInput) (Placement, error) {
 	}
 	slices.Sort(p.Exclude[1:])
 	for _, sk := range p.Skipped {
-		if sk.Item == markerItem {
+		switch sk.Item {
+		case markerItem:
 			p.Refusals = append(p.Refusals, Warning{Code: CodeMarkerTracked, Path: sk.Target,
 				Message: fmt.Sprintf("git tracks %s, the project marker, which stays local: untrack it (git rm --cached), then apply again", sk.Target)})
+		case onboardingItem:
+			p.Refusals = append(p.Refusals, Warning{Code: CodeOnboardingRecordTracked, Path: sk.Target,
+				Message: fmt.Sprintf("git tracks %s, the onboarding record, which stays local: untrack it (git rm --cached), then apply again", sk.Target)})
 		}
 	}
 	slices.SortFunc(p.Ops, func(a, b ProjectOp) int { return cmp.Compare(a.Target, b.Target) })
@@ -520,6 +536,10 @@ func (in ProjectInput) locate() ([]located, error) {
 		}
 	}
 	out = append(out, located{kind: KindMarker, item: markerItem, target: in.at(MarkerFile)})
+	// The session-start hook speaks only in a git repository.
+	if in.Repo {
+		out = append(out, located{kind: KindOnboarding, item: onboardingItem, target: in.at(OnboardingFile)})
+	}
 	seen := map[string]located{}
 	for _, t := range out {
 		if prev, ok := seen[t.target]; ok {
@@ -549,7 +569,7 @@ func (in ProjectInput) opOf(t located) (ProjectOp, []Warning, error) {
 	}
 	owned, isOwned := in.Owned[t.target]
 	switch {
-	case t.kind == KindMarker:
+	case t.kind == KindMarker || t.kind == KindOnboarding:
 		if exists {
 			op.Action = Replace
 		}

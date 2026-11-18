@@ -21,16 +21,18 @@ const ProjectSchema = "dotai.project-backup/v1"
 
 // The operations of a project backup: OperationApply for a project apply,
 // OperationFix for the fix of dotai doctor, which writes a project's
-// exclude block as an apply does; a restore of the project takes one of
-// OperationRestore.
+// exclude block as an apply does, and OperationDismiss for dotai
+// onboarding dismiss, which writes the onboarding record (decision 0045);
+// a restore of the project takes one of OperationRestore.
 const (
-	OperationApply = "apply"
-	OperationFix   = "fix"
+	OperationApply   = "apply"
+	OperationFix     = "fix"
+	OperationDismiss = "dismiss"
 )
 
 // ProjectOperation reports whether op is the operation of a project backup.
 func ProjectOperation(op string) bool {
-	return op == OperationApply || op == OperationFix || op == OperationRestore
+	return op == OperationApply || op == OperationFix || op == OperationDismiss || op == OperationRestore
 }
 
 // ProjectManifest describes one project backup: its id, operation and

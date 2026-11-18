@@ -31,6 +31,11 @@ type ToolPaths struct {
 	// directory.
 	UserErr, ProjectErr error
 
+	// Onboarding is the dotai binary the session-start hook runs, for a
+	// stage that adds dotai's onboarding to the user scope (decision
+	// 0045); nil adds none.
+	Onboarding *OnboardingBinary
+
 	project bool   // the settings being expanded are the project scope's
 	harness string // the harness whose settings are expanded; "" reads them as a shell does
 }

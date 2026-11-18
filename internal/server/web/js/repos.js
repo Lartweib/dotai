@@ -1,8 +1,8 @@
 // The Repositories board: the repositories where profiles were applied,
 // as ~/.dotai/projects.json and the project records list them, each with
-// its restore (restore --project, a preview first, then confirm). A pack
-// with onboarding applies profiles on its own, after the user approves
-// its plan; applying by hand is the secondary path: a repository's path,
+// its restore (restore --project, a preview first, then confirm). dotai's
+// onboarding proposes profiles on its own, applied after the user
+// approves the plan (decision 0045); applying by hand is the secondary path: a repository's path,
 // a pack's profiles, the plan, then the apply, carried out only as
 // planned, by the plan's digest.
 

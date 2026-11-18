@@ -2,10 +2,13 @@ package server_test
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/lartweib/dotai/internal/app"
@@ -96,6 +99,34 @@ func TestPackSummaryListsTheLayersOfTheExamplePack(t *testing.T) {
 		t.Errorf("summary = %+v, %v", sum, err)
 	}
 	wantFailure(t, serve(h, request("GET", "/api/pack/summary", testToken)), http.StatusBadRequest, "usage")
+}
+
+// TestPackSummaryGivesTheOnboardingAsAnObject pins the onboarding of GET
+// /api/pack/summary (decision 0045): an object, never null, with each
+// field, dotai's profiling skill for a pack that keeps dotai's onboarding.
+func TestPackSummaryGivesTheOnboardingAsAnObject(t *testing.T) {
+	cfg := appHome(t)
+	h := server.New(cfg, server.AppDeps(fakePorts), server.Web())
+	w := serve(h, request("GET", "/api/pack/summary?path="+url.QueryEscape(copiedExample(t)), testToken))
+	if w.Code != http.StatusOK {
+		t.Fatalf("summary = %d; body %s", w.Code, w.Body)
+	}
+	var data struct {
+		Onboarding map[string]any `json:"onboarding"`
+	}
+	if err := json.Unmarshal(decode(t, w).Data, &data); err != nil {
+		t.Fatal(err)
+	}
+	o := data.Onboarding
+	keys := slices.Sorted(maps.Keys(o))
+	if want := []string{"content", "kind", "layer", "mode", "name", "path"}; !slices.Equal(keys, want) {
+		t.Fatalf("onboarding keys = %v, want %v", keys, want)
+	}
+	content, _ := o["content"].(string)
+	if o["mode"] != "dotai" || o["kind"] != "skill" || o["name"] != "dotai-profiles" || o["layer"] != "" || o["path"] != "" ||
+		!strings.HasPrefix(content, "---\nname: dotai-profiles\n") || !strings.Contains(content, "### web") {
+		t.Errorf("onboarding = %v, want dotai's profiling skill of the example pack", o)
+	}
 }
 
 func TestACorruptRegistryAnswersRegistryInvalid(t *testing.T) {

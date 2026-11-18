@@ -18,6 +18,10 @@
       "variants": [],
       "defaultVariant": "",
       "sharedSkills": [],
+      "onboarding": {
+        "mode": "",
+        "path": null
+      },
       "layers": []
     },
     "variant": "standalone",
@@ -176,6 +180,15 @@
     "wipeKeys": [],
     "refusals": [],
     "notices": [],
+    "warnings": [
+      {
+        "code": "onboarding-hook-skipped",
+        "harness": "antigravity-cli",
+        "item": "dotai-profiles",
+        "path": "",
+        "message": "antigravity-cli gets the profiling skill dotai-profiles but not the session-start hook that tells a session when to load it"
+      }
+    ],
     "diagnostics": [],
     "blocked": false,
     "consent": false

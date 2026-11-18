@@ -180,6 +180,12 @@ func TestRunStage(t *testing.T) {
 			if ctx == nil || cacheDir != wantCache || dir != examplePack || out != "s" || !force || (progress != nil) != tt.wantProgress {
 				t.Errorf("Stage(%q, %q, %q, force %v, progress %v), want the cache, the pack, s, force and progress %v", cacheDir, dir, out, force, progress != nil, tt.wantProgress)
 			}
+			// The stage adds dotai's onboarding as an install does, with the
+			// hook running this binary (decision 0045).
+			if exe, _ := os.Executable(); tools.Onboarding == nil || tools.Onboarding.Path != exe {
+				t.Errorf("tools.Onboarding = %+v, want this binary, %s", tools.Onboarding, exe)
+			}
+			tools.Onboarding = nil
 			if want := app.ToolsIn(home, cwd); tools != want {
 				t.Errorf("tools = %+v, want %+v from the home and current directories", tools, want)
 			}

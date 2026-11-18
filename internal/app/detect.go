@@ -26,11 +26,39 @@ type host struct {
 	goos      string
 	processes processList
 	self      int
+	// exe gives the dotai binary, which an install names in the
+	// session-start hook of decision 0045, DotaiBinary; nil installs no
+	// onboarding, for a test that does not stage one.
+	exe func() (string, error)
 }
 
 // osHost is the host dotai runs on.
 func osHost() host {
-	return host{lookPath: exec.LookPath, environ: os.Environ(), goos: runtime.GOOS, processes: proc.List, self: os.Getpid()}
+	return host{lookPath: exec.LookPath, environ: os.Environ(), goos: runtime.GOOS, processes: proc.List, self: os.Getpid(), exe: DotaiBinary}
+}
+
+// DotaiBinary is the dotai binary the session-start hook of decision 0045
+// names: the dotai on PATH when it is the very file that runs, as a
+// package manager's link to its versioned directory is, whose path
+// outlives an upgrade, and otherwise the binary that runs, as
+// os.Executable gives it.
+func DotaiBinary() (string, error) { return dotaiBinary(exec.LookPath, os.Executable) }
+
+func dotaiBinary(lookPath func(string) (string, error), executable func() (string, error)) (string, error) {
+	exe, err := executable()
+	if err != nil {
+		return "", err
+	}
+	found, err := lookPath("dotai")
+	if err != nil || !filepath.IsAbs(found) {
+		return exe, nil
+	}
+	a, errA := os.Stat(found)
+	b, errB := os.Stat(exe)
+	if errA == nil && errB == nil && os.SameFile(a, b) {
+		return found, nil
+	}
+	return exe, nil
 }
 
 // Detection is whether a harness is installed, from two separate signals

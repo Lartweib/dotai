@@ -43,7 +43,11 @@ type Project struct {
 	Files      []ProjectFile  `json:"files"`
 	Dirs       []string       `json:"dirs"`
 	Exclude    ProjectExclude `json:"exclude"`
-	Pending    *ApplyJournal  `json:"pending,omitempty"`
+	// DismissOnly marks the record of a project where no apply ran, which
+	// dotai onboarding dismiss created to own .dotai/ and its exclude entry
+	// (decision 0045): it has no profiles and no marker.
+	DismissOnly bool          `json:"dismissOnly,omitempty"`
+	Pending     *ApplyJournal `json:"pending,omitempty"`
 }
 
 // ProjectFile is a target dotai owns, as plan.ProjectOwned describes it.

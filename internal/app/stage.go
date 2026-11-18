@@ -15,6 +15,7 @@ import (
 	"github.com/lartweib/dotai/internal/harness"
 	"github.com/lartweib/dotai/internal/merge"
 	"github.com/lartweib/dotai/internal/pack"
+	"github.com/lartweib/dotai/internal/plan"
 	"github.com/lartweib/dotai/internal/rulesync"
 )
 
@@ -39,6 +40,9 @@ type StageResult struct {
 	ToolCommands []ToolCommand `json:"-"`
 	// Harnesses are the harnesses it rendered, which an install plans.
 	Harnesses []string `json:"-"`
+	// Warnings are what an install plan warns about the staging, such as
+	// a harness that does not get the session-start hook (decision 0045).
+	Warnings []plan.Warning `json:"-"`
 }
 
 // StagedFile is one written file: its scope, its path inside the scope's
@@ -130,6 +134,13 @@ func stage(ctx context.Context, w stageFS, fetch fetchFunc, run runFunc, cacheDi
 		}
 	}
 	res.Harnesses = harnesses
+	if tools.Onboarding != nil {
+		e, warnings := onboardingEngine(p, *v.Pack, harnesses, *tools.Onboarding, tools.goos())
+		res.Warnings = append(res.Warnings, warnings...)
+		if e != nil {
+			s.AddEngine(*e)
+		}
+	}
 	for _, t := range []struct {
 		scope    string
 		settings map[string][]merge.Setting

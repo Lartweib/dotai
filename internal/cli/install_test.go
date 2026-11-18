@@ -47,7 +47,9 @@ var installPlan = app.InstallPlan{
 		{Action: plan.Create, Source: ".dotai/tools/hello.sh", Target: "/home/u/.dotai/tools/hello.sh", Exec: true, After: "ee", Keys: []plan.KeyChange{}},
 	},
 	Wipes: []app.WipePlan{}, Keeps: []app.KeepPlan{}, WipeKeys: []app.WipeKey{}, Refusals: []app.Refusal{},
-	Notices:     []string{},
+	Notices: []string{},
+	Warnings: []plan.Warning{{Code: app.CodeOnboardingHookSkipped, Harness: "antigravity-cli", Item: "dotai-profiles",
+		Message: "antigravity-cli gets the profiling skill dotai-profiles but not the session-start hook that tells a session when to load it"}},
 	Diagnostics: []app.Diagnostic{},
 }
 
@@ -532,6 +534,7 @@ var replacePlan = app.InstallPlan{
 	Refusals: []app.Refusal{{Code: app.RefuseRelocation, Harness: "claudecode", Variable: "CLAUDE_CONFIG_DIR",
 		Message: "CLAUDE_CONFIG_DIR is set, so claudecode may read its configuration from somewhere a replace install does not reset: unset it, then install again"}},
 	Notices:     []string{"the optional harness opencode is skipped: it is not installed (opencode not found on PATH and no /home/u/.config/opencode directory)"},
+	Warnings:    []plan.Warning{},
 	Diagnostics: []app.Diagnostic{},
 }
 

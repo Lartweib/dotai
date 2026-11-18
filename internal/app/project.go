@@ -140,6 +140,11 @@ type projectPlanned struct {
 	kept    map[string]plan.ProjectOwned
 	shared  state.Projects
 	homeMCP string
+	// operation is the operation of the write's backup, an apply's when
+	// empty, and dismissOnly marks the record of a dismissal where no apply
+	// ran (decision 0045).
+	operation   string
+	dismissOnly bool
 }
 
 // findProject is the project of the current directory cwd, as PlanProject
@@ -230,7 +235,7 @@ func withProjectPlan(ctx context.Context, d installFS, h host, g gitPort, fetch 
 	}
 	res := ProjectPlan{
 		Pack: s.Pack, Variant: variant, Profiles: append([]string{}, opts.Profiles...), Project: project,
-		Record: recordPath(home, project), Marker: filepath.Join(project, filepath.FromSlash(plan.MarkerFile)), FirstApply: record == nil, Harnesses: []string{}, Ops: []plan.ProjectOp{}, Skipped: []plan.Skipped{},
+		Record: recordPath(home, project), Marker: filepath.Join(project, filepath.FromSlash(plan.MarkerFile)), FirstApply: record == nil || record.DismissOnly, Harnesses: []string{}, Ops: []plan.ProjectOp{}, Skipped: []plan.Skipped{},
 		Exclude: ExcludePlan{Pending: repo == nil, Entries: []string{}}, Warnings: []plan.Warning{}, Refusals: []plan.Warning{}, Notices: []string{}, Diagnostics: s.Diagnostics,
 	}
 	if s.Pack != nil {
@@ -295,6 +300,9 @@ func withProjectPlan(ctx context.Context, d installFS, h host, g gitPort, fetch 
 	if err := planned.markerOp(); err != nil {
 		return err
 	}
+	if err := planned.onboardingOp(ctx, g, home, packPath, s.Pack); err != nil {
+		return err
+	}
 	return then(planned)
 }
 
@@ -344,6 +352,36 @@ func (p *projectPlanned) markerOp() error {
 			} else if p.prev != nil {
 				p.plan.Warnings = append(p.plan.Warnings, plan.Warning{Code: CodeMarkerMismatch, Path: op.Target,
 					Message: fmt.Sprintf("%s does not say what the record %s says; the record wins, and the apply rewrites the marker", op.Target, p.plan.Record)})
+			}
+		}
+		p.plan.Ops[i] = op
+	}
+	return nil
+}
+
+// onboardingOp gives the op of the onboarding record, which a plan has in
+// a git repository only, the fingerprint of the repository for the pack
+// in dir that the plan applies, whose summary is sp (decision 0045): it
+// is unchanged when the record holds that already.
+func (p *projectPlanned) onboardingOp(ctx context.Context, g gitPort, home, dir string, sp *PackSummary) error {
+	for i, op := range p.plan.Ops {
+		if op.Kind != plan.KindOnboarding {
+			continue
+		}
+		files, err := g.Files(ctx, p.plan.Project)
+		if err != nil {
+			return err
+		}
+		f := takeFingerprint(packIdentity(home, dir, sp.Name, sp.Version), sp.Profiles, files)
+		data, err := state.EncodeOnboarding(f.record(state.OnboardingApplied))
+		if err != nil {
+			return err
+		}
+		op.Data, op.After = data, contentHash(data)
+		if cur, ok := p.in.Disk[op.Target]; ok {
+			op.Action = plan.Replace
+			if cur.Hash == op.After {
+				op.Action = plan.Unchanged
 			}
 		}
 		p.plan.Ops[i] = op

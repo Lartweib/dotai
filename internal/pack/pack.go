@@ -60,6 +60,7 @@ type Pack struct {
 	Manifest Manifest
 	Layers   []Layer // base (if present), then profiles, then variants
 	Mods     []Mod   // the directories of mods/, in name order
+	custom   *customOnboarding
 }
 
 // LayerKind tells where a layer applies.
@@ -183,6 +184,7 @@ func LoadWith(fsys fs.FS, rulesyncVersions []string) (*Pack, []Diagnostic, error
 	if p.Mods, err = loadMods(fsys, &diags); err != nil {
 		return nil, nil, err
 	}
+	checkOnboarding(p, &diags)
 	return p, diags, nil
 }
 

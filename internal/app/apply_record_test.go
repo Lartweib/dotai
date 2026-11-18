@@ -168,6 +168,8 @@ func (sharedGit) Tracked(context.Context, string, []string) (map[string]bool, er
 	return map[string]bool{}, nil
 }
 
+func (sharedGit) Files(context.Context, string) ([]string, error) { return nil, nil }
+
 // killAfterFS lets the apply write up to and including the target after,
 // then fails every write and removal, as when the apply is killed there:
 // its rollback fails too, so its journal stays.

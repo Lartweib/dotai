@@ -109,22 +109,24 @@ Pending:
 
 ## 4. Project onboarding
 
-Decided in [0008](decisions/0008-onboarding-by-detection-and-base-profile.md). The onboarding agent comes from the pack; the engine applies what the user approves. Mods are always installed at project level (invariant, see §5).
+Decided in [0008](decisions/0008-onboarding-by-detection-and-base-profile.md) and [0045](decisions/0045-dotai-owned-project-onboarding.md). dotai owns the procedure: `dotai install` generates the profiling skill `dotai-profiles` from the manifest's profiles and a `SessionStart` hook, `dotai onboarding hook`, in each harness, unless the pack declares `onboarding.custom` ([PACK-FORMAT](PACK-FORMAT.md#onboarding)). The hook compares a fingerprint of the repository with `.dotai/onboarding.json` and prints at most one line; the skill proposes, the user approves, and the engine applies, never picking a profile itself. Mods are always installed at project level (invariant, see §5).
 
 ```mermaid
 sequenceDiagram
   participant U as User
-  participant AN as Pack onboarding agent, read-only
+  participant HK as dotai onboarding hook
+  participant SK as dotai-profiles skill
   participant DA as dotai apply
   participant P as Project
 
-  U->>AN: first session or command
-  AN->>P: detect stack by content, not by path
-  AN->>U: a few targeted questions
-  U-->>AN: answers and approval
-  AN->>DA: selected profiles
-  DA->>P: profile agents, skills and MCP
-  DA->>P: mods, always project-scoped
+  U->>HK: session starts in a git repository
+  HK->>P: marker, onboarding record, git ls-files
+  HK-->>SK: one line: not set up, or the profiles may no longer fit
+  SK->>P: detect stack by content, hints as evidence only
+  SK->>U: a few targeted questions, then the dry-run plan
+  U-->>SK: approval, or dismissal
+  SK->>DA: dotai apply --profile a,b
+  DA->>P: profile agents, skills, MCP and mods; marker and fingerprint
   DA-->>U: summary of what was applied
 ```
 

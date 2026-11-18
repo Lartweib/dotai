@@ -20,6 +20,10 @@
       ],
       "defaultVariant": "",
       "sharedSkills": [],
+      "onboarding": {
+        "mode": "dotai",
+        "path": null
+      },
       "layers": [
         {
           "kind": "base",

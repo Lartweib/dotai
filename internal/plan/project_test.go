@@ -102,6 +102,7 @@ func TestBuildProjectPlacesEachKindInItsLocalTarget(t *testing.T) {
 		".opencode/skills/lint/SKILL.md":      {"opencode", "skills", ".opencode/skills/lint/SKILL.md"},
 		".dotai/tools/check.sh":               {"", "tools", ".dotai/tools/check.sh"},
 		".dotai/state.json":                   {"", "marker", ""},
+		".dotai/onboarding.json":              {"", "onboarding", ""},
 	}
 	got := opsByTarget(p, in.Project)
 	claudeJSON := filepath.Join(in.Home, ".claude.json")

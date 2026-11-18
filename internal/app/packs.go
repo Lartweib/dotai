@@ -596,26 +596,50 @@ type PackContents struct {
 	Version string         `json:"version"`
 	Layers  []LayerOutline `json:"layers"`
 	Mods    []string       `json:"mods"` // the directories of mods/
-	// Onboarding is the pack's onboarding agent (decision 0008): the first
-	// subagent named onboarding, in layer order; nil when it has none.
-	Onboarding *AgentSource `json:"onboarding"`
+	// Onboarding is the pack's onboarding (decision 0045): dotai's
+	// profiling skill as an install generates it from the manifest, or the
+	// custom item that replaces it.
+	Onboarding OnboardingOutline `json:"onboarding"`
 	// CopyTarget is where a copy of the pack goes unless the user names
 	// another directory: <name>-copy next to the pack, or -copy-2 and on
 	// when that exists.
 	CopyTarget string `json:"copyTarget"`
 }
 
-// AgentSource is the source of a subagent: the layer that defines it, its
-// path from the pack root and its content.
-type AgentSource struct {
+// OnboardingOutline is the onboarding of a pack: its Mode, dotai or
+// custom; the Kind, skill or subagent, and the Name of its item; the
+// Layer that defines a custom item and the Path of its file from the pack
+// root, both "" for dotai's skill, which no layer holds; and Content, the
+// SKILL.md dotai generates, or the custom item's file. A custom item that
+// is not valid has only its Mode and its Path, as the manifest gives it.
+type OnboardingOutline struct {
+	Mode    string `json:"mode"`
+	Kind    string `json:"kind"`
+	Name    string `json:"name"`
 	Layer   string `json:"layer"`
 	Path    string `json:"path"`
 	Content string `json:"content"`
 }
 
-// onboardingAgent is the name of the subagent PackContents shows as the
-// pack's onboarding agent.
-const onboardingAgent = "onboarding"
+// onboardingOutline is the onboarding of the pack p.
+func onboardingOutline(p *pack.Pack) OnboardingOutline {
+	m := p.Manifest
+	if m.Onboarding.Custom == "" {
+		s := PackSummary{Name: m.Name, Version: m.Version, Profiles: profileSummaries(m.Profiles)}
+		return OnboardingOutline{Mode: pack.OnboardingDotai, Kind: string(pack.ItemSkill), Name: pack.ProfilesSkill, Content: string(ProfilesSkill(s))}
+	}
+	l, it, ok := p.CustomOnboarding()
+	if !ok {
+		return OnboardingOutline{Mode: pack.OnboardingCustom, Path: m.Onboarding.Custom}
+	}
+	out := OnboardingOutline{Mode: pack.OnboardingCustom, Kind: string(it.Kind), Name: it.Name, Layer: l.Name, Path: it.Path}
+	for _, f := range l.Files {
+		if f.Path == it.Path {
+			out.Content = string(f.Data)
+		}
+	}
+	return out
+}
 
 // LayerOutline is one layer and its contents.
 type LayerOutline struct {
@@ -657,7 +681,7 @@ func SummarizePack(dir string) (PackContents, error) {
 	if p == nil {
 		return PackContents{}, &UsageError{msg: fmt.Sprintf("the manifest of %s cannot be read: run dotai validate", dir)}
 	}
-	out := PackContents{Name: p.Manifest.Name, Version: p.Manifest.Version, Layers: []LayerOutline{}, Mods: []string{}, CopyTarget: copyTarget(dir, p.Manifest.Name)}
+	out := PackContents{Name: p.Manifest.Name, Version: p.Manifest.Version, Layers: []LayerOutline{}, Mods: []string{}, Onboarding: onboardingOutline(p), CopyTarget: copyTarget(dir, p.Manifest.Name)}
 	for _, m := range p.Mods {
 		out.Mods = append(out.Mods, m.Name)
 	}
@@ -681,9 +705,6 @@ func SummarizePack(dir string) (PackContents, error) {
 			}
 		}
 		for _, f := range l.Files {
-			if out.Onboarding == nil && f.Item == (pack.ItemRef{Kind: pack.ItemSubagent, Name: onboardingAgent}) {
-				out.Onboarding = &AgentSource{Layer: l.Name, Path: f.Path, Content: string(f.Data)}
-			}
 			switch {
 			case f.Rel == ".rulesync/mcp.jsonc":
 				if names, err := merge.MCPServerNames(f.Data); err == nil {

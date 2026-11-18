@@ -3,11 +3,13 @@ package app
 import (
 	"cmp"
 	"context"
+	"fmt"
 	"path/filepath"
 	"runtime"
 	"time"
 
 	"github.com/lartweib/dotai/internal/proc"
+	"github.com/lartweib/dotai/internal/state"
 )
 
 // OSStageFS is the real file system port, for fakes that wrap it.
@@ -253,6 +255,12 @@ func DoctorWith(ctx context.Context, d executeFS, g gitPort, home string, opts D
 	return doctor(ctx, d, g, home, opts)
 }
 
+// DoctorExe is DoctorWith for the dotai binary that runs, as exe gives
+// it.
+func DoctorExe(ctx context.Context, d executeFS, g gitPort, exe func() (string, error), home string, opts DoctorOptions) (DoctorResult, error) {
+	return doctorExe(ctx, d, g, exe, home, opts)
+}
+
 // PreviewProjectRestoreWith is PreviewProjectRestore reading through d,
 // with every write refused, and asking git through g.
 func PreviewProjectRestoreWith(ctx context.Context, d executeFS, g gitPort, cwd, home string) (ProjectRestoreResult, error) {
@@ -283,4 +291,52 @@ func SetPackIdentify(f func(dir string) (string, string, error), wait time.Durat
 	oldF, oldWait := identifyPack, identifyWait
 	identifyPack, identifyWait = f, wait
 	return func() { identifyPack, identifyWait = oldF, oldWait }
+}
+
+// HookCommand is the command of the session-start hook of decision 0045
+// that runs bin for the harness id on goos.
+func HookCommand(bin, goos, id string) (string, error) { return hookCommand(bin, goos, id) }
+
+// WithExe is h whose dotai binary, the one the session-start hook of
+// decision 0045 runs, is what exe gives.
+func WithExe(h Host, exe func() (string, error)) Host {
+	h.exe = exe
+	return h
+}
+
+// EveryHarness is a host whose PATH has every harness's command.
+var EveryHarness = everyHarness
+
+// DotaiBinaryWith is DotaiBinary finding dotai on PATH by lookPath and
+// the binary that runs by executable.
+func DotaiBinaryWith(lookPath func(string) (string, error), executable func() (string, error)) (string, error) {
+	return dotaiBinary(lookPath, executable)
+}
+
+// OnboardingHookWith is OnboardingHook asking git through g.
+func OnboardingHookWith(ctx context.Context, g gitPort, cwd, home string) (string, error) {
+	return onboardingHook(ctx, osInstallFS{}, g, cwd, home)
+}
+
+// TakeFingerprint is the onboarding record an apply takes in a repository
+// whose index holds files, for the pack the install state of home records.
+func TakeFingerprint(home string, files []string) (state.Onboarding, error) {
+	f, _, err := currentFingerprint(context.Background(), osInstallFS{}, listGit(files), home, "")
+	if err != nil || f == nil {
+		return state.Onboarding{}, fmt.Errorf("no fingerprint: %v", err)
+	}
+	return f.record(state.OnboardingApplied), nil
+}
+
+// listGit is a git whose index holds files.
+type listGit []string
+
+func (listGit) Repo(context.Context, string) (*Repo, error)                        { return nil, nil }
+func (listGit) Tracked(context.Context, string, []string) (map[string]bool, error) { return nil, nil }
+func (g listGit) Files(context.Context, string) ([]string, error)                  { return g, nil }
+
+// DismissOnboardingWith is DismissOnboarding writing through d and asking
+// git through g.
+func DismissOnboardingWith(ctx context.Context, d executeFS, g gitPort, cwd, home string) (DismissResult, error) {
+	return dismissOnboarding(ctx, d, g, cwd, home)
 }
