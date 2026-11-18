@@ -38,3 +38,5 @@ A pack is a directory with a `dotai.yaml` manifest and uniform layers. The full 
 ## Evidence
 
 - Internal research (not published): pack format verifications, 2026-10-24.
+
+Update 2026-11-18: [0047](0047-harness-selection-and-preview-harnesses.md) changes the manifest: `harnesses` lists the compatible harnesses, an optional `requires` lists the ones a pack needs, and `optional-harnesses` goes.

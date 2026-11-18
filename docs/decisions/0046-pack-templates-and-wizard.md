@@ -52,3 +52,5 @@ Update 2026-11-18: implemented as [PACK-FORMAT](../PACK-FORMAT.md#creating-a-pac
 - `pack copy` without a target copies to the first free `<name>-copy` next to the pack, as the Packs board offers; the API's copy now answers as `pack copy`.
 - The profiling skill of [0045](0045-dotai-owned-project-onboarding.md) now says to add `--yes` only for what the plan asks to confirm and the user approved, template files included, not only conflicts.
 - Pending items: `InstallPlan` already had coded warnings, which `template-unchanged` reuses, as `ProjectPlan` does (closed); consent now covers template files besides foreign content and conflicts, with the UI's `yes` (closed); `pack new --dry-run` previews the skill on the command line (closed); root files such as `README.md` are still ignored by the loader and by `layer-undeclared`, and not hashed (open).
+
+Update 2026-11-18: `pack new` and the wizard ask the compatible and the required harnesses, as [0047](0047-harness-selection-and-preview-harnesses.md) decides.

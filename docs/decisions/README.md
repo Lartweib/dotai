@@ -51,6 +51,7 @@ Read these first for the shape of the engine:
 | [0026](0026-json-cli-and-ui-after-v1.md) | Every command has `--json`; a UI comes after v1 (partially superseded by 0043) | accepted | 2026-10-26 |
 | [0034](0034-replace-mode-in-v1.md) | The replace install mode is part of v1 (partially superseded by 0038) | accepted | 2026-10-30 |
 | [0043](0043-local-web-ui.md) | A local web UI in v1, served by `dotai ui` over the same use cases (partially superseded by 0044) | accepted | 2026-11-04 |
+| [0047](0047-harness-selection-and-preview-harnesses.md) | Packs declare compatible harnesses; the user picks; preview harnesses opt in | accepted | 2026-11-18 |
 
 ### Pack format and authoring
 
