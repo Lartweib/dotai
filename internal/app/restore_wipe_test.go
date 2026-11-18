@@ -209,8 +209,9 @@ func wipePaths(ws []app.WipePlan) []string {
 // and one that was killed is, since its backup holds what it moved. Once
 // a restore undoes it, the next replace install is pinned.
 func TestPinnedReplaceBackupIsNeverPruned(t *testing.T) {
-	for _, first := range []string{"succeeds", "fails", "is killed"} {
+	for i, first := range []string{"succeeds", "fails", "is killed"} {
 		t.Run("the first "+first, func(t *testing.T) {
+			heavy(t, i)
 			home, h := realHome(t)
 			f := quiet(t)
 			d := newClockFS(t)
@@ -327,8 +328,9 @@ func (f *moveStepFS) WriteIn(root, name string, data []byte, mode os.FileMode) e
 // install left it, and that a restore killed midway is settled by the next
 // restore, which puts back the original configuration exactly.
 func TestRestoreReplaceRollsBackAndSettles(t *testing.T) {
-	for _, at := range []int{1, 2, 12, 21} {
+	for i, at := range []int{1, 2, 12, 21} {
 		t.Run(fmt.Sprintf("fails at %d", at), func(t *testing.T) {
+			heavy(t, i)
 			home, h, _ := replaceHome(t)
 			if _, err := installReplace(t, newClockFS(t), h, home); err != nil {
 				t.Fatal(err)
@@ -385,9 +387,13 @@ func killInstall(t *testing.T, d app.ExecuteFS, h app.Host, home string) {
 // a restore right after the kill does the same.
 func TestKilledReplaceIsSettled(t *testing.T) {
 	n := steps(t)
+	c := 0
 	for _, k := range []int{3, n - 6, n - 5, n - 2} {
 		for _, next := range []string{"install", "restore"} {
+			i := c
+			c++
 			t.Run(fmt.Sprintf("killed at %d then %s", k, next), func(t *testing.T) {
+				heavy(t, i)
 				home, h, outside := replaceHome(t)
 				before, outsideBefore := homeEntries(t, home), entries(t, outside)
 				killInstall(t, &stepFS{clockFS: newClockFS(t), at: k, kill: true}, h, home)

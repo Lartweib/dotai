@@ -173,6 +173,7 @@ func dotai(t *testing.T, home, path, cwd string, extra []string, args ...string)
 }
 
 func TestRunLaunchesClaudeCodeIsolated(t *testing.T) {
+	t.Parallel()
 	bin := buildFakes(t)
 	home := installedHome(t, nil)
 	cwd := t.TempDir()
@@ -213,6 +214,7 @@ func TestRunLaunchesClaudeCodeIsolated(t *testing.T) {
 }
 
 func TestRunFailsBeforeLaunching(t *testing.T) {
+	t.Parallel()
 	bin := buildFakes(t)
 	tests := []struct {
 		name  string
@@ -244,6 +246,7 @@ func TestRunFailsBeforeLaunching(t *testing.T) {
 }
 
 func TestRunLaunchesAgyIsolated(t *testing.T) {
+	t.Parallel()
 	bin := buildFakes(t)
 	home := installedHome(t, nil, "antigravity-cli")
 	args := []string{"agents", "-p", "hi there"}
@@ -271,6 +274,7 @@ func TestRunLaunchesAgyIsolated(t *testing.T) {
 }
 
 func TestRunLaunchesOpenCodeIsolated(t *testing.T) {
+	t.Parallel()
 	bin := buildFakes(t)
 	home := installedHome(t, nil, "opencode")
 	extra := []string{"XDG_CONFIG_HOME=" + filepath.Join(home, "inherited"), "OPENCODE_DISABLE_CLAUDE_CODE=0", "OPENCODE_TEST_HOME=" + home}
@@ -320,6 +324,7 @@ func TestRunLaunchesOpenCodeIsolated(t *testing.T) {
 // installs it on Windows: opencode.cmd, which runs the opencode.exe in
 // node_modules next to it.
 func TestRunLaunchesTheExecutableOfOpenCodesShim(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS != "windows" {
 		t.Skip("batch shims are a Windows lookup")
 	}

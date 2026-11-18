@@ -4,7 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"io/fs"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -16,14 +16,20 @@ import (
 // the package, so that an adapter that maps each code, such as the web
 // UI's HTTP status, can check it maps them all.
 func TestCodesListsEveryCode(t *testing.T) {
-	pkgs, err := parser.ParseDir(token.NewFileSet(), ".", func(fi fs.FileInfo) bool {
-		return !strings.HasSuffix(fi.Name(), "_test.go")
-	}, 0)
+	sources, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
 	}
+	fset := token.NewFileSet()
 	var names []string
-	for _, f := range pkgs["envelope"].Files {
+	for _, src := range sources {
+		if strings.HasSuffix(src, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, src, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
 		for _, d := range f.Decls {
 			g, ok := d.(*ast.GenDecl)
 			if !ok || g.Tok != token.CONST {
