@@ -210,3 +210,53 @@ func (s *handler) packSummary(r *http.Request) (any, error) {
 	}
 	return s.deps.SummarizePack(dir)
 }
+
+// newRequest is the body of the wizard (decision 0046): the directory of
+// the new pack, absolute, and its answers, as dotai pack new takes them.
+type newRequest struct {
+	Dir string `json:"dir"`
+	app.PackNewInput
+}
+
+// planNew plans the new pack of the body, as dotai pack new --dry-run
+// does, with the digest of the plan.
+func (s *handler) planNew(r *http.Request) (any, error) {
+	var req newRequest
+	if err := decodeJSON(r, &req); err != nil {
+		return nil, err
+	}
+	dir, err := absParam(req.Dir, "dir", true)
+	if err != nil {
+		return nil, err
+	}
+	return s.plan(r, "pack new plan", func(context.Context) (any, error) {
+		p, err := s.deps.PlanPackNew(s.cfg.Home, dir, req.PackNewInput)
+		if err != nil {
+			return nil, err
+		}
+		return newView(p)
+	})
+}
+
+// newPack writes and adds the new pack of the body, as dotai pack new
+// does, for the plan of its digest, which is the consent.
+func (s *handler) newPack(r *http.Request) (any, error) {
+	var req struct {
+		newRequest
+		Digest string `json:"digest"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		return nil, err
+	}
+	dir, err := absParam(req.Dir, "dir", true)
+	if err != nil {
+		return nil, err
+	}
+	if err := (confirmation{Digest: req.Digest}).check(); err != nil {
+		return nil, err
+	}
+	opts := app.PackNewOptions{Confirm: confirm(req.Digest, newView)}
+	return s.act(r, "new pack", func(context.Context) (any, error) {
+		return s.deps.NewPack(s.cfg.Home, dir, req.PackNewInput, opts)
+	})
+}

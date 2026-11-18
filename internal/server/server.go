@@ -51,6 +51,8 @@ type Deps struct {
 	UpdatePack            func(ctx context.Context, home, id string, opts app.PackGitOptions) (app.PackAddResult, error)
 	RemovePackID          func(home, id string) (app.PackRemoveResult, error)
 	CopyPack              func(ctx context.Context, from, to string) (app.CopyResult, error)
+	PlanPackNew           func(home, dir string, in app.PackNewInput) (app.PackNewPlan, error)
+	NewPack               func(home, dir string, in app.PackNewInput, opts app.PackNewOptions) (app.PackNewResult, error)
 	SummarizePack         func(dir string) (app.PackContents, error)
 }
 
@@ -80,6 +82,8 @@ func AppDeps(p app.Ports) Deps {
 		UpdatePack:            app.UpdatePack,
 		RemovePackID:          app.RemovePackID,
 		CopyPack:              app.CopyPack,
+		PlanPackNew:           app.PlanPackNew,
+		NewPack:               app.NewPack,
 		SummarizePack:         app.SummarizePack,
 	}
 }
@@ -204,6 +208,8 @@ func newUI(cfg Config, deps Deps, web fs.FS) *ui {
 		"/api/packs/update":            {"pack update", http.MethodPost, s.updatePack},
 		"/api/packs/remove":            {"pack remove", http.MethodPost, s.removePack},
 		"/api/packs/copy":              {"pack copy", http.MethodPost, s.copyPack},
+		"/api/packs/new/plan":          {"pack new", http.MethodPost, s.planNew},
+		"/api/packs/new":               {"pack new", http.MethodPost, s.newPack},
 		"/api/pack/summary":            {command, http.MethodGet, s.packSummary},
 	}
 	files := http.FileServerFS(web)

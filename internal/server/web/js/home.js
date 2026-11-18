@@ -1,8 +1,9 @@
 // The Home board: what dotai is and how a repository gets set up, from
 // dotai install to dotai's profiling skill and dotai apply, with the next
 // step; then what it supports and does not, and, folded, its scopes, its
-// install modes, who renders what, how the layers of a pack merge and the
-// example pack. The words are static copy from the docs (js/i18n.js); the
+// install modes, who renders what, how the layers of a pack merge and an
+// example pack. Without a pack, the next step is the wizard that creates
+// one from dotai's template (decision 0046). The words are static copy from the docs (js/i18n.js); the
 // harnesses and the selected pack's onboarding, the skill dotai writes
 // from its profiles or the item that replaces it (decision 0045), come
 // from the API.
@@ -24,12 +25,15 @@ export async function render(root, ctx) {
   mount(root, boardHead("home"), pane);
   const harnesses = [...shared.harnesses.keys()].map(harnessName);
   const s = installed();
-  const next = s ? ["#/installed", "home.next.installed"] : registry().length ? ["#/packs", "home.next.install"] : ["#/packs", "home.next.import"];
+  // Without a pack, the next step is the wizard of decision 0046, with
+  // the addition of a pack the user has beside it.
+  const next = s ? ["#/installed", "home.next.installed"] : registry().length ? ["#/packs", "home.next.install"] : ["#/new", "home.next.create"];
+  const also = !s && !registry().length ? h("a", { class: "btn", href: "#/add", title: t("home.next.importNote"), text: t("home.next.import") }) : null;
   const agent = h("div", { class: "stack" });
   mount(pane, h("div", { class: "col wide" },
     sec(t("home.flow"), t("home.flowHint"),
       h("ol", { class: "steps" }, ["1", "2", "3", "4"].map((n) => h("li", { text: t("home.flow." + n) }))),
-      actions([h("a", { class: "btn primary", href: next[0], text: t(next[1]) })], t(next[1] + "Note")),
+      actions([h("a", { class: "btn primary", href: next[0], text: t(next[1]) }), also], t(next[1] + "Note")),
       agent),
     sec(t("home.supports"), "",
       h("p", { class: "body", text: t("home.supportsBody", { list: harnesses.join(", ") }) }),
