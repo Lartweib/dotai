@@ -17,11 +17,6 @@
 // /bin/ps elsewhere.
 package proc
 
-import (
-	"path/filepath"
-	"strings"
-)
-
 // Process is a running process: its id and its executable's name, the
 // base name without directories, such as claude.exe or opencode; where the
 // OS gives them cheaply, the name it was started as, the base name of its
@@ -37,13 +32,3 @@ type Process struct {
 
 // List gives the processes running on this machine that dotai can see.
 func List() ([]Process, error) { return list() }
-
-// baseName is the executable name of path, which may be a full path with
-// either separator.
-func baseName(path string) string {
-	path = strings.TrimSpace(path)
-	if i := strings.LastIndexAny(path, `/\`); i >= 0 {
-		path = path[i+1:]
-	}
-	return filepath.Base(path)
-}
