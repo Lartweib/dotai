@@ -37,6 +37,9 @@ type Manifest struct {
 	OptionalHarnesses []string
 	Profiles          []Profile // in declaration order
 	Variants          []Variant // in declaration order
+	// Onboarding is the onboarding block: dotai's onboarding unless it
+	// names a custom item (decision 0045).
+	Onboarding Onboarding
 }
 
 // AllHarnesses is every harness the pack supports: the required ones,
@@ -70,11 +73,12 @@ type Detect struct {
 
 func decodeManifest(fsys fs.FS, r reader, root *yaml.Node, rulesyncVersions []string) Manifest {
 	o := r.object(nil, root, ManifestFile,
-		"schema", "name", "version", "description", "author", "engine", "rulesync", "harnesses", "optional-harnesses", "profiles", "variants")
+		"schema", "name", "version", "description", "author", "engine", "rulesync", "harnesses", "optional-harnesses", "profiles", "variants", "onboarding")
 	m := decodeIdentity(r, o, rulesyncVersions)
 	m.Harnesses = decodeHarnesses(r, o)
 	m.OptionalHarnesses = decodeOptionalHarnesses(r, o, m.Harnesses)
 	m.Profiles = decodeProfiles(fsys, r, o)
+	m.Onboarding = decodeOnboarding(r, o)
 	var declared int
 	m.Variants, declared = decodeVariants(fsys, r, o)
 	if len(m.Variants) > 0 && declared != 1 {

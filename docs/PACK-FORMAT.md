@@ -63,6 +63,9 @@ variants:
   shared:
     path: variants/shared
     shared-skills: true
+
+onboarding:                # optional: replaces dotai's onboarding
+  custom: base/.rulesync/skills/setup
 ```
 
 | Field | Required | Meaning |
@@ -78,13 +81,14 @@ variants:
 | `profiles.<name>.description` | yes | What the profile is for. Read by the onboarding agent. |
 | `profiles.<name>.hints` | no | Evidence for the onboarding agent. The engine never acts on them. |
 | `profiles.<name>.mods` | no | The mods of the pack's `mods/` the profile installs in a project ([Mods](#mods)). Two profiles may name the same mod. Only profiles take it: a variant that names mods is `mod-scope` ([0011](decisions/0011-mods-always-project-scoped.md)). |
-
-`dotai validate --json` lists each profile with its `path`, `description`, `hints` and `mods` in `pack.profiles`, in declaration order, so the onboarding agent can read them without parsing the manifest ([CLI-JSON](CLI-JSON.md)).
-
-Amended by [0045](decisions/0045-dotai-owned-project-onboarding.md), not implemented yet: the session-start hook also uses `hints`, to tell when to speak, never to pick a profile, and the manifest gains `onboarding.custom`, a path to a skill or subagent that replaces dotai's onboarding.
 | `variants.<name>.default` | no | Variant used when nothing is chosen or detected. Exactly one variant sets it when the pack has variants. |
 | `variants.<name>.detect` | no | Mechanical rule that preselects the variant. `command`: preselect when that command is on `PATH`. |
 | `variants.<name>.shared-skills` | no | `true` makes the user's shared skills folder, `~/.agents/skills`, where other tools install skills, visible in the isolated install of this variant ([0036](decisions/0036-shared-skills-per-variant.md)). Default `false`: only the pack's content is visible. Only variants take it. |
+| `onboarding.custom` | no | A subagent file under `<layer>/.rulesync/subagents/` or a skill directory under `<layer>/.rulesync/skills/`, relative to the pack root, where `<layer>` is `base/` or a variant's directory, that replaces dotai's onboarding: dotai then generates neither the profiling skill `dotai-profiles` nor its session-start hook ([Scopes](#scopes), [0045](decisions/0045-dotai-owned-project-onboarding.md)). A missing path, one elsewhere, or an item named `dotai-profiles`, is `onboarding-invalid`. In a variant, the onboarding comes only with that variant. `validate` warns `onboarding-replaced`: dotai's onboarding proposes profiles with the user's approval, and a replacement is at the pack author's own risk. Without it, a skill or subagent named `dotai-profiles` is `onboarding-name-reserved`, and a subagent named `onboarding`, as packs shipped before, is the warning `onboarding-duplicate`: remove it, or declare it as `custom`. |
+
+`dotai validate --json` lists each profile with its `path`, `description`, `hints` and `mods` in `pack.profiles`, in declaration order, so the onboarding agent can read them without parsing the manifest ([CLI-JSON](CLI-JSON.md)).
+
+Amended by [0045](decisions/0045-dotai-owned-project-onboarding.md), not implemented yet: the session-start hook also uses `hints`, to tell when to speak, never to pick a profile. `validate --json` gives the onboarding in `pack.onboarding` ([CLI-JSON](CLI-JSON.md)).
 
 `base/` is implicit and always applied.
 

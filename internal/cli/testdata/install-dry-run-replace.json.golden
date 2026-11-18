@@ -18,6 +18,10 @@
       "variants": [],
       "defaultVariant": "",
       "sharedSkills": [],
+      "onboarding": {
+        "mode": "",
+        "path": null
+      },
       "layers": []
     },
     "variant": "standalone",

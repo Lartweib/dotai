@@ -50,6 +50,7 @@ func TestValidateFS(t *testing.T) {
 					{Name: "api", Path: "profiles/api", Description: "APIs.", Hints: []string{}, Mods: []string{}},
 				},
 				SharedSkills: []string{"b"},
+				Onboarding:   app.OnboardingSummary{Mode: "dotai"},
 				Layers: []app.LayerSummary{
 					{Kind: "base", Name: "base", Path: "base", Items: 1},
 					{Kind: "profile", Name: "web", Path: "profiles/web", Items: 1},
@@ -93,6 +94,43 @@ func TestValidateFSProfilesJSON(t *testing.T) {
 		`{"name":"gone","path":"","description":"Missing.","hints":[],"mods":[]}]`
 	if string(got) != want {
 		t.Errorf("profiles = %s\nwant %s", got, want)
+	}
+}
+
+// TestValidateFSOnboardingJSON checks pack.onboarding of validate --json
+// (decision 0045): dotai's onboarding has a null path, a custom one the
+// path the manifest gives, with its warning.
+func TestValidateFSOnboardingJSON(t *testing.T) {
+	const manifest = "schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\nrulesync: 41.0.0\nharnesses: [opencode]\n"
+	for _, tt := range []struct {
+		name, extra, want string
+		warnings          []string
+	}{
+		{name: "dotai's", want: `{"mode":"dotai","path":null}`},
+		{name: "custom", extra: "onboarding:\n  custom: base/.rulesync/subagents/setup.md\n", want: `{"mode":"custom","path":"base/.rulesync/subagents/setup.md"}`,
+			warnings: []string{"onboarding-replaced"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			res, err := app.ValidateFS(fstest.MapFS{
+				"dotai.yaml":                        {Data: []byte(manifest + tt.extra)},
+				"base/.rulesync/rules/r.md":         {Data: []byte("# R\n")},
+				"base/.rulesync/subagents/setup.md": {Data: []byte("Setup.\n")},
+			}, app.Selection{})
+			if err != nil || !res.Valid || res.Pack == nil {
+				t.Fatalf("result = %+v, err = %v, want a valid pack", res, err)
+			}
+			got, err := json.Marshal(res.Pack.Onboarding)
+			if err != nil || string(got) != tt.want {
+				t.Errorf("onboarding = %s, %v, want %s", got, err, tt.want)
+			}
+			var codes []string
+			for _, w := range res.Warnings {
+				codes = append(codes, w.Code)
+			}
+			if !reflect.DeepEqual(codes, tt.warnings) {
+				t.Errorf("warnings = %v, want %v", res.Warnings, tt.warnings)
+			}
+		})
 	}
 }
 
