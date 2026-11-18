@@ -43,7 +43,8 @@ The [ci workflow](.github/workflows/ci.yml) runs on Windows, Linux and macOS for
 - `go mod verify`;
 - `go test -race ./...` on Linux and macOS, and `go test ./...` on Windows, with Node 22 for the web UI tests;
 - `go build ./cmd/dotai`;
-- the real-rulesync stage test above, and `scripts/release.sh --self-test`.
+- the real-rulesync stage test above, and `scripts/release.sh --self-test`;
+- `shellcheck` on `install.sh` and `scripts/release.sh`. The tests of the install scripts run `install.sh` under `sh`, and `bash` when present, on Linux and macOS, and `install.ps1` under Windows PowerShell, and pwsh when present, on Windows, against a fake release on `127.0.0.1`. With `CI` set, a missing `sh` or Windows PowerShell fails them instead of skipping them; CI also runs them verbose, so its log lists every case and shell.
 
 ## Tests first
 
