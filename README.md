@@ -35,9 +35,9 @@ Isolation is partial for every harness: each install plan names what of your own
 
 | OS | Architectures |
 |---|---|
-| Windows | x64 |
-| Linux | x64, arm64 |
-| macOS | x64, arm64 |
+| Windows | x64 (`amd64`) |
+| Linux | x64 (`amd64`), arm64 |
+| macOS | x64 (`amd64`), arm64 |
 
 These are the platforms of the release archives and of the rulesync checksums the engine embeds ([0042](docs/decisions/0042-tag-driven-release-binaries.md)). CI runs on Windows, Linux and macOS. Adding or updating a pack from GitHub needs git 2.41 or later on `PATH`, and a project apply uses git to find the files a repository tracks.
 
@@ -66,7 +66,7 @@ go install github.com/lartweib/dotai/cmd/dotai@latest
 
 ## Quickstart
 
-Create a pack, check it, see what an install would do, install it isolated, launch a harness against it, and open the UI:
+Create a pack, check it, see what an install would do, install it isolated, launch a harness against it, and open the UI. The example targets Claude Code, which must already be installed (`claude` on `PATH`); the first install downloads the pinned rulesync once and verifies its checksum.
 
 ```sh
 dotai pack new my-pack --name my-pack --harness claudecode --profile web:"Web projects"
