@@ -101,6 +101,7 @@ type Staging struct {
 	Project         []File // profiles
 	UserSettings    map[string][]Setting
 	ProjectSettings map[string][]Setting
+	user            *scope // the merge state of User, which AddEngine adds to
 }
 
 // Check runs the merge rules over the layers sel names, both scopes
@@ -185,7 +186,7 @@ func Stage(p *pack.Pack, sel Selection) (Staging, []pack.Diagnostic) {
 	project.dropUserServers(user)
 	tree := append(project.tree(), modFiles(mods, p.Manifest)...)
 	slices.SortFunc(tree, func(a, b File) int { return strings.Compare(a.Path, b.Path) })
-	return Staging{User: user.tree(), Project: tree, UserSettings: user.mergedSettings(), ProjectSettings: project.mergedSettings()}, nil
+	return Staging{User: user.tree(), Project: tree, UserSettings: user.mergedSettings(), ProjectSettings: project.mergedSettings(), user: user}, nil
 }
 
 // dropUserServers removes from the project scope s each MCP server that

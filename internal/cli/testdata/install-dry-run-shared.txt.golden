@@ -5,6 +5,7 @@ shared skills: /home/u/.agents/skills · commit-message, linked, review
   note: the shared skill commit-message is not linked into claudecode: the pack has a skill of that name, which wins
   note: the shared skill commit-message is not copied into antigravity-cli: the pack has a skill of that name, which wins
   note: the shared skill linked is not copied into antigravity-cli: data/cache in it is not a regular file or a directory, or has a name some OS cannot store
+warning: onboarding-hook-skipped: antigravity-cli gets the profiling skill dotai-profiles but not the session-start hook that tells a session when to load it
 
 claudecode · partial isolation · may need a new login
   binary: /usr/bin/claude

@@ -187,6 +187,10 @@ func writePlan(w io.Writer, p app.InstallPlan, color bool, footer string) error 
 	for _, n := range p.Notices {
 		fmt.Fprintf(&b, "note: %s\n", n)
 	}
+	// Before the confirmation, and with --yes too (decision 0045).
+	for _, w := range p.Warnings {
+		fmt.Fprintf(&b, "%s %s: %s\n", paint(color, styleYellow, "warning:"), w.Code, w.Message)
+	}
 
 	for _, h := range p.Harnesses {
 		if !h.Managed {

@@ -1,5 +1,6 @@
 Install plan · minimal-pack 0.1.0 · variant standalone · mode isolated
 root: /home/u/.dotai/isolated
+warning: onboarding-hook-skipped: antigravity-cli gets the profiling skill dotai-profiles but not the session-start hook that tells a session when to load it
 
 claudecode · partial isolation · may need a new login
   binary: /usr/bin/claude

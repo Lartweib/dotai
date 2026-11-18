@@ -287,6 +287,10 @@ func toolPaths() app.ToolPaths {
 	if projectErr != nil {
 		t.ProjectErr = fmt.Errorf("the current directory is unknown: %w", projectErr)
 	}
+	// The user scope gets dotai's onboarding as an install stages it, with
+	// the session-start hook running this binary (decision 0045).
+	t.Onboarding = &app.OnboardingBinary{}
+	t.Onboarding.Path, t.Onboarding.Err = app.DotaiBinary()
 	return t
 }
 

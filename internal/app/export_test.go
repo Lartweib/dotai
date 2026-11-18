@@ -284,3 +284,23 @@ func SetPackIdentify(f func(dir string) (string, string, error), wait time.Durat
 	identifyPack, identifyWait = f, wait
 	return func() { identifyPack, identifyWait = oldF, oldWait }
 }
+
+// HookCommand is the command of the session-start hook of decision 0045
+// that runs bin for the harness id on goos.
+func HookCommand(bin, goos, id string) (string, error) { return hookCommand(bin, goos, id) }
+
+// WithExe is h whose dotai binary, the one the session-start hook of
+// decision 0045 runs, is what exe gives.
+func WithExe(h Host, exe func() (string, error)) Host {
+	h.exe = exe
+	return h
+}
+
+// EveryHarness is a host whose PATH has every harness's command.
+var EveryHarness = everyHarness
+
+// DotaiBinaryWith is DotaiBinary finding dotai on PATH by lookPath and
+// the binary that runs by executable.
+func DotaiBinaryWith(lookPath func(string) (string, error), executable func() (string, error)) (string, error) {
+	return dotaiBinary(lookPath, executable)
+}

@@ -188,6 +188,7 @@
     "notices": [
       "the optional harness opencode is skipped: it is not installed (opencode not found on PATH and no /home/u/.config/opencode directory)"
     ],
+    "warnings": [],
     "diagnostics": [],
     "blocked": false,
     "consent": false

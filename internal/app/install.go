@@ -66,8 +66,14 @@ type InstallPlan struct {
 	WipeKeys []WipeKey  `json:"wipeKeys"`
 	Refusals []Refusal  `json:"refusals"`
 	// Notices say why an optional harness is not managed, text for people.
-	Notices     []string     `json:"notices"`
-	Diagnostics []Diagnostic `json:"diagnostics"`
+	Notices []string `json:"notices"`
+	// Warnings are what the install carries out but the user should read
+	// before confirming it, by code, such as a pack that replaces dotai's
+	// onboarding or a harness that does not get its session-start hook
+	// (decision 0045). A warning neither blocks the plan nor needs
+	// consent; a code that does says so where it is defined.
+	Warnings    []plan.Warning `json:"warnings"`
+	Diagnostics []Diagnostic   `json:"diagnostics"`
 	// Blocked says that the install refuses the plan whatever the consent,
 	// for its diagnostics or refusals; Consent that it needs consent
 	// (--yes) to wipe or overwrite what dotai does not own.
@@ -330,6 +336,10 @@ func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run run
 	out := filepath.Join(tmp, "staging")
 	tools := ToolsIn(home, "")
 	tools.Project, tools.ProjectErr = "", errors.New("an install covers the user scope only")
+	if h.exe != nil {
+		tools.Onboarding = &OnboardingBinary{}
+		tools.Onboarding.Path, tools.Onboarding.Err = h.exe()
+	}
 	// The harnesses are detected and selected only for a pack that is
 	// valid, before rulesync is fetched.
 	var detected map[string]Detection
@@ -353,7 +363,7 @@ func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run run
 	}
 	res := InstallPlan{
 		Pack: s.Pack, Variant: opts.Variant, Mode: mode, Root: root,
-		Harnesses: []HarnessPlan{}, Ops: []InstallOp{}, Notices: []string{}, Diagnostics: s.Diagnostics,
+		Harnesses: []HarnessPlan{}, Ops: []InstallOp{}, Notices: []string{}, Warnings: append([]plan.Warning{}, s.Warnings...), Diagnostics: s.Diagnostics,
 		Wipes: []WipePlan{}, Keeps: []KeepPlan{}, WipeKeys: []WipeKey{}, Refusals: []Refusal{},
 	}
 	if s.Pack != nil {
