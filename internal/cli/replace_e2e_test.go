@@ -308,8 +308,8 @@ func TestReplaceInstallAndRestore(t *testing.T) {
 	}
 
 	code, stdout, stderr = e.run("install", examplePack, "--mode", "isolated")
-	if code != cli.ExitUsage || !strings.Contains(stderr, "run dotai restore") {
-		t.Errorf("--mode isolated over the replace install: exit code = %d, stderr = %q, want a usage error pointing to restore", code, stderr)
+	if code != cli.ExitUsage || stdout != "" || !strings.Contains(stderr, "run dotai restore") {
+		t.Errorf("--mode isolated over the replace install: exit code = %d, stdout = %q, stderr = %q, want a usage error pointing to restore", code, stdout, stderr)
 	}
 
 	code, stdout, stderr = e.run("restore", "--json")
