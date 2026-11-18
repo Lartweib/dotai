@@ -366,11 +366,14 @@ func TestShutdownCancelsAnActionAndWaitsForItsRollback(t *testing.T) {
 	cfg.Context = life
 	deps := fakeDeps()
 	started := make(chan struct{})
+	cancelled := make(chan struct{})
+	rollback := make(chan struct{}) // closed by the test: the rollback may end
 	var rolledBack atomic.Bool
 	deps.Install = func(ctx context.Context, _, _, _ string, _ app.InstallOptions, _ app.Progress, _ app.Warn, _ app.Consent) (app.InstallResult, error) {
 		close(started)
 		<-ctx.Done()
-		time.Sleep(200 * time.Millisecond) // the rollback
+		close(cancelled)
+		<-rollback
 		rolledBack.Store(true)
 		return app.InstallResult{}, ctx.Err()
 	}
@@ -382,7 +385,18 @@ func TestShutdownCancelsAnActionAndWaitsForItsRollback(t *testing.T) {
 	}()
 	<-started
 	shutdown()
-	if !server.WaitForActions(h, 5*time.Second) || !rolledBack.Load() {
+	<-cancelled
+	waited := make(chan bool, 1)
+	go func() { waited <- server.WaitForActions(h, 5*time.Second) }()
+	// While the rollback runs the wait must not end; a correct wait never
+	// does, so this window only bounds how long a wrong one is looked for.
+	select {
+	case <-waited:
+		t.Fatal("the wait ended while the action was still rolling back")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(rollback)
+	if ok := <-waited; !ok || !rolledBack.Load() {
 		t.Error("the wait ended before the action rolled back")
 	}
 	<-done
