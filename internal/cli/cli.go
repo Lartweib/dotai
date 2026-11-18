@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -77,6 +78,9 @@ type Env struct {
 	// OnboardingHook is dotai onboarding hook: the line the session-start
 	// hook prints in the directory cwd, "" for none (decision 0045).
 	OnboardingHook func(ctx context.Context, cwd, home string) (string, error)
+	// HookBound is how long dotai onboarding hook waits for OnboardingHook
+	// in all; zero is hookBound, 1 s.
+	HookBound time.Duration
 	// DismissOnboarding is dotai onboarding dismiss in the directory cwd.
 	DismissOnboarding func(ctx context.Context, cwd, home string) (app.DismissResult, error)
 }
