@@ -66,3 +66,5 @@ Update 2026-11-18: [0045](0045-dotai-owned-project-onboarding.md) is implemented
 Update 2026-11-18: [0046](0046-pack-templates-and-wizard.md) is implemented. The Packs board has a Create a pack step (`#/new`), the wizard, which Home points to when there is no pack; the copy of a pack is `dotai pack copy` too, and `POST /api/packs/copy` answers as `pack copy`. An install or apply plan that installs example files of the template unchanged needs the consent, `yes`, which the page now words as accepting what the plan asks to confirm.
 
 Update 2026-11-18: the note above that says "The wizard of 0046 is not built yet" no longer holds: the wizard is built, as the previous note records, and the Packs board's Create a pack step (`#/new`) is it.
+
+Update 2026-11-18: the install board asks which harnesses to manage, as [0047](0047-harness-selection-and-preview-harnesses.md) decides, and shows each one's state.
