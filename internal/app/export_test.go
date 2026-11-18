@@ -255,6 +255,12 @@ func DoctorWith(ctx context.Context, d executeFS, g gitPort, home string, opts D
 	return doctor(ctx, d, g, home, opts)
 }
 
+// DoctorExe is DoctorWith for the dotai binary that runs, as exe gives
+// it.
+func DoctorExe(ctx context.Context, d executeFS, g gitPort, exe func() (string, error), home string, opts DoctorOptions) (DoctorResult, error) {
+	return doctorExe(ctx, d, g, exe, home, opts)
+}
+
 // PreviewProjectRestoreWith is PreviewProjectRestore reading through d,
 // with every write refused, and asking git through g.
 func PreviewProjectRestoreWith(ctx context.Context, d executeFS, g gitPort, cwd, home string) (ProjectRestoreResult, error) {

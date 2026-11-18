@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"os"
 )
 
 // Codes of the findings of dotai doctor, besides CodeRecordInvalid,
@@ -115,11 +116,17 @@ func Doctor(ctx context.Context, home string, opts DoctorOptions) (DoctorResult,
 }
 
 func doctor(ctx context.Context, d executeFS, g gitPort, home string, opts DoctorOptions) (DoctorResult, error) {
+	return doctorExe(ctx, d, g, os.Executable, home, opts)
+}
+
+// doctorExe is doctor for the dotai binary that runs, as exe gives it,
+// which the session-start hooks of decision 0045 should run.
+func doctorExe(ctx context.Context, d executeFS, g gitPort, exe func() (string, error), home string, opts DoctorOptions) (DoctorResult, error) {
 	home, err := requireAbs(home)
 	if err != nil {
 		return DoctorResult{}, err
 	}
-	doc := doctorRun{runner: runner{ctx: ctx, d: d, home: home, p: planned{ignoreExec: !d.ExecBit()}}, g: g, written: map[string][]string{},
+	doc := doctorRun{runner: runner{ctx: ctx, d: d, home: home, p: planned{ignoreExec: !d.ExecBit()}}, g: g, exe: exe, written: map[string][]string{},
 		res: DoctorResult{Projects: []string{}, Findings: []Finding{}, Backups: []BackupRef{}}}
 	if err := doc.checkState(); err != nil {
 		return DoctorResult{}, err
@@ -152,7 +159,9 @@ func doctor(ctx context.Context, d executeFS, g gitPort, home string, opts Docto
 // of a harness's home file, by writtenKey, and the result so far.
 type doctorRun struct {
 	runner
-	g       gitPort
+	g gitPort
+	// exe gives the dotai binary that runs (doctorExe).
+	exe     func() (string, error)
 	written map[string][]string
 	res     DoctorResult
 }

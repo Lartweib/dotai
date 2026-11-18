@@ -18,7 +18,8 @@ import (
 
 // checkState checks each file of the install state: a file dotai owns
 // whole by its hash, a settings file by the keys dotai owns there, and a
-// link by its destination.
+// link by its destination; and each hooks file of a harness, by the
+// binary its session-start hook runs (checkHook).
 func (doc *doctorRun) checkState() error {
 	name := filepath.Join(doc.home, dotaiDir, stateFile)
 	s, err := readState(doc.d, doc.home)
@@ -41,7 +42,7 @@ func (doc *doctorRun) checkState() error {
 		switch {
 		case f.Kind == state.KindLink:
 			how = inspectLink
-		case len(f.Keys) > 0:
+		case len(f.Keys) > 0, f.Harness != "" && hookFile(f.Target):
 			how = inspectRead
 		}
 		cur, data, ok, err := inspectTarget(doc.ctx, doc.d, doc.home, f.Target, dirs, how)
@@ -71,6 +72,9 @@ func (doc *doctorRun) checkState() error {
 		case cur.Hash != f.SHA256 || !doc.p.ignoreExec && cur.Exec != f.Exec:
 			doc.add(Finding{Code: CodeFileChanged, Harness: f.Harness, Path: f.Target,
 				Message: fmt.Sprintf("%s was changed since dotai installed it: an install stops on it until you move it away, and a restore asks before overwriting it", f.Target)})
+		}
+		if ok && f.Harness != "" && data != nil {
+			doc.checkHook(f.Target, f.Harness, data)
 		}
 	}
 	return nil
