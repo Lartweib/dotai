@@ -351,7 +351,24 @@ type Adapter struct {
 	// slash path relative to Staging; a path that ends in / names a
 	// directory and every file below it (KindOf).
 	UserKinds []KindPath
+	// Status is whether dotai supports the harness or offers it as a
+	// preview (decision 0047), and StatusReason why it is a preview, text
+	// for people, "" for a supported harness.
+	Status       Status
+	StatusReason string
 }
+
+// Status is how far dotai supports a harness (decision 0047).
+type Status string
+
+// Status values. An install never selects a Preview harness by default:
+// only when --harness names it or the user ticks it, and the plan then
+// warns harness-preview with the reason. A new harness starts as a
+// preview, and is promoted once its notes are verified on a real install.
+const (
+	Supported Status = "supported"
+	Preview   Status = "preview"
+)
 
 // KindPath is a staged path of a kind of item.
 type KindPath struct {
@@ -430,7 +447,7 @@ const walkUp = "AGENTS.md, .agents and .opencode load from the working directory
 
 var adapters = []Adapter{
 	{
-		ID: "claudecode", Name: "Claude Code", Target: "claudecode", Dir: "claude", Staging: ".claude", Settings: "settings.json", Command: "claude",
+		ID: "claudecode", Name: "Claude Code", Target: "claudecode", Dir: "claude", Staging: ".claude", Settings: "settings.json", Command: "claude", Status: Supported,
 		UserKinds:    []KindPath{{"CLAUDE.md", ProjectRules}, {"rules/", ProjectRules}, {"agents/", ProjectAgents}, {"skills/", ProjectSkills}, {"commands/", ProjectCommands}},
 		SharedSkills: "skills",
 		Commands:     ShellQuoted,
@@ -480,7 +497,7 @@ var adapters = []Adapter{
 		},
 	},
 	{
-		ID: "antigravity-cli", Name: "agy", Target: "antigravity-cli", Dir: "gemini", Staging: ".gemini", Settings: "antigravity-cli/settings.json", Command: "agy",
+		ID: "antigravity-cli", Name: "agy", Target: "antigravity-cli", Dir: "gemini", Staging: ".gemini", Settings: "antigravity-cli/settings.json", Command: "agy", Status: Supported,
 		UserKinds: []KindPath{{"GEMINI.md", ProjectRules}, {"config/rules/", ProjectRules}, {"config/agents/", ProjectAgents}, {"config/skills/", ProjectSkills}, {"config/commands/", ProjectCommands}},
 		// agy moves antigravity-cli/skills to config/skills on its first run
 		// and then fails to link it back on Windows, so the skills install
@@ -506,6 +523,9 @@ var adapters = []Adapter{
 		ID: "opencode", Name: "OpenCode", Target: "opencode", Dir: "opencode", Staging: ".config/opencode", Install: "config/opencode", Settings: "opencode.jsonc",
 		UserKinds: []KindPath{{"AGENTS.md", ProjectRules}, {"memories/", ProjectRules}, {"agents/", ProjectAgents}, {"agent/", ProjectAgents}, {"skills/", ProjectSkills}, {"commands/", ProjectCommands}, {"command/", ProjectCommands}},
 		Command:   "opencode", BatchTarget: "node_modules/@opencode/cli/bin/opencode.exe",
+		Status: Preview,
+		StatusReason: "the OpenCode hooks plugin that rulesync generates hangs on a hook that reads stdin, " +
+			"and enforces no hook timeout",
 		// Not checked: OpenCode has no statusline setting.
 		Commands: ShellQuoted,
 		Real:     openCodeReal,
