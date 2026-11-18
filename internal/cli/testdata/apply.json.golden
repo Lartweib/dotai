@@ -36,6 +36,44 @@
       "antigravity-cli",
       "opencode"
     ],
+    "harnessStates": [
+      {
+        "id": "claudecode",
+        "compatible": true,
+        "required": false,
+        "status": "supported",
+        "statusReason": "",
+        "managed": true,
+        "detected": true,
+        "binary": "/usr/bin/claude",
+        "config": "/home/u/.claude",
+        "configFound": true
+      },
+      {
+        "id": "antigravity-cli",
+        "compatible": true,
+        "required": false,
+        "status": "supported",
+        "statusReason": "",
+        "managed": true,
+        "detected": true,
+        "binary": "/usr/bin/agy",
+        "config": "/home/u/.gemini",
+        "configFound": false
+      },
+      {
+        "id": "opencode",
+        "compatible": true,
+        "required": false,
+        "status": "preview",
+        "statusReason": "the hooks plugin hangs",
+        "managed": true,
+        "detected": true,
+        "binary": "",
+        "config": "/home/u/.config/opencode",
+        "configFound": true
+      }
+    ],
     "ops": [
       {
         "action": "create",

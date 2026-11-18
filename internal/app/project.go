@@ -33,12 +33,16 @@ type ProjectPlan struct {
 	// the project, <project>/.dotai/state.json, which dotai never trusts.
 	Record string `json:"record"`
 	Marker string `json:"marker"`
-	// Harnesses are the harnesses the plan is for, in manifest order.
-	Harnesses []string         `json:"harnesses"`
-	Ops       []plan.ProjectOp `json:"ops"`
-	Skipped   []plan.Skipped   `json:"skipped"`
-	Exclude   ExcludePlan      `json:"exclude"`
-	Warnings  []plan.Warning   `json:"warnings"`
+	// Harnesses are the harnesses the plan is for, in manifest order, and
+	// HarnessStates every harness dotai knows, the ones the pack is
+	// compatible with first, planned or not, each with its state, as an
+	// install plan lists them without their isolation (decision 0047).
+	Harnesses     []string         `json:"harnesses"`
+	HarnessStates []HarnessState   `json:"harnessStates"`
+	Ops           []plan.ProjectOp `json:"ops"`
+	Skipped       []plan.Skipped   `json:"skipped"`
+	Exclude       ExcludePlan      `json:"exclude"`
+	Warnings      []plan.Warning   `json:"warnings"`
 	// Refusals are why the apply would refuse, which no consent overrides.
 	Refusals []plan.Warning `json:"refusals"`
 	// FirstApply is set when the project has no record of an earlier apply.
@@ -222,13 +226,14 @@ func withProjectPlan(ctx context.Context, d installFS, h host, g gitPort, fetch 
 	}()
 	var notices []string
 	var warnings []plan.Warning
+	var states []HarnessState
 	pick := func(m pack.Manifest) ([]string, error) {
 		detected, err := detectAll(d, h, home, m)
 		if err != nil {
 			return nil, err
 		}
 		sel, err := selectHarnesses(m, nil, prev, detected, byApply)
-		notices, warnings = sel.Notices, sel.Warnings
+		notices, warnings, states = sel.Notices, sel.Warnings, sel.States
 		return sel.Selected, err
 	}
 	s, err := stage(ctx, d, fetch, run, cacheDir, dir, filepath.Join(tmp, "staging"), Selection{Variant: variant, Profiles: opts.Profiles}, pick, ToolsIn(home, project), false, progress)
@@ -237,7 +242,7 @@ func withProjectPlan(ctx context.Context, d installFS, h host, g gitPort, fetch 
 	}
 	res := ProjectPlan{
 		Pack: s.Pack, Variant: variant, Profiles: append([]string{}, opts.Profiles...), Project: project,
-		Record: recordPath(home, project), Marker: filepath.Join(project, filepath.FromSlash(plan.MarkerFile)), FirstApply: record == nil || record.DismissOnly, Harnesses: []string{}, Ops: []plan.ProjectOp{}, Skipped: []plan.Skipped{},
+		Record: recordPath(home, project), Marker: filepath.Join(project, filepath.FromSlash(plan.MarkerFile)), FirstApply: record == nil || record.DismissOnly, Harnesses: []string{}, HarnessStates: []HarnessState{}, Ops: []plan.ProjectOp{}, Skipped: []plan.Skipped{},
 		Exclude: ExcludePlan{Pending: repo == nil, Entries: []string{}}, Warnings: []plan.Warning{}, Refusals: []plan.Warning{}, Notices: []string{}, Diagnostics: s.Diagnostics,
 	}
 	if s.Pack != nil {
@@ -262,7 +267,7 @@ func withProjectPlan(ctx context.Context, d installFS, h host, g gitPort, fetch 
 	if err != nil {
 		return err
 	}
-	res.Harnesses, res.Notices = append(res.Harnesses, s.Harnesses...), append(res.Notices, notices...)
+	res.Harnesses, res.HarnessStates, res.Notices = append(res.Harnesses, s.Harnesses...), append(res.HarnessStates, states...), append(res.Notices, notices...)
 	res.Warnings = append(res.Warnings, warnings...)
 	res.Warnings = append(res.Warnings, templatePlanWarnings(s.TemplateFiles, projectLayers(s.Pack, opts.Profiles), "apply")...)
 	in := plan.ProjectInput{Project: project, Home: home, Pack: s.Pack.Name, Adapters: adapters, Repo: repo != nil, MCPKey: mcpKey}

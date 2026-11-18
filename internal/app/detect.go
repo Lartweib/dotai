@@ -173,6 +173,10 @@ type HarnessState struct {
 	Detection
 }
 
+// IsPreview reports whether h is a preview harness: any status but
+// supported counts as one, as the selection counts it (decision 0047).
+func (h HarnessState) IsPreview() bool { return h.Status != string(harness.Supported) }
+
 // HarnessRefusal is why a selection of harnesses is refused: its code, the
 // harness, "" for none, and the message, text for people.
 type HarnessRefusal struct {

@@ -139,7 +139,7 @@ func dismissPlan(ctx context.Context, d installFS, home, project string, repo *R
 	}
 	pp := ProjectPlan{
 		Project: project, Record: recordPath(home, project), Marker: filepath.Join(project, filepath.FromSlash(plan.MarkerFile)),
-		Profiles: []string{}, Harnesses: []string{}, Ops: []plan.ProjectOp{op}, Skipped: []plan.Skipped{},
+		Profiles: []string{}, Harnesses: []string{}, HarnessStates: []HarnessState{}, Ops: []plan.ProjectOp{op}, Skipped: []plan.Skipped{},
 		Exclude:  ExcludePlan{File: repo.Exclude, Entries: []string{dotaiExclude}},
 		Warnings: []plan.Warning{}, Refusals: []plan.Warning{}, Notices: []string{}, Diagnostics: []Diagnostic{},
 	}
