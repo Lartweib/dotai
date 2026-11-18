@@ -42,3 +42,13 @@ Names are proposed.
 - `internal/cli/install.go:58,96-109`, `apply.go:45,84-97`, `pack.go:31`, `restore.go:335-340`.
 - `internal/app/execute.go:43,239-253`, `install.go:50-76`, `apply.go:150-161`, `project.go:41`, `validate.go:32`, `packs.go:128-148,451`.
 - `internal/server/actions.go:17-22`; `internal/pack/pack.go:140-186,223-226`; [0044](0044-git-pack-distribution.md):41.
+
+Update 2026-11-18: implemented as [PACK-FORMAT](../PACK-FORMAT.md#creating-a-pack) and [CLI-JSON](../CLI-JSON.md) describe, with the names above. Where this record left a choice open:
+
+- The template is `internal/packtemplate`, embedded with `go:embed`. Its MCP example server is a comment, so no server runs, and its hook runs `echo` on `stop`, whose output no harness puts in the context. `hashes.txt` keeps, per template version, the hash of every file the wizard can write below the pack's top, `dotai/settings.yaml` once for each choice of its harness blocks; a test fails when the template changes without a new version's hashes appended. The manifest and the README at the top are not hashed: they are not installed.
+- `template-unchanged` is one `validate` warning per file, and one `pack add` warning listing them. An install plan warns about the files of the base and the variant, an apply plan about those of the applied profiles and their mods, each with `item` the file's path in the pack; only those need consent.
+- The wizard's names of profiles and mods follow the rule for mod names, as the pack name does, so that each is safe as a folder. The plan of `pack new` leaves out its own `template-unchanged` warnings, since every example file is one.
+- The UI's wizard is carried out by the plan's digest, which is the consent, as an update of a git pack is: `pack new` has nothing for `--yes` to accept. Install and apply plans take the digest and `yes` as before.
+- `pack copy` without a target copies to the first free `<name>-copy` next to the pack, as the Packs board offers; the API's copy now answers as `pack copy`.
+- The profiling skill of [0045](0045-dotai-owned-project-onboarding.md) now says to add `--yes` only for what the plan asks to confirm and the user approved, template files included, not only conflicts.
+- Pending items: `InstallPlan` already had coded warnings, which `template-unchanged` reuses, as `ProjectPlan` does (closed); consent now covers template files besides foreign content and conflicts, with the UI's `yes` (closed); `pack new --dry-run` previews the skill on the command line (closed); root files such as `README.md` are still ignored by the loader and by `layer-undeclared`, and not hashed (open).
