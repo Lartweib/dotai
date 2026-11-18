@@ -57,18 +57,27 @@ func (e *ApplyRefusedError) Error() string {
 	return strings.Join(msgs, "; ") + "; the apply wrote nothing"
 }
 
-// ApplyConsentError is a project apply that would overwrite or delete
-// what dotai does not own, or what was changed since dotai wrote it, and
-// was not allowed to: Files files and Keys keys of files merged by key.
+// ApplyConsentError is a project apply whose plan asks to confirm
+// something, and that was not allowed to: Files files and Keys keys of
+// files merged by key that it would overwrite or delete although dotai
+// does not own them, or they changed since dotai wrote them, and
+// Templates the files of the pack's template it installs unchanged.
 type ApplyConsentError struct {
 	Plan        ProjectPlan
 	Files, Keys int
+	Templates   []string
 }
 
 func (e *ApplyConsentError) Error() string {
-	return fmt.Sprintf("the apply would overwrite or delete what dotai does not own or what changed since dotai wrote it: %s and %s; "+
-		"the apply wrote nothing: run it again with --yes to allow them, after reading the plan; the backup keeps what they hold",
-		plural(e.Files, "file", "files"), plural(e.Keys, "key", "keys"))
+	var parts []string
+	if e.Files+e.Keys > 0 || len(e.Templates) == 0 {
+		parts = append(parts, fmt.Sprintf("the apply would overwrite or delete what dotai does not own or what changed since dotai wrote it: %s and %s, which the backup keeps",
+			plural(e.Files, "file", "files"), plural(e.Keys, "key", "keys")))
+	}
+	if t := templateConsent("apply", e.Templates); t != "" {
+		parts = append(parts, t)
+	}
+	return strings.Join(parts, "; ") + "; the apply wrote nothing: run it again with --yes to accept what the plan asks to confirm, after reading it"
 }
 
 // ApplyError is a project apply, or another write of a project journaled
@@ -147,7 +156,8 @@ func applyProject(ctx context.Context, d executeFS, h host, g gitPort, fetch fet
 		if len(p.plan.Refusals) > 0 {
 			return &ApplyRefusedError{Plan: p.plan}
 		}
-		if files, keys := conflicts(p.plan); files+keys > 0 {
+		files, keys := conflicts(p.plan)
+		if templates := p.plan.TemplateFiles(); files+keys > 0 || len(templates) > 0 {
 			ok := false
 			if consent != nil {
 				var err error
@@ -156,7 +166,7 @@ func applyProject(ctx context.Context, d executeFS, h host, g gitPort, fetch fet
 				}
 			}
 			if !ok {
-				return &ApplyConsentError{Plan: p.plan, Files: files, Keys: keys}
+				return &ApplyConsentError{Plan: p.plan, Files: files, Keys: keys, Templates: templates}
 			}
 		}
 		a := applier{runner: runner{ctx: ctx, d: d, home: home, p: planned{ignoreExec: !d.ExecBit()}}, p: p}

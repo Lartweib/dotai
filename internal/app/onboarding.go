@@ -50,7 +50,7 @@ func ProfilesSkill(p PackSummary) []byte {
 3. Look at the working tree, tracked and untracked files, without ` + "`.git/`" + ` and ` + "`.dotai/`" + `. When it holds nothing besides a README, a license or ignore files, the repository is empty: ask the user what the project will be, and propose profiles from the answers.
 4. Otherwise, detect the stack by content: read the manifests, the configuration and the source files. A profile's hints are evidence, never proof. Ask the user only what the analysis leaves open.
 5. Show the plan of the profiles you propose, comma-separated: ` + "`dotai apply --profile <a,b> --dry-run`" + `.
-6. Run ` + "`dotai apply --profile <a,b>`" + ` only after the user approves that plan. Add ` + "`--yes`" + ` only when the plan lists conflicts and the user approved overwriting them.
+6. Run ` + "`dotai apply --profile <a,b>`" + ` only after the user approves that plan. Add ` + "`--yes`" + ` only when the plan asks to confirm something, its conflicts or the example files of dotai's pack template it installs unchanged, and the user approved it.
 7. Never commit: what dotai writes stays out of git.
 8. When the user wants no profiles here, run ` + "`dotai onboarding dismiss`" + `, so that new sessions stop asking.
 

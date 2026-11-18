@@ -2,6 +2,10 @@ package app_test
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,6 +15,7 @@ import (
 
 	"github.com/lartweib/dotai/internal/app"
 	"github.com/lartweib/dotai/internal/packtemplate"
+	"github.com/lartweib/dotai/internal/plan"
 )
 
 // filled is the pack Fill writes for a, as a file system.
@@ -160,5 +165,114 @@ func TestAddLocalPackWarnsOfTemplateFilesLeftUnchanged(t *testing.T) {
 	i := slices.IndexFunc(res.Warnings, func(w app.PackWarning) bool { return w.Code == app.CodeTemplateUnchanged })
 	if i < 0 || !strings.Contains(res.Warnings[i].Message, "base/.rulesync/rules/overview.md") {
 		t.Fatalf("warnings = %+v, want template-unchanged naming the files", res.Warnings)
+	}
+}
+
+// templateFile is the content of the template's file p.
+func templateFile(t *testing.T, p string) string {
+	t.Helper()
+	data, err := fs.ReadFile(packtemplate.FS(), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+// templateWarnings are the items of the template-unchanged warnings ws.
+func templateWarnings(ws []plan.Warning) []string {
+	var out []string
+	for _, w := range ws {
+		if w.Code == app.CodeTemplateUnchanged {
+			out = append(out, w.Item)
+		}
+	}
+	return out
+}
+
+// TestAnIsolatedInstallOfATemplateFileAsksConsent: an isolated install,
+// which never asked before, asks for consent while the user scope keeps a
+// file of the template unchanged (decision 0046), and the profiles' files
+// are left to apply.
+func TestAnIsolatedInstallOfATemplateFileAsksConsent(t *testing.T) {
+	home, _ := installHome(t)
+	dir := copyPack(t)
+	writeFile(t, filepath.Join(dir, "base", ".rulesync", "rules", "example-rule.md"), templateFile(t, "base/.rulesync/rules/example-rule.md"))
+	writeFile(t, filepath.Join(dir, "profiles", "web", ".rulesync", "rules", "example.md"), templateFile(t, "profiles/example/.rulesync/rules/example.md"))
+	f := quiet(t)
+	p, err := f.planInstall(dir, "", home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := templateWarnings(p.Warnings); !slices.Equal(got, []string{"base/.rulesync/rules/example-rule.md"}) || !p.Consent || p.Blocked {
+		t.Fatalf("plan: template files %v, consent %v, blocked %v; want the base's rule only, needing consent", got, p.Consent, p.Blocked)
+	}
+	if !slices.Equal(p.TemplateFiles(), []string{"base/.rulesync/rules/example-rule.md"}) || p.ConsentForeign {
+		t.Errorf("TemplateFiles() = %v, ConsentForeign = %v, want the rule and no foreign content", p.TemplateFiles(), p.ConsentForeign)
+	}
+	h := app.NewHost(found(at(home, "bin"), "claude", "agy", "opencode"), nil, "")
+	asked := 0
+	_, err = app.InstallConsent(context.Background(), app.OSInstallFS{}, h, f.fetch, f.run, dir, home, app.InstallOptions{}, func(app.InstallPlan) (bool, error) { asked++; return false, nil })
+	ce, ok := errors.AsType[*app.ConsentError](err)
+	if !ok || asked != 1 || !slices.Equal(ce.Templates, []string{"base/.rulesync/rules/example-rule.md"}) {
+		t.Fatalf("Install() = %v, asked %d times; want one question and a ConsentError naming the rule", err, asked)
+	}
+	if !strings.Contains(err.Error(), "example-rule.md") || !strings.Contains(err.Error(), "--yes to accept what the plan asks to confirm") {
+		t.Errorf("Error() = %q, want the file and --yes", err)
+	}
+	if _, serr := os.Stat(at(home, ".dotai/state.json")); serr == nil {
+		t.Error("the refused install wrote the install state")
+	}
+	if _, err := app.InstallHost(context.Background(), app.OSInstallFS{}, h, f.fetch, f.run, dir, home, app.InstallOptions{}); err != nil {
+		t.Fatalf("Install() with consent: %v", err)
+	}
+}
+
+func TestAnApplyOfATemplateFileAsksConsent(t *testing.T) {
+	project, home, g := applyRepo(t)
+	dir := copyPack(t)
+	writeFile(t, filepath.Join(dir, "profiles", "web", ".rulesync", "rules", "example.md"), templateFile(t, "profiles/example/.rulesync/rules/example.md"))
+	writeFile(t, filepath.Join(dir, "mods", "hello", "hooks", "example-mod.js"), templateFile(t, "mods/example-mod/hooks/example-mod.js"))
+	writeFile(t, filepath.Join(dir, "base", ".rulesync", "rules", "example-rule.md"), templateFile(t, "base/.rulesync/rules/example-rule.md"))
+	f := &treeRulesync{t: t, tree: profileTree}
+	opts := app.ApplyOptions{Profiles: []string{"web"}}
+	p, err := app.PlanProjectWith(context.Background(), app.OSInstallFS{}, g, f.fetch, f.run, dir, project, home, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"mods/hello/hooks/example-mod.js", "profiles/web/.rulesync/rules/example.md"}
+	if got := templateWarnings(p.Warnings); !slices.Equal(got, want) || !p.Consent || !slices.Equal(p.TemplateFiles(), want) {
+		t.Fatalf("plan: template files %v, consent %v; want %v, needing consent", got, p.Consent, want)
+	}
+	_, err = app.ApplyWith(context.Background(), newClockFS(t), g, f.fetch, f.run, dir, project, home, opts, nil)
+	if ce, ok := errors.AsType[*app.ApplyConsentError](err); !ok || !slices.Equal(ce.Templates, want) || !strings.Contains(err.Error(), "--yes to accept what the plan asks to confirm") {
+		t.Fatalf("Apply() = %v, want an ApplyConsentError naming %v", err, want)
+	}
+	if _, err := app.ApplyWith(context.Background(), newClockFS(t), g, f.fetch, f.run, dir, project, home, opts, yes); err != nil {
+		t.Fatalf("Apply() with consent: %v", err)
+	}
+}
+
+// TestAReplaceInstallOfTemplateFilesOnlyAsksNoForeignConsent: a replace
+// install that wipes and overwrites nothing dotai does not own, but
+// installs a template file unchanged, needs consent for that file only,
+// and its plan says so with consentForeign false, which the web UI reads.
+func TestAReplaceInstallOfTemplateFilesOnlyAsksNoForeignConsent(t *testing.T) {
+	home, _ := installHome(t)
+	dir := copyPack(t)
+	writeFile(t, filepath.Join(dir, "base", ".rulesync", "rules", "example-rule.md"), templateFile(t, "base/.rulesync/rules/example-rule.md"))
+	h := app.NewHost(found(at(home, "bin"), "claude", "agy", "opencode"), nil, "")
+	p, err := app.PlanInstallHost(context.Background(), app.OSInstallFS{}, h, quiet(t).fetch, replaceRun(t), dir, home, app.InstallOptions{Mode: app.ModeReplace})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !p.Consent || p.ConsentForeign || !slices.Equal(p.TemplateFiles(), []string{"base/.rulesync/rules/example-rule.md"}) {
+		t.Fatalf("plan: consent %v, consentForeign %v, template files %v; want consent for the rule only", p.Consent, p.ConsentForeign, p.TemplateFiles())
+	}
+	data, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(data, []byte(`"consent":true,"consentForeign":false`)) {
+		t.Errorf("the plan's JSON is %s, want consent true and consentForeign false", data)
 	}
 }
