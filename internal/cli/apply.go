@@ -159,10 +159,26 @@ func writeProjectPlan(w io.Writer, p app.ProjectPlan, color bool, footer string)
 	for _, n := range p.Notices {
 		fmt.Fprintf(&b, "note: %s\n", n)
 	}
-	groups := append(slices.Clone(p.Harnesses), "")
+	// Every harness dotai knows, in the plan's order, as an install plan
+	// prints them (decision 0047): one the apply does not plan with its
+	// state and detection, one it plans with its targets; a plan without
+	// states lists only those it plans.
+	states := p.HarnessStates
+	if len(states) == 0 {
+		for _, id := range p.Harnesses {
+			states = append(states, app.HarnessState{ID: id, Status: "supported", Managed: true})
+		}
+	}
+	states = append(slices.Clone(states), app.HarnessState{Status: "supported", Managed: true})
 	count := map[plan.Action]int{}
 	indent := strings.Repeat(" ", keyIndent)
-	for _, g := range groups {
+	for _, st := range states {
+		g := st.ID
+		if !st.Managed {
+			fmt.Fprintf(&b, "\n%s · %s\n", paint(color, styleBold, g), unmanagedText(st))
+			writeDetection(&b, st.Detection)
+			continue
+		}
 		var ops []plan.ProjectOp
 		for _, op := range p.Ops {
 			if op.Harness == g {
@@ -179,8 +195,11 @@ func writeProjectPlan(w io.Writer, p app.ProjectPlan, color bool, footer string)
 			continue
 		}
 		name := g
-		if g == "" {
+		switch {
+		case g == "":
 			name = "dotai"
+		case st.IsPreview():
+			name += " · preview"
 		}
 		fmt.Fprintf(&b, "\n%s\n", paint(color, styleBold, name))
 		for _, op := range ops {

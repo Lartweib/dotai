@@ -4,7 +4,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { choiceOf, harnessRows, isPreview, pickOf, toggled, wizardDefaults, wizardRequest } from "../web/js/harnesspick.js";
+import { appliedRows, choiceOf, harnessRows, isPreview, pickOf, toggled, wizardDefaults, wizardRequest } from "../web/js/harnesspick.js";
 
 const states = [
   { id: "claudecode", compatible: true, required: true, status: "supported", statusReason: "", managed: true, detected: true },
@@ -89,4 +89,22 @@ test("wizardDefaults ticks every supported harness, no preview one, and requires
 test("wizardRequest keeps the required harnesses that are compatible, in the harnesses' order", () => {
   assert.deepEqual(wizardRequest({ harnesses: ["opencode", "claudecode"], requires: ["claudecode", "antigravity-cli"] }),
     { harnesses: ["opencode", "claudecode"], requires: ["claudecode"] });
+});
+
+test("appliedRows shows each harness of an apply plan with its state, planned or not, and no box to tick", () => {
+  const rows = appliedRows([
+    { id: "claudecode", compatible: true, required: true, status: "supported", statusReason: "", managed: true, detected: true },
+    { id: "opencode", compatible: true, required: false, status: "preview", statusReason: "hooks hang", managed: false, detected: true },
+    { id: "antigravity-cli", compatible: true, required: false, status: "supported", statusReason: "", managed: false, detected: false },
+    { id: "x", compatible: false, required: false, status: "supported", statusReason: "", managed: false, detected: true },
+    { id: "y", compatible: true, required: false, status: "supported", statusReason: "", managed: false, detected: true },
+  ]);
+  assert.deepEqual(rows.map((r) => [r.id, r.states, r.reason]), [
+    ["claudecode", ["managed", "required"], ""],
+    ["opencode", ["notManaged", "preview"], "hooks hang"],
+    ["antigravity-cli", ["notManaged", "notInstalled"], ""],
+    ["x", ["notCompatible"], ""],
+    ["y", ["notManaged"], ""],
+  ]);
+  assert.deepEqual(appliedRows(undefined), [], "a plan from before the states lists none");
 });

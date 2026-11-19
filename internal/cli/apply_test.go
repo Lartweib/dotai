@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -21,6 +22,11 @@ var projectPlan = app.ProjectPlan{
 	Pack:    &app.PackSummary{Name: "minimal-pack", Version: "0.1.0", Harnesses: []string{"claudecode", "antigravity-cli", "opencode"}, Requires: []string{}, Profiles: []app.ProfileSummary{}, Variants: []string{}, SharedSkills: []string{}, Layers: []app.LayerSummary{}},
 	Variant: "standalone", Profiles: []string{"web"}, Project: "/work/site", Record: "/home/u/.dotai/projects/0123456789abcdef/record.json", Marker: "/work/site/.dotai/state.json",
 	Harnesses: []string{"claudecode", "antigravity-cli", "opencode"},
+	HarnessStates: []app.HarnessState{
+		{ID: "claudecode", Compatible: true, Status: "supported", Managed: true, Detection: app.Detection{Detected: true, Binary: "/usr/bin/claude", Config: "/home/u/.claude", ConfigFound: true}},
+		{ID: "antigravity-cli", Compatible: true, Status: "supported", Managed: true, Detection: app.Detection{Detected: true, Binary: "/usr/bin/agy", Config: "/home/u/.gemini"}},
+		{ID: "opencode", Compatible: true, Status: "preview", StatusReason: "the hooks plugin hangs", Managed: true, Detection: app.Detection{Detected: true, Config: "/home/u/.config/opencode", ConfigFound: true}},
+	},
 	Ops: []plan.ProjectOp{
 		{Action: plan.Create, Harness: "claudecode", Kind: "mcp", Source: ".mcp.json", Target: "/home/u/.claude.json",
 			Keys: []plan.ProjectKey{{Path: []string{"projects", "/work/site", "mcpServers", "browser"}, Action: plan.Create}}},
@@ -91,6 +97,45 @@ func TestRunApplyDryRun(t *testing.T) {
 			}
 			assertGolden(t, filepath.Join("testdata", tt.golden), stdout.Bytes())
 		})
+	}
+}
+
+// TestRunApplyDryRunShowsAHarnessItDoesNotPlan checks the text of a
+// harness the apply does not plan (decision 0047), as an install prints
+// it: a preview harness the install's choice leaves out, a compatible one
+// that is not installed and one the pack is not compatible with, each with
+// its state and detection, among the harnesses it plans.
+func TestRunApplyDryRunShowsAHarnessItDoesNotPlan(t *testing.T) {
+	p := projectPlan
+	p.Harnesses = []string{"claudecode"}
+	p.HarnessStates = []app.HarnessState{p.HarnessStates[0],
+		{ID: "opencode", Compatible: true, Status: "preview", StatusReason: "r", Detection: app.Detection{Detected: true, Config: "/home/u/.config/opencode", ConfigFound: true}},
+		{ID: "antigravity-cli", Compatible: true, Required: true, Status: "supported", Detection: app.Detection{Config: "/home/u/.gemini"}},
+		{ID: "x", Status: "supported", Detection: app.Detection{Detected: true, Binary: "/usr/bin/x", Config: "/home/u/.x", ConfigFound: true}},
+	}
+	p.Ops = slices.DeleteFunc(slices.Clone(p.Ops), func(op plan.ProjectOp) bool { return op.Harness != "claudecode" && op.Harness != "" })
+	p.Skipped = []plan.Skipped{}
+	var stdout bytes.Buffer
+	env := testEnv(&stdout, &bytes.Buffer{})
+	env.PlanProject = func(context.Context, string, string, string, string, app.ApplyOptions, app.Progress) (app.ProjectPlan, error) {
+		return p, nil
+	}
+	if code := cli.Run([]string{"apply", "--profile", "web", "--dry-run"}, env); code != cli.ExitOK {
+		t.Fatalf("exit code = %d", code)
+	}
+	out := stdout.String()
+	for _, want := range []string{
+		"\nclaudecode\n  create     /home/u/.claude.json\n",
+		"\nopencode · preview, not managed\n  binary: not found on PATH\n  config: /home/u/.config/opencode\n",
+		"\nantigravity-cli · required, not managed\n  binary: not found on PATH\n  config: /home/u/.gemini (missing)\n",
+		"\nx · not compatible with the pack, not managed\n  binary: /usr/bin/x\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("stdout = %q, want it to contain %q", out, want)
+		}
+	}
+	if i, j := strings.Index(out, "\nopencode ·"), strings.Index(out, "\nx ·"); i < 0 || j < i {
+		t.Errorf("stdout = %q, want the harnesses in the order of the plan", out)
 	}
 }
 

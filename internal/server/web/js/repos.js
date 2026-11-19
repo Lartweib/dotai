@@ -9,7 +9,8 @@
 import { actions, boardHead, busy, failure, h, hint, kv, lm, loading, mount, notice, op, sec, warning } from "./dom.js";
 import { confirmFlow, guard, rel, restoreProjectFlow } from "./flows.js";
 import { fmtDate, fmtRelative, t } from "./i18n.js";
-import { act, harnessName, isAbsolute, loadPack, packPaths, post, recentProjects, rememberProject, selectedPack, shared, tilde } from "./store.js";
+import { appliedRows } from "./harnesspick.js";
+import { act, harnessName, isAbsolute, loadPack, packPaths, post, previewReason, recentProjects, rememberProject, selectedPack, shared, tilde } from "./store.js";
 
 const base = (p) => p.split(/[\\/]/).filter(Boolean).pop() || p;
 const href = (p) => "#/repos/" + encodeURIComponent(p);
@@ -172,6 +173,19 @@ function applyFailure(error) {
     : failure(error);
 }
 
+// harnessStates are the harnesses of an apply plan (decision 0047), each
+// with its state as the install board shows it, planned or not, with no box
+// to tick: an apply follows the install's choice.
+function harnessStates(list) {
+  const rows = appliedRows(list);
+  if (!rows.length) return null;
+  return h("div", { class: "sub" }, h("h3", { class: "h-sub", text: t("plan.harnesses") }), hint(t("hint.applyHarnesses")),
+    h("div", { class: "stack tight" }, rows.map((r) => h("div", {},
+      h("div", { class: "check still" }, h("span", { class: "check-text", text: harnessName(r.id) }), h("span", { class: "mono", text: " " + r.id }),
+        ...r.states.map((w) => h("span", { class: "pill sm " + (w === "managed" ? "you" : "state"), text: t("plan.harness." + w) }))),
+      r.reason ? h("p", { class: "help", text: t("plan.previewReason", { reason: previewReason(r.id, r.reason) }) }) : null))));
+}
+
 async function planApply(out, req, ctx, msg) {
   mount(out, busy(t("repos.planning")));
   const res = await post("/api/apply/plan", req, ctx.signal);
@@ -217,6 +231,7 @@ function showPlan(out, req, p, ctx, msg) {
   const harnesses = [...p.harnesses, ""];
   mount(out, h("div", { class: "planout" }, msg || null,
     h("p", { class: "summary", text: t(p.firstApply ? "repos.firstApply" : "repos.appliedBefore", { variant: p.variant, profiles: p.profiles.join(", ") }) }),
+    harnessStates(p.harnessStates),
     harnesses.map((id) => {
       const ops = p.ops.filter((o) => (o.harness || "") === id);
       if (!ops.length) return null;

@@ -38,6 +38,20 @@ export function harnessRows(list, chosen) {
   });
 }
 
+// appliedRows are the rows of the harnesses of an apply plan, list its
+// harnessStates: an apply follows the install's choice, so nothing is
+// ticked. states are the words a row shows, in order: managed or
+// notManaged, but for a harness the pack is not compatible with, then its
+// state as harnessRows says it; reason is why a preview harness is one.
+export function appliedRows(list) {
+  return harnessRows(list, null).map((r, i) => {
+    const x = list[i];
+    const states = r.why === "notCompatible" ? [] : [x.managed ? "managed" : "notManaged"];
+    if (r.why) states.push(r.why);
+    return { id: r.id, managed: !!x.managed, states, reason: r.reason };
+  });
+}
+
 // pickOf is the choice rows show: the ids ticked, in the rows' order.
 export const pickOf = (rows) => rows.filter((r) => r.checked).map((r) => r.id);
 

@@ -20,7 +20,7 @@ antigravity-cli
              keys: create rulesync.SessionStart
   conflict   /work/site/.agents/rules/web.md
 
-opencode
+opencode · preview
   unchanged  /work/site/.opencode/memories/web.md
   skipped    hook sessionStart: echo hi: git tracks /work/site/.opencode/plugins/rulesync-hooks.js
 

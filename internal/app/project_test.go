@@ -10,9 +10,11 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lartweib/dotai/internal/app"
 	"github.com/lartweib/dotai/internal/envelope"
+	"github.com/lartweib/dotai/internal/pack"
 	"github.com/lartweib/dotai/internal/plan"
 	"github.com/lartweib/dotai/internal/rulesync"
 	"github.com/lartweib/dotai/internal/state"
@@ -545,6 +547,22 @@ func TestPlanProjectFollowsTheInstallsChoiceOfAPreviewHarness(t *testing.T) {
 	if !slices.Contains(p.Harnesses, "opencode") || !slices.ContainsFunc(p.Warnings, func(w plan.Warning) bool { return w.Code == app.CodeHarnessPreview && w.Harness == "opencode" }) {
 		t.Errorf("harnesses %v, warnings %+v, want OpenCode with harness-preview", p.Harnesses, p.Warnings)
 	}
+	assertManagedPreview(t, p, "opencode")
+
+	// An install from before decision 0047 saved no choice and managed
+	// OpenCode: the apply keeps it managed.
+	_, home3, _ := projectDirs(t)
+	s := state.New(state.Pack{Name: "minimal-pack", Version: "0.1.0"}, "standalone", app.ModeReplace, time.Date(2026, 10, 29, 10, 0, 0, 0, time.UTC), pack.Harnesses, "", nil)
+	data, err := state.Encode(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, at(home3, ".dotai/state.json"), string(data))
+	p, err = planProject(t, &fakeGit{}, examplePack, project, home3)
+	if err != nil || len(p.Diagnostics) != 0 {
+		t.Fatalf("PlanProject() = %+v, %v", p, err)
+	}
+	assertManagedPreview(t, p, "opencode")
 
 	dir := copyPack(t)
 	editPack(t, dir, "dotai.yaml", "# requires: [claudecode]", "requires: [opencode]")
@@ -556,5 +574,82 @@ func TestPlanProjectFollowsTheInstallsChoiceOfAPreviewHarness(t *testing.T) {
 	}
 	if code, _ := envelope.Classify(err); code != envelope.CodeHarnessRefused {
 		t.Errorf("envelope code %q, want %q", code, envelope.CodeHarnessRefused)
+	}
+}
+
+// TestPlanProjectListsEveryHarnessWithItsState checks that an apply plan
+// lists every harness dotai knows with its state, as an install plan does
+// (decision 0047): a detected preview harness the install's choice leaves
+// out is not managed, with its status and reason; a compatible harness
+// that is not installed is not managed and not detected; and a harness the
+// pack is not compatible with comes after the compatible ones, never
+// managed, with its detection. harnesses still names those planned.
+func TestPlanProjectListsEveryHarnessWithItsState(t *testing.T) {
+	type st struct {
+		id                                      string
+		compatible, required, detected, managed bool
+		status                                  string
+	}
+	states := func(p app.ProjectPlan) []st {
+		var got []st
+		for _, hs := range p.HarnessStates {
+			got = append(got, st{hs.ID, hs.Compatible, hs.Required, hs.Detected, hs.Managed, hs.Status})
+			if hs.Config == "" || (hs.Status == "preview") != (hs.StatusReason != "") {
+				t.Errorf("harness %+v, want its config and a reason for a preview only", hs)
+			}
+		}
+		return got
+	}
+	f := projectRulesync{t}
+	opts := app.ApplyOptions{Profiles: []string{"web"}}
+
+	project, home, _ := projectDirs(t)
+	h := app.NewHost(found(at(home, "bin"), "claude", "opencode"), nil, "")
+	p, err := app.PlanProjectHost(context.Background(), app.OSInstallFS{}, h, &fakeGit{}, f.fetch, f.run, examplePack, project, home, opts)
+	if err != nil || len(p.Diagnostics) != 0 {
+		t.Fatalf("PlanProject() = %+v, %v", p, err)
+	}
+	want := []st{
+		{"claudecode", true, false, true, true, "supported"},
+		{"antigravity-cli", true, false, false, false, "supported"},
+		{"opencode", true, false, true, false, "preview"},
+	}
+	if got := states(p); !reflect.DeepEqual(got, want) {
+		t.Errorf("harness states =\n%+v\nwant\n%+v", got, want)
+	}
+	if !reflect.DeepEqual(p.Harnesses, []string{"claudecode"}) {
+		t.Errorf("harnesses = %v, want only the planned one", p.Harnesses)
+	}
+
+	dir := copyPack(t)
+	editPack(t, dir, "dotai.yaml", "harnesses: [claudecode, antigravity-cli, opencode]", "harnesses: [claudecode, opencode]")
+	editPack(t, dir, "base/dotai/settings.yaml", "antigravity-cli:", "unused:")
+	editPack(t, dir, "base/dotai/settings.yaml", "unused:\n  statusLine: { type: command, command: \"${DOTAI_TOOL:hello}\" }\n", "")
+	project, home, _ = projectDirs(t)
+	h = app.NewHost(found(at(home, "bin"), "claude", "agy"), nil, "")
+	p, err = app.PlanProjectHost(context.Background(), app.OSInstallFS{}, h, &fakeGit{}, f.fetch, f.run, dir, project, home, opts)
+	if err != nil || len(p.Diagnostics) != 0 {
+		t.Fatalf("PlanProject() = %+v, %v", p, err)
+	}
+	want = []st{
+		{"claudecode", true, false, true, true, "supported"},
+		{"opencode", true, false, false, false, "preview"},
+		{"antigravity-cli", false, false, true, false, "supported"},
+	}
+	if got := states(p); !reflect.DeepEqual(got, want) {
+		t.Errorf("harness states =\n%+v\nwant\n%+v", got, want)
+	}
+}
+
+// assertManagedPreview checks that the harness states of p list id as a
+// compatible preview harness, with its reason, that the apply manages.
+func assertManagedPreview(t *testing.T, p app.ProjectPlan, id string) {
+	t.Helper()
+	i := slices.IndexFunc(p.HarnessStates, func(hs app.HarnessState) bool { return hs.ID == id })
+	if i < 0 {
+		t.Fatalf("harness states %+v, want %s", p.HarnessStates, id)
+	}
+	if hs := p.HarnessStates[i]; !hs.Compatible || !hs.Managed || hs.Status != "preview" || hs.StatusReason == "" || !slices.Contains(p.Harnesses, id) {
+		t.Errorf("harness state %+v, harnesses %v, want %s managed as a preview harness with its reason", hs, p.Harnesses, id)
 	}
 }

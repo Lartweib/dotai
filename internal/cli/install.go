@@ -172,7 +172,7 @@ func earlyWarnings(env Env, jsonOut bool) (app.Warn, map[string]bool) {
 // unmanagedText says why the plan does not manage h, a harness dotai
 // knows (decision 0047): the pack is not compatible with it, or it is
 // compatible, required or not, and a preview or not.
-func unmanagedText(h app.HarnessPlan) string {
+func unmanagedText(h app.HarnessState) string {
 	if !h.Compatible {
 		return "not compatible with the pack, not managed"
 	}
@@ -213,7 +213,7 @@ func writePlan(w io.Writer, p app.InstallPlan, color bool, footer string) error 
 
 	for _, h := range p.Harnesses {
 		if !h.Managed {
-			fmt.Fprintf(&b, "\n%s · %s\n", paint(color, styleBold, h.ID), unmanagedText(h))
+			fmt.Fprintf(&b, "\n%s · %s\n", paint(color, styleBold, h.ID), unmanagedText(h.State()))
 			writeDetection(&b, h.Detection)
 			continue
 		}

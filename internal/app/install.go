@@ -143,7 +143,12 @@ type HarnessPlan struct {
 
 // IsPreview reports whether h is a preview harness: any status but
 // supported counts as one, as the selection counts it (decision 0047).
-func (h HarnessPlan) IsPreview() bool { return h.Status != string(harness.Supported) }
+func (h HarnessPlan) IsPreview() bool { return h.State().IsPreview() }
+
+// State is the state of h as a selection sees it, without its isolation.
+func (h HarnessPlan) State() HarnessState {
+	return HarnessState{ID: h.ID, Compatible: h.Compatible, Required: h.Required, Status: h.Status, StatusReason: h.StatusReason, Managed: h.Managed, Detection: h.Detection}
+}
 
 // PointerPlan is an environment variable (env) or a flag (flag) set to an
 // absolute directory.
