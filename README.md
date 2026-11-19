@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/logo-dark.svg">
+    <img src="docs/images/logo-light.svg" alt="dotai" width="300">
+  </picture>
+</p>
+
 # dotai
 
 <!-- The release badge shows "no releases" until v0.1.0 is published. -->
@@ -34,24 +41,23 @@ variants:
     default: true
 ```
 
-The base layer holds the shared rules, skills and subagents, such as `base/.rulesync/rules/overview.md` and `base/.rulesync/skills/commit-message/SKILL.md`. A dry run shows every file and key an install would write, and writes nothing but the rulesync cache (trimmed, run on Windows):
+The base layer holds the shared rules, skills and subagents, such as `base/.rulesync/rules/overview.md` and `base/.rulesync/skills/commit-message/SKILL.md`. A dry run shows every file and key an install would write, and writes nothing but the rulesync cache (trimmed):
 
 ```text
 $ dotai install examples/minimal-pack --mode isolated --dry-run
 Install plan · minimal-pack 0.1.0 · variant standalone · mode isolated
-root: ~\.dotai\isolated
+root: ~/.dotai/isolated
 
-claudecode · partial isolation · needs a new login
-  CLAUDE_CONFIG_DIR=~\.dotai\isolated\claude
-  leaks: credentials live in the configuration directory, so you must log in again
+claudecode · partial isolation · may need a new login
+  CLAUDE_CONFIG_DIR=~/.dotai/isolated/claude
 
 claudecode
-  create     ~\.dotai\isolated\claude\CLAUDE.md
-  create     ~\.dotai\isolated\claude\agents\reviewer.md
-  create     ~\.dotai\isolated\claude\rules\standalone.md
-  create     ~\.dotai\isolated\claude\settings.json
+  create     ~/.dotai/isolated/claude/CLAUDE.md
+  create     ~/.dotai/isolated/claude/agents/reviewer.md
+  create     ~/.dotai/isolated/claude/rules/standalone.md
+  create     ~/.dotai/isolated/claude/settings.json
              keys: create $schema, create claudeMdExcludes, create hooks, create model, create permissions
-  create     ~\.dotai\isolated\claude\skills\commit-message\SKILL.md
+  create     ~/.dotai/isolated/claude/skills/commit-message/SKILL.md
   ...
 
 15 create, 0 replace, 0 remove, 0 unchanged · dry run, nothing was written
