@@ -26,7 +26,7 @@ A pack is a `dotai.yaml` manifest and layers in the rulesync layout: a base, var
 schema: dotai.pack/v1
 name: minimal-pack
 version: 0.1.0
-rulesync: 43.9.2
+rulesync: 43.10.0
 harnesses: [claudecode, antigravity-cli, opencode]
 
 profiles:

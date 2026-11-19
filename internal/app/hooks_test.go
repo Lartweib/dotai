@@ -162,7 +162,7 @@ func hookCommand(t *testing.T, data []byte, block string) string {
 // hook and agy, and writes nothing.
 func TestStageRefusesAnUnquotableHookPath(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, "dotai.yaml"), "schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\nrulesync: 43.9.2\nharnesses: [claudecode, antigravity-cli]\n")
+	writeFile(t, filepath.Join(dir, "dotai.yaml"), "schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\nrulesync: 43.10.0\nharnesses: [claudecode, antigravity-cli]\n")
 	writeFile(t, filepath.Join(dir, "base", ".rulesync", "hooks.jsonc"), `{"hooks": {"sessionStart": [{"command": "${DOTAI_TOOL:hello}"}]}}`)
 	writeFile(t, filepath.Join(dir, "base", "dotai", "tools", "hello.sh"), "echo hello\n")
 	writeFile(t, filepath.Join(dir, "base", "dotai", "tools", "hello.ps1"), "'hello'\n")

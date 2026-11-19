@@ -39,7 +39,7 @@ schema: dotai.pack/v1
 name: example-pack
 version: 0.1.0
 engine: ">=0.1.0"
-rulesync: 43.9.2
+rulesync: 43.10.0
 harnesses: [claudecode, antigravity-cli, opencode]
 requires: [claudecode]
 

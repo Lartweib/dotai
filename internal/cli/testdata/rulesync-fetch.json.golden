@@ -3,9 +3,9 @@
   "command": "rulesync fetch",
   "ok": true,
   "data": {
-    "version": "43.9.2",
+    "version": "43.10.0",
     "asset": "rulesync-linux-x64",
-    "path": "cache/rulesync/43.9.2/rulesync-linux-x64",
+    "path": "cache/rulesync/43.10.0/rulesync-linux-x64",
     "sha256": "6598756e1f57959645589de9c2ce7b686018eb754bf1c994e8137ea2fba80ed6",
     "cached": false,
     "diagnostics": []
