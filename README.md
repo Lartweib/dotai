@@ -1,13 +1,61 @@
 # dotai
 
+<!-- The release badge shows "no releases" until v0.1.0 is published. -->
+
 [![CI](https://github.com/lartweib/dotai/actions/workflows/ci.yml/badge.svg)](https://github.com/lartweib/dotai/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/github/license/lartweib/dotai)](LICENSE)
 [![Go Reference](https://pkg.go.dev/badge/github.com/lartweib/dotai.svg)](https://pkg.go.dev/github.com/lartweib/dotai)
 [![Go version](https://img.shields.io/github/go-mod/go-version/lartweib/dotai)](go.mod)
+[![Release](https://img.shields.io/github/v/release/lartweib/dotai)](https://github.com/lartweib/dotai/releases)
+[![Go Report Card](https://goreportcard.com/badge/github.com/lartweib/dotai)](https://goreportcard.com/report/github.com/lartweib/dotai)
 
-Cross-harness configuration engine for AI coding agents.
+One pack of agent configuration, rendered into Claude Code, Antigravity CLI and OpenCode, with every write planned, backed up and reversible.
 
 Each AI coding harness keeps its rules, agents, skills, hooks, MCP servers and settings in its own files and formats, so a setup you care about drifts apart across tools and machines, and trying a new one means hand-editing configuration you cannot easily undo. dotai keeps that setup in one place, a **pack**, and renders it into Claude Code, Google Antigravity CLI (agy) and OpenCode, with profiles per project type and variants per environment. Every write is planned first, shown before it happens, backed up, and undone with `dotai restore`: an install can run isolated from your own configuration, and a project's files stay out of git.
+
+A pack is a `dotai.yaml` manifest and layers in the rulesync layout: a base, variants per environment and profiles per project type. Trimmed from [examples/minimal-pack](examples/minimal-pack/README.md):
+
+```yaml
+schema: dotai.pack/v1
+name: minimal-pack
+version: 0.1.0
+rulesync: 43.9.2
+harnesses: [claudecode, antigravity-cli, opencode]
+
+profiles:
+  web:
+    path: profiles/web
+    description: Web projects with a JavaScript toolchain.
+    hints: [package.json]
+
+variants:
+  standalone:
+    path: variants/standalone
+    default: true
+```
+
+The base layer holds the shared rules, skills and subagents, such as `base/.rulesync/rules/overview.md` and `base/.rulesync/skills/commit-message/SKILL.md`. A dry run shows every file and key an install would write, and writes nothing but the rulesync cache (trimmed, run on Windows):
+
+```text
+$ dotai install examples/minimal-pack --mode isolated --dry-run
+Install plan · minimal-pack 0.1.0 · variant standalone · mode isolated
+root: ~\.dotai\isolated
+
+claudecode · partial isolation · needs a new login
+  CLAUDE_CONFIG_DIR=~\.dotai\isolated\claude
+  leaks: credentials live in the configuration directory, so you must log in again
+
+claudecode
+  create     ~\.dotai\isolated\claude\CLAUDE.md
+  create     ~\.dotai\isolated\claude\agents\reviewer.md
+  create     ~\.dotai\isolated\claude\rules\standalone.md
+  create     ~\.dotai\isolated\claude\settings.json
+             keys: create $schema, create claudeMdExcludes, create hooks, create model, create permissions
+  create     ~\.dotai\isolated\claude\skills\commit-message\SKILL.md
+  ...
+
+15 create, 0 replace, 0 remove, 0 unchanged · dry run, nothing was written
+```
 
 ![The dotai web UI, Home board](docs/images/ui-home.png)
 
@@ -43,77 +91,25 @@ These are the platforms of the release archives and of the rulesync checksums th
 
 ## Install
 
-### One command
-
-On Linux and macOS:
+> [!NOTE]
+> No release is published yet. The one-line installers below work once the first release, `v0.1.0`, is published; until then, install with `go install`.
 
 ```sh
+# Linux and macOS
 curl -fsSL https://raw.githubusercontent.com/Lartweib/dotai/main/install.sh | sh
 ```
 
-On Windows, in PowerShell:
-
 ```powershell
+# Windows, in PowerShell
 irm https://raw.githubusercontent.com/Lartweib/dotai/main/install.ps1 | iex
 ```
 
-These commands work once the first release, `v0.1.0`, is published; until then the script stops with "no release found".
-
-The script installs the latest release for your platform ([0048](docs/decisions/0048-one-command-install-scripts.md)). It downloads the archive and `SHA256SUMS` over HTTPS, with curl or, when curl is missing, wget, into a temporary directory. It verifies the archive's checksum and stops before extracting anything if it does not match, then puts `dotai` in `~/.local/bin` (`%LOCALAPPDATA%\Programs\dotai` on Windows) and runs `dotai version`. It needs no sudo or administrator rights. On Windows, a failed update puts the previous `dotai.exe` back; close a running `dotai`, such as `dotai ui`, if the script asks you to.
-
-When that directory is not on your `PATH` already, the script puts it there:
-
-- `install.sh` appends two lines, `# added by the dotai installer` and `export PATH='<dir>':"$PATH"`, to the profile of the shell in `$SHELL`: `~/.zshrc` for zsh; `~/.bashrc` for bash, and on macOS also the first of `~/.bash_profile`, `~/.bash_login` and `~/.profile` that exists (`~/.bash_profile` when none does); or `~/.config/fish/conf.d/dotai.fish` with `fish_add_path` for fish. A profile that has the line for that directory already is left as it is. For any other shell, or when the profile cannot be written, it prints the line to add by hand.
-- `install.ps1` appends the directory to your user `Path` (`HKCU\Environment`), keeping the existing value and entries such as `%USERPROFILE%` unexpanded, and to the `Path` of the current session.
-
-Either way the script says what it changed; new terminals pick it up.
-
-Options go after `sh -s --`, or as variables on the side of the pipe that runs the script, not on `curl`: `DOTAI_VERSION=0.1.0 curl ... | sh` sets the variable for `curl` only, and the script never sees it.
-
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Lartweib/dotai/main/install.sh | sh -s -- --version 0.1.0 --no-modify-path
-curl -fsSL https://raw.githubusercontent.com/Lartweib/dotai/main/install.sh | DOTAI_INSTALL_DIR="$HOME/bin" DOTAI_NO_MODIFY_PATH=1 sh
-```
-
-```powershell
-$env:DOTAI_VERSION = '0.1.0'; $env:DOTAI_NO_MODIFY_PATH = '1'; irm https://raw.githubusercontent.com/Lartweib/dotai/main/install.ps1 | iex
-```
-
-- `DOTAI_VERSION` (or `--version`) installs a given release instead of the latest.
-- `DOTAI_INSTALL_DIR`, an absolute path, installs elsewhere.
-- `DOTAI_NO_MODIFY_PATH=1` (or `--no-modify-path`) changes no profile or `Path` and only prints the line to add.
-- `DOTAI_RELEASE_BASE_URL` replaces `https://github.com/Lartweib/dotai/releases`, for tests and mirrors. It must be an `https` URL; plain `http` is accepted only on `127.0.0.1` and `localhost`.
-
-To read the script before running it, download it first, then run the file:
-
-```sh
-curl -fsSLo install.sh https://raw.githubusercontent.com/Lartweib/dotai/main/install.sh
-less install.sh
-sh install.sh
-```
-
-On Windows, `irm https://raw.githubusercontent.com/Lartweib/dotai/main/install.ps1 -OutFile install.ps1`, read it, then run `powershell -ExecutionPolicy Bypass -File install.ps1`.
-
-### From a release
-
-Each release on [github.com/lartweib/dotai/releases](https://github.com/lartweib/dotai/releases) has an archive per platform and a `SHA256SUMS` file. The archives are named `dotai_<version>_<os>_<arch>.tar.gz`, or `.zip` for Windows; below, `<archive>` is the one you downloaded.
-
-1. Download the archive for your platform and `SHA256SUMS` from the same release.
-2. Verify the checksum in the download directory:
-   - Linux: `grep <archive> SHA256SUMS | sha256sum --check`
-   - macOS: `grep <archive> SHA256SUMS | shasum -a 256 --check`
-   - Windows (PowerShell): `(Get-FileHash <archive>).Hash`, and compare it with the line for that file in `SHA256SUMS`.
-3. When the release carries a build provenance attestation, verify it with the GitHub CLI: `gh attestation verify <archive> --repo lartweib/dotai`.
-4. Extract the archive and put `dotai` (`dotai.exe` on Windows) in a directory on your `PATH`, such as `~/.local/bin`.
-5. Check it with `dotai version`.
-
-### From source
-
-With Go 1.26 or later:
-
-```sh
+# From source, with Go 1.26 or later
 go install github.com/lartweib/dotai/cmd/dotai@latest
 ```
+
+[Installing dotai](docs/INSTALL.md) covers what the scripts change on `PATH`, their options, reading a script before running it, and installing a release archive by hand with its checksum and attestation.
 
 ## Quickstart
 
@@ -130,12 +126,43 @@ dotai ui
 - `dotai pack new` writes dotai's template, one commented example of each file a pack holds, and adds the pack to the registry. Edit the examples: a file left as the template wrote it is flagged `template-unchanged`, and `install` asks before installing it.
 - `dotai install --mode isolated` installs under `~/.dotai/isolated/`, never into your own harness configuration; `dotai restore` undoes it.
 - `dotai run claudecode` launches Claude Code against the isolated install; pass the harness's own arguments after `--`.
-- `dotai install` manages the pack's harnesses that are installed on your machine, or those `--harness` names. The pack lists the harnesses it is compatible with in `harnesses` and those it cannot do without in `requires`: a missing required harness stops the install, and a preview harness, such as OpenCode, is managed only when `--harness` or the saved choice names it, or the previous install of the pack managed it ([Pack format](docs/PACK-FORMAT.md#manifest)).
+- `dotai install` manages the pack's `harnesses` that are installed on your machine, or those `--harness` names. A harness listed in `requires` that is missing stops the install. A preview harness, such as OpenCode, is managed only when you choose it, as [Supported harnesses](#supported-harnesses-and-platforms) describes ([Pack format](docs/PACK-FORMAT.md#manifest)).
 
 For a complete, small pack to read, see [examples/minimal-pack](examples/minimal-pack/README.md). [Creating a pack](docs/PACK-FORMAT.md#creating-a-pack) covers `dotai pack new` in full, and [Applying a pack](docs/PACK-FORMAT.md#applying-a-pack) the project profiles.
 
+## Everyday commands
+
+| Command | What it does |
+|---|---|
+| `dotai install [path] --mode isolated` | Install a pack's user scope under `~/.dotai/isolated/`; `--mode replace` resets each harness and installs into its own configuration instead. |
+| `dotai apply --profile <p>` | Apply profiles to the project in the current directory, in local, untracked files only. |
+| `dotai run <harness> [-- args]` | Launch a harness against its isolated install. |
+| `dotai restore [backup-id]` | Undo the last install, or every install down to the one that took `backup-id`. |
+| `dotai restore --project` | Undo the profiles applied to the project in the current directory. |
+| `dotai doctor [--fix]` | Report what changed outside dotai since it wrote it; `--fix` writes missing `.git/info/exclude` entries. |
+| `dotai pack add <github-url>` | Add a pack from GitHub at `--ref`, or a local one with `--dir <path>`. |
+| `dotai pack update <identity>` | Fetch a GitHub pack again and show what changed in its executable content before replacing it. |
+| `dotai pack new <dir> --name <n>` | Create a pack from the template embedded in the engine and add it to the registry. |
+| `dotai ui` | Serve the local web UI on `127.0.0.1`. |
+| `dotai validate [path]` | Check a pack's structure and merge rules. |
+
+`install`, `apply` and `pack new` take `--dry-run`. `dotai <command> --help` describes each command in full.
+
+## dotai and rulesync
+
+dotai renders packs with [rulesync](https://github.com/dyoshikawa/rulesync), and a pack's layers use the rulesync layout. rulesync on its own generates each harness's files from one source. dotai adds:
+
+- **Pinned rendering.** Each pack names its rulesync version; dotai downloads it once and checks it against checksums embedded in the engine. dotai also renders per-harness settings, tools and their path variables.
+- **Plans.** Every file and settings key is shown before it is written, with `--dry-run` and `--json`.
+- **Backups, a journal and restore.** A backup before every write, a journal and a rollback on failure, and `dotai restore` to undo an install.
+- **Isolated installs.** An install under `~/.dotai/isolated/` that leaves your own harness configuration as it is, launched with `dotai run`.
+- **Project profiles kept out of git.** Local, untracked files listed in `.git/info/exclude`, undone with `dotai restore --project`.
+- **`dotai doctor`.** A report of what changed outside dotai since it wrote it.
+- **A web UI.** The same use cases on `127.0.0.1`, each action shown as its plan first.
+
 ## Docs
 
+- [Installing dotai](docs/INSTALL.md): the install scripts, their options, and installing a release by hand.
 - [Architecture](docs/ARCHITECTURE.md): how the engine works and the code map.
 - [Pack format](docs/PACK-FORMAT.md): the pack contract.
 - [CLI JSON output](docs/CLI-JSON.md): every command, its `--json` data, and the web UI API.
