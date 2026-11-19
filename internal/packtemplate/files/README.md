@@ -1,8 +1,11 @@
 # A dotai pack
 
+[![dotai pack](https://raw.githubusercontent.com/lartweib/dotai/main/docs/images/badge-dotai-pack.svg)](https://github.com/lartweib/dotai)
+
 This pack started from dotai's template. It shows the files and folders dotai
 expects, in the shape `dotai validate` accepts; what the pack holds from here is
-yours. The format is in dotai's `docs/PACK-FORMAT.md`.
+yours. The format is in dotai's `docs/PACK-FORMAT.md`. The badge above marks
+the repository as a dotai pack; keep it or remove it.
 
 ```
 dotai.yaml                 the manifest: name, harnesses, profiles, variants
