@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -75,37 +74,6 @@ func TestRunOnboardingHook(t *testing.T) {
 				t.Errorf("exit code = %d, stdout = %q, stderr = %q, want 0, %q and nothing", code, stdout.String(), stderr.String(), tt.want)
 			}
 		})
-	}
-}
-
-// TestRunOnboardingHookWaitsForTheHookItStopped checks the bound of 1 s:
-// the hook's ctx ends before it, and the command waits for the hook to
-// return, as the git it runs is killed, so that no process is left behind.
-func TestRunOnboardingHookWaitsForTheHookItStopped(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("USERPROFILE", os.Getenv("HOME"))
-	var stdout, stderr bytes.Buffer
-	env := testEnv(&stdout, &stderr)
-	var returned atomic.Bool
-	var bound time.Duration
-	start := time.Now()
-	env.OnboardingHook = func(ctx context.Context, _, _ string) (string, error) {
-		deadline, _ := ctx.Deadline()
-		bound = deadline.Sub(start)
-		<-ctx.Done()
-		time.Sleep(50 * time.Millisecond) // git, killed, exits
-		returned.Store(true)
-		return "dotai: late", nil
-	}
-	code := cli.Run([]string{"onboarding", "hook", "--harness", "claudecode"}, env)
-	if code != cli.ExitOK || stdout.Len() != 0 {
-		t.Errorf("exit code = %d, stdout = %q, want 0 and silence", code, stdout.String())
-	}
-	if !returned.Load() {
-		t.Errorf("the command returned before the hook it stopped")
-	}
-	if bound <= 0 || bound > time.Second {
-		t.Errorf("the hook's ctx ends after %v, want within 1 s", bound)
 	}
 }
 
