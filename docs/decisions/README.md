@@ -100,6 +100,7 @@ Read these first for the shape of the engine:
 | No. | Title | Status | Date |
 |---|---|---|---|
 | [0042](0042-tag-driven-release-binaries.md) | Tag-driven release binaries built by a script and published with gh | accepted | 2026-11-03 |
+| [0048](0048-one-command-install-scripts.md) | One-command install scripts that verify the release checksum | proposed | 2026-11-19 |
 
 ## Superseded (history only)
 

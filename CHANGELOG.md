@@ -18,3 +18,4 @@ The first release, `v0.1.0`, will contain:
 - **Web UI.** `dotai ui` serves the same use cases on `127.0.0.1`, with every action shown as its plan first.
 - **JSON output.** Every command takes `--json` and prints a versioned envelope ([CLI-JSON.md](docs/CLI-JSON.md)).
 - **Releases.** Tag-driven binaries for Windows, Linux and macOS, with `SHA256SUMS`.
+- **Install scripts.** `install.sh` and `install.ps1` install a release in one command, after verifying its checksum against `SHA256SUMS`, without sudo, and put its directory on `PATH` through the shell profile or the user `Path` unless `DOTAI_NO_MODIFY_PATH=1` or `--no-modify-path` is given.

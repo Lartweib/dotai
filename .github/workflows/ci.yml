@@ -60,6 +60,10 @@ jobs:
       - name: release tag pattern
         if: runner.os == 'Linux'
         run: bash scripts/release.sh --self-test
+      # shellcheck comes with the Ubuntu runner image.
+      - name: shellcheck
+        if: runner.os == 'Linux'
+        run: shellcheck install.sh scripts/release.sh
       - name: vet
         run: go vet ./...
       # Runs the tests of the web UI's pure modules (internal/server/webtest).
@@ -73,6 +77,10 @@ jobs:
       - name: test
         if: runner.os == 'Windows'
         run: go test ./...
+      # Runs the install scripts again, verbose, so that the log shows the
+      # shells each case ran under (sh and bash, or powershell and pwsh).
+      - name: install scripts
+        run: go test -count=1 -v -run TestInstallScripts ./cmd/dotai | grep -E '^ *--- |^(ok|FAIL|PASS)'
       - name: build
         run: go build ./cmd/dotai
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
