@@ -14,6 +14,7 @@ The first release, `v0.1.0`, will contain:
 - **Doctor.** `dotai doctor` reports what changed outside dotai since it wrote it, with stable finding codes, and `--fix` writes missing exclude entries.
 - **Pack registry.** `dotai pack add`, `update`, `remove`, `list` and `copy`, with packs from github.com fetched by the user's git or from a local directory; an update shows what changed in the pack's executable content first.
 - **Template and wizard.** `dotai pack new` creates a pack from a template embedded in the engine; files left as the template wrote them need consent to install.
+- **Pack badge.** A "dotai pack" badge for a pack's README, which the template's README starts with ([PACK-FORMAT](docs/PACK-FORMAT.md#badge)).
 - **Onboarding.** `dotai install` generates a profiling skill and a session-start hook, so that a session in a new repository proposes profiles for the user to approve.
 - **Web UI.** `dotai ui` serves the same use cases on `127.0.0.1`, with every action shown as its plan first.
 - **JSON output.** Every command takes `--json` and prints a versioned envelope ([CLI-JSON.md](docs/CLI-JSON.md)).

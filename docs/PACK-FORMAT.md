@@ -131,7 +131,7 @@ Decided in [0046](decisions/0046-pack-templates-and-wizard.md). dotai embeds one
 | `base/.rulesync/permissions.jsonc`, `base/dotai/settings.yaml` | A permission and a Claude Code `env` setting |
 | `base/dotai/tools/example-tool.sh`, `.ps1` | A tool, once per OS |
 | `variants/default/`, `profiles/<profile>/`, `mods/<mod>/` | A rule of the default variant, a rule of each profile, and a Claude Code plugin with a hooks module for each mod a profile names |
-| `README.md` | The layout, at the top, where dotai reads only `dotai.yaml` |
+| `README.md` | The [badge](#badge) and the layout, at the top, where dotai reads only `dotai.yaml` |
 
 It has no `dotai-profiles` item and no `onboarding` subagent: dotai generates the onboarding ([Onboarding](#onboarding)).
 
@@ -152,6 +152,24 @@ profiles:
 **Unchanged example files.** The engine keeps the SHA-256 of every file below the top of the pack that each released version of the template writes, with line endings normalized, so that a file checked out with CRLF still matches; a new version of the template appends its hashes. A file of a pack, below its top and outside `.git`, whose content is one of them is `template-unchanged`: `dotai validate` warns about each one, and `dotai pack add` warns, listing them. Edit each example for the pack, or delete it; any change clears the warning.
 
 The plans of `dotai install` and `dotai apply` warn `template-unchanged` about each such file of the layers they install, the base and the variant for an install, the profiles and the mods they name for an apply, and carrying such a plan out needs the consent those commands already ask for: once on a terminal, after the plan; refused without a terminal or with `--json` unless `--yes`, which accepts what the plan asks to confirm; and, in the web UI, the plan's digest with `yes`. An isolated install, which otherwise never asks, asks while the pack keeps an example file of its user scope ([CLI-JSON](CLI-JSON.md#commands)). A published pack that kept the examples is flagged as well.
+
+## Badge
+
+A pack's repository can show this badge in its README to mark it as a dotai pack, linked to dotai's repository. It says what the repository holds; it is not a check that dotai ran. The image is [`docs/images/badge-dotai-pack.svg`](images/badge-dotai-pack.svg), 94 by 20 pixels, and a pack's README references it by absolute URL, which GitHub serves through its image proxy. The template's README starts with it ([Creating a pack](#creating-a-pack)).
+
+![dotai pack](images/badge-dotai-pack.svg)
+
+In Markdown:
+
+```markdown
+[![dotai pack](https://raw.githubusercontent.com/lartweib/dotai/main/docs/images/badge-dotai-pack.svg)](https://github.com/lartweib/dotai)
+```
+
+In HTML:
+
+```html
+<a href="https://github.com/lartweib/dotai"><img src="https://raw.githubusercontent.com/lartweib/dotai/main/docs/images/badge-dotai-pack.svg" alt="dotai pack" width="94" height="20"></a>
+```
 
 ## Adding a pack
 
