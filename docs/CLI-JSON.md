@@ -225,7 +225,7 @@ Validates the pack, then downloads the rulesync binary its manifest pins into `<
 
 `version`, `asset` (the release file name), `path`, `sha256`, `cached` (`true` when no download was needed) and `diagnostics` as in `validate`. A pack with errors fails with `invalid`, carries the same `data` with empty fetch fields and downloads nothing. An unsupported platform, a failed or cancelled download, or a checksum mismatch fails with `internal`.
 
-A failed fetch leaves no file of its own, not even a temporary one; a corrupt cached binary that was there before may remain, and the next run checks it again and replaces it. Without `--json`, a real download is announced with one line on stderr, such as `downloading rulesync 43.9.2 (109 MB)...`; a cached binary prints nothing there.
+A failed fetch leaves no file of its own, not even a temporary one; a corrupt cached binary that was there before may remain, and the next run checks it again and replaces it. Without `--json`, a real download is announced with one line on stderr, such as `downloading rulesync 43.10.0 (109 MB)...`; a cached binary prints nothing there.
 
 ### install --dry-run
 

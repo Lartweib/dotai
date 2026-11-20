@@ -103,3 +103,5 @@ Update 2026-11-18: implemented as [PACK-FORMAT](../PACK-FORMAT.md#onboarding) an
 Update 2026-11-18: the OpenCode stdin problem named in the Evidence is now in [HARNESS-NOTES](../HARNESS-NOTES.md#hook-commands); the Evidence line that says it is not there yet no longer holds.
 
 Update 2026-11-18: checked again through `dotai stage` with rulesync 43.9.2: the hook renders the same for the three harnesses; a hooks file without shared hooks still fails, so the empty `hooks` object stays; and OpenCode's plugin, which now subscribes to `session.created` only, still does not pass the hook's output on and still lets a command inherit its stdin, so OpenCode support stays provisional ([HARNESS-NOTES](../HARNESS-NOTES.md#rulesync-4392)).
+
+Update 2026-11-19: with rulesync 43.10.0, OpenCode's plugin no longer lets a command inherit its stdin and enforces hook timeouts, by its code and by a script that called the installed plugin's hooks; it still does not pass a `sessionStart` hook's output to the model. No OpenCode session was run, so OpenCode support stays provisional until one is ([HARNESS-NOTES](../HARNESS-NOTES.md#rulesync-43100)).

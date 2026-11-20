@@ -307,7 +307,7 @@ var (
 		// OpenCode has no mods.
 		NoSlot: []ProjectKind{ProjectMods},
 		// rulesync names the hooks plugin file the same at both scopes.
-		// OpenCode 2 keeps one plugin per id, and rulesync 43.9.2 derives
+		// OpenCode 2 keeps one plugin per id, and rulesync 43.10.0 derives
 		// the id from the file's URL, so the scopes' ids differ; the
 		// project's still gets a file name of its own, and a plugin with
 		// any other id, such as the fixed one of rulesync 41.0.0, which

@@ -19,7 +19,7 @@ import (
 
 // writeRealHome replaces, in every file rulesync wrote into the scope tree
 // scope of the staging tree root, the home directory rulesync ran with,
-// that scope tree, by the real home directory of tools: rulesync 43.9.2
+// that scope tree, by the real home directory of tools: rulesync 43.10.0
 // writes a ~/ path of agy's permissions as an absolute path under its
 // home, which would name a staging tree that is gone. The files of staged,
 // which dotai wrote, keep their bytes.

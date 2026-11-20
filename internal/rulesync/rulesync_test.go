@@ -234,25 +234,25 @@ func TestFetchCancelled(t *testing.T) {
 }
 
 func TestBuiltInTable(t *testing.T) {
-	if got := rulesync.Versions(); !slices.Equal(got, []string{"43.9.2"}) || rulesync.Supported("41.0.0") {
-		t.Errorf("Versions() = %v, want 43.9.2 only", got)
+	if got := rulesync.Versions(); !slices.Equal(got, []string{"43.10.0"}) || rulesync.Supported("41.0.0") {
+		t.Errorf("Versions() = %v, want 43.10.0 only", got)
 	}
-	// The SHA-256 of each v43.9.2 asset, as its SHA256SUMS and the GitHub
+	// The SHA-256 of each v43.10.0 asset, as its SHA256SUMS and the GitHub
 	// API digest give it (0029).
 	tests := []struct{ goos, goarch, want, sha string }{
-		{"windows", "amd64", "rulesync-windows-x64.exe", "e24d352549059a42b4a9d9e654398f8e67c49a01d90cf93ec0000fcb8b6f6c7d"},
-		{"linux", "amd64", "rulesync-linux-x64", "4b91e172ca1c48084911e8f08b1a45cc0cae860cead8d1bd65cba4d5e438c608"},
-		{"linux", "arm64", "rulesync-linux-arm64", "25c97255e051a0fb9fd3043ffd4ea2daf8443e58553b19bbead83cf7c563b5d1"},
-		{"darwin", "amd64", "rulesync-darwin-x64", "546f4af78d1411121b87fc7479da59d280afbd6a6ddf91f5f221fd99b02447b9"},
-		{"darwin", "arm64", "rulesync-darwin-arm64", "dc0d8e4517c643ef60b38b183b7e8251b89405f97656365af939427151cc8026"},
+		{"windows", "amd64", "rulesync-windows-x64.exe", "ba4368a264c76505bf3fb38f78109adcf1ed7772b6c5d3bde18859b471f2750e"},
+		{"linux", "amd64", "rulesync-linux-x64", "d9aed6fdac164b984430751c333d716230342da1ac84044c7d8f34533e5cd5f7"},
+		{"linux", "arm64", "rulesync-linux-arm64", "51f1c25ccfa3e758afc3d4a68b129b77b14046f384061ce556e148023a8978d6"},
+		{"darwin", "amd64", "rulesync-darwin-x64", "02935b6a6eee1e10def50be5f4f36de9da5428897eeee435af2997e61ad77bde"},
+		{"darwin", "arm64", "rulesync-darwin-arm64", "773b77d1cde9f6013868aaa4de3ab6570ca361c15fef9f9a645280b4935de118"},
 	}
 	for _, tt := range tests {
-		a, err := rulesync.Resolve("43.9.2", tt.goos, tt.goarch)
+		a, err := rulesync.Resolve("43.10.0", tt.goos, tt.goarch)
 		if err != nil || a.Name != tt.want || a.SHA256 != tt.sha {
 			t.Errorf("Resolve(%s/%s) = %+v, %v, want %s with %s", tt.goos, tt.goarch, a, err, tt.want, tt.sha)
 		}
 	}
-	if _, err := rulesync.Resolve("43.9.2", "windows", "arm64"); err == nil || !strings.Contains(err.Error(), "unsupported platform") {
+	if _, err := rulesync.Resolve("43.10.0", "windows", "arm64"); err == nil || !strings.Contains(err.Error(), "unsupported platform") {
 		t.Errorf("Resolve(windows/arm64) error = %v, want unsupported platform", err)
 	}
 }
