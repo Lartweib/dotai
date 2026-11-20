@@ -4,11 +4,13 @@
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/logo-mark-dark.svg">
   <img src="docs/images/logo-mark.svg" alt="" width="96">
 </picture>
-<br>
+
+<h1>
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/logo-wordmark-dark.svg">
   <img src="docs/images/logo-wordmark-light.svg" alt="dotai" width="200">
 </picture>
+</h1>
 
 <!-- The release badge shows "no releases" until v0.1.0 is published. -->
 
@@ -20,8 +22,6 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/lartweib/dotai)](https://goreportcard.com/report/github.com/lartweib/dotai)
 
 </div>
-
-# dotai
 
 One pack of agent configuration, rendered into Claude Code, Antigravity CLI and OpenCode, with every write planned, backed up and reversible.
 
