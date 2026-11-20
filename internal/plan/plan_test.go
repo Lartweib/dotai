@@ -601,6 +601,8 @@ func TestLocateInReplaceMode(t *testing.T) {
 		".gemini/antigravity-cli/settings.json":                  ".gemini/antigravity-cli/settings.json",
 		".gemini/antigravity-cli/skills/commit-message/SKILL.md": ".gemini/config/skills/commit-message/SKILL.md",
 		".gemini/config/rules/standalone.md":                     ".gemini/config/rules/standalone.md",
+		// Claude Code's user-scope MCP servers (decision 0049).
+		".claude.json": ".claude.json",
 	}
 	for source, rel := range want {
 		if _, target, ok := plan.Locate(home, harness.Replace, all, source); !ok || target != under(home, rel) {
@@ -645,7 +647,8 @@ func TestBuildOwnedTargetsPerMode(t *testing.T) {
 		{harness.Replace, "", ".dotai/isolated/claude/CLAUDE.md", false},
 		{harness.Replace, harness.Isolated, ".dotai/isolated/claude/CLAUDE.md", true},
 		{harness.Replace, harness.Isolated, ".claude/CLAUDE.md", true},
-		{harness.Replace, "", ".claude.json", false},
+		{harness.Replace, "", ".claude.json.bak", false},
+		{harness.Isolated, "", ".claude.json", false},
 		{harness.Replace, "", ".config/other/x", false},
 		{harness.Replace, "", ".dotai/state.json", false},
 	} {
@@ -673,6 +676,9 @@ func TestSettingsOfEitherLayout(t *testing.T) {
 		".dotai/isolated/opencode/config/opencode/opencode.jsonc": "opencode",
 		".config/opencode/opencode.jsonc":                         "opencode",
 		".gemini/settings.json":                                   "",
+		".dotai/isolated/claude/.claude.json":                     "claudecode",
+		".claude.json":                                            "claudecode",
+		".dotai/isolated/gemini/.claude.json":                     "",
 	} {
 		if got, ok := plan.SettingsOf(home, under(home, rel)); got != want || ok != (want != "") {
 			t.Errorf("SettingsOf(%s) = %q, %v, want %q", rel, got, ok, want)
@@ -694,4 +700,96 @@ func TestBuildInReplaceModeTakesAHarnessWithoutIsolation(t *testing.T) {
 	if want := `harness "claudecode" does not offer the isolated mode`; err == nil || !strings.Contains(err.Error(), want) {
 		t.Errorf("Build(isolated) error = %v, want it to contain %q", err, want)
 	}
+}
+
+// TestLocateClaudeHomeFile checks where rulesync's .claude.json, Claude
+// Code's user-scope MCP servers at the root of the staging tree, installs
+// (decision 0049): into the isolated directory, where CLAUDE_CONFIG_DIR
+// makes Claude Code read it, or at the root of the home directory in the
+// replace mode. It is not Claude Code's without that harness.
+func TestLocateClaudeHomeFile(t *testing.T) {
+	home := t.TempDir()
+	for m, rel := range map[harness.Mode]string{harness.Isolated: ".dotai/isolated/claude/.claude.json", harness.Replace: ".claude.json"} {
+		h, target, ok := plan.Locate(home, m, adapters(t, "claudecode"), ".claude.json")
+		if !ok || h != "claudecode" || target != under(home, rel) {
+			t.Errorf("Locate(%s, .claude.json) = %q, %s, %v, want claudecode at %s", m, h, target, ok, rel)
+		}
+	}
+	if _, _, ok := plan.Locate(home, harness.Isolated, adapters(t, "antigravity-cli", "opencode"), ".claude.json"); ok {
+		t.Error("Locate(.claude.json) without Claude Code found a target")
+	}
+}
+
+// TestBuildOwnsOnlyTheMCPServersOfClaudeHomeFile checks the plan of
+// ~/.claude.json in the replace mode (decision 0049): a file Claude Code
+// rewrites with its login and history, so the plan sets only the servers
+// the pack stages, one by one, and keeps every other key, its line
+// endings, and every server it does not own.
+func TestBuildOwnsOnlyTheMCPServersOfClaudeHomeFile(t *testing.T) {
+	home := t.TempDir()
+	target := under(home, ".claude.json")
+	current := "{\r\n  \"oauthAccount\": {\"emailAddress\": \"a@b.c\"},\r\n  \"mcpServers\": {\r\n    \"mine\": {\"command\": \"x\"},\r\n    \"otea\": {\"command\": \"old\"}\r\n  },\r\n  \"projects\": {}\r\n}\r\n"
+	staged := `{"mcpServers": {"engram": {"command": "engram"}, "otea": {"command": "otea"}}}`
+	in := plan.Input{
+		Home: home, Mode: harness.Replace, Adapters: adapters(t, "claudecode"),
+		Files:   []plan.File{{Path: ".claude.json", Hash: "s", Data: []byte(staged)}},
+		Disk:    map[string]plan.Current{target: {Hash: "c"}},
+		Content: map[string][]byte{target: []byte(current)},
+	}
+	got, err := plan.Build(in)
+	if err != nil || len(got.Ops) != 1 {
+		t.Fatalf("Build() = %+v, %v, want one op", got.Ops, err)
+	}
+	op := got.Ops[0]
+	if want := []plan.KeyChange{{Key: "mcpServers.engram", Action: plan.Create}, {Key: "mcpServers.otea", Action: plan.Replace}}; op.Action != plan.Replace || !op.Settings || !reflect.DeepEqual(op.Changes, want) {
+		t.Errorf("op = %+v, want a replace of %+v", op, want)
+	}
+	if want := []string{"mcpServers.engram", "mcpServers.otea"}; !reflect.DeepEqual(names(op.Keys), want) {
+		t.Errorf("owned keys = %v, want %v", names(op.Keys), want)
+	}
+	data := string(op.Data)
+	for _, s := range []string{`"oauthAccount": {"emailAddress": "a@b.c"}`, `"mine": {"command": "x"}`, `"projects": {}`, "\r\n"} {
+		if !strings.Contains(data, s) {
+			t.Errorf("data lacks %q:\n%s", s, data)
+		}
+	}
+	if strings.Contains(data, `"old"`) || !strings.Contains(data, `"engram"`) {
+		t.Errorf("data = %s, want the pack's servers", data)
+	}
+
+	// The pack drops every server: dotai deletes its own, and the file,
+	// which holds the user's keys, stays.
+	owned := map[string]plan.Owned{target: {Harness: "claudecode", Hash: "c", Keys: op.Keys}}
+	in = plan.Input{Home: home, Mode: harness.Replace, PrevMode: harness.Replace, Adapters: adapters(t, "claudecode"),
+		Disk: map[string]plan.Current{target: {Hash: "d"}}, Content: map[string][]byte{target: op.Data}, Owned: owned}
+	got, err = plan.Build(in)
+	if err != nil || len(got.Ops) != 1 || got.Ops[0].Action != plan.Replace {
+		t.Fatalf("Build() without servers = %+v, %v, want a replace", got.Ops, err)
+	}
+	if want := []plan.KeyChange{{Key: "mcpServers.engram", Action: plan.Remove}, {Key: "mcpServers.otea", Action: plan.Remove}}; !reflect.DeepEqual(got.Ops[0].Changes, want) {
+		t.Errorf("changes = %+v, want %+v", got.Ops[0].Changes, want)
+	}
+	if d := string(got.Ops[0].Data); !strings.Contains(d, `"mine"`) || strings.Contains(d, "engram") || !strings.Contains(d, "oauthAccount") {
+		t.Errorf("data = %s, want only dotai's servers gone", d)
+	}
+}
+
+// TestBuildRefusesClaudeHomeFileOwnedWhole checks that a record that owns
+// ~/.claude.json whole, which no install writes, never makes the plan
+// remove or replace the file.
+func TestBuildRefusesClaudeHomeFileOwnedWhole(t *testing.T) {
+	home := t.TempDir()
+	target := under(home, ".claude.json")
+	in := plan.Input{Home: home, Mode: harness.Replace, Owned: map[string]plan.Owned{target: {Harness: "claudecode", Hash: "h"}}, Disk: map[string]plan.Current{target: {Hash: "h"}}}
+	if got, err := plan.Build(in); err == nil || !strings.Contains(err.Error(), "only key by key") {
+		t.Errorf("Build() = %+v, %v, want a refusal of a record without keys", got.Ops, err)
+	}
+}
+
+func names(keys []plan.Key) []string {
+	var out []string
+	for _, k := range keys {
+		out = append(out, k.Name())
+	}
+	return out
 }

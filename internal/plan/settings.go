@@ -21,11 +21,22 @@ import (
 // so that every other byte of the file stays as the harness left it.
 
 // envKey is the key of Claude Code's settings whose variables are owned
-// one by one, as the settings merge identifies them (decision 0030).
-const envKey = "env"
+// one by one, as the settings merge identifies them (decision 0030), and
+// mcpKey the key of its .claude.json whose servers are owned one by one,
+// as the MCP merge identifies them (decision 0049). In Claude Code's files
+// each is an object owned member by member, and an object of them that a
+// write empties goes.
+const (
+	envKey = "env"
+	mcpKey = "mcpServers"
+)
+
+// memberKeys are the keys of Claude Code's files owned member by member.
+var memberKeys = []string{envKey, mcpKey}
 
 // Key is a key dotai owns in a settings file: its path, the top-level key
-// or, in Claude Code's settings, ["env", VAR] for each variable, and the
+// or, in Claude Code's files, ["env", VAR] for each variable and
+// ["mcpServers", NAME] for each MCP server, and the
 // SHA-256 in hex of its value as canonical JSON (see jsonc.Canonical).
 type Key struct {
 	Path   []string `json:"path"`
@@ -70,7 +81,7 @@ func SettingsKeys(h string, data []byte) ([]Key, error) {
 
 // WriteKeys returns data, the settings file of harness h, with each key of
 // paths set to its value in from, or deleted when from does not have it;
-// an env that it leaves empty goes too. Every byte of data that holds no
+// an env or mcpServers of Claude Code's that it leaves empty goes too. Every byte of data that holds no
 // such key stays as it was, comments and formatting included.
 func WriteKeys(h string, data, from []byte, paths [][]string) ([]byte, error) {
 	doc, err := parseSettings(data)
@@ -81,7 +92,7 @@ func WriteKeys(h string, data, from []byte, paths [][]string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	env := false // a variable of env was deleted
+	emptied := map[string]bool{} // the member keys a member was deleted from
 	for _, p := range paths {
 		if v, ok := src.Get(p); ok {
 			if err := doc.Set(p, v); err != nil {
@@ -95,11 +106,15 @@ func WriteKeys(h string, data, from []byte, paths [][]string) ([]byte, error) {
 		if err := doc.Delete(p); err != nil {
 			return nil, fmt.Errorf("key %s: %w", strings.Join(p, "."), err)
 		}
-		env = env || h == claudeCode && len(p) == 2 && p[0] == envKey
+		if h == claudeCode && len(p) == 2 && slices.Contains(memberKeys, p[0]) {
+			emptied[p[0]] = true
+		}
 	}
-	if names, ok := doc.Keys([]string{envKey}); env && ok && len(names) == 0 {
-		if err := doc.Delete([]string{envKey}); err != nil {
-			return nil, err
+	for _, k := range memberKeys {
+		if names, ok := doc.Keys([]string{k}); emptied[k] && ok && len(names) == 0 {
+			if err := doc.Delete([]string{k}); err != nil {
+				return nil, err
+			}
 		}
 	}
 	return doc.Bytes(), nil
@@ -147,14 +162,16 @@ type settingsFile struct {
 	owned   *Owned
 }
 
-// SettingsOf returns the harness whose settings file is target, an
-// absolute path under home, among every harness dotai knows and in the
-// layout of either mode, so that the file of a harness the pack dropped,
-// or of an install in the other mode, is still one.
+// SettingsOf returns the harness whose settings file, or HomeConfig, is
+// target, an absolute path under home, among every harness dotai knows and
+// in the layout of either mode, so that the file of a harness the pack
+// dropped, or of an install in the other mode, is still one. Both are
+// owned key by key (decisions 0035 and 0049).
 func SettingsOf(home, target string) (string, bool) {
 	for _, a := range harness.All() {
 		for _, m := range modes {
-			if a.Settings != "" && filepath.Join(home, filepath.FromSlash(a.SettingsTarget(m))) == target {
+			if a.Settings != "" && filepath.Join(home, filepath.FromSlash(a.SettingsTarget(m))) == target ||
+				a.HomeConfig != "" && filepath.Join(home, filepath.FromSlash(a.HomeConfigTarget(m))) == target {
 				return a.ID, true
 			}
 		}
@@ -329,7 +346,8 @@ func keyAt(keys []Key, path []string) (Key, bool) {
 	return keys[i], true
 }
 
-// claudeCode is the harness whose env is owned per variable.
+// claudeCode is the harness whose env is owned per variable, and its MCP
+// servers per server.
 const claudeCode = "claudecode"
 
 // parseSettings parses a settings file, which must be empty or a JSON or
@@ -347,10 +365,10 @@ func settingsValues(h string, doc *jsonc.Document) []keyValue {
 	names, _ := doc.Keys(nil)
 	var out []keyValue
 	for _, name := range names {
-		if vars, ok := doc.Keys([]string{envKey}); h == claudeCode && name == envKey && ok {
-			for _, v := range vars {
-				value, _ := doc.Get([]string{envKey, v})
-				out = append(out, keyValue{path: []string{envKey, v}, value: value})
+		if members, ok := doc.Keys([]string{name}); h == claudeCode && slices.Contains(memberKeys, name) && ok {
+			for _, m := range members {
+				value, _ := doc.Get([]string{name, m})
+				out = append(out, keyValue{path: []string{name, m}, value: value})
 			}
 			continue
 		}

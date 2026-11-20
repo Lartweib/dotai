@@ -217,6 +217,32 @@ func TestSplitFiles(t *testing.T) {
 	}
 }
 
+// TestHomeConfig checks the file Claude Code keeps at the root of the home
+// directory, which rulesync stages for its user-scope MCP servers: it
+// installs inside the isolated directory, where CLAUDE_CONFIG_DIR moves
+// it, and at the root of the home directory in the replace mode (decision
+// 0049). No other harness has one.
+func TestHomeConfig(t *testing.T) {
+	claude := adapter(t, "claudecode")
+	if claude.HomeConfig != ".claude.json" {
+		t.Errorf("Claude Code's HomeConfig = %q, want .claude.json", claude.HomeConfig)
+	}
+	for m, want := range map[harness.Mode]string{harness.Isolated: ".dotai/isolated/claude/.claude.json", harness.Replace: ".claude.json"} {
+		if got := claude.HomeConfigTarget(m); got != want {
+			t.Errorf("HomeConfigTarget(%s) = %q, want %q", m, got, want)
+		}
+	}
+	// The replace mode splits the same file, so both must name it.
+	if claude.HomeConfig != claude.Real.Split[0].Path {
+		t.Errorf("HomeConfig %q is not the split file %q", claude.HomeConfig, claude.Real.Split[0].Path)
+	}
+	for _, id := range []string{"antigravity-cli", "opencode"} {
+		if a := adapter(t, id); a.HomeConfig != "" || a.HomeConfigTarget(harness.Replace) != "" || a.HomeConfigTarget(harness.Isolated) != "" {
+			t.Errorf("%s has the home file %q, want none", id, a.HomeConfig)
+		}
+	}
+}
+
 // TestLooksSensitive checks the safety net: an unknown entry whose name
 // looks like a login or history is never wiped unclassified.
 func TestLooksSensitive(t *testing.T) {

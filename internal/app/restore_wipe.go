@@ -291,7 +291,10 @@ func (r *restorer) realParents(p string) error {
 // restore with nothing changed since is exact; a file that holds what was
 // there before is left; a missing one gets its copy back whole. Otherwise
 // each key goes back to the value it had before, every other key stays,
-// and a key that holds something else now is a conflict.
+// and a key that holds something else now is a conflict. A file the
+// restore also writes key by key, a harness's HomeConfig such as
+// ~/.claude.json (decision 0049), starts from what that op leaves there,
+// and the op writes the keys put back too, so that one write does both.
 func (r *restorer) planSplits(res *RestoreResult, chain []undone) error {
 	var targets []string
 	for _, u := range chain {
@@ -311,6 +314,11 @@ func (r *restorer) planSplits(res *RestoreResult, chain []undone) error {
 		}
 		if err != nil {
 			return err
+		}
+		folded := slices.IndexFunc(r.p.ops, func(op plan.Op) bool { return op.Target == target && op.Settings })
+		if folded >= 0 {
+			op := r.p.ops[folded]
+			cur, held = op.Data, plan.Current{Hash: op.After, Exec: op.Exec}
 		}
 		end, harnessID := cur, ""
 		var keys [][]string
@@ -377,9 +385,29 @@ func (r *restorer) planSplits(res *RestoreResult, chain []undone) error {
 		if cur != nil && string(end) == string(cur) {
 			continue
 		}
+		if folded >= 0 {
+			r.foldSplit(res, folded, end)
+			continue
+		}
 		r.splits = append(r.splits, splitWrite{harness: harnessID, target: target, before: held, prior: cur, data: end, keys: keys})
 	}
 	return nil
+}
+
+// foldSplit makes the settings op i of the restore write end, which puts
+// back the keys of a split file too, and the op of res for its target
+// report it.
+func (r *restorer) foldSplit(res *RestoreResult, i int, end []byte) {
+	op := &r.p.ops[i]
+	if op.Action == plan.Remove {
+		op.Action, op.Exec = plan.Replace, op.BeforeExec
+	}
+	op.Data, op.After = end, contentHash(end)
+	for j := range res.Ops {
+		if res.Ops[j].Target == op.Target {
+			res.Ops[j].Action, res.Ops[j].After, res.Ops[j].Exec = op.Action, op.After, op.Exec
+		}
+	}
 }
 
 // canonical is value, valid JSON, in the form where equal values are

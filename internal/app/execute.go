@@ -779,6 +779,9 @@ func installRoot(home, target string, layouts ...harness.Mode) (root, name strin
 	for _, layout := range layouts {
 		if layout == harness.Replace {
 			for _, a := range harness.All() {
+				if a.HomeConfig != "" && rel == a.HomeConfigTarget(harness.Replace) {
+					return home, rel, nil // a file at the root of the home directory (decision 0049)
+				}
 				dir := a.Root(harness.Replace)
 				if rest, ok := strings.CutPrefix(rel, dir+"/"); ok && rest != "" {
 					return filepath.Join(home, filepath.FromSlash(dir)), rest, nil

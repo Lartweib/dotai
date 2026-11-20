@@ -461,7 +461,12 @@ func checkSplits(m Manifest, id, home string, seen map[string]bool) error {
 		if !Clean(s.Target) {
 			return fmt.Errorf("backup manifest %s: split file %s is not a clean absolute path", id, s.Target)
 		}
-		if seen[s.Target] {
+		// A split folded into a settings op of the same target shares its
+		// copy (decision 0049).
+		folded := slices.ContainsFunc(m.Ops, func(o Op) bool {
+			return o.Target == s.Target && o.File != "" && o.File == s.File && o.Before != nil && o.Before.SHA256 == s.Before.SHA256
+		})
+		if seen[s.Target] && !folded {
 			return fmt.Errorf("backup manifest %s: target %s is named twice", id, s.Target)
 		}
 		seen[s.Target] = true

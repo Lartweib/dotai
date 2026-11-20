@@ -368,3 +368,10 @@ func (g listGit) Files(context.Context, string) ([]string, error)               
 func DismissOnboardingWith(ctx context.Context, d executeFS, g gitPort, cwd, home string) (DismissResult, error) {
 	return dismissOnboarding(ctx, d, g, cwd, home)
 }
+
+// InstallWithRulesync is Install with the real rulesync from cacheDir, on
+// a host that finds every harness, accepting what the plan asks to
+// confirm.
+func InstallWithRulesync(ctx context.Context, cacheDir, dir, home string, opts InstallOptions) (InstallResult, error) {
+	return install(ctx, osInstallFS{}, everyHarness, download, generate, cacheDir, dir, home, opts, nil, nil, func(InstallPlan) (bool, error) { return true, nil })
+}

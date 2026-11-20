@@ -15,6 +15,8 @@ func TestKindOfTellsTheKindOfAStagedUserFile(t *testing.T) {
 		".claude/commands/review.md":                             harness.ProjectCommands,
 		".claude/settings.json":                                  harness.ProjectSettings,
 		".claude/unknown.txt":                                    "",
+		".claude.json":                                           harness.ProjectMCP,
+		".claude.json.bak":                                       "",
 		".gemini/GEMINI.md":                                      harness.ProjectRules,
 		".gemini/config/rules/tmux.md":                           harness.ProjectRules,
 		".gemini/config/agents/reviewer.md":                      harness.ProjectAgents,
@@ -64,6 +66,10 @@ func TestStagedOfFindsTheStagedPathOfAnInstalledFile(t *testing.T) {
 		{"antigravity-cli", harness.Isolated, ".dotai/isolated/gemini/config/skills/x/SKILL.md", ".gemini/antigravity-cli/skills/x/SKILL.md"},
 		{"opencode", harness.Isolated, ".dotai/isolated/opencode/config/opencode/memories/a.md", ".config/opencode/memories/a.md"},
 		{"opencode", harness.Isolated, ".dotai/tools/hello.sh", ""},
+		// Claude Code's home file, outside its configuration directory.
+		{"claudecode", harness.Isolated, ".dotai/isolated/claude/.claude.json", ".claude.json"},
+		{"claudecode", harness.Replace, ".claude.json", ".claude.json"},
+		{"antigravity-cli", harness.Replace, ".claude.json", ""},
 	}
 	for _, tt := range tests {
 		if got := byID[tt.id].StagedOf(tt.mode, tt.installed); got != tt.want {

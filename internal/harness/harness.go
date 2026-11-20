@@ -326,6 +326,16 @@ type Adapter struct {
 	// Staging: dotai owns the keys it writes there, not the whole file,
 	// since the harness writes into it too (decision 0035).
 	Settings string
+	// HomeConfig is the harness's file at the root of the home directory,
+	// outside Staging, that rulesync renders into the user scope too, as a
+	// slash path relative to the staging tree and to the home directory,
+	// "" for none: Claude Code's .claude.json, which holds its user-scope
+	// MCP servers. It mixes configuration with the harness's own state, so
+	// dotai owns the keys it writes there, as in Settings (decision 0049).
+	// It installs into Dir in the isolated mode, where the harness's
+	// pointer moves it, and at its path in the replace mode
+	// (HomeConfigTarget).
+	HomeConfig string
 	// Commands is how the harness reads a command in its settings, such as
 	// a statusline, which decides how a tool command of decision 0037
 	// names its script.
@@ -381,6 +391,9 @@ type KindPath struct {
 // settings for Settings, skills below SharedSkills, else as UserKinds
 // says, and "" for a file of another harness or of no kind it lists.
 func (a Adapter) KindOf(staged string) ProjectKind {
+	if a.HomeConfig != "" && staged == a.HomeConfig {
+		return ProjectMCP
+	}
 	rel, ok := strings.CutPrefix(staged, a.Staging+"/")
 	if !ok {
 		return ""
@@ -403,6 +416,9 @@ func (a Adapter) KindOf(staged string) ProjectKind {
 // in mode m, as a slash path relative to the home directory, with the
 // moves of m undone, or "" when installed is not inside InstallDir(m).
 func (a Adapter) StagedOf(m Mode, installed string) string {
+	if a.HomeConfig != "" && installed == a.HomeConfigTarget(m) {
+		return a.HomeConfig
+	}
 	rel, ok := strings.CutPrefix(installed, a.InstallDir(m)+"/")
 	if !ok {
 		return ""
@@ -448,6 +464,9 @@ const walkUp = "AGENTS.md, .agents and .opencode load from the working directory
 var adapters = []Adapter{
 	{
 		ID: "claudecode", Name: "Claude Code", Target: "claudecode", Dir: "claude", Staging: ".claude", Settings: "settings.json", Command: "claude", Status: Supported,
+		// With CLAUDE_CONFIG_DIR set, Claude Code reads <dir>/.claude.json
+		// instead (HARNESS-NOTES).
+		HomeConfig:   ".claude.json",
 		UserKinds:    []KindPath{{"CLAUDE.md", ProjectRules}, {"rules/", ProjectRules}, {"agents/", ProjectAgents}, {"skills/", ProjectSkills}, {"commands/", ProjectCommands}},
 		SharedSkills: "skills",
 		Commands:     ShellQuoted,

@@ -322,6 +322,8 @@ A file the previous install owned whose SHA-256 or exec bit is no longer what th
 
 A harness's settings file (Claude Code's `settings.json`, agy's `antigravity-cli/settings.json` and OpenCode's `config/opencode/opencode.jsonc`, in their isolated directories) is planned key by key instead ([0035](decisions/0035-settings-files-owned-by-key.md)), since the harness writes into it too: dotai owns only the keys the pack puts there, each top-level key or each variable of Claude Code's `env`, as the settings merge identifies them.
 
+Claude Code's `.claude.json`, which rulesync stages at the root of the user-scope tree with the pack's user-scope MCP servers, is planned the same way ([0049](decisions/0049-claude-user-mcp-servers-in-claude-json.md)): its target is `<home>/.dotai/isolated/claude/.claude.json`, or `<home>/.claude.json` in replace mode, its op has the `kind` `mcp`, and each server is a key, `mcpServers.<name>`; every other key of the file, such as Claude Code's login and history, and every server dotai does not own stays. An `mcpServers` left empty goes, and the file is removed only when nothing but dotai's keys was in it. An install state that owns it whole fails with `internal`.
+
 In the isolated mode, the install also owns `claudeMdExcludes` in Claude Code's `settings.json`: the pack's list, if it sets one (a value that is not a list fails with `internal`), then the patterns of `<home>/CLAUDE.md`, `<home>/CLAUDE.local.md`, `<home>/.claude/CLAUDE.md` and `<home>/.claude/rules/**`, absolute with forward slashes, for the home directory as it is on disk, its links followed and its case as on disk, and as given when that differs, since Claude Code matches them with case ([HARNESS-NOTES](HARNESS-NOTES.md#claude-code-home-instructions-21318-windows)); a home directory with a glob character (`* ? [ ] { } ( ) + @ !` or `\`) gets no patterns and a notice that its instruction files still load; the replace mode writes none.
 
 The target gets its own content with each key the pack stages set, a key the harness wrote included, and each key dotai owned that the pack no longer stages deleted, through an edit that keeps comments, key order and formatting; every other key stays, so a key the harness added is no reason to write.
@@ -332,7 +334,7 @@ A key dotai owns whose value is no longer what it wrote is an edit: the plan fai
 
 Deleting a key also deletes the comments on their own lines right above it, up to a blank line; the backup keeps the whole file. A settings file that is not a JSON or JSONC object fails with `internal`.
 
-An owned file outside `<home>/.dotai/isolated` and `<home>/.dotai/tools` (and, when the plan is in replace mode or follows a replace install, each harness's configuration directory), or an install state that cannot be read (another `schema`, a target that is not absolute or is owned twice), fails with `internal`.
+An owned file outside `<home>/.dotai/isolated` and `<home>/.dotai/tools` (and, when the plan is in replace mode or follows a replace install, each harness's configuration directory and `<home>/.claude.json`), or an install state that cannot be read (another `schema`, a target that is not absolute or is owned twice), fails with `internal`.
 
 `root`, every `dir` and every `target` are absolute paths with the OS separator, as `path` in `rulesync fetch`. rulesync's sources (`.rulesync/`) are never planned.
 
@@ -372,6 +374,8 @@ Kept: Claude Code's `.credentials.json`, `projects`, `history.jsonl`, `file-hist
 Outside the areas, each harness's leak entries are wiped whole when they exist: `<home>/CLAUDE.md` for Claude Code, `<home>/.gemini/GEMINI.md` and `<home>/.gemini/AGENTS.md` for agy, with a `collateral` that Gemini CLI reads them too, and `<home>/AGENTS.md` and `<home>/.opencode` for OpenCode.
 
 Everything else under `<home>/.gemini`, such as Gemini CLI's `settings.json`, `oauth_creds.json`, `google_accounts.json`, `commands/` and `extensions/`, and the Antigravity IDE's `antigravity/`, is never touched, and neither is anything outside the areas and leak entries, such as OpenCode's data and state directories.
+
+In `<home>/.claude.json`, the servers of `mcpServers` that the previous install owns are not wiped either: `mcpServers` is then wiped server by server, each but those, as for a project apply's. When the pack stages MCP servers for Claude Code, the plan of `<home>/.claude.json` starts from what the wipe leaves there, its op's `before` is the file as it is now, and the install writes the wipe and the pack's servers as one write, with one copy in the backup ([0049](decisions/0049-claude-user-mcp-servers-in-claude-json.md)).
 
 An entry dotai owns, by the install state, is not wiped: the plan plans it as it plans any owned file, and a directory with an owned file below it is looked into, so that only what dotai does not own there is wiped. A staged target inside a wiped entry is taken as missing without reading it, so it is a `create`: a settings file of the user's is wiped and the pack's is created on a clean base.
 

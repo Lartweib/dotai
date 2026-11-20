@@ -341,6 +341,9 @@ func Build(in Input) (Plan, error) {
 		if !installed(in.Home, target, in.modes()...) {
 			return Plan{}, fmt.Errorf("owned target %s is not under %s, where an install writes", target, orList(installDirs(in.Home, in.modes()...)))
 		}
+		if o.Keys == nil && HomeConfigOf(in.Home, target) {
+			return Plan{}, fmt.Errorf("owned target %s is a file dotai owns only key by key, but the install state records it whole: it was edited, so dotai stops", target)
+		}
 		if st, ok := settings[target]; ok {
 			st.owned = &o
 			continue
@@ -408,6 +411,9 @@ func Locate(home string, mode harness.Mode, adapters []harness.Adapter, source s
 		return "", at(path.Join(merge.ToolsDir, rest)), true
 	}
 	for _, a := range adapters {
+		if a.HomeConfig != "" && source == a.HomeConfig {
+			return a.ID, at(a.HomeConfigTarget(mode)), true
+		}
 		if rest, ok := strings.CutPrefix(source, a.Staging+"/"); ok {
 			for _, m := range a.MovesIn(mode) {
 				if rest == m.From {
@@ -464,14 +470,33 @@ func (in Input) same(a, b Current) bool {
 }
 
 // installed reports whether target is a path inside one of the
-// installDirs of modes under home, the only places an install writes.
+// installDirs of modes under home, or the HomeConfig of a harness in the
+// replace mode, the only places an install writes.
 func installed(home, target string, modes ...harness.Mode) bool {
 	rel, err := filepath.Rel(home, target)
 	if err != nil || !filepath.IsLocal(rel) {
 		return false
 	}
 	rel = filepath.ToSlash(rel)
+	if slices.Contains(modes, harness.Replace) && slices.ContainsFunc(harness.All(), func(a harness.Adapter) bool {
+		return a.HomeConfig != "" && rel == a.HomeConfigTarget(harness.Replace)
+	}) {
+		return true
+	}
 	return slices.ContainsFunc(installRels(modes...), func(dir string) bool { return strings.HasPrefix(rel, dir+"/") })
+}
+
+// HomeConfigOf reports whether target, an absolute path under home, is the
+// HomeConfig of a harness in the layout of either mode (decision 0049).
+func HomeConfigOf(home, target string) bool {
+	for _, a := range harness.All() {
+		for _, m := range modes {
+			if a.HomeConfig != "" && filepath.Join(home, filepath.FromSlash(a.HomeConfigTarget(m))) == target {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // installRels are the directories an install in one of modes writes in,
