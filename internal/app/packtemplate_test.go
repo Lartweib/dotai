@@ -56,6 +56,9 @@ func TestTheEmbeddedTemplateIsAValidPack(t *testing.T) {
 		t.Fatal(err)
 	}
 	templateOnlyWarnings(t, res, app.CodeTemplateUnchanged)
+	if len(unchangedFiles(res)) == 0 {
+		t.Error("the template gives no template-unchanged warning")
+	}
 	if res.Pack.Onboarding.Mode != "dotai" {
 		t.Errorf("the template's onboarding is %q, want dotai's own", res.Pack.Onboarding.Mode)
 	}
@@ -140,17 +143,6 @@ func TestValidateWarnsOfEveryTemplateFileLeftUnchanged(t *testing.T) {
 	got := unchangedFiles(res)
 	if slices.Contains(got, "base/.rulesync/rules/example-rule.md") || !slices.Contains(got, "profiles/web/.rulesync/rules/web.md") {
 		t.Errorf("template-unchanged files = %v, want the edited rule left out and the CRLF one kept", got)
-	}
-}
-
-func TestTheEmbeddedTemplateWarnsOnlyOfItsOwnFiles(t *testing.T) {
-	res, err := app.ValidateFS(packtemplate.FS(), app.Selection{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	templateOnlyWarnings(t, res, app.CodeTemplateUnchanged)
-	if len(unchangedFiles(res)) == 0 {
-		t.Error("the template gives no template-unchanged warning")
 	}
 }
 

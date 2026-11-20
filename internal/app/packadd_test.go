@@ -233,26 +233,43 @@ func TestAPlacementThatFailsLeavesTheRegistryAndTheOldCloneAsTheyWere(t *testing
 	}
 }
 
-func TestRemovePackIDDeletesTheCloneOfAGitPack(t *testing.T) {
-	gitHome(t)
-	home := t.TempDir()
-	newRemote(t, "https://github.com/acme/pack")
-	added, err := app.AddGitPack(context.Background(), home, "https://github.com/acme/pack", app.PackGitOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	res, err := app.RemovePackID(home, "github.com/acme/pack")
-	if err != nil {
-		t.Fatalf("RemovePackID() error = %v", err)
-	}
-	if len(res.Packs) != 0 || len(res.Removed) != 1 || res.Deleted != added.Pack.Path {
-		t.Errorf("result = %+v, want the pack removed and its clone deleted", res)
-	}
-	if _, err := os.Stat(added.Pack.Path); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("the clone is still there: %v", err)
-	}
-	if got := packLeftovers(t, home, "acme"); len(got) != 0 {
-		t.Errorf("the removal left %v", got)
+// TestRemovingAGitPackDeletesItsClone removes a git pack by its id and by
+// the path of its clone: either way the entry goes, the clone is deleted
+// and nothing is left over.
+func TestRemovingAGitPackDeletesItsClone(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		remove func(home string, added app.PackAddResult) (app.PackRemoveResult, error)
+	}{
+		{"by id", func(home string, _ app.PackAddResult) (app.PackRemoveResult, error) {
+			return app.RemovePackID(home, "github.com/acme/pack")
+		}},
+		{"by path", func(home string, added app.PackAddResult) (app.PackRemoveResult, error) {
+			return app.RemovePack(home, added.Pack.Path)
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			gitHome(t)
+			home := t.TempDir()
+			newRemote(t, "https://github.com/acme/pack")
+			added, err := app.AddGitPack(context.Background(), home, "https://github.com/acme/pack", app.PackGitOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			res, err := tt.remove(home, added)
+			if err != nil {
+				t.Fatalf("remove error = %v", err)
+			}
+			if len(res.Packs) != 0 || len(res.Removed) != 1 || res.Deleted != added.Pack.Path {
+				t.Errorf("result = %+v, want the pack removed and its clone deleted", res)
+			}
+			if _, err := os.Stat(added.Pack.Path); !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("the clone is still there: %v", err)
+			}
+			if got := packLeftovers(t, home, "acme"); len(got) != 0 {
+				t.Errorf("the removal left %v", got)
+			}
+		})
 	}
 }
 
@@ -289,19 +306,5 @@ func TestRemovePackIDOfAnUnknownPackIsAUsageError(t *testing.T) {
 		if _, err := app.RemovePackID(home, id); !errors.As(err, new(*app.UsageError)) {
 			t.Errorf("RemovePackID(%q) error = %v, want a usage error", id, err)
 		}
-	}
-}
-
-func TestRemovePackByPathDeletesTheCloneOfAGitPackToo(t *testing.T) {
-	gitHome(t)
-	home := t.TempDir()
-	newRemote(t, "https://github.com/acme/pack")
-	added, err := app.AddGitPack(context.Background(), home, "https://github.com/acme/pack", app.PackGitOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	res, err := app.RemovePack(home, added.Pack.Path)
-	if err != nil || len(res.Packs) != 0 || res.Deleted != added.Pack.Path {
-		t.Fatalf("RemovePack() = %+v, %v, want the clone deleted", res, err)
 	}
 }

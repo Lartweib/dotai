@@ -91,9 +91,14 @@ jobs:
         with:
           path: ${{ runner.temp }}/rulesync-cache
           key: rulesync-${{ runner.os }}-${{ hashFiles('internal/rulesync/rulesync.go') }}
-      # Stages the example pack with the real pinned rulesync binary.
+      # Runs every DOTAI_E2E test with the real pinned rulesync binary: the
+      # stage, project plan and apply-and-restore tests, all named
+      # ...WithRealRulesync. DOTAI_NET_TESTS adds the anonymous fetch of a
+      # small public repository from github.com, which takes a second or
+      # two. Verbose, so that a skipped one shows.
       - name: test with real rulesync
         env:
           DOTAI_E2E: "1"
+          DOTAI_NET_TESTS: "1"
           DOTAI_CACHE_DIR: ${{ runner.temp }}/rulesync-cache
-        run: go test -count=1 -run TestStageWithRealRulesync ./internal/app/
+        run: go test -count=1 -v -run 'WithRealRulesync$|^TestFetchPackFromGitHub$' ./internal/app/

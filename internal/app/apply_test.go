@@ -100,6 +100,39 @@ func files(t *testing.T, dir string) map[string]string {
 	return out
 }
 
+// worktreeFiles is files of the git worktree dir, its exclude file
+// included and the rest of .git left out: git's background maintenance
+// adds and removes files there, such as objects/maintenance.lock, while
+// the walk reads them.
+func worktreeFiles(t *testing.T, dir string) map[string]string {
+	t.Helper()
+	gitDir := filepath.Join(dir, ".git")
+	out := map[string]string{}
+	err := filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+		switch {
+		case err != nil:
+			return err
+		case p == gitDir:
+			return filepath.SkipDir
+		case d.IsDir():
+			return nil
+		}
+		data, err := os.ReadFile(p)
+		rel, _ := filepath.Rel(dir, p)
+		out[filepath.ToSlash(rel)] = string(data)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(gitDir, "info", "exclude"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out[".git/info/exclude"] = string(data)
+	return out
+}
+
 func yes(app.ProjectPlan) (bool, error) { return true, nil }
 
 func TestApplyWritesThePlanAndASecondApplyIsNotTheFirst(t *testing.T) {

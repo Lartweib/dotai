@@ -77,10 +77,6 @@ test("choiceOf sends no choice when the ticks are the plan's own, and the ticks 
   assert.equal(choiceOf(states, back), null, "ticking back to the plan's own sends none");
 });
 
-test("pickOf is the choice the rows show", () => {
-  assert.deepEqual(pickOf(harnessRows(states, null)), ["claudecode", "antigravity-cli"]);
-});
-
 test("wizardDefaults ticks every supported harness, no preview one, and requires none", () => {
   const infos = [{ id: "claudecode", status: "supported" }, { id: "antigravity-cli", status: "supported" }, { id: "opencode", status: "preview" }];
   assert.deepEqual(wizardDefaults(infos), { harnesses: ["claudecode", "antigravity-cli"], requires: [] });

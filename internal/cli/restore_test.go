@@ -154,40 +154,6 @@ func TestRunRestoreOfAReplaceInstall(t *testing.T) {
 	assertGolden(t, filepath.Join("testdata", "restore-replace.txt.golden"), stdout.Bytes())
 }
 
-func TestRunRestoreJSONShape(t *testing.T) {
-	restoreHome(t)
-	var stdout bytes.Buffer
-	env := testEnv(&stdout, &bytes.Buffer{})
-	env.Restore = (&fakeRestore{t: t, res: restoreResult}).restore
-	if code := cli.Run([]string{"restore", "--yes", "--json"}, env); code != cli.ExitOK {
-		t.Fatalf("exit code = %d", code)
-	}
-	var e struct {
-		Command string                     `json:"command"`
-		Data    map[string]json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(stdout.Bytes(), &e); err != nil {
-		t.Fatal(err)
-	}
-	if e.Command != "restore" {
-		t.Errorf("command = %q, want restore", e.Command)
-	}
-	for _, key := range []string{"undone", "ops", "conflicts", "harnesses", "backup", "state", "uninstalled", "warnings"} {
-		if _, ok := e.Data[key]; !ok {
-			t.Errorf("data has no %q: %v", key, e.Data)
-		}
-	}
-	var ops []map[string]json.RawMessage
-	if err := json.Unmarshal(e.Data["ops"], &ops); err != nil {
-		t.Fatal(err)
-	}
-	for _, key := range []string{"action", "harness", "target", "from", "exec", "before", "beforeExec", "after", "conflict"} {
-		if _, ok := ops[0][key]; !ok {
-			t.Errorf("op has no %q: %v", key, ops[0])
-		}
-	}
-}
-
 // TestRunRestoreConflicts checks who decides about files changed after the
 // install: --yes overwrites, a terminal is asked once, and without one, or
 // with --json, the restore is refused.

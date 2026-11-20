@@ -55,8 +55,8 @@ func TestAddLocalPackListsTheValidatedPackOnce(t *testing.T) {
 		t.Fatalf("packs.json = %s, %v", data, err)
 	}
 	again, err := app.AddLocalPack(home, dir+string(filepath.Separator))
-	if err != nil || !reflect.DeepEqual(again.Packs, want) {
-		t.Errorf("a second import = %+v, %v, want the same single entry", again.Packs, err)
+	if err != nil || !reflect.DeepEqual(again.Packs, want) || again.Outcome != "unchanged" {
+		t.Errorf("a second import = %+v, %q, %v, want the same single entry, unchanged", again.Packs, again.Outcome, err)
 	}
 	if _, err := os.Stat(filepath.Join(home, ".dotai", "lock")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the import left its lock: %v", err)
@@ -206,6 +206,13 @@ func TestCopyPackRefusesATargetThatExistsOrHasNoParent(t *testing.T) {
 	if _, err := app.CopyPack(context.Background(), filepath.Join(t.TempDir(), "nothing"), filepath.Join(t.TempDir(), "copy")); !errors.As(err, new(*app.UsageError)) {
 		t.Errorf("copying a missing pack = %v, want a usage error", err)
 	}
+	notPack := t.TempDir()
+	if err := os.WriteFile(filepath.Join(notPack, "notes.md"), []byte("# notes\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.CopyPack(context.Background(), notPack, filepath.Join(t.TempDir(), "copy")); !errors.As(err, new(*app.UsageError)) {
+		t.Errorf("copying a directory without a manifest = %v, want a usage error", err)
+	}
 }
 
 func TestCopyPackRefusesALinkAndLeavesNoCopy(t *testing.T) {
@@ -260,16 +267,6 @@ func siblings(t *testing.T, dir string) []string {
 		names = append(names, e.Name())
 	}
 	return names
-}
-
-func TestCopyPackRefusesWhatIsNotAPack(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "notes.md"), []byte("# notes\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := app.CopyPack(context.Background(), dir, filepath.Join(t.TempDir(), "copy")); !errors.As(err, new(*app.UsageError)) {
-		t.Errorf("copying a directory without a manifest = %v, want a usage error", err)
-	}
 }
 
 func TestCopyPackThatFailsPartwayLeavesNothing(t *testing.T) {

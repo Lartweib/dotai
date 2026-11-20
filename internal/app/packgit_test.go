@@ -262,16 +262,12 @@ func lsTree(entries ...[4]string) []byte {
 	return []byte(b.String())
 }
 
-func TestCheckPackTreeAcceptsFilesAndExecutables(t *testing.T) {
-	out := lsTree([4]string{"100644", "blob", "12", "dotai.yaml"}, [4]string{"100755", "blob", "3", "base/dotai/tools/a b.sh"})
-	if problems := app.CheckPackTree(out); len(problems) != 0 {
-		t.Errorf("CheckPackTree() = %+v, want none", problems)
-	}
-}
-
+// TestCheckPackTreeRefusesLinksSubmodulesAndGitPaths checks the refused
+// entries of a tree, and that files and executables pass.
 func TestCheckPackTreeRefusesLinksSubmodulesAndGitPaths(t *testing.T) {
 	out := lsTree(
 		[4]string{"100644", "blob", "12", "dotai.yaml"},
+		[4]string{"100755", "blob", "3", "base/dotai/tools/a b.sh"},
 		[4]string{"120000", "blob", "9", "base/link"},
 		[4]string{"160000", "commit", "-", "vendor/sub"},
 		[4]string{"100644", "blob", "1", "a/.git/config"},

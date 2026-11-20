@@ -252,6 +252,9 @@ func PlanProjectWithRulesync(ctx context.Context, g gitPort, cacheDir, dir, proj
 // FoldCase is whether paths are compared without case on this OS.
 var FoldCase = foldCase
 
+// ResolvePath is p with its links, junctions and short names resolved.
+var ResolvePath = resolvePath
+
 // ApplyWith is Apply writing through d, asking git through g, fetching
 // through fetch and running rulesync through run, on a host that finds
 // every harness.

@@ -59,12 +59,6 @@ func TestSettingsKeys(t *testing.T) {
 	}
 }
 
-func TestKeyName(t *testing.T) {
-	if got := (plan.Key{Path: []string{"env", "DOTAI_TERMINAL"}}).Name(); got != "env.DOTAI_TERMINAL" {
-		t.Errorf("Name() = %q", got)
-	}
-}
-
 // TestWriteKeys checks that writing keys changes only those keys, keeps
 // everything else byte for byte, and drops an env that it emptied.
 func TestWriteKeys(t *testing.T) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -603,12 +604,21 @@ func TestTheEmbeddedFrontendLoadsUnderItsPolicy(t *testing.T) {
 	if strings.Contains(page, "style=") || strings.Contains(page, "<style") || strings.Contains(page, "<script>") {
 		t.Errorf("index.html has inline styles or scripts, which the policy blocks")
 	}
-	types := map[string]string{
-		"/styles.css": "text/css", "/app.js": "javascript", "/js/dom.js": "javascript", "/js/store.js": "javascript",
-		"/js/packs.js": "javascript", "/js/tree.js": "javascript", "/js/plan.js": "javascript", "/js/repos.js": "javascript",
-		"/js/backups.js": "javascript", "/js/doctor.js": "javascript", "/js/flows.js": "javascript", "/js/i18n.js": "javascript", "/js/home.js": "javascript", "/js/installed.js": "javascript",
-		"/js/packsource.js": "javascript", "/js/packreview.js": "javascript", "/js/packadd.js": "javascript", "/js/packupdate.js": "javascript",
-		"/js/planconsent.js": "javascript", "/js/harnesspick.js": "javascript",
+	// Every embedded script and stylesheet, so that a new one is checked too.
+	types := map[string]string{}
+	err := fs.WalkDir(server.Web(), ".", func(name string, _ fs.DirEntry, err error) error {
+		switch {
+		case err != nil:
+			return err
+		case strings.HasSuffix(name, ".js"):
+			types["/"+name] = "javascript"
+		case strings.HasSuffix(name, ".css"):
+			types["/"+name] = "text/css"
+		}
+		return nil
+	})
+	if err != nil || types["/app.js"] == "" || types["/styles.css"] == "" || types["/js/wizard.js"] == "" {
+		t.Fatalf("embedded scripts and styles = %v, %v, want app.js, styles.css and js/", types, err)
 	}
 	for path, want := range types {
 		w := serve(h, request("GET", path, ""))
