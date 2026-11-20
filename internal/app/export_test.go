@@ -369,6 +369,9 @@ func DismissOnboardingWith(ctx context.Context, d executeFS, g gitPort, cwd, hom
 	return dismissOnboarding(ctx, d, g, cwd, home)
 }
 
+// UnmappedHint is unmappedHint.
+func UnmappedHint(p string) string { return unmappedHint(p) }
+
 // InstallWithRulesync is Install with the real rulesync from cacheDir, on
 // a host that finds every harness, accepting what the plan asks to
 // confirm.

@@ -338,7 +338,7 @@ An owned file outside `<home>/.dotai/isolated` and `<home>/.dotai/tools` (and, w
 
 `root`, every `dir` and every `target` are absolute paths with the OS separator, as `path` in `rulesync fetch`. rulesync's sources (`.rulesync/`) are never planned.
 
-Every staged path is checked before the disk is read: a path Windows cannot store (a control character such as NUL, one of `:<>"|?*`, or a device name such as `CON`) fails with `internal` on every OS, and a staged file that no harness of the pack and no tools rule installs is a `path-unmapped` diagnostic at `dotai.yaml` (`line` `0`), one per file, naming it as `user/<path>`.
+Every staged path is checked before the disk is read: a path Windows cannot store (a control character such as NUL, one of `:<>"|?*`, or a device name such as `CON`) fails with `internal` on every OS, and a staged file that no harness of the pack and no tools rule installs is a `path-unmapped` diagnostic at `dotai.yaml` (`line` `0`), one per file, naming it as `user/<path>`. Its hint asks to add the harness when the file is one of a harness the install leaves out, and otherwise says that dotai knows no place to install it.
 
 Nothing on the way to a target is followed: each directory from the home directory down to the target must be a real directory or missing (a missing one means every target below it is `create`), and the target must be a regular file or missing.
 

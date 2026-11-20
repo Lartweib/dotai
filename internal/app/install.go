@@ -775,9 +775,21 @@ func unmappedDiagnostics(u *plan.UnmappedError) []Diagnostic {
 	var diags []Diagnostic
 	for _, p := range u.Paths {
 		diags = append(diags, pack.NewDiagnostic("dotai.yaml", 0, 0, CodePathUnmapped, "staged file %s/%s is installed by no harness of the pack", ScopeUser, p).
-			WithHint("add the harness that reads it to harnesses, or remove the source that renders it"))
+			WithHint("%s", unmappedHint(p)))
 	}
 	return diags
+}
+
+// unmappedHint is the hint for the staged user-scope file p that nothing
+// installs: a file of a harness the install does not include is fixed by
+// adding the harness, and any other is one that dotai has no place for.
+func unmappedHint(p string) string {
+	for _, a := range harness.All() {
+		if p == a.HomeConfig || strings.HasPrefix(p, a.Staging+"/") {
+			return fmt.Sprintf("it is a file of %s, which this install does not include: add %s to harnesses, or remove the source that renders it", a.Name, a.ID)
+		}
+	}
+	return "dotai knows no place to install it for any harness: remove the source that renders it, and report the path if a harness should read it"
 }
 
 // opKind is the kind of item the target of op holds: by its staged

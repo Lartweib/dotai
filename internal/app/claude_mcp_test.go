@@ -393,6 +393,26 @@ func TestReplaceWithMCPRollsBackAndSettlesAtEveryStep(t *testing.T) {
 	}
 }
 
+// TestUnmappedHintNamesWhatIsMissing checks the hint of path-unmapped: a
+// file of a harness the install leaves out asks for that harness, and any
+// other file is one dotai has no place for, which adding a harness would
+// not fix.
+func TestUnmappedHintNamesWhatIsMissing(t *testing.T) {
+	home, _ := installHome(t)
+	f := quiet(t)
+	f.files = map[string]string{"user/notes.md": "x\n"}
+	p, err := f.planInstall(examplePack, "", home)
+	if err != nil || len(p.Diagnostics) != 1 || p.Diagnostics[0].Code != app.CodePathUnmapped {
+		t.Fatalf("PlanInstall() = %+v, %v, want one path-unmapped", p.Diagnostics, err)
+	}
+	if hint := p.Diagnostics[0].Hint; strings.Contains(hint, "add the harness") || !strings.Contains(hint, "no place") {
+		t.Errorf("hint = %q, want one that says dotai has no place for it", hint)
+	}
+	if got := app.UnmappedHint(".claude.json"); !strings.Contains(got, "add claudecode to harnesses") {
+		t.Errorf("hint of a Claude Code file = %q, want it to ask for claudecode", got)
+	}
+}
+
 // TestReplaceStopsOnABrokenClaudeJSON checks that a ~/.claude.json that is
 // not a JSON object stops a replace install with MCP servers, naming it,
 // and that nothing is written.
