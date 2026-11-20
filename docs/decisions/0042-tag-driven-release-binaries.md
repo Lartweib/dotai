@@ -43,3 +43,5 @@ Roadmap PR 12 ships `dotai` as a binary per platform, so that a user can install
 - Local check on Windows with Git Bash, 2026-11-03: all five targets built and the Windows binary printed `dotai v0.1.0`. zip is not installed there, so the preflight refused until a stand-in for zip was put on `PATH`.
 
 Update 2026-11-18: accepted. `.github/workflows/release.yml` and `scripts/release.sh` implement this decision as written, and CI runs the script's `--self-test` on every push and pull request. The first release is cut from a `vX.Y.Z` tag on `main`; its version follows the Versioning point above.
+
+Update 2026-11-20: each archive also holds `THIRD_PARTY_NOTICES`, which `scripts/release.sh` generates for that target from the module graph: the license texts of the Go standard library, of every module linked into the binary and of the fonts embedded in the web UI. CI runs the script's `--check-notices`, which fails when a linked module has no license file.

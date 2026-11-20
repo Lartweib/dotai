@@ -12,3 +12,21 @@
 Thumbs.db
 .vscode/
 .idea/
+
+# Build and release output: go build ./cmd/dotai at the root, scripts/release.sh
+/dotai
+/dotai.exe
+dist/
+
+# Local environment files
+.env
+.env.*
+
+# Git bundles
+*.bundle
+
+# Coverage and profiling output
+*.out
+*.cov
+coverage.*
+*.prof
