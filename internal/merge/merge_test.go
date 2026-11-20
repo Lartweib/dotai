@@ -515,13 +515,10 @@ func TestStageKeepsTheExecutableBit(t *testing.T) {
 		if want := f.Path == ".dotai/tools/run.sh"; f.Exec != want {
 			t.Errorf("%s exec = %v, want %v", f.Path, f.Exec, want)
 		}
-	}
-}
-
-func TestStageWithoutVariants(t *testing.T) {
-	s, diags := merge.Stage(newPack(base(rule("x"))), merge.Selection{})
-	if len(diags) != 0 || len(s.User) != 1 || s.User[0].Layer != "base" {
-		t.Errorf("Stage() = %+v, %v, want the base only", s, format(diags))
+		// A pack without variants stages its base alone.
+		if f.Layer != "base" {
+			t.Errorf("%s layer = %q, want base", f.Path, f.Layer)
+		}
 	}
 }
 

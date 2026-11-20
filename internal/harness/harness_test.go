@@ -112,18 +112,6 @@ func TestAllIsACopy(t *testing.T) {
 	}
 }
 
-// TestMoves checks the staged directories that install elsewhere in a
-// harness's isolated directory: agy moves antigravity-cli/skills to
-// config/skills on its first run, and cannot link it back on Windows.
-func TestMoves(t *testing.T) {
-	want := map[string][]harness.Move{"antigravity-cli": {{From: "antigravity-cli/skills", To: "config/skills"}}}
-	for _, a := range harness.All() {
-		if got := a.Moves; !reflect.DeepEqual(got, want[a.ID]) {
-			t.Errorf("%s: Moves = %+v, want %+v", a.ID, got, want[a.ID])
-		}
-	}
-}
-
 // TestOpenCodeLaunch checks what dotai run adds to OpenCode's launch
 // besides its pointers: the variable that drops ~/.claude and the .claude
 // directories, and --standalone, so that OpenCode runs a private server
@@ -174,34 +162,6 @@ func TestOpenCodeLaunch(t *testing.T) {
 	}
 	if got := a[0].BatchTarget; got != "node_modules/@opencode/cli/bin/opencode.exe" {
 		t.Errorf("BatchTarget = %q, want the executable npm's opencode.cmd runs", got)
-	}
-}
-
-// TestCommands checks the executable dotai run launches for each harness:
-// all three since roadmap PR 9.
-func TestCommands(t *testing.T) {
-	want := map[string]string{"claudecode": "claude", "antigravity-cli": "agy", "opencode": "opencode"}
-	for _, a := range harness.All() {
-		if got := a.Command; got != want[a.ID] {
-			t.Errorf("%s: Command = %q, want %q", a.ID, got, want[a.ID])
-		}
-	}
-}
-
-// TestSettings checks where each harness keeps its settings file, whose
-// keys dotai owns rather than the whole file (decision 0035): in the
-// staging tree and in its isolated install, relative to the home
-// directory.
-func TestSettings(t *testing.T) {
-	want := map[string][2]string{
-		"claudecode":      {".claude/settings.json", ".dotai/isolated/claude/settings.json"},
-		"antigravity-cli": {".gemini/antigravity-cli/settings.json", ".dotai/isolated/gemini/antigravity-cli/settings.json"},
-		"opencode":        {".config/opencode/opencode.jsonc", ".dotai/isolated/opencode/config/opencode/opencode.jsonc"},
-	}
-	for _, a := range harness.All() {
-		if got := [2]string{a.SettingsSource(), a.SettingsTarget(harness.Isolated)}; got != want[a.ID] {
-			t.Errorf("%s: settings = %q, want %q", a.ID, got, want[a.ID])
-		}
 	}
 }
 

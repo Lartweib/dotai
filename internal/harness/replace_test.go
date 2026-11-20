@@ -43,6 +43,18 @@ func TestLayouts(t *testing.T) {
 			}
 		}
 	}
+	// The settings file, whose keys dotai owns rather than the whole file
+	// (decision 0035), in the staging tree.
+	sources := map[string]string{
+		"claudecode":      ".claude/settings.json",
+		"antigravity-cli": ".gemini/antigravity-cli/settings.json",
+		"opencode":        ".config/opencode/opencode.jsonc",
+	}
+	for _, a := range harness.All() {
+		if got := a.SettingsSource(); got != sources[a.ID] {
+			t.Errorf("%s: staged settings = %q, want %q", a.ID, got, sources[a.ID])
+		}
+	}
 	agy := adapter(t, "antigravity-cli")
 	if got := agy.MovesIn(harness.Isolated); !reflect.DeepEqual(got, []harness.Move{{From: "antigravity-cli/skills", To: "config/skills"}}) {
 		t.Errorf("agy's isolated moves = %+v, want only the skills", got)

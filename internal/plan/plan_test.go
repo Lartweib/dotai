@@ -310,17 +310,6 @@ func TestBuildRejectsWindowsNames(t *testing.T) {
 	}
 }
 
-// TestBuildRefusesAHarnessWithoutIsolation checks decision 0018: a harness
-// whose isolation level is none does not offer the isolated mode.
-func TestBuildRefusesAHarnessWithoutIsolation(t *testing.T) {
-	a := adapters(t, "claudecode")
-	a[0].Isolation.Level = harness.None
-	_, err := plan.Build(plan.Input{Home: t.TempDir(), Adapters: a, Files: staged(".claude/CLAUDE.md")})
-	if want := `harness "claudecode" does not offer the isolated mode`; err == nil || !strings.Contains(err.Error(), want) {
-		t.Errorf("Build() error = %v, want it to contain %q", err, want)
-	}
-}
-
 // TestBuildRemovesOwnedTargets checks that a target an earlier install
 // owned and the pack no longer stages is removed when it is still there,
 // in target order with the rest, and that a staged one is not.
@@ -394,22 +383,6 @@ func TestBuildRefusesEditedOwnedTargets(t *testing.T) {
 				if !strings.Contains(err.Error(), target) {
 					t.Errorf("Error() = %q, want it to name %s", err, target)
 				}
-			}
-		})
-	}
-}
-
-// TestBuildRefusesOwnedTargetsOutsideDotai checks that an ownership record
-// cannot make the plan remove a file outside the directories an install
-// writes to.
-func TestBuildRefusesOwnedTargetsOutsideDotai(t *testing.T) {
-	home := t.TempDir()
-	for _, rel := range []string{".claude/CLAUDE.md", ".dotai/state.json", ".dotai/isolated", ".dotai/toolsx/a", "../x"} {
-		t.Run(rel, func(t *testing.T) {
-			target := under(home, rel)
-			in := plan.Input{Home: home, Owned: map[string]plan.Owned{target: {Hash: "h"}}, Disk: map[string]plan.Current{target: {Hash: "h"}}}
-			if _, err := plan.Build(in); err == nil || !strings.Contains(err.Error(), "is not under") {
-				t.Errorf("Build() error = %v, want an owned target outside the install directories", err)
 			}
 		})
 	}
@@ -650,7 +623,9 @@ func TestLocateInReplaceMode(t *testing.T) {
 
 // TestBuildOwnedTargetsPerMode checks where an owned target may be: under
 // the layout of the mode the plan is for, or of the mode of the install it
-// follows, whose files it may remove, and never anywhere else.
+// follows, whose files it may remove, and never anywhere else, so that an
+// ownership record cannot make the plan remove a file outside the
+// directories an install writes to.
 func TestBuildOwnedTargetsPerMode(t *testing.T) {
 	home := t.TempDir()
 	for _, tt := range []struct {
@@ -659,6 +634,10 @@ func TestBuildOwnedTargetsPerMode(t *testing.T) {
 		ok         bool
 	}{
 		{harness.Isolated, "", ".claude/CLAUDE.md", false},
+		{harness.Isolated, "", ".dotai/state.json", false},
+		{harness.Isolated, "", ".dotai/isolated", false},
+		{harness.Isolated, "", ".dotai/toolsx/a", false},
+		{harness.Isolated, "", "../x", false},
 		{harness.Isolated, harness.Isolated, ".gemini/config/GEMINI.md", false},
 		{harness.Replace, "", ".claude/CLAUDE.md", true},
 		{harness.Replace, "", ".gemini/config/GEMINI.md", true},
@@ -702,7 +681,8 @@ func TestSettingsOfEitherLayout(t *testing.T) {
 }
 
 // TestBuildInReplaceModeTakesAHarnessWithoutIsolation checks that the
-// isolation level matters only to the isolated mode.
+// isolation level matters only to the isolated mode: decision 0018, a
+// harness whose isolation level is none does not offer the isolated mode.
 func TestBuildInReplaceModeTakesAHarnessWithoutIsolation(t *testing.T) {
 	a := adapters(t, "claudecode")
 	a[0].Isolation.Level = harness.None
@@ -710,7 +690,8 @@ func TestBuildInReplaceModeTakesAHarnessWithoutIsolation(t *testing.T) {
 	if _, err := plan.Build(plan.Input{Home: home, Mode: harness.Replace, Adapters: a, Files: staged(".claude/CLAUDE.md")}); err != nil {
 		t.Errorf("Build(replace) error = %v, want no isolation needed", err)
 	}
-	if _, err := plan.Build(plan.Input{Home: home, Adapters: a, Files: staged(".claude/CLAUDE.md")}); err == nil {
-		t.Error("Build(isolated) of a harness without isolation succeeded")
+	_, err := plan.Build(plan.Input{Home: home, Adapters: a, Files: staged(".claude/CLAUDE.md")})
+	if want := `harness "claudecode" does not offer the isolated mode`; err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("Build(isolated) error = %v, want it to contain %q", err, want)
 	}
 }

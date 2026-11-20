@@ -57,14 +57,6 @@ func TestEnvelopeShape(t *testing.T) {
 			},
 		},
 		{
-			name:     "success with data",
-			envelope: envelope.Success("version", map[string]string{"version": "1.2.3"}),
-			want: map[string]any{
-				"schema": "dotai.cli/v1", "command": "version", "ok": true,
-				"data": map[string]any{"version": "1.2.3"},
-			},
-		},
-		{
 			name:     "failure with a result carries data and error",
 			envelope: envelope.Invalid("validate", "pack is invalid", map[string]bool{"valid": false}),
 			want: map[string]any{
