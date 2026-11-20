@@ -757,7 +757,14 @@ func (r runner) apply(op plan.Op) (applied, error) {
 	if h := sha256.Sum256(data); hex.EncodeToString(h[:]) != op.After {
 		return a, fmt.Errorf("%s changed after the plan was made", filepath.Join(r.p.tree, filepath.FromSlash(op.Source)))
 	}
-	return a, r.d.WriteIn(root, name, data, perm(op.Exec))
+	mode := perm(op.Exec)
+	if op.Action == plan.Create && op.Settings && plan.HomeConfigOf(r.home, op.Target) {
+		// Private, as Claude Code writes its .claude.json: MCP servers may
+		// carry tokens in env or headers (decision 0049). A file that is
+		// there keeps its mode.
+		mode = 0o600
+	}
+	return a, r.d.WriteIn(root, name, data, mode)
 }
 
 // installRoot is the directory target is written in, the tools directory

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -270,9 +271,10 @@ func TestReplaceMergesClaudeMCPServersIntoTheRealClaudeJSON(t *testing.T) {
 		t.Errorf("Doctor() = %q, want nothing about ~/.claude.json", codes(r))
 	}
 
-	// Claude Code writes its state; a second install, without codegraph,
-	// keeps the servers dotai owns and removes only codegraph.
-	harnessWrites(t, target, map[string]any{"numStartups": 4.0})
+	// Claude Code writes its state, a changed key and a new one; a second
+	// install, without codegraph, keeps the servers dotai owns and removes
+	// only codegraph.
+	harnessWrites(t, target, map[string]any{"numStartups": 4.0, "tipsHistory": map[string]any{"new-user": 1.0}})
 	s = twoServers
 	res, err = replaceMCP(t, d, h, home, &s, true)
 	if err != nil {
@@ -289,17 +291,25 @@ func TestReplaceMergesClaudeMCPServersIntoTheRealClaudeJSON(t *testing.T) {
 	}
 
 	// Undoing both installs, newest first: the user's servers come back
-	// and dotai's go, and Claude Code's later write is all that differs.
+	// and dotai's go, and what Claude Code wrote after the install stays,
+	// so the file is not the backup's copy put back whole.
 	for range 2 {
 		if _, err := restore(d, home, "", nil); err != nil {
 			t.Fatalf("Restore() error = %v", err)
 		}
 	}
-	harnessWrites(t, target, map[string]any{"numStartups": 3.0})
-	want := settingsOf(t, target)
+	got = settingsOf(t, target)
+	if got["numStartups"] != 4.0 || !reflect.DeepEqual(got["tipsHistory"], map[string]any{"new-user": 1.0}) {
+		t.Errorf("~/.claude.json after the restore = %v, want Claude Code's later writes kept", got)
+	}
 	writeFile(t, at(home, "orig.json"), string(original))
-	if orig := settingsOf(t, at(home, "orig.json")); !reflect.DeepEqual(want, orig) {
-		t.Errorf("~/.claude.json after the restore = %v, want %v", want, orig)
+	want := settingsOf(t, at(home, "orig.json"))
+	for _, k := range []string{"numStartups", "tipsHistory"} {
+		delete(got, k)
+		delete(want, k)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("~/.claude.json after the restore = %v, want the rest as it was: %v", got, want)
 	}
 }
 
@@ -426,4 +436,53 @@ func TestReplaceStopsOnABrokenClaudeJSON(t *testing.T) {
 		t.Fatalf("Install() error = %v, want the broken file named", err)
 	}
 	diff(t, "home", homeEntries(t, home), before)
+}
+
+// TestNewClaudeJSONIsPrivate checks that a .claude.json dotai creates, in
+// either mode, is readable by its owner only, as Claude Code writes it,
+// since MCP servers may carry tokens; one that is there keeps its mode.
+func TestNewClaudeJSONIsPrivate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permissions")
+	}
+	mode := func(name string) os.FileMode {
+		t.Helper()
+		info, err := os.Stat(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return info.Mode().Perm()
+	}
+	s := threeServers
+	home, _ := installHome(t)
+	if _, err := installMCP(t, newClockFS(t), home, &s); err != nil {
+		t.Fatal(err)
+	}
+	if got := mode(at(home, isolatedClaudeJSON)); got != 0o600 {
+		t.Errorf("isolated .claude.json mode = %o, want 600", got)
+	}
+
+	home, h := realHome(t)
+	target := at(home, ".claude.json")
+	if err := os.Remove(target); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := replaceMCP(t, newClockFS(t), h, home, &s, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := mode(target); got != 0o600 {
+		t.Errorf("new ~/.claude.json mode = %o, want 600", got)
+	}
+
+	home, h = realHome(t)
+	target = at(home, ".claude.json")
+	if err := os.Chmod(target, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := replaceMCP(t, newClockFS(t), h, home, &s, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := mode(target); got != 0o644 {
+		t.Errorf("existing ~/.claude.json mode = %o, want it kept at 644", got)
+	}
 }
