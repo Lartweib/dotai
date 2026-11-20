@@ -3,6 +3,7 @@
 #
 # Usage: scripts/release.sh <tag> <out-dir>
 #        scripts/release.sh --self-test
+#        scripts/release.sh --check-notices
 #
 # <tag> is a SemVer 2.0.0 tag such as v0.1.0 or v0.2.0-rc.1, without build
 # metadata. It is stamped into the binary as the version that
@@ -14,8 +15,18 @@
 # The script needs GNU tools (bash, GNU tar and coreutils, Info-ZIP zip)
 # and is meant for Linux, as in the release workflow. It checks them before
 # it builds anything. --self-test checks the tag pattern and needs none of
-# them.
+# them. --check-notices builds the third-party notices of every target and
+# needs only go.
+#
+# Every archive holds THIRD_PARTY_NOTICES: the license texts of the Go
+# standard library, of each module linked into that target's binary, read
+# from the module cache, and of the fonts embedded in the web UI. It is
+# generated from the module graph at build time, so it cannot drift from
+# go.mod.
 set -euo pipefail
+# Byte order for sort and globs, so that the notices do not depend on the
+# runner's locale.
+export LC_ALL=C
 
 # SemVer 2.0.0: numeric identifiers have no leading zeros, and pre-release
 # identifiers are non-empty, alphanumeric or hyphen.
@@ -39,8 +50,81 @@ self_test() {
   return "$failed"
 }
 
+# The platforms of the rulesync checksum table, the releases map in
+# internal/rulesync/rulesync.go. A platform is added to both together.
+targets="windows/amd64 linux/amd64 linux/arm64 darwin/amd64 darwin/arm64"
+
+root=$(cd "$(dirname "$0")/.." && pwd)
+
+rule() { printf '
+%s
+%s
+' "========================================================================" "$1"; }
+
+# license_files prints the license, notice and copying files at the top of a
+# module directory, one per line.
+license_files() {
+  local f
+  for f in "$1"/*; do
+    [ -f "$f" ] || continue
+    case ${f##*/} in
+      [Ll][Ii][Cc][Ee][Nn][CcSs][Ee]* | [Nn][Oo][Tt][Ii][Cc][Ee]* | [Cc][Oo][Pp][Yy][Ii][Nn][Gg]*) echo "$f" ;;
+    esac
+  done
+}
+
+# notices prints THIRD_PARTY_NOTICES for the binary of one target. It fails
+# when a linked module has no license file, so that a new dependency cannot
+# ship without its notice.
+notices() {
+  local goos=$1 goarch=$2 mods path version dir files f font fontname
+  mods=$(cd "$root" && CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch go list -deps     -f '{{if not .Standard}}{{with .Module}}{{if not .Main}}{{.Path}} {{.Version}} {{.Dir}}{{end}}{{end}}{{end}}'     ./cmd/dotai | sort -u)
+  echo "Third-party notices for the dotai binary ($goos/$goarch)"
+  echo
+  echo "dotai is under the MIT license in LICENSE. Its binary includes the software"
+  echo "below; each entry reproduces that software's license and notice files."
+  rule "Go standard library ($(go env GOVERSION))"
+  echo
+  cat "$(go env GOROOT)/LICENSE"
+  while read -r path version dir; do
+    [ -n "$path" ] || continue
+    if [ -z "$dir" ]; then
+      echo "module $path $version is not in the module cache" >&2
+      return 1
+    fi
+    files=$(license_files "$dir")
+    if [ -z "$files" ]; then
+      echo "module $path $version has no license file" >&2
+      return 1
+    fi
+    rule "$path $version"
+    while read -r f; do
+      printf '
+--- %s ---
+
+' "${f##*/}"
+      cat "$f"
+    done <<<"$files"
+  done <<<"$mods"
+  for font in "$root"/internal/server/web/fonts/OFL-*.txt; do
+    [ -f "$font" ] || { echo "no font license in internal/server/web/fonts" >&2; return 1; }
+    fontname=${font##*/}
+    fontname=${fontname#OFL-}
+    rule "Font ${fontname%.txt} (embedded in the web UI)"
+    echo
+    cat "$font"
+  done
+}
+
 if [ "${1-}" = --self-test ] && [ $# -eq 1 ]; then
   self_test
+  exit
+fi
+if [ "${1-}" = --check-notices ] && [ $# -eq 1 ]; then
+  for target in $targets; do
+    notices "${target%/*}" "${target#*/}" >/dev/null
+  done
+  echo "notices: ok"
   exit
 fi
 if [ $# -ne 2 ]; then
@@ -77,11 +161,6 @@ if [ -e "$out" ] && [ -n "$(ls -A "$out")" ]; then
   exit 1
 fi
 
-# The platforms of the rulesync checksum table, the releases map in
-# internal/rulesync/rulesync.go. A platform is added to both together.
-targets="windows/amd64 linux/amd64 linux/arm64 darwin/amd64 darwin/arm64"
-
-root=$(cd "$(dirname "$0")/.." && pwd)
 # The commit time, so that the archive entries do not depend on when the
 # build ran.
 mtime=$(git -C "$root" log -1 --format=%ct)
@@ -104,16 +183,17 @@ for target in $targets; do
     -ldflags "-s -w -X github.com/lartweib/dotai/internal/app.version=$tag" \
     -o "$dir/$bin" ./cmd/dotai)
   cp "$root/LICENSE" "$root/README.md" "$dir/"
+  notices "$goos" "$goarch" >"$dir/THIRD_PARTY_NOTICES"
   chmod 0755 "$dir/$bin"
-  chmod 0644 "$dir/LICENSE" "$dir/README.md"
+  chmod 0644 "$dir/LICENSE" "$dir/README.md" "$dir/THIRD_PARTY_NOTICES"
   touch -d "@$mtime" "$dir"/*
   if [ "$goos" = windows ]; then
     # zip stores local time; UTC keeps the entries independent of the
     # runner's time zone.
-    (cd "$dir" && TZ=UTC zip -q -X "$out/$name.zip" "$bin" LICENSE README.md)
+    (cd "$dir" && TZ=UTC zip -q -X "$out/$name.zip" "$bin" LICENSE README.md THIRD_PARTY_NOTICES)
   else
     tar -C "$dir" --sort=name --mtime="@$mtime" --owner=0 --group=0 --numeric-owner \
-      -cf - "$bin" LICENSE README.md | gzip -n -9 >"$out/$name.tar.gz"
+      -cf - "$bin" LICENSE README.md THIRD_PARTY_NOTICES | gzip -n -9 >"$out/$name.tar.gz"
   fi
 done
 

@@ -60,6 +60,10 @@ jobs:
       - name: release tag pattern
         if: runner.os == 'Linux'
         run: bash scripts/release.sh --self-test
+      # Every module linked into a release binary must ship a license file.
+      - name: third-party notices
+        if: runner.os == 'Linux'
+        run: bash scripts/release.sh --check-notices
       # shellcheck comes with the Ubuntu runner image.
       - name: shellcheck
         if: runner.os == 'Linux'
