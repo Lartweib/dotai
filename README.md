@@ -1,11 +1,14 @@
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/logo-dark.svg">
-    <img src="docs/images/logo-light.svg" alt="dotai" width="300">
-  </picture>
-</p>
+<div align="center">
 
-# dotai
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/logo-mark-dark.svg">
+  <img src="docs/images/logo-mark.svg" alt="" width="96">
+</picture>
+<br>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/logo-wordmark-dark.svg">
+  <img src="docs/images/logo-wordmark-light.svg" alt="dotai" width="200">
+</picture>
 
 <!-- The release badge shows "no releases" until v0.1.0 is published. -->
 
@@ -15,6 +18,10 @@
 [![Go version](https://img.shields.io/github/go-mod/go-version/lartweib/dotai)](go.mod)
 [![Release](https://img.shields.io/github/v/release/lartweib/dotai)](https://github.com/lartweib/dotai/releases)
 [![Go Report Card](https://goreportcard.com/badge/github.com/lartweib/dotai)](https://goreportcard.com/report/github.com/lartweib/dotai)
+
+</div>
+
+# dotai
 
 One pack of agent configuration, rendered into Claude Code, Antigravity CLI and OpenCode, with every write planned, backed up and reversible.
 
