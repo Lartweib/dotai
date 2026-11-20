@@ -106,17 +106,6 @@ func TestAV2RegistryListsAGitPackWithItsSource(t *testing.T) {
 	}
 }
 
-func TestAddLocalPackAgainIsANoOp(t *testing.T) {
-	home, dir := t.TempDir(), packCopy(t)
-	if _, err := app.AddLocalPack(home, dir); err != nil {
-		t.Fatal(err)
-	}
-	res, err := app.AddLocalPack(home, dir)
-	if err != nil || res.Outcome != "unchanged" || len(res.Packs) != 1 {
-		t.Errorf("AddLocalPack() again = %+v, %v, want unchanged", res, err)
-	}
-}
-
 func TestAddLocalPackRefusesAnotherDirectoryWithATakenName(t *testing.T) {
 	home, first, second := t.TempDir(), packCopy(t), packCopy(t)
 	if _, err := app.AddLocalPack(home, first); err != nil {

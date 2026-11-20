@@ -222,6 +222,10 @@ func TestInstallAgainWithNoChangeWritesNothing(t *testing.T) {
 	if after, _ := os.ReadFile(first.State); string(after) != string(before) {
 		t.Errorf("state = %s, want it as the first install wrote it", after)
 	}
+	// The second install finds the claudeMdExcludes it wrote as it wrote them.
+	if got := settingsOf(t, at(home, claudeSettings))["claudeMdExcludes"]; !reflect.DeepEqual(got, homeExcludes(home)) {
+		t.Errorf("claudeMdExcludes = %v, want each pattern once", got)
+	}
 }
 
 func TestInstallReplacesAChangedFileWithABackup(t *testing.T) {

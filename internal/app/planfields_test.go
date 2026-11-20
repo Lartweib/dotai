@@ -66,18 +66,15 @@ func TestTheStatusNamesTheHomeAndItsBackups(t *testing.T) {
 	}
 }
 
-func TestHarnessesNamesEveryHarness(t *testing.T) {
-	hs := app.Harnesses()
-	if len(hs) != 3 || hs[0].ID != "claudecode" || hs[0].Name != "Claude Code" {
-		t.Errorf("Harnesses() = %+v, want the three harnesses with their names", hs)
-	}
-}
-
 // TestHarnessesGiveTheirStatus checks that the harness list the web UI
 // reads gives each harness's status and why it is a preview (decision
 // 0047).
 func TestHarnessesGiveTheirStatus(t *testing.T) {
-	for _, h := range app.Harnesses() {
+	hs := app.Harnesses()
+	if len(hs) != 3 || hs[0].ID != "claudecode" || hs[0].Name != "Claude Code" {
+		t.Errorf("Harnesses() = %+v, want the three harnesses with their names", hs)
+	}
+	for _, h := range hs {
 		a := adapterOf(t, h.ID)
 		if h.Status != string(a.Status) || h.StatusReason != a.StatusReason || h.Status == "" {
 			t.Errorf("Harnesses() has %+v, want status %q and reason %q", h, a.Status, a.StatusReason)

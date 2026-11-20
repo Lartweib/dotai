@@ -186,29 +186,3 @@ func TestInstallRefusesAPackClaudeMdExcludesThatIsNotAList(t *testing.T) {
 		t.Errorf("settings = %v, want nothing installed", err)
 	}
 }
-
-// TestInstallAgainLeavesTheExcludesAlone checks that a second install of
-// the same pack finds the patterns as it wrote them: nothing to write and
-// no backup.
-func TestInstallAgainLeavesTheExcludesAlone(t *testing.T) {
-	home, _ := installHome(t)
-	d := newClockFS(t)
-	if _, err := installVariant(t, d, examplePack, "", home); err != nil {
-		t.Fatal(err)
-	}
-	res, err := installVariant(t, d, examplePack, "", home)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, op := range res.Ops {
-		if op.Action != plan.Unchanged {
-			t.Errorf("op %+v, want unchanged", op)
-		}
-	}
-	if res.Backup != nil {
-		t.Errorf("backup = %+v, want none", res.Backup)
-	}
-	if got := settingsOf(t, at(home, claudeSettings))["claudeMdExcludes"]; !reflect.DeepEqual(got, homeExcludes(home)) {
-		t.Errorf("claudeMdExcludes = %v, want each pattern once", got)
-	}
-}

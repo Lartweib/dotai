@@ -119,25 +119,28 @@ func TestPlanRunRefusesTheFlagItSets(t *testing.T) {
 	}
 }
 
-func TestPlanRunReplacesTheInheritedPointerInAnyCaseOnWindows(t *testing.T) {
-	home := runHome(t, app.ModeIsolated, []string{"claudecode"}, nil)
-	p, err := app.PlanRunWith(home, "claudecode", nil, []string{"claude_config_dir=x", "Path=y"}, lookPathAt(home), "windows")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := []string{"Path=y", "CLAUDE_CONFIG_DIR=" + at(home, ".dotai/isolated/claude")}; !reflect.DeepEqual(p.Env, want) {
-		t.Errorf("Env = %q, want %q", p.Env, want)
-	}
-}
-
-func TestPlanRunKeepsAVariableWithAnotherCaseOutsideWindows(t *testing.T) {
-	home := runHome(t, app.ModeIsolated, []string{"claudecode"}, nil)
-	p, err := app.PlanRunWith(home, "claudecode", nil, []string{"claude_config_dir=x"}, lookPathAt(home), "linux")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := []string{"claude_config_dir=x", "CLAUDE_CONFIG_DIR=" + at(home, ".dotai/isolated/claude")}; !reflect.DeepEqual(p.Env, want) {
-		t.Errorf("Env = %q, want %q", p.Env, want)
+// TestPlanRunReplacesTheInheritedPointerInTheCaseOfTheOS checks that an
+// inherited pointer in another case is replaced on Windows, whose variables
+// ignore case, and kept as another variable elsewhere.
+func TestPlanRunReplacesTheInheritedPointerInTheCaseOfTheOS(t *testing.T) {
+	for _, tt := range []struct {
+		name, goos string
+		env        []string
+		kept       []string
+	}{
+		{"any case on windows", "windows", []string{"claude_config_dir=x", "Path=y"}, []string{"Path=y"}},
+		{"another case is another variable outside windows", "linux", []string{"claude_config_dir=x"}, []string{"claude_config_dir=x"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			home := runHome(t, app.ModeIsolated, []string{"claudecode"}, nil)
+			p, err := app.PlanRunWith(home, "claudecode", nil, tt.env, lookPathAt(home), tt.goos)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := append(tt.kept, "CLAUDE_CONFIG_DIR="+at(home, ".dotai/isolated/claude")); !reflect.DeepEqual(p.Env, want) {
+				t.Errorf("Env = %q, want %q", p.Env, want)
+			}
+		})
 	}
 }
 

@@ -230,15 +230,25 @@ func TestExecChangesKeepTheDiffOfAFileThatStartsWithAByteOrderMark(t *testing.T)
 	}
 }
 
-func TestExecChangesOfAPathWithAControlCharacterHasNoDiff(t *testing.T) {
+// TestExecChangesOfAnUnsafePathHasNoDiff checks that a path with a control
+// character or a line feed gets no diff, which would print the path raw or
+// forge the diff's headers.
+func TestExecChangesOfAnUnsafePathHasNoDiff(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("Windows refuses control characters in file names")
+		t.Skip("Windows refuses control characters and line feeds in file names")
 	}
-	old, new := t.TempDir(), t.TempDir()
-	writeTree(t, new, map[string]string{"base/dotai/tools/a\x1b[2Kb.sh": "echo\n"})
-	changes, err := app.ExecChanges(old, new, nil, nil)
-	if err != nil || len(changes) != 1 || !changes[0].Binary || changes[0].Diff != "" {
-		t.Errorf("changes = %+v, %v, want no diff that would print the path raw", changes, err)
+	for _, tt := range []struct{ name, path, want string }{
+		{"a control character", "base/dotai/tools/a\x1b[2Kb.sh", "no diff that would print the path raw"},
+		{"a newline", "base/.rulesync/mcp.jsonc\n+++ b/x/dotai/tools/t.sh", "no diff that would forge its headers"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			old, new := t.TempDir(), t.TempDir()
+			writeTree(t, new, map[string]string{tt.path: "echo\n"})
+			changes, err := app.ExecChanges(old, new, nil, nil)
+			if err != nil || len(changes) != 1 || !changes[0].Binary || changes[0].Diff != "" {
+				t.Errorf("changes = %+v, %v, want %s", changes, err, tt.want)
+			}
+		})
 	}
 }
 
@@ -251,17 +261,5 @@ func TestAPathIsSafeOnlyWithoutAnyControlCharacter(t *testing.T) {
 	}
 	if app.UnsafePath("base/dotai/tools/a b.sh") {
 		t.Error("a plain path is unsafe")
-	}
-}
-
-func TestExecChangesOfAPathWithANewlineHasNoDiff(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Windows refuses a line feed in a file name")
-	}
-	old, new := t.TempDir(), t.TempDir()
-	writeTree(t, new, map[string]string{"base/.rulesync/mcp.jsonc\n+++ b/x/dotai/tools/t.sh": "echo\n"})
-	changes, err := app.ExecChanges(old, new, nil, nil)
-	if err != nil || len(changes) != 1 || !changes[0].Binary || changes[0].Diff != "" {
-		t.Errorf("changes = %+v, %v, want no diff that would forge its headers", changes, err)
 	}
 }

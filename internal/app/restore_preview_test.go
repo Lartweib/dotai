@@ -120,44 +120,45 @@ func wantParity(t *testing.T, home, id string, wantUninstalled bool) {
 	}
 }
 
-func TestPreviewRestorePlansWhatRestoreDoesWhenAnInstallIsLeft(t *testing.T) {
-	home, _ := installHome(t)
-	d := newClockFS(t)
-	for _, variant := range []string{"standalone", "tmux"} {
-		if _, err := app.InstallWith(context.Background(), d, quiet(t).fetch, quiet(t).run, examplePack, variant, home); err != nil {
-			t.Fatal(err)
-		}
+// TestPreviewRestorePlansWhatRestoreDoes checks, after a chain of
+// installs, that the preview of a restore plans what the restore does:
+// the restore of the last install while an install is left, of an id in
+// the middle of the chain with a file changed since, and back to the
+// first install, which uninstalls.
+func TestPreviewRestorePlansWhatRestoreDoes(t *testing.T) {
+	for _, tt := range []struct {
+		name            string
+		variants        []string
+		pick            int // the install whose backup to restore, or -1 for the last
+		edit            bool
+		wantUninstalled bool
+	}{
+		{"when an install is left", []string{"standalone", "tmux"}, -1, false, false},
+		{"for an id mid chain", []string{"standalone", "tmux", "standalone"}, 1, true, false},
+		{"back to the first install", []string{"standalone", "tmux"}, 0, false, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			home, _ := installHome(t)
+			d := newClockFS(t)
+			var ids []string
+			for _, variant := range tt.variants {
+				res, err := app.InstallWith(context.Background(), d, quiet(t).fetch, quiet(t).run, examplePack, variant, home)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if res.Backup == nil {
+					t.Fatalf("the %s install took no backup", variant)
+				}
+				ids = append(ids, res.Backup.ID)
+			}
+			if tt.edit {
+				writeFile(t, at(home, ".dotai/tools/hello.sh"), "echo mine\n")
+			}
+			id := ""
+			if tt.pick >= 0 {
+				id = ids[tt.pick]
+			}
+			wantParity(t, home, id, tt.wantUninstalled)
+		})
 	}
-	wantParity(t, home, "", false)
-}
-
-func TestPreviewRestorePlansWhatRestoreDoesForAnIDMidChain(t *testing.T) {
-	home, _ := installHome(t)
-	d := newClockFS(t)
-	var ids []string
-	for _, variant := range []string{"standalone", "tmux", "standalone"} {
-		res, err := app.InstallWith(context.Background(), d, quiet(t).fetch, quiet(t).run, examplePack, variant, home)
-		if err != nil {
-			t.Fatal(err)
-		}
-		ids = append(ids, res.Backup.ID)
-	}
-	writeFile(t, at(home, ".dotai/tools/hello.sh"), "echo mine\n")
-	wantParity(t, home, ids[1], false)
-}
-
-func TestPreviewRestorePlansWhatRestoreDoesBackToTheFirstInstall(t *testing.T) {
-	home, _ := installHome(t)
-	d := newClockFS(t)
-	var first string
-	for _, variant := range []string{"standalone", "tmux"} {
-		res, err := app.InstallWith(context.Background(), d, quiet(t).fetch, quiet(t).run, examplePack, variant, home)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if first == "" {
-			first = res.Backup.ID
-		}
-	}
-	wantParity(t, home, first, true)
 }

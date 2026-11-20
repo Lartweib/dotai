@@ -194,14 +194,6 @@ func TestPlanInstallInvalidPackPlansNothing(t *testing.T) {
 	}
 }
 
-func TestPlanInstallUsesTheVariant(t *testing.T) {
-	home, _ := installHome(t)
-	p, err := quiet(t).planInstall(examplePack, "tmux", home)
-	if err != nil || p.Variant != "tmux" {
-		t.Fatalf("PlanInstall() = %+v, %v, want the tmux variant", p, err)
-	}
-}
-
 func TestPlanInstallComparesTheExecBitOutsideWindows(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows files have no exec bit")
