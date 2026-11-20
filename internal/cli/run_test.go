@@ -79,31 +79,108 @@ func TestRunRunLaunchesAndForwardsTheExitCode(t *testing.T) {
 	}
 }
 
-func TestRunRunPrintsTheNotesAfterTheLeaks(t *testing.T) {
-	restoreHome(t)
-	p := runPlan
-	p.Notes = []string{`claude resolves to the batch file C:\npm\claude.cmd: Ctrl-C may show cmd's prompt`}
-	f := &fakeRun{res: p}
-	var stderr bytes.Buffer
-	if code := cli.Run([]string{"run", "claudecode"}, f.env(&bytes.Buffer{}, &stderr)); code != cli.ExitOK {
-		t.Errorf("exit code = %d, want %d", code, cli.ExitOK)
+// TestRunRunStderrLines checks the launch lines dotai run prints on stderr
+// for plans that differ from runPlan in one way: the isolation level and
+// pointers, the login, the leaks, the notes and the warnings.
+func TestRunRunStderrLines(t *testing.T) {
+	const (
+		exact = iota
+		contains
+		suffix
+	)
+	tests := []struct {
+		name   string
+		mutate func(p *app.RunPlan)
+		id     string
+		match  int
+		want   []string
+	}{
+		{
+			name: "the notes come after the leaks",
+			mutate: func(p *app.RunPlan) {
+				p.Notes = []string{`claude resolves to the batch file C:\npm\claude.cmd: Ctrl-C may show cmd's prompt`}
+			},
+			id: "claudecode", match: suffix,
+			want: []string{"dotai: leaks: credentials do not carry over\ndotai: note: claude resolves to the batch file C:\\npm\\claude.cmd: Ctrl-C may show cmd's prompt\n"},
+		},
+		{
+			name:   "the lines without relogin or leaks",
+			mutate: func(p *app.RunPlan) { p.Harness.Relogin, p.Harness.Leaks = "no", []string{} },
+			id:     "claudecode", match: contains,
+			want: []string{"dotai: login: keeps your login\n", "dotai: leaks: nothing known\n"},
+		},
+		{
+			// A flag pointer reads as the one argument the harness gets.
+			name: "a flag pointer as it is passed",
+			mutate: func(p *app.RunPlan) {
+				p.Harness = app.HarnessPlan{
+					ID: "antigravity-cli", Level: "partial", Dir: "/home/u/.dotai/isolated/gemini", Relogin: "no",
+					Pointers: []app.PointerPlan{{Mechanism: "flag", Name: "--gemini_dir", Dir: "/home/u/.dotai/isolated/gemini"}},
+					Leaks:    []string{"authentication is shared through the OS keyring"},
+				}
+			},
+			id: "antigravity-cli", match: exact,
+			want: []string{"dotai: antigravity-cli · partial isolation · --gemini_dir=/home/u/.dotai/isolated/gemini\n" +
+				"dotai: login: keeps your login\n" +
+				"dotai: leaks: authentication is shared through the OS keyring\n"},
+		},
+		{
+			name:   "a login that is unknown",
+			mutate: func(p *app.RunPlan) { p.Harness.Relogin = "unknown" },
+			id:     "claudecode", match: contains,
+			want: []string{"dotai: login: you may need to log in again in the isolated configuration (not verified on this OS)\n"},
+		},
+		{
+			// OpenCode's first line ends with the variables set to a fixed
+			// value, and the note about --standalone follows.
+			name: "the fixed variables with the pointers",
+			mutate: func(p *app.RunPlan) {
+				p.Harness = app.HarnessPlan{
+					ID: "opencode", Level: "partial", Dir: "/home/u/.dotai/isolated/opencode", Relogin: "yes",
+					Pointers: []app.PointerPlan{{Mechanism: "env", Name: "XDG_CONFIG_HOME", Dir: "/home/u/.dotai/isolated/opencode/config"}},
+					Leaks:    []string{"provider credentials do not carry over"},
+				}
+				p.Vars = []string{"OPENCODE_DISABLE_CLAUDE_CODE=1"}
+				p.Notes = []string{"--standalone added: OpenCode runs a private server"}
+			},
+			id: "opencode", match: exact,
+			want: []string{"dotai: opencode · partial isolation · XDG_CONFIG_HOME=/home/u/.dotai/isolated/opencode/config, OPENCODE_DISABLE_CLAUDE_CODE=1\n" +
+				"dotai: login: you must log in again in the isolated configuration\n" +
+				"dotai: leaks: provider credentials do not carry over\n" +
+				"dotai: note: --standalone added: OpenCode runs a private server\n"},
+		},
+		{
+			name: "the warnings come after the notes",
+			mutate: func(p *app.RunPlan) {
+				p.Notes = []string{"a note"}
+				p.Warnings = []string{`"newcommand" is not a command known to take --standalone`}
+			},
+			id: "claudecode", match: suffix,
+			want: []string{"dotai: note: a note\ndotai: warning: \"newcommand\" is not a command known to take --standalone\n"},
+		},
 	}
-	if want := "dotai: leaks: credentials do not carry over\ndotai: note: " + p.Notes[0] + "\n"; !strings.HasSuffix(stderr.String(), want) {
-		t.Errorf("stderr = %q, want it to end with %q", stderr.String(), want)
-	}
-}
-
-func TestRunRunLinesWithoutReloginOrLeaks(t *testing.T) {
-	restoreHome(t)
-	p := runPlan
-	p.Harness.Relogin, p.Harness.Leaks = "no", []string{}
-	f := &fakeRun{res: p}
-	var stderr bytes.Buffer
-	if code := cli.Run([]string{"run", "claudecode"}, f.env(&bytes.Buffer{}, &stderr)); code != cli.ExitOK {
-		t.Errorf("exit code = %d, want %d", code, cli.ExitOK)
-	}
-	if !strings.Contains(stderr.String(), "dotai: login: keeps your login\n") || !strings.Contains(stderr.String(), "dotai: leaks: nothing known\n") {
-		t.Errorf("stderr = %q, want the login kept and no leak known", stderr.String())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			restoreHome(t)
+			p := runPlan
+			tt.mutate(&p)
+			f := &fakeRun{res: p}
+			var stderr bytes.Buffer
+			if code := cli.Run([]string{"run", tt.id}, f.env(&bytes.Buffer{}, &stderr)); code != cli.ExitOK {
+				t.Errorf("exit code = %d, want %d", code, cli.ExitOK)
+			}
+			got := stderr.String()
+			for _, want := range tt.want {
+				switch {
+				case tt.match == exact && got != want:
+					t.Errorf("stderr = %q, want %q", got, want)
+				case tt.match == contains && !strings.Contains(got, want):
+					t.Errorf("stderr = %q, want it to contain %q", got, want)
+				case tt.match == suffix && !strings.HasSuffix(got, want):
+					t.Errorf("stderr = %q, want it to end with %q", got, want)
+				}
+			}
+		})
 	}
 }
 
@@ -223,84 +300,5 @@ func TestRunRunReal(t *testing.T) {
 				t.Errorf("exit code = %d, stderr = %q, want %d and %q", code, stderr.String(), tt.want, tt.inErr)
 			}
 		})
-	}
-}
-
-// TestRunRunShowsAFlagPointerAsItIsPassed checks that a flag pointer
-// reads as the one argument the harness gets.
-func TestRunRunShowsAFlagPointerAsItIsPassed(t *testing.T) {
-	restoreHome(t)
-	p := runPlan
-	p.Harness = app.HarnessPlan{
-		ID: "antigravity-cli", Level: "partial", Dir: "/home/u/.dotai/isolated/gemini", Relogin: "no",
-		Pointers: []app.PointerPlan{{Mechanism: "flag", Name: "--gemini_dir", Dir: "/home/u/.dotai/isolated/gemini"}},
-		Leaks:    []string{"authentication is shared through the OS keyring"},
-	}
-	f := &fakeRun{res: p}
-	var stderr bytes.Buffer
-	if code := cli.Run([]string{"run", "antigravity-cli"}, f.env(&bytes.Buffer{}, &stderr)); code != cli.ExitOK {
-		t.Errorf("exit code = %d, want %d", code, cli.ExitOK)
-	}
-	want := "dotai: antigravity-cli · partial isolation · --gemini_dir=/home/u/.dotai/isolated/gemini\n" +
-		"dotai: login: keeps your login\n" +
-		"dotai: leaks: authentication is shared through the OS keyring\n"
-	if stderr.String() != want {
-		t.Errorf("stderr = %q, want %q", stderr.String(), want)
-	}
-}
-
-func TestRunRunSaysWhenTheLoginIsUnknown(t *testing.T) {
-	restoreHome(t)
-	p := runPlan
-	p.Harness.Relogin = "unknown"
-	f := &fakeRun{res: p}
-	var stderr bytes.Buffer
-	if code := cli.Run([]string{"run", "claudecode"}, f.env(&bytes.Buffer{}, &stderr)); code != cli.ExitOK {
-		t.Errorf("exit code = %d, want %d", code, cli.ExitOK)
-	}
-	if want := "dotai: login: you may need to log in again in the isolated configuration (not verified on this OS)\n"; !strings.Contains(stderr.String(), want) {
-		t.Errorf("stderr = %q, want %q", stderr.String(), want)
-	}
-}
-
-// TestRunRunShowsTheFixedVariablesWithThePointers checks OpenCode's first
-// line, which ends with the variables set to a fixed value, and the note
-// about --standalone.
-func TestRunRunShowsTheFixedVariablesWithThePointers(t *testing.T) {
-	restoreHome(t)
-	p := runPlan
-	p.Harness = app.HarnessPlan{
-		ID: "opencode", Level: "partial", Dir: "/home/u/.dotai/isolated/opencode", Relogin: "yes",
-		Pointers: []app.PointerPlan{{Mechanism: "env", Name: "XDG_CONFIG_HOME", Dir: "/home/u/.dotai/isolated/opencode/config"}},
-		Leaks:    []string{"provider credentials do not carry over"},
-	}
-	p.Vars = []string{"OPENCODE_DISABLE_CLAUDE_CODE=1"}
-	p.Notes = []string{"--standalone added: OpenCode runs a private server"}
-	f := &fakeRun{res: p}
-	var stderr bytes.Buffer
-	if code := cli.Run([]string{"run", "opencode"}, f.env(&bytes.Buffer{}, &stderr)); code != cli.ExitOK {
-		t.Errorf("exit code = %d, want %d", code, cli.ExitOK)
-	}
-	want := "dotai: opencode · partial isolation · XDG_CONFIG_HOME=/home/u/.dotai/isolated/opencode/config, OPENCODE_DISABLE_CLAUDE_CODE=1\n" +
-		"dotai: login: you must log in again in the isolated configuration\n" +
-		"dotai: leaks: provider credentials do not carry over\n" +
-		"dotai: note: --standalone added: OpenCode runs a private server\n"
-	if stderr.String() != want {
-		t.Errorf("stderr = %q, want %q", stderr.String(), want)
-	}
-}
-
-func TestRunRunPrintsTheWarningsAfterTheNotes(t *testing.T) {
-	restoreHome(t)
-	p := runPlan
-	p.Notes = []string{"a note"}
-	p.Warnings = []string{`"newcommand" is not a command known to take --standalone`}
-	f := &fakeRun{res: p}
-	var stderr bytes.Buffer
-	if code := cli.Run([]string{"run", "claudecode"}, f.env(&bytes.Buffer{}, &stderr)); code != cli.ExitOK {
-		t.Errorf("exit code = %d, want %d", code, cli.ExitOK)
-	}
-	if want := "dotai: note: a note\ndotai: warning: " + p.Warnings[0] + "\n"; !strings.HasSuffix(stderr.String(), want) {
-		t.Errorf("stderr = %q, want it to end with %q", stderr.String(), want)
 	}
 }

@@ -93,6 +93,9 @@ func TestRunInstallDryRun(t *testing.T) {
 	}
 }
 
+// TestRunInstallJSONShape names the keys of the install plan's JSON. The
+// golden of TestRunInstallDryRun holds the same bytes, but -update rewrites
+// it: this test still fails when a key is renamed by mistake.
 func TestRunInstallJSONShape(t *testing.T) {
 	var stdout bytes.Buffer
 	env := testEnv(&stdout, &bytes.Buffer{})
@@ -275,39 +278,6 @@ func TestRunInstall(t *testing.T) {
 			}
 			assertGolden(t, filepath.Join("testdata", tt.golden), stdout.Bytes())
 		})
-	}
-}
-
-func TestRunInstallJSONShapeWithoutDryRun(t *testing.T) {
-	var stdout bytes.Buffer
-	env := testEnv(&stdout, &bytes.Buffer{})
-	env.Install = func(context.Context, string, string, string, app.InstallOptions, app.Progress, app.Warn, app.Consent) (app.InstallResult, error) {
-		return installResult, nil
-	}
-	if code := cli.Run([]string{"install", "--json"}, env); code != cli.ExitOK {
-		t.Fatalf("exit code = %d", code)
-	}
-	var e struct {
-		Command string `json:"command"`
-		Data    struct {
-			Mode   string                       `json:"mode"`
-			Ops    []map[string]json.RawMessage `json:"ops"`
-			Backup *struct {
-				ID   string `json:"id"`
-				Path string `json:"path"`
-			} `json:"backup"`
-			State string `json:"state"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(stdout.Bytes(), &e); err != nil {
-		t.Fatal(err)
-	}
-	if e.Command != "install" || e.Data.Mode != "isolated" || len(e.Data.Ops) != 5 || e.Data.Backup == nil ||
-		e.Data.Backup.ID != installResult.Backup.ID || e.Data.Backup.Path != installResult.Backup.Path || e.Data.State != installResult.State {
-		t.Errorf("envelope = %+v, want the plan with the backup and the state", e)
-	}
-	if string(e.Data.Ops[2]["action"]) != `"remove"` || string(e.Data.Ops[2]["source"]) != `""` {
-		t.Errorf("op 2 = %v, want a remove without a source", e.Data.Ops[2])
 	}
 }
 
