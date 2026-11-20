@@ -30,7 +30,8 @@ go test -race ./...           # Linux and macOS, as CI runs it
 
 - `go test -short` skips the heavy kill and crash matrices and the tests that build the binary. CI always runs the full suite; run it in full before you open a pull request.
 - Tests never touch your real home directory: each one works in its own `t.TempDir()`. When you run the binary by hand, point `HOME` (and `USERPROFILE` on Windows) at a scratch directory first.
-- `DOTAI_E2E=1 go test -count=1 -run TestStageWithRealRulesync ./internal/app/` stages the example pack with the real pinned rulesync binary; it needs the network. `DOTAI_CACHE_DIR` names the download cache.
+- `DOTAI_E2E=1 go test -count=1 -run 'WithRealRulesync$' ./internal/app/` runs the end-to-end tests with the real pinned rulesync binary: staging, the project plan, and an apply and restore of a project. They need the network, and CI runs them on every OS. `DOTAI_CACHE_DIR` names the download cache. Name a new `DOTAI_E2E` test `...WithRealRulesync` so that this command and CI pick it up.
+- `DOTAI_NET_TESTS=1 go test -count=1 -run TestFetchPackFromGitHub ./internal/app/` fetches a small public repository from github.com with the guarded git options of `dotai pack add`. CI runs it in the same step as the end-to-end tests.
 - Golden files live in `testdata/` next to their tests. After an intended output change, rewrite them with `go test ./internal/cli/ -update` (likewise for `internal/envelope` and `internal/plan/jsonc`), and review the diff of every golden file you commit. In `internal/packtemplate`, `-update` appends the hashes of the current template version to `hashes.txt`.
 
 ## What CI checks
@@ -43,12 +44,12 @@ The [ci workflow](.github/workflows/ci.yml) runs on Windows, Linux and macOS for
 - `go mod verify`;
 - `go test -race ./...` on Linux and macOS, and `go test ./...` on Windows, with Node 22 for the web UI tests;
 - `go build ./cmd/dotai`;
-- the real-rulesync stage test above, and `scripts/release.sh --self-test`;
+- the end-to-end tests with the real rulesync binary and the github.com fetch test above, and `scripts/release.sh --self-test`;
 - `shellcheck` on `install.sh` and `scripts/release.sh`. The tests of the install scripts run `install.sh` under `sh`, and `bash` when present, on Linux and macOS, and `install.ps1` under Windows PowerShell, and pwsh when present, on Windows, against a fake release on `127.0.0.1`. With `CI` set, a missing `sh` or Windows PowerShell fails them instead of skipping them; CI also runs them verbose, so its log lists every case and shell.
 
 ## Tests first
 
-The engine is written test-first, strictly: every behavior change starts with a test that fails for the right reason, then the code that makes it pass. A bug fix comes with the test that reproduces the bug. Keep tests deterministic: no sleeps to wait for something, no real network outside the `DOTAI_E2E` tests, and no reliance on the machine's own harnesses or home directory.
+The engine is written test-first, strictly: every behavior change starts with a test that fails for the right reason, then the code that makes it pass. A bug fix comes with the test that reproduces the bug. Keep tests deterministic: no sleeps to wait for something, no real network outside the `DOTAI_E2E` and `DOTAI_NET_TESTS` tests, and no reliance on the machine's own harnesses or home directory.
 
 ## Commits and pull requests
 
