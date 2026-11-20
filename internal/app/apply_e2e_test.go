@@ -66,7 +66,7 @@ func TestApplyAndRestoreProjectWithRealRulesync(t *testing.T) {
 		}
 		return string(out)
 	}
-	before, homeBefore := files(t, project), homeFiles(t, home)
+	before, homeBefore := worktreeFiles(t, project), homeFiles(t, home)
 	if got := status(); got != "" {
 		t.Fatalf("git status before = %q, want it clean", got)
 	}
@@ -86,7 +86,9 @@ func TestApplyAndRestoreProjectWithRealRulesync(t *testing.T) {
 	if v, ok, _ := plan.GetKey(claudeJSON, []string{"numStartups"}); !ok || string(v) != "3" {
 		t.Errorf("~/.claude.json = %s, want its own keys kept", claudeJSON)
 	}
-	if _, ok, _ := plan.GetKey(claudeJSON, []string{"projects", filepath.ToSlash(project), "mcpServers", "browser"}); !ok {
+	// Git gives the top of the worktree with links and short names
+	// resolved, and Claude Code keys the project by it.
+	if _, ok, _ := plan.GetKey(claudeJSON, []string{"projects", filepath.ToSlash(app.ResolvePath(project)), "mcpServers", "browser"}); !ok {
 		t.Errorf("~/.claude.json = %s, want the profile's server for the project", claudeJSON)
 	}
 	// The profile's mod, installed whole for Claude Code and excluded.
@@ -108,18 +110,7 @@ func TestApplyAndRestoreProjectWithRealRulesync(t *testing.T) {
 	if _, err := app.RestoreProjectWith(context.Background(), app.OSInstallFS{}, app.OSGit{}, project, home, nil); err != nil {
 		t.Fatalf("RestoreProject() error = %v", err)
 	}
-	after := files(t, project)
-	for k := range after {
-		if strings.HasPrefix(k, ".git/") && k != ".git/info/exclude" {
-			delete(after, k)
-		}
-	}
-	for k := range before {
-		if strings.HasPrefix(k, ".git/") && k != ".git/info/exclude" {
-			delete(before, k)
-		}
-	}
-	if !reflect.DeepEqual(after, before) {
+	if after := worktreeFiles(t, project); !reflect.DeepEqual(after, before) {
 		t.Errorf("project after the restore = %v, want %v", after, before)
 	}
 	if got := homeFiles(t, home); !reflect.DeepEqual(got, homeBefore) {

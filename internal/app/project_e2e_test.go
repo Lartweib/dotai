@@ -51,6 +51,12 @@ func TestPlanProjectWithRealRulesync(t *testing.T) {
 	if err != nil || len(p.Diagnostics) != 0 {
 		t.Fatalf("PlanProject() = %+v, %v", p.Diagnostics, err)
 	}
+	// Git gives the top of the worktree with links and short names
+	// resolved, so every target in the project is spelled under it.
+	top := app.ResolvePath(project)
+	if p.Project != top {
+		t.Errorf("project = %s, want %s", p.Project, top)
+	}
 	targets := map[string]plan.Action{}
 	for _, op := range p.Ops {
 		targets[op.Target] = op.Action
@@ -61,19 +67,19 @@ func TestPlanProjectWithRealRulesync(t *testing.T) {
 		".opencode/memories/web.md", ".opencode/skills/lint/SKILL.md", ".opencode/commands/deploy.md", ".opencode/plugins/rulesync-hooks-project.js", ".opencode/opencode.json",
 		".dotai/state.json",
 	} {
-		if targets[at(project, rel)] != plan.Create {
-			t.Errorf("%s = %q, want create; ops = %v", rel, targets[at(project, rel)], targets)
+		if targets[at(top, rel)] != plan.Create {
+			t.Errorf("%s = %q, want create; ops = %v", rel, targets[at(top, rel)], targets)
 		}
 	}
 	if targets[at(home, ".claude.json")] != plan.Create {
 		t.Errorf("~/.claude.json = %q, want create", targets[at(home, ".claude.json")])
 	}
 	for _, never := range []string{"CLAUDE.md", "AGENTS.md", ".mcp.json", ".claude/settings.json", "opencode.jsonc", ".agents/hooks.json"} {
-		if _, ok := targets[at(project, never)]; ok {
+		if _, ok := targets[at(top, never)]; ok {
 			t.Errorf("%s is planned", never)
 		}
 	}
-	want := []plan.Skipped{{Harness: "antigravity-cli", Kind: "hooks", Item: "hook SessionStart: echo hi", Target: at(project, ".agents/hooks.json"), Reason: plan.SkipTracked}}
+	want := []plan.Skipped{{Harness: "antigravity-cli", Kind: "hooks", Item: "hook SessionStart: echo hi", Target: at(top, ".agents/hooks.json"), Reason: plan.SkipTracked}}
 	if !reflect.DeepEqual(p.Skipped, want) {
 		t.Errorf("skipped = %+v, want %+v", p.Skipped, want)
 	}
