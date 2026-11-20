@@ -19,8 +19,7 @@ The project needs a name to get started. It changes before publishing if one wit
 - **A (chosen):** `dotai`.
 - `andamio`: rejected, it was not liked.
 - `tack`: rejected because `Tack-AI/tack` is an active coding agent, and a `tack` command already exists (Debian and PyPI).
-- `tackroom`: rejected because an npm package does almost the same thing.
-- `cinch`: rejected because a CLI with 35★ does almost the same thing, and there is a Go CI tool with that same binary name.
+- Two more names: rejected because each was already taken by a tool that does almost the same thing (an npm package, and an existing skill installer whose binary name a Go CI tool also uses).
 
 ## Consequences
 

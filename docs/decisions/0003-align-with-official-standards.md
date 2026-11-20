@@ -8,7 +8,7 @@ tags: [standards, agents-md, skills, mcp]
 
 ## Context
 
-Before creating an own format or mechanism, it is better to use the standard or official feature that already exists. Own pieces are built only where nothing exists. There are neighboring projects that solve parts of the same problem: `rulesync`, `tackroom` (npm, "Dotfiles for your AI agents") and `00200200/cinch` (installs skills and profiles across clients).
+Before creating an own format or mechanism, it is better to use the standard or official feature that already exists. Own pieces are built only where nothing exists. There are neighboring projects that solve parts of the same problem: `rulesync`, an npm package that keeps dotfiles for AI agents, and an existing skill installer that installs skills and profiles across clients.
 
 ## Decision
 
@@ -28,7 +28,7 @@ Adopted as-is:
 ## Consequences
 
 - What the project contributes: profiles per project type, a project analyzer, a web review module, delegation between harnesses, guards and a cost policy.
-- Pending: before designing the schema, study `rulesync`, `tackroom` and `cinch` (what they solve, what they do not, whether it makes sense to build on top of them).
+- Pending: before designing the schema, study `rulesync` and the other two neighboring projects (what they solve, what they do not, whether it makes sense to build on top of them).
 
 ## Evidence
 

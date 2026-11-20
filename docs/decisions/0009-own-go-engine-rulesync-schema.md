@@ -11,7 +11,7 @@ superseded-by: 0021
 
 ## Context
 
-[0003](0003-align-with-official-standards.md) left pending the study of `rulesync`, `tackroom` and `cinch` before designing the source schema, and deciding whether it made sense to build on top of one of them. Internal research on neighboring engines (not published) did so: rulesync is the only neighbor that covers dotai's three harnesses with all the relevant surfaces; tackroom has no Windows or Antigravity support; cinch only moves skills and agents. None covers what sets dotai apart (cost policy, quota-aware delegation, profiles, onboarding, `review-web`, statusline).
+[0003](0003-align-with-official-standards.md) left pending the study of `rulesync` and two other neighboring projects before designing the source schema, and deciding whether it made sense to build on top of one of them. Internal research on neighboring engines (not published) did so: rulesync is the only neighbor that covers dotai's three harnesses with all the relevant surfaces; the npm dotfiles package has no Windows or Antigravity support; the skill installer only moves skills and agents. None covers what sets dotai apart (cost policy, quota-aware delegation, profiles, onboarding, `review-web`, statusline).
 
 ## Decision
 
