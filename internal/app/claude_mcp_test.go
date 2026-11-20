@@ -486,3 +486,66 @@ func TestNewClaudeJSONIsPrivate(t *testing.T) {
 		t.Errorf("existing ~/.claude.json mode = %o, want it kept at 644", got)
 	}
 }
+
+// collidingSeeds are ~/.claude.json files whose own servers share a name
+// with a server of the pack, engram: alone, and with per-project keys the
+// reset wipes too.
+var collidingSeeds = map[string]string{
+	"servers": "{\n  \"numStartups\": 3,\n  \"mcpServers\": {\"engram\": {\"command\": \"mine-engram\"}, \"mine\": {\"command\": \"mine\"}}\n}\n",
+	"projects": "{\n  \"numStartups\": 3,\n  \"mcpServers\": {\"engram\": {\"command\": \"mine-engram\"}, \"mine\": {\"command\": \"mine\"}},\n" +
+		"  \"projects\": {\n    \"C:/work\": {\"allowedTools\": [\"Bash\"], \"hasTrustDialogAccepted\": true, \"mcpServers\": {\"p\": {\"command\": \"p\"}}},\n" +
+		"    \"C:/other\": {\"hasTrustDialogAccepted\": true}\n  },\n  \"userID\": \"u\"\n}\n",
+}
+
+// TestRestoreReplaceIsExactWithAServerOfTheSameName checks that a restore
+// of a replace install gives ~/.claude.json back byte for byte when the
+// user's own servers include one of the name of a pack's server, which
+// the reset wiped and the pack set again (decision 0049).
+func TestRestoreReplaceIsExactWithAServerOfTheSameName(t *testing.T) {
+	for name, seed := range collidingSeeds {
+		t.Run(name, func(t *testing.T) {
+			home, h := realHome(t)
+			target := at(home, ".claude.json")
+			writeFile(t, target, seed)
+			d := newClockFS(t)
+			s := threeServers
+			if _, err := replaceMCP(t, d, h, home, &s, false); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := restore(d, home, "", nil); err != nil {
+				t.Fatalf("Restore() error = %v", err)
+			}
+			if got, _ := os.ReadFile(target); string(got) != seed {
+				t.Errorf("~/.claude.json after the restore =\n%s\nwant\n%s", got, seed)
+			}
+		})
+	}
+}
+
+// TestReplaceRollsBackExactlyWithAServerOfTheSameName checks the same of a
+// replace install that fails at any write, over each colliding seed.
+func TestReplaceRollsBackExactlyWithAServerOfTheSameName(t *testing.T) {
+	s := threeServers
+	for name, seed := range collidingSeeds {
+		home, h := realHome(t)
+		writeFile(t, at(home, ".claude.json"), seed)
+		count := &stepFS{clockFS: newClockFS(t)}
+		if _, err := replaceMCP(t, count, h, home, &s, false); err != nil {
+			t.Fatal(err)
+		}
+		for k := 1; k <= count.n; k++ {
+			t.Run(fmt.Sprintf("%s at %d", name, k), func(t *testing.T) {
+				heavy(t, k-1)
+				home, h := realHome(t)
+				target := at(home, ".claude.json")
+				writeFile(t, target, seed)
+				if _, err := replaceMCP(t, &stepFS{clockFS: newClockFS(t), at: k}, h, home, &s, false); !errors.Is(err, errInjected) {
+					t.Fatalf("Install() error = %v, want the injected failure", err)
+				}
+				if got, _ := os.ReadFile(target); string(got) != seed {
+					t.Errorf("~/.claude.json after the rollback =\n%s\nwant\n%s", got, seed)
+				}
+			})
+		}
+	}
+}
