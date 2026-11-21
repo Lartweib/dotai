@@ -50,6 +50,8 @@ func TestRun(t *testing.T) {
 		{name: "version text", args: []string{"version"}, wantCode: 0, goldenOut: "version.txt.golden"},
 		{name: "version json", args: []string{"version", "--json"}, wantCode: 0, goldenOut: "version.json.golden"},
 		{name: "json flag before command", args: []string{"--json", "version"}, wantCode: 0, goldenOut: "version.json.golden"},
+		{name: "version flag text", args: []string{"--version"}, wantCode: 0, goldenOut: "version.txt.golden"},
+		{name: "version flag json", args: []string{"--version", "--json"}, wantCode: 0, goldenOut: "version.json.golden"},
 		{name: "unknown command json", args: []string{"nope", "--json"}, wantCode: 2, goldenOut: "unknown-command.json.golden"},
 		{name: "unknown command text", args: []string{"nope"}, wantCode: 2, wantStderr: true},
 		{name: "unexpected argument json", args: []string{"version", "extra", "--json"}, wantCode: 2, goldenOut: "unexpected-arg.json.golden"},

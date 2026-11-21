@@ -140,7 +140,7 @@ Before any release, `validate` reported `merge-pending` for `.rulesync/hooks.jso
 
 ### version
 
-Usage: `version`
+Usage: `version`, or `--version` on the root command, which prints the same, with `--json` too and `command` `version`
 
 `version`, `commit`, `buildDate`, `goVersion`, `os`, `arch`
 
