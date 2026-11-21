@@ -86,7 +86,12 @@ func newRestoreCmd(env Env, jsonOut *bool) *cobra.Command {
 			}
 			return env.Prompt(ctx, q)
 		}
+		steps := newStepPrinter(env, *jsonOut)
+		if steps != nil {
+			ctx = app.WithSteps(ctx, steps.report)
+		}
 		res, err := env.Restore(ctx, home, id, app.RestoreOptions{IgnoreRunning: ignoreRunning}, warn, overwrite)
+		steps.finish(err == nil)
 		if _, ok := errors.AsType[*app.ConflictError](err); ok && asked {
 			return errors.New("the restore was cancelled: nothing was written")
 		}

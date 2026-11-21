@@ -500,7 +500,12 @@ func (r *restorer) verifyWipes(m *backup.Manifest, dir string) error {
 // can be undone.
 func (r *restorer) moveBack(dir string) ([]moved, error) {
 	var done []moved
-	for _, mv := range r.moves {
+	for i, mv := range r.moves {
+		shown := mv.to
+		if mv.aside {
+			shown = mv.from
+		}
+		r.step(PhaseRestore, i+1, len(r.moves), r.tilde(shown))
 		to := mv.to
 		if mv.aside {
 			to = filepath.Join(dir, filepath.FromSlash(mv.file))

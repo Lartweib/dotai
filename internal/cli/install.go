@@ -109,7 +109,12 @@ func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
 			}
 			return env.Prompt(ctx, installQuestion(p))
 		}
+		steps := newStepPrinter(env, *jsonOut)
+		if steps != nil {
+			ctx = app.WithSteps(ctx, steps.report)
+		}
 		res, err := env.Install(ctx, cache, packDir(args), home, opts, progress, warn, consent)
+		steps.finish(err == nil)
 		if _, ok := errors.AsType[*app.ConsentError](err); ok && asked {
 			return errors.New("the install was cancelled, and it wrote nothing")
 		}

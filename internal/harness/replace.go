@@ -333,6 +333,8 @@ var (
 			{Name: "remote-settings.json", Kind: KeepCache},
 			{Name: "policy-limits.json", Kind: KeepCache},
 			{Name: "policy-limits.json.stamp.json", Kind: KeepCache},
+			// The quota snapshot a statusline writes: a runtime cache, not config.
+			{Name: "rate_limits.json", Kind: KeepCache},
 		}}},
 		// Cloned marketplaces and the installed copies of plugins; a
 		// plugin's own data, in plugins/data, is not one.
@@ -369,6 +371,8 @@ var (
 				{Name: "log", Kind: KeepHistory},
 				// Found on 1.5 (HARNESS-NOTES).
 				{Name: "history.jsonl", Kind: KeepHistory},
+				// The quota snapshot a statusline writes (HARNESS-NOTES).
+				{Name: "rate_limits.json", Kind: KeepCache},
 				{Name: "cache", Kind: KeepCache},
 				{Name: "bin", Kind: KeepState},
 				{Name: "builtin", Kind: KeepState},

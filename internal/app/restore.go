@@ -166,10 +166,12 @@ type RestoreError struct {
 
 func (e *RestoreError) Error() string {
 	if e.Rollback == nil {
-		return fmt.Sprintf("the restore stopped: %v; everything it wrote was put back from its backup %s, which is kept", e.Cause, e.Backup)
+		return withHint(fmt.Sprintf("the restore stopped: %v", e.Cause), e.Cause) +
+			fmt.Sprintf("; everything it wrote was put back from its backup %s, which is kept", e.Backup)
 	}
-	return fmt.Sprintf("the restore stopped: %v; putting back what it wrote failed: %v; the backup %s holds what was there before, "+
-		"and the install state keeps the restore's journal: the next restore settles it", e.Cause, e.Rollback, e.Backup)
+	return withHint(fmt.Sprintf("the restore stopped: %v", e.Cause), e.Cause) +
+		fmt.Sprintf("; putting back what it wrote failed: %v; the backup %s holds what was there before, "+
+			"and the install state keeps the restore's journal: the next restore settles it", e.Rollback, e.Backup)
 }
 
 func (e *RestoreError) Unwrap() []error {

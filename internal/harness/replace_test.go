@@ -131,6 +131,8 @@ func TestKeepLists(t *testing.T) {
 		{"claudecode", ".claude", "policy-limits.json", false, harness.KeepCache},
 		{"claudecode", ".claude", "policy-limits.json.stamp.json", false, harness.KeepCache},
 		{"claudecode", ".claude", "seed-admin", false, harness.KeepState},
+		// The quota snapshot a statusline writes, a runtime cache and not config.
+		{"claudecode", ".claude", "rate_limits.json", false, harness.KeepCache},
 		{"claudecode", ".claude", "dev-mods", false, ""}, // mods, which a fresh install has none of
 		{"claudecode", ".claude", "themes", false, ""},
 		{"claudecode", ".claude", "settings.json", false, ""},
@@ -159,6 +161,7 @@ func TestKeepLists(t *testing.T) {
 		{"antigravity-cli", ".gemini/antigravity-cli", "brain", false, harness.KeepHistory},
 		{"antigravity-cli", ".gemini/antigravity-cli", "log", false, harness.KeepHistory},
 		{"antigravity-cli", ".gemini/antigravity-cli", "history.jsonl", false, harness.KeepHistory},
+		{"antigravity-cli", ".gemini/antigravity-cli", "rate_limits.json", false, harness.KeepCache},
 		{"antigravity-cli", ".gemini/antigravity-cli", "cache", false, harness.KeepCache},
 		{"antigravity-cli", ".gemini/antigravity-cli", "builtin", false, harness.KeepState},
 		{"antigravity-cli", ".gemini/antigravity-cli", "installation_id", false, harness.KeepState},
