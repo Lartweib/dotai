@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
@@ -64,5 +65,47 @@ func TestInstallErrorSaysNothingOfUseForOtherFailures(t *testing.T) {
 				t.Errorf("message = %q, want no hint of a path in use", got)
 			}
 		})
+	}
+}
+
+// TestInUseHintNamesThePathThatIsHeld checks, on every system, which path the
+// hint names and how: the target of a write, not the temporary file renamed
+// over it; and the absolute path with the separators of the system that the
+// install file system gives, which is what Resource Monitor shows.
+func TestInUseHintNamesThePathThatIsHeld(t *testing.T) {
+	root := t.TempDir()
+	temp, err := tempName("settings.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	write := &os.LinkError{Op: "renameat", Old: temp, New: "settings.json", Err: fs.ErrPermission}
+	if got := inUseHint(write, true); !strings.Contains(got, "settings.json is probably in use") || strings.Contains(got, ".dotai-") {
+		t.Errorf("hint for a write = %q, want it to name settings.json and not the temporary file %s", got, temp)
+	}
+	held := at(root, ".agents/skills", &os.LinkError{Op: "renameat", Old: ".agents/skills", New: ".dotai/backups/b1/files/.agents/skills", Err: fs.ErrPermission})
+	want := filepath.Join(root, ".agents", "skills")
+	if got := inUseHint(held, true); !strings.HasPrefix(got, want+" is probably in use") || !strings.HasSuffix(got, "search for "+want) {
+		t.Errorf("hint for a move = %q, want the absolute path %s twice", got, want)
+	}
+	if got := inUseHint(held, false); got != "" {
+		t.Errorf("hint outside Windows = %q, want none", got)
+	}
+	if got := inUseHint(at(root, "a", &os.LinkError{Op: "renameat", Old: "a", New: "b", Err: fs.ErrNotExist}), true); got != "" {
+		t.Errorf("hint for a missing path = %q, want none", got)
+	}
+	// The messages of the three operations carry it on Windows.
+	if runtime.GOOS == "windows" {
+		for name, msg := range map[string]string{
+			"install": (&InstallError{Cause: held, Backup: "b1"}).Error(),
+			"apply":   (&ApplyError{Cause: held, Backup: "b1"}).Error(),
+			"restore": (&RestoreError{Cause: held, Backup: "b1"}).Error(),
+		} {
+			if !strings.Contains(msg, want+" is probably in use") {
+				t.Errorf("%s message = %q, want the hint", name, msg)
+			}
+		}
+		if msg := (&RestoreError{Cause: held, Rollback: errors.New("boom"), Backup: "b1"}).Error(); !strings.Contains(msg, "probably in use") || !strings.Contains(msg, "failed: boom") {
+			t.Errorf("restore message with a failed rollback = %q", msg)
+		}
 	}
 }

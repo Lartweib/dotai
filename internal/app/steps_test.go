@@ -90,3 +90,26 @@ func TestReplaceInstallAndRestoreReportTheirSteps(t *testing.T) {
 		t.Errorf("restore total = %d, want the %d wipes put back", n, len(res.Wipes))
 	}
 }
+
+// TestRollbackStepsCountOnlyTheEntriesMovedBack checks that a rollback of a
+// replace install counts the entries it moves back from 1 to its total,
+// ending at the total: a directory made for an entry that failed to move is
+// not one, and must not leave the count short of it.
+func TestRollbackStepsCountOnlyTheEntriesMovedBack(t *testing.T) {
+	for failAt := 1; failAt <= 8; failAt++ {
+		home, h, _ := replaceHome(t)
+		ctx, got := collect(t)
+		f := quiet(t)
+		_, err := app.InstallReplace(ctx, &stepFS{clockFS: newClockFS(t), at: failAt}, h, f.fetch, replaceRun(t), examplePack, home, app.InstallOptions{Harnesses: pack.Harnesses})
+		if err == nil {
+			t.Fatalf("failing step %d: Install(replace) succeeded, want the injected failure", failAt)
+		}
+		var back []app.Step
+		for _, s := range got() {
+			if s.Phase == app.PhaseRollback && s.N > 0 {
+				back = append(back, s)
+			}
+		}
+		counted(t, back, app.PhaseRollback) // from 1 to its total, ending at it
+	}
+}

@@ -341,11 +341,16 @@ func (r runner) unmove(done []moved) error {
 	r, cancel := r.detached()
 	defer cancel()
 	var errs []error
-	n := 0
+	n, total := 0, 0
+	for _, m := range done {
+		if m.from != "" {
+			total++
+		}
+	}
 	for _, m := range slices.Backward(done) {
 		if m.from != "" {
 			n++
-			r.step(PhaseRollback, n, len(done), r.tilde(m.from))
+			r.step(PhaseRollback, n, total, r.tilde(m.from))
 			if _, err := r.d.Lstat(m.from); err == nil {
 				errs = append(errs, fmt.Errorf("%s was left in %s: something took its place since", m.from, m.to))
 			} else if _, err := r.moveEntry(m.to, m.from); err != nil {

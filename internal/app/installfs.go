@@ -115,7 +115,7 @@ func (o osInstallFS) WriteIn(root, name string, data []byte, mode fs.FileMode) (
 	if err := r.Chmod(tmp, mode); err != nil {
 		return err
 	}
-	return retry(func() error { return r.Rename(tmp, name) })
+	return at(root, name, retry(func() error { return r.Rename(tmp, name) }))
 }
 
 // RemoveIn removes a file or an empty directory, clearing a read-only
@@ -131,7 +131,7 @@ func (osInstallFS) RemoveIn(root, name string) error {
 			return err
 		}
 	}
-	return retry(func() error { return r.Remove(name) })
+	return at(root, name, retry(func() error { return r.Remove(name) }))
 }
 
 // MoveIn renames from to to, slash paths inside root, through root, so
@@ -144,7 +144,7 @@ func (osInstallFS) MoveIn(root, from, to string) error {
 		return err
 	}
 	defer r.Close()
-	return retry(func() error { return r.Rename(from, to) })
+	return at(root, from, retry(func() error { return r.Rename(from, to) }))
 }
 
 // CopyIn copies the entry from to the missing to, slash paths inside

@@ -47,15 +47,20 @@ func WithSteps(ctx context.Context, f func(Step)) context.Context {
 	return context.WithValue(ctx, stepsKey{}, f)
 }
 
+// ReportStep gives s to the function of ctx (WithSteps), if it has one.
+func ReportStep(ctx context.Context, s Step) {
+	if f, ok := ctx.Value(stepsKey{}).(func(Step)); ok && f != nil {
+		f(s)
+	}
+}
+
 // step reports a step to the function of the context, if it has one.
 // A phase with nothing to do is not reported.
 func (r runner) step(p Phase, n, total int, item string) {
 	if total == 0 {
 		return
 	}
-	if f, ok := r.ctx.Value(stepsKey{}).(func(Step)); ok && f != nil {
-		f(Step{Phase: p, N: n, Total: total, Item: item})
-	}
+	ReportStep(r.ctx, Step{Phase: p, N: n, Total: total, Item: item})
 }
 
 // tilde is name, an absolute path under the home directory, as ~/..., or
@@ -69,7 +74,5 @@ func (r runner) tilde(name string) string {
 
 // announce reports that phase p starts, for one that has no count.
 func (r runner) announce(p Phase) {
-	if f, ok := r.ctx.Value(stepsKey{}).(func(Step)); ok && f != nil {
-		f(Step{Phase: p})
-	}
+	ReportStep(r.ctx, Step{Phase: p})
 }
