@@ -406,8 +406,14 @@ func TestStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r := oc[0].StatusReason; !strings.Contains(r, "stdin") || !strings.Contains(r, "timeout") {
-		t.Errorf("OpenCode's reason %q, want the hooks that read stdin and the missing timeouts named", r)
+	// rulesync 43.10.0 fixed the hooks that read stdin and the missing
+	// timeouts; what remains is the sessionStart output and its race.
+	r := oc[0].StatusReason
+	if !strings.Contains(r, "sessionStart") || !strings.Contains(r, "model") || !strings.Contains(r, "plugin startup") {
+		t.Errorf("OpenCode's reason %q, want the sessionStart output that never reaches the model and its race with plugin startup named", r)
+	}
+	if strings.Contains(r, "stdin") || strings.Contains(r, "timeout") {
+		t.Errorf("OpenCode's reason %q still names the stdin hang or the hook timeouts, which rulesync 43.10.0 fixed", r)
 	}
 }
 

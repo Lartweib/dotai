@@ -123,6 +123,12 @@ func planWipes(ctx context.Context, d installFS, h host, home string, adapters [
 	rp := replacePlan{}
 	dirs := map[string]error{}
 	for _, a := range adapters {
+		// File systems ignore case on Windows and, by default, on macOS.
+		fold := h.goos == "windows" || h.goos == "darwin"
+		vendored := func(p string) bool {
+			rel, err := filepath.Rel(home, p)
+			return err == nil && a.Real.Vendored(filepath.ToSlash(rel), fold)
+		}
 		for _, name := range a.Real.Relocated(h.environ, h.goos == "windows") {
 			rp.refusals = append(rp.refusals, Refusal{Code: RefuseRelocation, Harness: a.ID, Variable: name,
 				Message: fmt.Sprintf("%s is set, so %s may read its configuration from somewhere a replace install does not reset: unset it, then install again", name, a.ID)})
@@ -147,7 +153,7 @@ func planWipes(ctx context.Context, d installFS, h host, home string, adapters [
 					rp.keeps = append(rp.keeps, KeepPlan{Harness: a.ID, Path: entry, Kind: string(kind)})
 					continue
 				}
-				if err := rp.wipe(d, a.ID, entry, ar.Collateral, owned); err != nil {
+				if err := rp.wipe(d, a.ID, entry, ar.Collateral, owned, vendored); err != nil {
 					return replacePlan{}, err
 				}
 			}
@@ -166,7 +172,7 @@ func planWipes(ctx context.Context, d installFS, h host, home string, adapters [
 			} else if err != nil {
 				return replacePlan{}, err
 			}
-			if err := rp.wipe(d, a.ID, entry, l.Collateral, owned); err != nil {
+			if err := rp.wipe(d, a.ID, entry, l.Collateral, owned, vendored); err != nil {
 				return replacePlan{}, err
 			}
 		}
@@ -184,9 +190,10 @@ func planWipes(ctx context.Context, d installFS, h host, home string, adapters [
 // harness h: whole, or, when dotai owns a target below it, entry by entry
 // inside it. An entry dotai owns stays, since the plan takes care of it.
 // An entry whose name looks like a login, a secret or a history, or that
-// holds, found without following a link, anything whose name looks like a
-// credential, is not wiped: each such path is a refusal.
-func (rp *replacePlan) wipe(d installFS, h, entry, collateral string, owned map[string]bool) error {
+// holds, found without following a link or looking into a vendor tree, by
+// vendored, anything whose name looks like a credential, is not wiped:
+// each such path is a refusal.
+func (rp *replacePlan) wipe(d installFS, h, entry, collateral string, owned map[string]bool, vendored func(string) bool) error {
 	if ownedAt(owned, entry) {
 		return nil
 	}
@@ -202,13 +209,13 @@ func (rp *replacePlan) wipe(d installFS, h, entry, collateral string, owned map[
 		}
 		slices.Sort(names)
 		for _, name := range names {
-			if err := rp.wipe(d, h, filepath.Join(entry, name), collateral, owned); err != nil {
+			if err := rp.wipe(d, h, filepath.Join(entry, name), collateral, owned, vendored); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
-	sensitive, err := sensitivePaths(d, entry, real, harness.LooksSensitive)
+	sensitive, err := sensitivePaths(d, entry, real, harness.LooksSensitive, vendored)
 	if err != nil {
 		return err
 	}
@@ -223,14 +230,15 @@ func (rp *replacePlan) wipe(d installFS, h, entry, collateral string, owned map[
 }
 
 // sensitivePaths are entry, when looks reports its name, and, for a real
-// directory, every path inside it whose name looks like a credential, in
-// walk order; nothing is followed through a link.
-func sensitivePaths(d installFS, entry string, real bool, looks func(string) bool) ([]string, error) {
+// directory that is not a vendor tree, by vendored, every path inside it
+// whose name looks like a credential, in walk order; nothing is followed
+// through a link, and no vendor tree is looked into.
+func sensitivePaths(d installFS, entry string, real bool, looks, vendored func(string) bool) ([]string, error) {
 	var out []string
 	if looks(filepath.Base(entry)) {
 		out = append(out, entry)
 	}
-	if !real {
+	if !real || vendored(entry) {
 		return out, nil
 	}
 	names, err := d.List(entry)
@@ -244,7 +252,7 @@ func sensitivePaths(d installFS, entry string, real bool, looks func(string) boo
 		if err != nil {
 			return nil, err
 		}
-		below, err := sensitivePaths(d, child, mode.IsDir() && mode&(fs.ModeSymlink|fs.ModeIrregular) == 0, harness.LooksSensitiveInside)
+		below, err := sensitivePaths(d, child, mode.IsDir() && mode&(fs.ModeSymlink|fs.ModeIrregular) == 0, harness.LooksSensitiveInside, vendored)
 		if err != nil {
 			return nil, err
 		}
