@@ -48,7 +48,7 @@ var installPlan = app.InstallPlan{
 		{Action: plan.Replace, Harness: "antigravity-cli", Source: ".gemini/GEMINI.md", Target: "/home/u/.dotai/isolated/gemini/GEMINI.md", Before: "cc", After: "dd", Keys: []plan.KeyChange{}},
 		{Action: plan.Create, Source: ".dotai/tools/hello.sh", Target: "/home/u/.dotai/tools/hello.sh", Exec: true, After: "ee", Keys: []plan.KeyChange{}},
 	},
-	Wipes: []app.WipePlan{}, Keeps: []app.KeepPlan{}, WipeKeys: []app.WipeKey{}, Refusals: []app.Refusal{},
+	Wipes: []app.WipePlan{}, Keeps: []app.KeepPlan{}, WipeKeys: []app.WipeKey{}, Refusals: []app.Refusal{}, Reinstall: []string{},
 	Notices: []string{},
 	Warnings: []plan.Warning{{Code: app.CodeOnboardingHookSkipped, Harness: "antigravity-cli", Item: "dotai-profiles",
 		Message: "antigravity-cli gets the profiling skill dotai-profiles but not the session-start hook that tells a session when to load it"}},
@@ -511,7 +511,7 @@ func TestRunInstallRefusesTheHarnessSelection(t *testing.T) {
 
 // replacePlan is the dry run of a replace install, with fixed paths.
 var replacePlan = app.InstallPlan{
-	Pack:    installPlan.Pack,
+	Pack: installPlan.Pack, Reinstall: []string{},
 	Variant: "standalone", Mode: app.ModeReplace, Root: "/home/u",
 	Harnesses: []app.HarnessPlan{
 		{ID: "claudecode", Compatible: true, Required: true, Status: "supported", Managed: true, Detection: app.Detection{Detected: true, Binary: "/usr/bin/claude", Config: "/home/u/.claude", ConfigFound: true},

@@ -196,7 +196,7 @@
     ],
     "warnings": [],
     "diagnostics": [],
-    "reinstall": null,
+    "reinstall": [],
     "reset": false,
     "wouldReset": null,
     "blocked": false,

@@ -236,8 +236,16 @@ func TestALaterReplaceInstallAsksWhichOneOnATerminal(t *testing.T) {
 	if code, _, stderr := e.run("install", examplePack, "--harness", every, "--mode", "replace"); code != cli.ExitOK || asked != 0 {
 		t.Errorf("nothing added: exit code = %d, asked %d times, stderr = %q, want no question", code, asked, stderr)
 	}
-	// --reset and --yes decide without asking.
+	// --reset and --yes decide without asking; --reset does not consent, so
+	// alone, without a terminal, it is refused for what it wipes, and writes
+	// nothing.
 	e.addLater()
+	before := snapshot(t, e.home)
+	code, stdout, _ := e.run("install", examplePack, "--harness", every, "--mode", "replace", "--reset", "--json")
+	if env := decode(t, stdout); code != cli.ExitInternal || env.Error.Code != "consent-required" {
+		t.Errorf("--reset without --yes: exit code = %d, envelope = %s, want consent-required", code, stdout)
+	}
+	sameSnapshot(t, "home after --reset without --yes", snapshot(t, e.home), before)
 	for _, flag := range []string{"--reset", "--yes"} {
 		e.prompt = func(string) bool { t.Errorf("%s asked a question", flag); return false }
 		if code, _, stderr := e.run("install", examplePack, "--harness", every, "--mode", "replace", flag, "--yes"); code != cli.ExitOK {
@@ -302,39 +310,51 @@ func TestAnUpdateOnlyInstallKeepsTheSafetiesOfAReplaceInstall(t *testing.T) {
 
 // TestThePlanIsPrintedOnce checks that a human install prints its plan
 // once: before the question when it asks one, or after it is done when it
-// does not, never both.
+// does not, never both, and that what follows the plan after a question is
+// the summary line, the backup and the state path.
 func TestThePlanIsPrintedOnce(t *testing.T) {
 	for _, tt := range []struct {
 		name   string
+		setup  func(e *e2e)
 		prompt func(string) bool
+		args   []string
+		asks   int // questions asked
 	}{
-		{"with a question", func(string) bool { return true }},
-		{"with --yes", nil},
+		{"with a question", nil, func(string) bool { return true }, nil, 1},
+		{"with --yes", nil, nil, []string{"--yes"}, 0},
+		{"with the choice and the consent of a later install", func(e *e2e) {
+			if code, stdout, stderr := e.run("install", examplePack, "--harness", every, "--mode", "replace", "--yes", "--json"); code != cli.ExitOK {
+				t.Fatalf("first install: exit code = %d, stdout = %s, stderr = %q", code, stdout, stderr)
+			}
+			e.addLater()
+		}, func(string) bool { return true }, nil, 2},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newE2E(t)
-			e.prompt = tt.prompt
-			args := []string{"install", examplePack, "--harness", every, "--mode", "replace"}
-			if tt.prompt == nil {
-				args = append(args, "--yes")
+			if tt.setup != nil {
+				tt.setup(e)
 			}
-			code, stdout, stderr := e.run(args...)
-			if code != cli.ExitOK {
-				t.Fatalf("exit code = %d, stdout = %q, stderr = %q", code, stdout, stderr)
+			questions := 0
+			if tt.prompt != nil {
+				e.prompt = func(q string) bool { questions++; return tt.prompt(q) }
+			}
+			code, stdout, stderr := e.run(append([]string{"install", examplePack, "--harness", every, "--mode", "replace"}, tt.args...)...)
+			if code != cli.ExitOK || questions != tt.asks {
+				t.Fatalf("exit code = %d, asked %d times, want %d; stdout = %q, stderr = %q", code, questions, tt.asks, stdout, stderr)
 			}
 			if n := strings.Count(stdout, "Install plan ·"); n != 1 {
 				t.Errorf("the plan is printed %d times, want 1:\n%s", n, stdout)
 			}
-			if n := strings.Count(stdout, "  wipe  "); n != strings.Count(stdout, "wipe  ")-strings.Count(stdout, "wipe key")+0 && n == 0 {
-				t.Errorf("stdout lists no wipe:\n%s", stdout)
+			if n := strings.Count(stdout, "keybindings.json"); tt.setup != nil && n != 2 {
+				// Once in the list of what a reset would wipe, once in the plan.
+				t.Errorf("keybindings.json is printed %d times, want 2 (the choice and the plan once):\n%s", n, stdout)
 			}
-			for _, want := range []string{"installed\n", "backup: ", "state:  "} {
-				if !strings.Contains(stdout, want) {
-					t.Errorf("stdout lacks %q:\n%s", want, stdout)
-				}
+			end := stdout[strings.LastIndex(stdout, "· installed"):]
+			if !strings.HasPrefix(end, "· installed\nbackup: ") || !strings.Contains(end, "\nstate:  ") || strings.Count(end, "\n") != 3 {
+				t.Errorf("stdout ends with %q, want the summary line, the backup and the state only", end)
 			}
-			if tt.prompt != nil && !strings.HasPrefix(strings.TrimSpace(stdout[strings.LastIndex(stdout, "\n\n"):]), "") {
-				t.Errorf("stdout = %q", stdout)
+			if tt.asks > 0 && !strings.Contains(stdout, "nothing was written yet") {
+				t.Errorf("stdout lacks the plan of the question:\n%s", stdout)
 			}
 		})
 	}

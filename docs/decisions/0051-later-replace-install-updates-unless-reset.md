@@ -16,11 +16,11 @@ The human output also printed the whole plan twice: before the consent question,
 
 ## Decision
 
-**Per harness, first or later.** A replace install is a *later* install of a harness when the install state records the mode `replace`, lists the harness in its `harnesses`, and is settled: its journal, if any, holds no wipe and no split file, since an install that stopped midway while it reset did not finish the first one. Anything else is a *first* install of that harness: no state, an isolated state, a harness newly added to the selection, or one an earlier install left out. The state needs no new field; its `mode` and `harnesses` give it, and the schema stays `dotai.state/v1`. One install can mix both: the harnesses with a first install are reset as ever, the others are handled as below.
+**Per harness, first or later.** A replace install is a *later* install of a harness when the install state records the mode `replace`, lists the harness in its `harnesses`, and is settled for it: no wipe and no rewritten split file of its journal, if any, belongs to its reset (found by the adapter's areas, leak entries and split files; one no adapter claims counts against every harness), since an install that stopped midway while it reset did not finish the first one. The journal records every split file the reset rewrites, folded into the pack's write or not. Anything else is a *first* install of that harness: no state, an isolated state, a harness newly added to the selection, or one an earlier install left out. The state needs no new field; its `mode` and `harnesses` give it, and the schema stays `dotai.state/v1`. One install can mix both: the harnesses with a first install are reset as ever, the others are handled as below.
 
 **First install.** Unchanged: the full reset of [0038](0038-replace-mode-resets-harness-to-fresh-install.md).
 
-**Later install, by default: update only.** The harness's own configuration is treated as an isolated-style update: dotai writes its own files and keys, removes the ones the pack dropped, and wipes nothing. Nothing is classified, so no keep-list or credential-name refusal applies. Everything else a replace install has stays: the running-harness check, the refusal for a relocation variable, the consent for overwriting a file dotai does not own, the backup of each file it overwrites or removes, the journal, the rollback, and the exact restore. The backup of an update is a replace backup in the history the pinned first backup leads, and it never takes the pin.
+**Later install, by default: update only.** The harness's own configuration is treated as an isolated-style update: dotai writes its own files and keys, removes the ones the pack dropped, and wipes nothing. Nothing is classified, so no keep-list or credential-name refusal applies. Everything else a replace install has stays: the running-harness check, the refusal for a relocation variable, the consent for overwriting a file dotai does not own, or a key of `~/.claude.json` that it does not own, the backup of each file it overwrites or removes, the journal, the rollback, and the exact restore. The backup of an update is a replace backup in the history the pinned first backup leads, and it never takes the pin.
 
 **Reset again.** `--reset` takes the later harnesses through the reset of [0038](0038-replace-mode-resets-harness-to-fresh-install.md), as a first install does, with the same consent. It does nothing for a harness that has no replace install yet, and in the isolated mode.
 
@@ -52,7 +52,7 @@ The human output also printed the whole plan twice: before the consent question,
 - Good: an update keeps all the safeties, so the restore of it is exact and goes back one install at a time.
 - Accepted cost: something a harness or another tool added that dotai would have wiped now stays, until the user resets. The dry run says how much.
 - Accepted cost: a user who answers yes gets two questions on a terminal, the choice and the consent for what the reset wipes.
-- Accepted cost: an install that stopped while it reset is settled by a reset again, since its state cannot tell that it never finished the first one. One that stopped while it only updated is not.
+- Accepted cost: the harness whose reset was interrupted is settled by a reset again, since its state cannot tell that it never finished the first one; the others in the same state stay later installs. One that stopped while it only updated is not.
 - Accepted cost: a harness dropped from the selection and added again later is a first install for it.
 
 ## Evidence

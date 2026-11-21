@@ -175,7 +175,10 @@ function modes(current, pick) {
 // nothing, or reset them again as the first install did; onPick is called
 // with whether it is a reset, and the plan is made again for the choice.
 function reinstallStep(p, onPick) {
-  const would = p.reset ? p : p.wouldReset;
+  // Only what a reset takes from the harnesses of reinstall: a first install in
+  // the same plan wipes either way.
+  const later = (x) => p.reinstall.includes(x.harness);
+  const would = p.reset ? { wipes: p.wipes.filter(later), wipeKeys: p.wipeKeys.filter(later) } : p.wouldReset;
   const list = p.reinstall.map((id) => harnessName(id)).join(", ");
   return h("fieldset", { class: "field" }, h("legend", { class: "label", text: t("plan.reinstall") }),
     hint(t("hint.reinstall", { list })),
