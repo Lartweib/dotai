@@ -256,7 +256,7 @@ dotai renders packs with [rulesync](https://github.com/dyoshikawa/rulesync), and
 - [Harness notes](docs/HARNESS-NOTES.md): verified harness behavior.
 - [Decision records](docs/decisions/README.md): why the engine is built this way.
 - [Roadmap](docs/ROADMAP.md): what is done and what comes next.
-- [Changelog](CHANGELOG.md).
+- [Changelog](https://github.com/Lartweib/dotai/releases): the notes of each release.
 
 ## Contributing
 

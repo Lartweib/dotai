@@ -104,6 +104,7 @@ Read these first for the shape of the engine:
 |---|---|---|---|
 | [0042](0042-tag-driven-release-binaries.md) | Tag-driven release binaries built by a script and published with gh | accepted | 2026-11-03 |
 | [0048](0048-one-command-install-scripts.md) | One-command install scripts that verify the release checksum | proposed | 2026-11-19 |
+| [0052](0052-release-please-owns-versions-and-changelog.md) | release-please proposes each release and owns CHANGELOG.md | proposed | 2026-11-22 |
 
 ## Superseded (history only)
 

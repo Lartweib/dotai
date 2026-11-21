@@ -45,3 +45,5 @@ Roadmap PR 12 ships `dotai` as a binary per platform, so that a user can install
 Update 2026-11-18: accepted. `.github/workflows/release.yml` and `scripts/release.sh` implement this decision as written, and CI runs the script's `--self-test` on every push and pull request. The first release is cut from a `vX.Y.Z` tag on `main`; its version follows the Versioning point above.
 
 Update 2026-11-20: each archive also holds `THIRD_PARTY_NOTICES`, which `scripts/release.sh` generates for that target from the module graph: the license texts of the Go standard library, of every module linked into the binary and of the fonts embedded in the web UI. CI runs the script's `--check-notices`, which fails when a linked module has no license file.
+
+Update 2026-11-22: [0052](0052-release-please-owns-versions-and-changelog.md) decides that release-please creates the tag and a draft release, and `release.yml` completes and publishes that draft; a `v*` tag pushed by a person still works as this record describes. The build, the checksums, the attestation and the Pending note on the first release are unchanged.

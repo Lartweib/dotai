@@ -53,10 +53,34 @@ The engine is written test-first, strictly: every behavior change starts with a 
 
 ## Commits and pull requests
 
-- Commits follow [Conventional Commits](https://www.conventionalcommits.org/): `feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`, `ci:`, with an optional scope such as `fix(plan):`. The subject is 72 characters or fewer, in the imperative mood, without a trailing period.
+- Commits follow [Conventional Commits](https://www.conventionalcommits.org/): `feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`, `ci:`, with an optional scope such as `fix(plan):`. release-please builds the changelog and the next version from them, so `feat:` and `fix:` are for what a user sees ([Releasing](#releasing)). The subject is 72 characters or fewer, in the imperative mood, without a trailing period.
 - Each commit is a reviewable unit of work that builds and passes its tests on its own: keep the tests and the docs of a change in the same commit as the code.
 - A pull request does one thing, leaves something that can be run or inspected, and starts from the current `main`. Describe what changed, why, and how you verified it; the [pull request template](.github/pull_request_template.md) lists what to include.
 - Update the docs a change affects in the same pull request: [CLI-JSON.md](docs/CLI-JSON.md) for any command output, [PACK-FORMAT.md](docs/PACK-FORMAT.md) for the pack contract, [HARNESS-NOTES.md](docs/HARNESS-NOTES.md) for harness behavior, and the [roadmap](docs/ROADMAP.md) when a deliverable is done.
+
+## Releasing
+
+The owner decides when to release by merging one pull request. Nobody computes a version or makes a tag by hand ([0052](docs/decisions/0052-release-please-owns-versions-and-changelog.md)).
+
+[release-please](https://github.com/googleapis/release-please) (`.github/workflows/release-please.yml`) keeps one pull request open on `main`, titled `chore: release <version>`. It reads the conventional commits since the last release and proposes the next version, and it writes `CHANGELOG.md`, which is also the notes of the GitHub release. Below 1.0 a `feat:` bumps the minor, a `fix:` the patch, and a breaking change (`feat!:`, or a `BREAKING CHANGE:` footer) also the minor. `docs`, `chore`, `ci`, `build`, `test`, `refactor` and `style` commits do not bump the version and stay out of the changelog, so write a user-visible change as `feat:` or `fix:` and say in its subject what the user gets. The pull request updates itself on every push to `main`. Do not edit `CHANGELOG.md` by hand.
+
+To release:
+
+1. Read the release pull request (the version and the changelog) and merge it, with a merge commit like any other pull request. The required checks run on it like on any pull request.
+2. The merge makes the workflow create the `v<version>` tag and a **draft** GitHub Release with the changelog as its notes, and start `.github/workflows/release.yml` on that tag. That workflow runs the tests, builds the archives and `SHA256SUMS`, signs the provenance attestation, uploads them to the draft and publishes it ([0042](docs/decisions/0042-tag-driven-release-binaries.md)). Nothing else is manual.
+
+How it fits together, for when something breaks:
+
+- The workflow uses the run's `GITHUB_TOKEN`, with no secret. GitHub starts no workflow for what that token creates (the release pull request, the tag) except a `workflow_dispatch`. So `release-please.yml` starts `release.yml` itself, with `gh workflow run --ref <tag>`, and runs `ci.yml` on the release pull request's branch so that the required checks exist. Because the tag push fires nothing, a release runs `release.yml` once.
+- The release is a draft from the start (`draft` and `force-tag-creation` in `release-please-config.json`), so it is never public without its files. `release.yml` keeps the draft's notes, puts the toolchain line in front and publishes it. A `v*` tag pushed by a person still runs `release.yml`, which then creates the release itself: that is how to release by hand if `release-please.yml` ever fails, and how to try a pre-release (`v0.1.0-rc.1`) on a commit of `main`. The `release tags` ruleset does not allow deleting a tag, so a test tag stays; delete its release, not the tag.
+- If `release.yml` fails after the tag exists (a failing check, say), fix `main`, then run **Actions > release > Run workflow** from the tag. It completes the same draft. A published release is never changed: it fails with an error instead.
+- `bootstrap-sha` and `initial-version` in `release-please-config.json` only matter until the first release is merged: they cut the first changelog at the commit before release-please was adopted, and make the first version `0.1.0`. The summary of `v0.1.0` is in the message of the commit `docs: seed the notes of the first release, v0.1.0`. After the release, the manifest records the version and both settings can be deleted.
+- `CHANGELOG.md` does not exist before the first release: release-please creates it when that pull request is merged. Once it exists, a header can be added above the first version heading and release-please keeps it.
+- Moving to a GitHub App or personal access token for release-please (`token:` in the workflow) would make GitHub start the workflows by itself, and the dispatch steps could then go. Do not keep both, or each release runs twice.
+
+### One-time setup
+
+In Settings > Actions > General, under Workflow permissions, check **Allow GitHub Actions to create and approve pull requests**. Without it release-please cannot open the release pull request.
 
 ## Decision records
 
