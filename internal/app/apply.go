@@ -95,10 +95,11 @@ type ApplyError struct {
 func (e *ApplyError) Error() string {
 	op := cmp.Or(e.Operation, "apply")
 	if e.Rollback == nil {
-		return fmt.Sprintf("the %s stopped: %v; everything it wrote was rolled back from the backup %s, which is kept", op, e.Cause, e.Backup)
+		return withHint(fmt.Sprintf("the %s stopped: %v", op, e.Cause), e.Cause) +
+			fmt.Sprintf("; everything it wrote was rolled back from the backup %s, which is kept", e.Backup)
 	}
-	return fmt.Sprintf("the %s stopped: %v; the rollback failed: %v; the backup %s holds what was there before, "+
-		"and the project record keeps the journal: the next apply or restore --project rolls it back", op, e.Cause, e.Rollback, e.Backup)
+	return withHint(fmt.Sprintf("the %s stopped: %v", op, e.Cause), e.Cause) + fmt.Sprintf("; the rollback failed: %v; the backup %s holds what was there before, "+
+		"and the project record keeps the journal: the next apply or restore --project rolls it back", e.Rollback, e.Backup)
 }
 
 func (e *ApplyError) Unwrap() []error {

@@ -70,10 +70,11 @@ type InstallError struct {
 
 func (e *InstallError) Error() string {
 	if e.Rollback == nil {
-		return fmt.Sprintf("the install stopped: %v; everything it wrote was rolled back from the backup %s, which is kept", e.Cause, e.Backup)
+		return withHint(fmt.Sprintf("the install stopped: %v", e.Cause), e.Cause) +
+			fmt.Sprintf("; everything it wrote was rolled back from the backup %s, which is kept", e.Backup)
 	}
-	return fmt.Sprintf("the install stopped: %v; the rollback failed: %v; the backup %s holds what was there before, "+
-		"and the next install starts from what is on disk", e.Cause, e.Rollback, e.Backup)
+	return withHint(fmt.Sprintf("the install stopped: %v", e.Cause), e.Cause) + fmt.Sprintf("; the rollback failed: %v; the backup %s holds what was there before, "+
+		"and the next install starts from what is on disk", e.Rollback, e.Backup)
 }
 
 func (e *InstallError) Unwrap() []error {
