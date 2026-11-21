@@ -22,6 +22,7 @@ func TestKindOfTellsTheKindOfAStagedUserFile(t *testing.T) {
 		".gemini/config/agents/reviewer.md":                      harness.ProjectAgents,
 		".gemini/antigravity-cli/skills/commit-message/SKILL.md": harness.ProjectSkills,
 		".gemini/antigravity-cli/settings.json":                  harness.ProjectSettings,
+		".gemini/config/hooks.json":                              harness.ProjectHooks,
 		".config/opencode/AGENTS.md":                             harness.ProjectRules,
 		".config/opencode/memories/tmux.md":                      harness.ProjectRules,
 		".config/opencode/agents/reviewer.md":                    harness.ProjectAgents,

@@ -67,6 +67,9 @@ var simpleKey = regexp.MustCompile(`^[A-Za-z0-9_$-]+$`)
 // name after a dot, or quoted in brackets when it is not a simple name,
 // such as projects["C:/work"].mcpServers.browser.
 func KeyPath(key []string) string {
+	if name, ok := hookName(key); ok {
+		return name
+	}
 	var b strings.Builder
 	for i, k := range key {
 		switch {

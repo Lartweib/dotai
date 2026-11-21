@@ -271,6 +271,24 @@ func TestHomeConfig(t *testing.T) {
 	}
 }
 
+// TestHooksFile checks the hooks file that other programs add keys to
+// (decision 0050): agy has one, in its configuration directory in either
+// mode; Claude Code keeps its hooks in its settings file, and OpenCode has
+// no shared hooks file.
+func TestHooksFile(t *testing.T) {
+	agy := adapter(t, "antigravity-cli")
+	for m, want := range map[harness.Mode]string{harness.Isolated: ".dotai/isolated/gemini/config/hooks.json", harness.Replace: ".gemini/config/hooks.json"} {
+		if got := agy.HooksTarget(m); got != want {
+			t.Errorf("HooksTarget(%s) = %q, want %q", m, got, want)
+		}
+	}
+	for _, id := range []string{"claudecode", "opencode"} {
+		if a := adapter(t, id); a.Hooks != "" || a.HooksTarget(harness.Replace) != "" {
+			t.Errorf("%s has the hooks file %q, want none", id, a.Hooks)
+		}
+	}
+}
+
 // TestLooksSensitive checks the safety net: an unknown entry whose name
 // looks like a login or history is never wiped unclassified.
 func TestLooksSensitive(t *testing.T) {

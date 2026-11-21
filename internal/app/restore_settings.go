@@ -92,11 +92,11 @@ func (r *restorer) undoSettings(s state.State, chain []undone, h, target string,
 			return settingsEnd{}, fmt.Errorf("the backup %s: %w", st.u.m.ID, err)
 		}
 		if end.data != nil && !found {
-			have, err := plan.SettingsKeys(h, end.data)
+			have, err := plan.HeldKeys(h, end.data, after, before)
 			if err != nil {
 				return settingsEnd{}, settingsError(target, err)
 			}
-			back, _ := plan.SettingsKeys(h, copied) // checked when the backup was loaded
+			back, _ := plan.HeldKeys(h, copied, after, before) // checked when the backup was loaded
 			for _, k := range after {
 				cur, ok := keyAt(have, k.Path)
 				if prev, put := keyAt(back, k.Path); ok && cur.SHA256 != k.SHA256 && (!put || prev.SHA256 != cur.SHA256) {
