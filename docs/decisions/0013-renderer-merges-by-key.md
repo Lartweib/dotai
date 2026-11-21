@@ -40,3 +40,5 @@ In addition, a Claude Code plugin cannot carry `permissions`, `env` or `statusLi
 Update 2026-10-30: for the settings files of the isolated installs, the record of owned keys lives in `state.json`, as [0035](0035-settings-files-owned-by-key.md) decides.
 
 Update 2026-11-02: at project scope the merge by key applies to the local variants of [0041](0041-project-scope-local-and-untracked.md) (`.claude/settings.local.json`, `.opencode/opencode.json`, `.agents/mcp_config.json`, per-project MCP keys in `~/.claude.json`), the record of owned keys lives in `.dotai/`, and a file git tracks is never written.
+
+Update 2026-11-21: for hooks, the foreign entries that other programs add to a harness's hook files are kept, and the record of owned keys follows each hook group and each top-level key of agy's hooks file ([0050](0050-hook-entries-owned-one-by-one.md)).

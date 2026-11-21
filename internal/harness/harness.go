@@ -326,6 +326,13 @@ type Adapter struct {
 	// Staging: dotai owns the keys it writes there, not the whole file,
 	// since the harness writes into it too (decision 0035).
 	Settings string
+	// Hooks is a hooks file of the harness's own, in the user scope,
+	// relative to Staging, "" for none: agy's config/hooks.json, which
+	// other programs add top-level keys to beside the rulesync one
+	// (decision 0050). Claude Code keeps its hooks in Settings, and OpenCode
+	// has no shared hooks file: rulesync's plugin is a file of its own. It
+	// is owned key by key, as Settings is.
+	Hooks string
 	// HomeConfig is the harness's file at the root of the home directory,
 	// outside Staging, that rulesync renders into the user scope too, as a
 	// slash path relative to the staging tree and to the home directory,
@@ -400,6 +407,9 @@ func (a Adapter) KindOf(staged string) ProjectKind {
 	}
 	if rel == a.Settings {
 		return ProjectSettings
+	}
+	if a.Hooks != "" && rel == a.Hooks {
+		return ProjectHooks
 	}
 	if a.SharedSkills != "" && strings.HasPrefix(rel, a.SharedSkills+"/") {
 		return ProjectSkills
@@ -516,7 +526,7 @@ var adapters = []Adapter{
 		},
 	},
 	{
-		ID: "antigravity-cli", Name: "agy", Target: "antigravity-cli", Dir: "gemini", Staging: ".gemini", Settings: "antigravity-cli/settings.json", Command: "agy", Status: Supported,
+		ID: "antigravity-cli", Name: "agy", Target: "antigravity-cli", Dir: "gemini", Staging: ".gemini", Settings: "antigravity-cli/settings.json", Hooks: "config/hooks.json", Command: "agy", Status: Supported,
 		UserKinds: []KindPath{{"GEMINI.md", ProjectRules}, {"config/rules/", ProjectRules}, {"config/agents/", ProjectAgents}, {"config/skills/", ProjectSkills}, {"config/commands/", ProjectCommands}},
 		// agy moves antigravity-cli/skills to config/skills on its first run
 		// and then fails to link it back on Windows, so the skills install

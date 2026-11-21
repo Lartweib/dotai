@@ -267,6 +267,15 @@ func (a Adapter) SettingsTarget(m Mode) string {
 	return path.Join(a.InstallDir(m), a.Settings)
 }
 
+// HooksTarget is the slash path, relative to the home directory, of the
+// harness's Hooks file in mode m, "" for a harness without one.
+func (a Adapter) HooksTarget(m Mode) string {
+	if a.Hooks == "" {
+		return ""
+	}
+	return path.Join(a.InstallDir(m), a.Hooks)
+}
+
 // HomeConfigTarget is the slash path, relative to the home directory, of
 // the harness's HomeConfig in mode m: inside its isolated directory, or at
 // the root of the home directory in the replace mode; "" for a harness

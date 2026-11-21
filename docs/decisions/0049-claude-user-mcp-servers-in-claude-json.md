@@ -39,3 +39,5 @@ Claude Code reads user-scope MCP servers only from `~/.claude.json`, at the root
 
 - Bug report with a reproduction: a pack with one stdio server failed with `path-unmapped` in both modes, 2026-11-20.
 - [HARNESS-NOTES](../HARNESS-NOTES.md): `.claude.json` under `CLAUDE_CONFIG_DIR`, and concurrent writes.
+
+Update 2026-11-21: [0050](0050-hook-entries-owned-one-by-one.md) applies the same per-entry ownership to the hook groups of Claude Code's `settings.json`, with an array element in place of an object member, and to agy's `config/hooks.json`.

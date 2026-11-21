@@ -89,6 +89,12 @@ func (doc *doctorRun) checkSettings(f state.File, data []byte) {
 		return
 	}
 	for _, k := range f.Keys {
+		if plan.LegacyKey(f.Harness, k) {
+			// An install before decision 0050 owned all hooks as one key,
+			// which cannot tell dotai's entries from those another program
+			// added: the next install records them one by one.
+			continue
+		}
 		i := slices.IndexFunc(have, func(h plan.Key) bool { return slices.Equal(h.Path, k.Path) })
 		switch {
 		case i < 0:

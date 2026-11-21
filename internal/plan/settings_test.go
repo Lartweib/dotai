@@ -154,3 +154,170 @@ func TestDiffKeys(t *testing.T) {
 		t.Errorf("DiffKeys() of a new file = %+v, %v", got, err)
 	}
 }
+
+// hookDoc is Claude Code's settings with two groups of SessionStart, one
+// with a matcher, a group of another program in Stop, and a foreign key.
+const hookDoc = `{
+  "theme": "dark",
+  "hooks": {
+    "SessionStart": [
+      {"matcher": "startup", "hooks": [{"type": "command", "command": "a"}]},
+      {"hooks": [{"type": "command", "command": "b", "timeout": 5}]}
+    ],
+    "Stop": [{"hooks": [{"type": "command", "command": "tracker"}]}]
+  }
+}
+`
+
+// TestSettingsKeysOwnEachHookGroup checks the identity of hook entries
+// (decision 0050): event, matcher and first command, with the group as the
+// value, and a group without a command named by a hash of its content.
+func TestSettingsKeysOwnEachHookGroup(t *testing.T) {
+	got, err := plan.SettingsKeys("claudecode", []byte(hookDoc))
+	want := []plan.Key{
+		key(`"dark"`, "theme"),
+		key(`{"hooks":[{"command":"a","type":"command"}],"matcher":"startup"}`, "hooks", "SessionStart", "startup", "a"),
+		key(`{"hooks":[{"command":"b","timeout":5,"type":"command"}]}`, "hooks", "SessionStart", "", "b"),
+		key(`{"hooks":[{"command":"tracker","type":"command"}]}`, "hooks", "Stop", "", "tracker"),
+	}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("SettingsKeys() = %+v, %v, want %+v", got, err, want)
+	}
+	if name := got[1].Name(); name != "hooks.SessionStart[startup]: a" {
+		t.Errorf("Name() = %q, want the event, the matcher and the command", name)
+	}
+	for _, tt := range []struct{ name, data string }{
+		{"opencode keeps hooks whole", `{"hooks": {"E": [{"hooks": []}]}}`},
+	} {
+		keys, err := plan.SettingsKeys("opencode", []byte(tt.data))
+		if err != nil || len(keys) != 1 || len(keys[0].Path) != 1 {
+			t.Errorf("%s: SettingsKeys() = %+v, %v, want the hooks key whole", tt.name, keys, err)
+		}
+	}
+	// A group with no command, one that repeats an identity, an event that
+	// is not a list and an empty hooks object.
+	odd, err := plan.SettingsKeys("claudecode", []byte(`{"hooks": {"E": [{"hooks": [{"type": "prompt"}]}, {"hooks": [{"command": "x"}]}, {"hooks": [{"command": "x", "timeout": 1}]}], "F": "x"}}`))
+	if err != nil || len(odd) != 4 {
+		t.Fatalf("SettingsKeys() = %+v, %v, want four keys", odd, err)
+	}
+	if !strings.HasPrefix(odd[0].Path[3], "#") || odd[2].Path[3] != "x#2" || !reflect.DeepEqual(odd[3].Path, []string{"hooks", "F"}) {
+		t.Errorf("paths = %v, want a hash id, a numbered repeat and the event that is not a list as a key", []any{odd[0].Path, odd[1].Path, odd[2].Path, odd[3].Path})
+	}
+	if empty, err := plan.SettingsKeys("claudecode", []byte(`{"hooks": {}}`)); err != nil || empty != nil {
+		t.Errorf("SettingsKeys() of an empty hooks = %+v, %v, want none", empty, err)
+	}
+}
+
+// TestWriteKeysEditsOnlyDotaisHookGroups checks that setting and deleting a
+// hook entry leave every other group, key and byte of the file as they
+// were, and that an event or hooks object that a deletion empties goes.
+func TestWriteKeysEditsOnlyDotaisHookGroups(t *testing.T) {
+	tests := []struct {
+		name, current, from string
+		paths               [][]string
+		want                string
+	}{
+		{
+			name: "delete one group", current: hookDoc, from: `{}`,
+			paths: [][]string{{"hooks", "SessionStart", "startup", "a"}},
+			want: `{
+  "theme": "dark",
+  "hooks": {
+    "SessionStart": [
+      {"hooks": [{"type": "command", "command": "b", "timeout": 5}]}
+    ],
+    "Stop": [{"hooks": [{"type": "command", "command": "tracker"}]}]
+  }
+}
+`,
+		},
+		{
+			name: "delete the groups of an event", current: hookDoc, from: `{}`,
+			paths: [][]string{{"hooks", "SessionStart", "startup", "a"}, {"hooks", "SessionStart", "", "b"}},
+			want: `{
+  "theme": "dark",
+  "hooks": {
+    "Stop": [{"hooks": [{"type": "command", "command": "tracker"}]}]
+  }
+}
+`,
+		},
+		{
+			name: "delete the last group of the file", current: `{"hooks": {"Stop": [{"hooks": [{"command": "x"}]}]}, "a": 1}`, from: `{}`,
+			paths: [][]string{{"hooks", "Stop", "", "x"}},
+			want:  `{"a": 1}`,
+		},
+		{
+			name: "add to an event, a new event and a missing hooks", current: hookDoc,
+			from:  `{"hooks": {"Stop": [{"hooks": [{"command": "mine"}]}], "PreToolUse": [{"matcher": "*", "hooks": [{"command": "p"}]}]}}`,
+			paths: [][]string{{"hooks", "Stop", "", "mine"}, {"hooks", "PreToolUse", "*", "p"}},
+			want: `{
+  "theme": "dark",
+  "hooks": {
+    "SessionStart": [
+      {"matcher": "startup", "hooks": [{"type": "command", "command": "a"}]},
+      {"hooks": [{"type": "command", "command": "b", "timeout": 5}]}
+    ],
+    "Stop": [{"hooks": [{"type": "command", "command": "tracker"}]}, {"hooks":[{"command":"mine"}]}],
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "command": "p"
+          }
+        ]
+      }
+    ]
+  }
+}
+`,
+		},
+		{
+			name: "replace a changed group in place", current: hookDoc,
+			from:  `{"hooks": {"SessionStart": [{"hooks": [{"command": "b", "timeout": 9}]}]}}`,
+			paths: [][]string{{"hooks", "SessionStart", "", "b"}},
+			want: `{
+  "theme": "dark",
+  "hooks": {
+    "SessionStart": [
+      {"matcher": "startup", "hooks": [{"type": "command", "command": "a"}]},
+      {"hooks":[{"command":"b","timeout":9}]}
+    ],
+    "Stop": [{"hooks": [{"type": "command", "command": "tracker"}]}]
+  }
+}
+`,
+		},
+		{
+			name: "into a missing file", current: "",
+			from:  `{"hooks": {"Stop": [{"hooks": [{"command": "mine"}]}]}}`,
+			paths: [][]string{{"hooks", "Stop", "", "mine"}},
+			want: `{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "command": "mine"
+          }
+        ]
+      }
+    ]
+  }
+}
+`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := plan.WriteKeys("claudecode", []byte(tt.current), []byte(tt.from), tt.paths)
+			if err != nil {
+				t.Fatalf("WriteKeys() error = %v", err)
+			}
+			if string(got) != tt.want {
+				t.Errorf("WriteKeys() = %s\nwant %s", got, tt.want)
+			}
+		})
+	}
+}

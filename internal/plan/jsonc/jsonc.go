@@ -4,7 +4,8 @@
 // edits only the keys it owns in files other tools also write, such as
 // harness settings, so it must never reformat or drop anything else. Paths
 // are object keys from the top-level object down; they never index into
-// arrays.
+// arrays, whose elements are read and edited by their index in the array at
+// a path (Elements, RemoveElement, ReplaceElement).
 //
 // Known limits: the own-line comments directly above a deleted key go with
 // it, and an inserted array or object is written one item per line when its
@@ -259,6 +260,105 @@ func (d *Document) Union(path []string, elems ...[]byte) error {
 	})
 }
 
+// Elements returns the elements of the array at path as compact standard
+// JSON, in order, and whether there is an array there.
+func (d *Document) Elements(path []string) ([][]byte, bool) {
+	v := d.lookup(path)
+	if v == nil {
+		return nil, false
+	}
+	arr, ok := v.Value.(*hujson.Array)
+	if !ok {
+		return nil, false
+	}
+	out := make([][]byte, len(arr.Elements))
+	for i, e := range arr.Elements {
+		b, err := compactJSON(e) // Parse checked the document
+		if err != nil {
+			return nil, false
+		}
+		out[i] = b
+	}
+	return out, true
+}
+
+// element returns the array at path and checks that it has an element i.
+func (d *Document) element(path []string, i int) (*hujson.Array, error) {
+	v := d.lookup(path)
+	if v == nil {
+		return nil, fmt.Errorf("there is no array at %q", path)
+	}
+	arr, ok := v.Value.(*hujson.Array)
+	if !ok {
+		return nil, fmt.Errorf("%q is not an array", path)
+	}
+	if i < 0 || i >= len(arr.Elements) {
+		return nil, fmt.Errorf("%q has no element %d", path, i)
+	}
+	return arr, nil
+}
+
+// modelArray returns the array in the model top at path, or nil.
+func modelArray(top map[string]any, path []string) []any {
+	parent := modelObject(top, path, false)
+	if parent == nil {
+		return nil
+	}
+	arr, _ := parent[path[len(path)-1]].([]any)
+	return arr
+}
+
+// RemoveElement removes element i of the array at path, with its same-line
+// comment and the own-line comments right above it, up to a blank line.
+// The array stays, even when it is left empty.
+func (d *Document) RemoveElement(path []string, i int) error {
+	return d.verified(func() error {
+		arr, err := d.element(path, i)
+		if err != nil {
+			return err
+		}
+		d.deleteElement(arr, i, len(path))
+		return nil
+	}, func(top map[string]any) bool {
+		arr := modelArray(top, path)
+		if i < 0 || i >= len(arr) {
+			return false
+		}
+		modelParent := modelObject(top, path, false)
+		modelParent[path[len(path)-1]] = slices.Delete(slices.Clone(arr), i, i+1)
+		return true
+	})
+}
+
+// ReplaceElement replaces element i of the array at path by value, which
+// must be valid JSON, keeping its position and the comments around it.
+func (d *Document) ReplaceElement(path []string, i int, value []byte) error {
+	return d.verified(func() error {
+		if !json.Valid(value) {
+			return fmt.Errorf("value for %q is not valid JSON", path)
+		}
+		arr, err := d.element(path, i)
+		if err != nil {
+			return err
+		}
+		e := &arr.Elements[i]
+		if same, err := equalJSON(*e, value); err != nil || same {
+			return err
+		}
+		ind, own := lineIndent(e.BeforeExtra)
+		e.Value = d.render(value, ind, own && !writtenInline(e.Value))
+		return nil
+	}, func(top map[string]any) bool {
+		arr := modelArray(top, path)
+		x, err := decodeJSON(value)
+		if i < 0 || i >= len(arr) || err != nil {
+			return false
+		}
+		arr[i] = x
+		return true
+	})
+}
+
 // verified runs edit and keeps its result only when the output parses again
 // and equals, as canonical JSON, the document that model computes on its
 // own: model applies the same edit to the decoded top-level object. Any
@@ -451,6 +551,48 @@ func (d *Document) delete(path []string) {
 	}
 	*next = merged
 	obj.Members = slices.Delete(obj.Members, i, i+1)
+}
+
+// deleteElement removes element i of arr, which sits in the array at a path
+// of depth keys, as delete removes a member.
+func (d *Document) deleteElement(arr *hujson.Array, i, depth int) {
+	n, gone := len(arr.Elements), arr.Elements[i]
+	// next is the text after the element: before the next one, or before the
+	// closing bracket. It receives what stays around the deleted element.
+	next := &arr.AfterExtra
+	if i+1 < n {
+		next = &arr.Elements[i+1].BeforeExtra
+	}
+	keep := keptBefore(gone.BeforeExtra)
+	_, rest := cutLine(*next)
+	if endsInLineComment(keep) && len(lineBreaks(*next)) == 0 {
+		ind, own := lineIndent(gone.BeforeExtra)
+		if !own || i == n-1 {
+			ind = strings.Repeat(d.indent, depth)
+		}
+		rest = append(hujson.Extra(d.eol+ind), bytes.TrimLeft(rest, " 	")...)
+	}
+	merged := append(keep, rest...)
+	if i == 0 && len(lineBreaks(*next)) == 0 && !hasComment(*next) {
+		// A first element on one line: keep the spacing after the bracket.
+		merged = slices.Clone(gone.BeforeExtra)
+	}
+	if i == n-1 && i > 0 {
+		// The previous element becomes the last one: it takes the deleted
+		// element's trailing comma, or none.
+		prev := &arr.Elements[i-1]
+		if gone.AfterExtra == nil {
+			merged = append(slices.Clone(prev.AfterExtra), merged...)
+			prev.AfterExtra = nil
+		} else if prev.AfterExtra == nil {
+			prev.AfterExtra = hujson.Extra{}
+		}
+	}
+	if n == 1 && !hasComment(merged) {
+		merged = nil // the array is now empty: write it as []
+	}
+	*next = merged
+	arr.Elements = slices.Delete(arr.Elements, i, i+1)
 }
 
 // union does the work of Union; verified checks it.
