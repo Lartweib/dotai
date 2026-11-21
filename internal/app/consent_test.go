@@ -42,7 +42,7 @@ func TestReplaceConsent(t *testing.T) {
 	writeFile(t, at(home, ".claude/agents/mine.md"), "mine\n")
 	before := homeEntries(t, home)
 	asked := 0
-	_, err = installConsent(t, h, home, app.InstallOptions{}, func(p app.InstallPlan) (bool, error) {
+	_, err = installConsent(t, h, home, app.InstallOptions{Reset: true}, func(p app.InstallPlan) (bool, error) {
 		asked++
 		if len(p.Wipes) != 1 || !strings.HasSuffix(p.Wipes[0].Path, "agents") {
 			t.Errorf("consent asked with wipes %+v, want ~/.claude/agents", p.Wipes)

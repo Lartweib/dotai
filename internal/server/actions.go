@@ -35,7 +35,7 @@ func yes[T any](c confirmation) func(T) (bool, error) {
 }
 
 func (req installRequest) options() app.InstallOptions {
-	return app.InstallOptions{Variant: req.Variant, Mode: req.Mode, Harnesses: req.Harnesses}
+	return app.InstallOptions{Variant: req.Variant, Mode: req.Mode, Harnesses: req.Harnesses, Reset: req.Reset}
 }
 
 func (req applyRequest) options() app.ApplyOptions {

@@ -313,6 +313,39 @@ func TestRunApplyAsksOnATerminal(t *testing.T) {
 	}
 }
 
+// TestRunApplyPrintsThePlanOnce checks that an apply that asks on a terminal
+// prints its plan before the question and, once it is done, only its
+// summary line with the backup, not the plan again; without a question
+// the plan comes once, after it is done.
+func TestRunApplyPrintsThePlanOnce(t *testing.T) {
+	for _, asks := range []bool{true, false} {
+		var stdout bytes.Buffer
+		env := testEnv(&stdout, &bytes.Buffer{})
+		args := []string{"apply", "--profile", "web"}
+		if asks {
+			env.Prompt = func(context.Context, string) (bool, error) { return true, nil }
+		} else {
+			args = append(args, "--yes")
+		}
+		env.Apply = func(_ context.Context, _, _, _, _ string, _ app.ApplyOptions, _ app.Progress, consent app.ApplyConsent) (app.ApplyResult, error) {
+			if ok, _ := consent(projectPlan); !ok {
+				t.Error("consent = false")
+			}
+			return app.ApplyResult{ProjectPlan: projectPlan}, nil
+		}
+		if code := cli.Run(args, env); code != cli.ExitOK {
+			t.Fatalf("asks %v: exit code = %d, stdout = %q", asks, code, stdout.String())
+		}
+		out := stdout.String()
+		if n := strings.Count(out, "Apply plan ·"); n != 1 {
+			t.Errorf("asks %v: the plan is printed %d times, want once:\n%s", asks, n, out)
+		}
+		if !strings.Contains(out, "applied, ") || !strings.Contains(out, "backup: ") {
+			t.Errorf("asks %v: stdout = %q, want the summary with the backup", asks, out)
+		}
+	}
+}
+
 func TestRunApplyRefusesAnInvalidRecord(t *testing.T) {
 	var stdout bytes.Buffer
 	env := testEnv(&stdout, &bytes.Buffer{})

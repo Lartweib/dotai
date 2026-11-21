@@ -216,7 +216,7 @@ func TestPinnedReplaceBackupIsNeverPruned(t *testing.T) {
 			f := quiet(t)
 			d := newClockFS(t)
 			replace := func(d app.ExecuteFS) (app.InstallResult, error) {
-				return app.InstallReplace(context.Background(), d, h, f.fetch, replaceRun(t), examplePack, home, app.InstallOptions{Variant: "tmux"})
+				return app.InstallReplace(context.Background(), d, h, f.fetch, replaceRun(t), examplePack, home, app.InstallOptions{Variant: "tmux", Reset: true})
 			}
 			var isolated []string
 			for _, variant := range []string{"standalone", "tmux"} {

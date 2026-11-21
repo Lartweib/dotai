@@ -340,17 +340,22 @@ func TestReplaceInstallAsksOnATerminal(t *testing.T) {
 	if code, _, stderr := e.run("install", examplePack, "--mode", "replace"); code != cli.ExitOK || asked != 2 {
 		t.Errorf("answered yes: exit code = %d, asked %d times, stderr = %q, want it installed", code, asked, stderr)
 	}
-	// Each replace install wipes again, with consent: a file added since
-	// in a wiped area is asked about.
-	if err := os.WriteFile(filepath.Join(e.home, ".claude", "added-later.md"), []byte("x"), 0o644); err != nil {
+	// A later replace install only updates the pack and asks which one is
+	// wanted when a reset would wipe something (decision 0051): a file added
+	// since in a wiped area is that case, and a reset is asked about too.
+	added := filepath.Join(e.home, ".claude", "added-later.md")
+	if err := os.WriteFile(added, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	e.prompt = func(string) bool { asked++; return true }
-	if code, _, stderr := e.run("install", examplePack); code != cli.ExitOK || asked != 3 {
-		t.Errorf("again with a file added: exit code = %d, asked %d times, stderr = %q, want one more question", code, asked, stderr)
+	if code, _, stderr := e.run("install", examplePack); code != cli.ExitOK || asked != 4 {
+		t.Errorf("again with a file added, answered yes: exit code = %d, asked %d times, stderr = %q, want the choice and the consent", code, asked, stderr)
+	}
+	if _, err := os.Stat(added); err == nil {
+		t.Error("the file added since is still there after the reset")
 	}
 	e.prompt = func(string) bool { asked++; return false }
-	if code, _, stderr := e.run("install", examplePack); code != cli.ExitOK || asked != 3 {
+	if code, _, stderr := e.run("install", examplePack); code != cli.ExitOK || asked != 4 {
 		t.Errorf("again with nothing of the user's to wipe: exit code = %d, asked %d times, stderr = %q, want no question", code, asked, stderr)
 	}
 }

@@ -17,7 +17,7 @@ import (
 )
 
 func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
-	var dryRun, yes, ignoreRunning bool
+	var dryRun, yes, ignoreRunning, reset bool
 	var variant, mode string
 	var harnesses []string
 	cmd := &cobra.Command{
@@ -45,6 +45,12 @@ func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
 			"With --dry-run it lists what would be wiped, kept and written per harness, and why it would refuse. Without\n" +
 			"--mode, install uses the mode the install state records, or isolated; it never switches a replace install to\n" +
 			"isolated: run dotai restore first.\n" +
+			"A replace install of a harness that the install state records as already installed in the replace mode does not\n" +
+			"reset it again: it only updates the pack there, writing dotai's own files and keys, wiping nothing and keeping\n" +
+			"what was added since, and it still backs up whatever it overwrites. On a terminal you are asked which one you\n" +
+			"want, with what a reset would wipe listed; with --yes, --json, no terminal and --dry-run it updates only, and\n" +
+			"says what --reset would wipe. --reset resets again, as the first replace install did, with the same consent; for\n" +
+			"a harness that has no replace install yet, which is always reset, it changes nothing.\n" +
 			"A pack file that is still an example of dotai's pack template, unchanged (template-unchanged), is installed only\n" +
 			"with the same consent, in either mode: --yes accepts what the plan asks to confirm.",
 		// Checked with the arguments, so these are usage errors.
@@ -60,6 +66,7 @@ func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
 	cmd.Flags().StringVar(&mode, "mode", "", "install mode: isolated or replace (default: the mode the install state records, or isolated)")
 	cmd.Flags().BoolVar(&yes, "yes", false, "accept what the plan asks to confirm without asking: what a replace install wipes into the backup, and template files left unchanged")
 	cmd.Flags().BoolVar(&ignoreRunning, "ignore-running", false, "in the replace mode, install even when a harness it resets looks like it is running")
+	cmd.Flags().BoolVar(&reset, "reset", false, "in the replace mode, reset again a harness that already has a replace install, instead of only updating the pack there")
 	cmd.Flags().StringSliceVar(&harnesses, "harness", nil, "harnesses to manage, comma-separated (default: the saved selection, or the pack's harnesses that are installed)")
 	cmd.Flags().StringSlice("profile", nil, "not accepted: profiles are project scope")
 	_ = cmd.Flags().MarkHidden("profile")
@@ -76,7 +83,7 @@ func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
 		ctx, stop := interruptible(cmd)
 		defer stop()
 		progress := downloadProgress(env, *jsonOut)
-		opts := app.InstallOptions{Variant: variant, Mode: mode, IgnoreRunning: ignoreRunning}
+		opts := app.InstallOptions{Variant: variant, Mode: mode, IgnoreRunning: ignoreRunning, Reset: reset}
 		if cmd.Flags().Changed("harness") {
 			opts.Harnesses = append([]string{}, harnesses...)
 		}
@@ -108,6 +115,16 @@ func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
 				return false, err
 			}
 			return env.Prompt(ctx, installQuestion(p))
+		}
+		if !yes && !reset && !*jsonOut && env.Prompt != nil {
+			// On a terminal a later replace install asks whether to reset
+			// again, with what it would wipe in front of the user.
+			opts.ChooseReset = func(c app.ResetChoice) (bool, error) {
+				if err := writeResetChoice(env.Stdout, c, color); err != nil {
+					return false, err
+				}
+				return env.Prompt(ctx, resetQuestion(c))
+			}
 		}
 		steps := newStepPrinter(env, *jsonOut)
 		if steps != nil {
@@ -143,7 +160,15 @@ func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
 		if res.Backup != nil {
 			backup = res.Backup.Path
 		}
-		if err := writePlan(env.Stdout, res.InstallPlan, color, "installed\nbackup: "+backup+"\nstate:  "+res.State+"\n"); err != nil {
+		footer := "installed\nbackup: " + backup + "\nstate:  " + res.State + "\n"
+		if asked {
+			// The plan was printed before the question: print its summary
+			// and where things went, not the plan again.
+			err = writePlanSummary(env.Stdout, res.InstallPlan, footer)
+		} else {
+			err = writePlan(env.Stdout, res.InstallPlan, color, footer)
+		}
+		if err != nil {
 			return err
 		}
 		for _, w := range res.Warnings {
@@ -196,6 +221,22 @@ func unmanagedText(h app.HarnessState) string {
 // operations of each harness and then of the tools, and a count of each
 // action followed by footer.
 func writePlan(w io.Writer, p app.InstallPlan, color bool, footer string) error {
+	body, tail := renderPlan(p, color, footer)
+	_, err := io.WriteString(w, body+"\n"+tail)
+	return err
+}
+
+// writePlanSummary prints only the last line of a plan, the count of each
+// action followed by footer, for a plan that was printed before.
+func writePlanSummary(w io.Writer, p app.InstallPlan, footer string) error {
+	_, tail := renderPlan(p, false, footer)
+	_, err := io.WriteString(w, tail)
+	return err
+}
+
+// renderPlan is a plan as writePlan prints it, split in its body and the
+// line that counts each action, followed by footer.
+func renderPlan(p app.InstallPlan, color bool, footer string) (body, tail string) {
 	var b strings.Builder
 	subject := ""
 	if p.Pack != nil {
@@ -227,9 +268,10 @@ func writePlan(w io.Writer, p app.InstallPlan, color bool, footer string) error 
 			id += " · preview"
 		}
 		if p.Mode == app.ModeReplace {
-			fmt.Fprintf(&b, "\n%s · replace · %s\n", paint(color, styleBold, id), loginText(h.Relogin))
+			fmt.Fprintf(&b, "\n%s · replace%s · %s\n", paint(color, styleBold, id), reinstallText(p, h.ID), loginText(h.Relogin))
 			writeDetection(&b, h.Detection)
 			writeKeeps(&b, p.Keeps, h.ID)
+			writeWouldReset(&b, p, h.ID)
 			for _, c := range h.Tools {
 				fmt.Fprintf(&b, "  %s runs tool %s: %s\n", c.Key, c.Tool, c.Command)
 			}
@@ -314,13 +356,91 @@ func writePlan(w io.Writer, p app.InstallPlan, color bool, footer string) error 
 			fmt.Fprintf(&b, "  %s\n", r.Message)
 		}
 	}
-	fmt.Fprintf(&b, "\n%d create, %d replace, %d remove, %d unchanged · ", count[plan.Create], count[plan.Replace], count[plan.Remove], count[plan.Unchanged])
+	var t strings.Builder
+	fmt.Fprintf(&t, "%d create, %d replace, %d remove, %d unchanged · ", count[plan.Create], count[plan.Replace], count[plan.Remove], count[plan.Unchanged])
 	if p.Mode == app.ModeReplace {
-		fmt.Fprintf(&b, "%d wipe, %d key wipe, %d refused · ", wipes, keys, len(p.Refusals))
+		fmt.Fprintf(&t, "%d wipe, %d key wipe, %d refused · ", wipes, keys, len(p.Refusals))
 	}
-	b.WriteString(footer)
+	t.WriteString(footer)
+	return b.String(), t.String()
+}
+
+// reinstallText is how a replace plan says what it does to the harness
+// id when the install state records it in the replace mode already
+// (decision 0051): " · update only", or " · reset" when it resets it again.
+func reinstallText(p app.InstallPlan, id string) string {
+	switch {
+	case !slices.Contains(p.Reinstall, id):
+		return ""
+	case p.Reset:
+		return " · reset"
+	}
+	return " · update only"
+}
+
+// writeWouldReset says, under a harness that a replace plan only
+// updates, that it wipes nothing, and what --reset would wipe there.
+func writeWouldReset(b *strings.Builder, p app.InstallPlan, id string) {
+	if p.WouldReset == nil || !slices.Contains(p.Reinstall, id) {
+		return
+	}
+	entries, keys, refused := 0, 0, 0
+	for _, w := range p.WouldReset.Wipes {
+		if w.Harness == id {
+			entries++
+		}
+	}
+	for _, k := range p.WouldReset.WipeKeys {
+		if k.Harness == id {
+			keys++
+		}
+	}
+	for _, r := range p.WouldReset.Refusals {
+		if r.Harness == id {
+			refused++
+		}
+	}
+	line := "  wipes nothing; --reset would wipe " + countText(entries, "entry", "entries") + " and " + countText(keys, "key", "keys")
+	if refused > 0 {
+		line += ", and would be refused for " + countText(refused, "path", "paths")
+	}
+	fmt.Fprintf(b, "%s\n", line)
+}
+
+// countText is n with the word for it.
+func countText(n int, one, many string) string {
+	if n == 1 {
+		return "1 " + one
+	}
+	return fmt.Sprintf("%d %s", n, many)
+}
+
+// writeResetChoice prints, before the question of a later replace install,
+// what resetting the harnesses it updates only would wipe.
+func writeResetChoice(w io.Writer, c app.ResetChoice, color bool) error {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s already has a replace install, so this install only updates the pack there, wiping nothing.\n", strings.Join(c.Harnesses, ", "))
+	fmt.Fprintf(&b, "A reset would instead wipe %s and %s into the backup:\n", countText(len(c.Preview.Wipes), "entry", "entries"), countText(len(c.Preview.WipeKeys), "key", "keys"))
+	for _, wp := range c.Preview.Wipes {
+		fmt.Fprintf(&b, "  %s  %s\n", paintWord(color, styleRed, "wipe"), wp.Path)
+		if wp.Collateral != "" {
+			fmt.Fprintf(&b, "%swarning: %s\n", strings.Repeat(" ", keyIndent), wp.Collateral)
+		}
+	}
+	for _, k := range c.Preview.WipeKeys {
+		fmt.Fprintf(&b, "  %s  %s · %s\n", paintWord(color, styleRed, "wipe key"), k.File, keyPath(k.Key))
+	}
+	if n := len(c.Preview.Refusals); n > 0 {
+		fmt.Fprintf(&b, "%s, so a reset would be refused: see dotai install --dry-run --reset\n", countText(n, "path looks like a login, a secret or a history, or cannot be read", "paths look like a login, a secret or a history, or cannot be read"))
+	}
+	b.WriteString("\n")
 	_, err := io.WriteString(w, b.String())
 	return err
+}
+
+// resetQuestion asks whether the harnesses of c are reset again.
+func resetQuestion(c app.ResetChoice) string {
+	return "Reset " + strings.Join(c.Harnesses, ", ") + " again, wiping what is listed above, instead of only updating the pack? [y/N] "
 }
 
 // actionWidth is the width of the action column of a plan, that of its

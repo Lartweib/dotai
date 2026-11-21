@@ -426,7 +426,7 @@ func TestPlanReplaceLeavesWhatDotaiOwns(t *testing.T) {
 	writeState(t, at(home, ".dotai/state.json"), state.State{Schema: state.Schema, Pack: state.Pack{Name: "minimal-pack"}, Mode: app.ModeReplace,
 		Harnesses: []string{"claudecode", "antigravity-cli", "opencode"}, Files: []state.File{{Target: owned, Harness: "claudecode", SHA256: sum("pack\n")}}})
 	f := quiet(t)
-	p, err := app.PlanInstallHost(context.Background(), app.OSInstallFS{}, h, f.fetch, replaceRun(t), examplePack, home, app.InstallOptions{})
+	p, err := app.PlanInstallHost(context.Background(), app.OSInstallFS{}, h, f.fetch, replaceRun(t), examplePack, home, app.InstallOptions{Reset: true})
 	if err != nil || p.Mode != app.ModeReplace {
 		t.Fatalf("PlanInstall() = %+v, %v, want the replace mode of the state", p, err)
 	}
@@ -538,7 +538,7 @@ func TestPlanReplaceFindsOwnedTargetsWithoutCase(t *testing.T) {
 	writeState(t, at(home, ".dotai/state.json"), state.State{Schema: state.Schema, Pack: state.Pack{Name: "minimal-pack"}, Mode: app.ModeReplace,
 		Harnesses: []string{"claudecode", "antigravity-cli", "opencode"}, Files: []state.File{{Target: owned, Harness: "claudecode", SHA256: sum("pack\n")}}})
 	f := quiet(t)
-	p, err := app.PlanInstallHost(context.Background(), app.OSInstallFS{}, h, f.fetch, replaceRun(t), examplePack, home, app.InstallOptions{})
+	p, err := app.PlanInstallHost(context.Background(), app.OSInstallFS{}, h, f.fetch, replaceRun(t), examplePack, home, app.InstallOptions{Reset: true})
 	if err != nil {
 		t.Fatal(err)
 	}

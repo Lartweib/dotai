@@ -199,6 +199,9 @@
       }
     ],
     "diagnostics": [],
+    "reinstall": null,
+    "reset": false,
+    "wouldReset": null,
     "blocked": false,
     "consent": false,
     "consentForeign": false

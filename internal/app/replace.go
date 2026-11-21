@@ -87,6 +87,49 @@ type replacePlan struct {
 	blocked  []string
 }
 
+// merge is rp with what other plans too.
+func (rp replacePlan) merge(other replacePlan) replacePlan {
+	return replacePlan{
+		wipes:    slices.Concat(rp.wipes, other.wipes),
+		keeps:    slices.Concat(rp.keeps, other.keeps),
+		keys:     slices.Concat(rp.keys, other.keys),
+		refusals: slices.Concat(rp.refusals, other.refusals),
+		blocked:  slices.Concat(rp.blocked, other.blocked),
+	}
+}
+
+// relocations are the refusals of rp for a relocation variable, the only
+// ones that apply to a harness that is updated and not reset.
+func (rp replacePlan) relocations() []Refusal {
+	var out []Refusal
+	for _, r := range rp.refusals {
+		if r.Code == RefuseRelocation {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// reinstalled are the harnesses of selected that a replace install is a
+// later one for (decision 0051): those the install state prev records as
+// installed in the replace mode, whose install is settled. An install that
+// stopped midway while it reset, as its journal says, did not finish the
+// first one, so it is not a later one. A harness that is not in the state's
+// harnesses, such as one added to the selection since, has none either.
+// Never nil.
+func reinstalled(prev *state.State, selected []string) []string {
+	out := []string{}
+	if prev == nil || prev.Mode != ModeReplace || prev.Pending != nil && (len(prev.Pending.Wipes) > 0 || len(prev.Pending.Splits) > 0) {
+		return out
+	}
+	for _, id := range selected {
+		if slices.Contains(prev.Harnesses, id) {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
 // wipedKeys are the keys rp wipes in the split file target.
 func (rp replacePlan) wipedKeys(target string) [][]string {
 	var out [][]string
