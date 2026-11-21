@@ -82,9 +82,10 @@ Read these first for the shape of the engine:
 | [0032](0032-install-state-backup-and-isolated-launch.md) | Install state, backup layout and the isolated launch command (partially superseded by 0035) | accepted | 2026-10-29 |
 | [0033](0033-restore-from-the-install-history.md) | Restore follows the install history kept in the backups (partially superseded by 0035) | accepted | 2026-10-30 |
 | [0035](0035-settings-files-owned-by-key.md) | dotai owns only its keys in a harness's settings file | accepted | 2026-10-30 |
-| [0038](0038-replace-mode-resets-harness-to-fresh-install.md) | Replace mode resets each selected harness to a fresh install (partially superseded by 0049) | accepted | 2026-11-01 |
+| [0038](0038-replace-mode-resets-harness-to-fresh-install.md) | Replace mode resets each selected harness to a fresh install (partially superseded by 0049 and 0051) | accepted | 2026-11-01 |
 | [0049](0049-claude-user-mcp-servers-in-claude-json.md) | Claude Code's user-scope MCP servers are owned server by server in its `.claude.json` | accepted | 2026-11-20 |
 | [0050](0050-hook-entries-owned-one-by-one.md) | dotai owns its own hook entries, not the hook files other programs also write | accepted | 2026-11-21 |
+| [0051](0051-later-replace-install-updates-unless-reset.md) | A later replace install only updates the pack, unless it is asked to reset again | accepted | 2026-11-21 |
 
 ### Project scope and onboarding
 

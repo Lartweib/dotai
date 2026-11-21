@@ -120,7 +120,7 @@ flowchart LR
   class CC,AG,OC,PJ target
 ```
 
-A first install is isolated under `~/.dotai/isolated/` unless it is given `--mode replace`, which resets each harness and writes into its own configuration; later installs keep the recorded mode.
+A first install is isolated under `~/.dotai/isolated/` unless it is given `--mode replace`, which resets each harness and writes into its own configuration; later installs keep the recorded mode. A later replace install only updates the pack and wipes nothing, so what you added since stays; `--reset`, or your answer on a terminal, resets again.
 
 The base layer holds the shared rules, skills and subagents, such as `base/.rulesync/rules/overview.md` and `base/.rulesync/skills/commit-message/SKILL.md`. A dry run shows every file and key an install would write, and writes nothing but the rulesync cache (trimmed):
 
@@ -221,7 +221,7 @@ For a complete, small pack to read, see [examples/minimal-pack](examples/minimal
 
 | Command | What it does |
 |---|---|
-| `dotai install [path] --mode isolated` | Install a pack's user scope under `~/.dotai/isolated/`; `--mode replace` resets each harness and installs into its own configuration instead. |
+| `dotai install [path] --mode isolated` | Install a pack's user scope under `~/.dotai/isolated/`; `--mode replace` resets each harness and installs into its own configuration instead; a later replace install only updates the pack unless `--reset`. |
 | `dotai apply --profile <p>` | Apply profiles to the project in the current directory, in local, untracked files only. |
 | `dotai run <harness> [-- args]` | Launch a harness against its isolated install. |
 | `dotai restore [backup-id]` | Undo the last install, or every install down to the one that took `backup-id`. |
