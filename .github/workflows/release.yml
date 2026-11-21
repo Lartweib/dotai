@@ -2,9 +2,17 @@ name: release
 
 # A SemVer tag such as v0.1.0 builds the release archives and publishes them
 # with their SHA256SUMS as the GitHub release of that tag (0042).
+#
+# release-please creates the tag and a draft release with the changelog as its
+# notes when its release pull request is merged, and runs this workflow on
+# that tag with workflow_dispatch: a tag created with GITHUB_TOKEN starts no
+# push event (0052). This workflow then uploads the archives to that draft and
+# publishes it. A tag pushed by a person still starts it, and then there is no
+# draft: the workflow creates the release itself.
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions: {}
 
@@ -18,7 +26,24 @@ env:
   GO_VERSION: "1.26.10"
 
 jobs:
+  # A manual run takes a ref, and only a tag is a release.
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: ref is a tag
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          case "$REF" in
+            refs/tags/v*) ;;
+            *)
+              echo "::error::$REF is not a v* tag; run this workflow from the tag to release"
+              exit 1
+              ;;
+          esac
+
   test:
+    needs: tag
     permissions:
       contents: read
     uses: ./.github/workflows/ci.yml
@@ -60,10 +85,13 @@ jobs:
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-checksums: dist/SHA256SUMS
-      # The release stays a draft until every file is uploaded. A rerun of
-      # the same tag completes its draft, with this run's title, notes,
-      # pre-release flag and files only; a published release is never
-      # changed.
+      # The release stays a draft until every file is uploaded. The draft that
+      # release-please created for this tag is completed: its notes, the
+      # changelog, are kept, with the toolchain line in front. A rerun of the
+      # same tag completes its draft again, with this run's title, pre-release
+      # flag and files; a published release is never changed. With no release
+      # (a tag pushed by a person) the run creates the draft with notes from
+      # GitHub.
       - name: release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -71,19 +99,31 @@ jobs:
         run: |
           prerelease=false
           case "$TAG" in *-*) prerelease=true ;; esac
-          notes="Built with $(go version | cut -d' ' -f3) by \`scripts/release.sh\`."
-          notes+=$'\n\n'$(gh api -X POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
-            -f tag_name="$TAG" --jq .body)
+          built="Built with $(go version | cut -d' ' -f3) by \`scripts/release.sh\`."
+          generated() {
+            gh api -X POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+              -f tag_name="$TAG" --jq .body
+          }
           drafts=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" \
             --jq '.[] | select(.tag_name == env.TAG) | .draft')
           case "$drafts" in
             "")
+              notes="$built"$'\n\n'$(generated)
               gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
                 --title "dotai $TAG" --notes "$notes" --prerelease="$prerelease"
               gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY"
               ;;
             true)
               echo "completing the existing draft of $TAG"
+              # The notes of the draft, without the line an earlier run put in
+              # front of them.
+              body=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body)
+              body=${body#"$built"}
+              body=${body#$'\n\n'}
+              if [ -z "$body" ]; then
+                body=$(generated)
+              fi
+              notes="$built"$'\n\n'"$body"
               gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" \
                 --title "dotai $TAG" --notes "$notes" --prerelease="$prerelease"
               gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber

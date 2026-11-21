@@ -113,7 +113,7 @@ func (e *resultError) Unwrap() error { return e.err }
 func Run(args []string, env Env) int {
 	// parsed is set by a command that parsed its flags before started is,
 	// so that the parsed --json flag decides on an error.
-	var jsonOut, started, parsed bool
+	var jsonOut, started, parsed, showVersion bool
 
 	root := &cobra.Command{
 		Use:               "dotai",
@@ -124,8 +124,17 @@ func Run(args []string, env Env) int {
 		// Runs only after flags and arguments were accepted, so any error
 		// returned before it is a usage error.
 		PersistentPreRun: func(*cobra.Command, []string) { started = true },
+		// dotai --version is the output of dotai version; without it the
+		// root prints its help, as it did before it ran anything.
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if showVersion {
+				return writeVersion(env, jsonOut, "version")
+			}
+			return cmd.Help()
+		},
 	}
 	root.PersistentFlags().BoolVar(&jsonOut, "json", false, "print the result as a JSON envelope")
+	root.Flags().BoolVar(&showVersion, "version", false, "print the dotai version, as the version command does")
 	root.SetArgs(args)
 	root.SetOut(env.Stdout)
 	root.SetErr(env.Stderr)
@@ -193,16 +202,22 @@ func newVersionCmd(env Env, jsonOut *bool) *cobra.Command {
 		Short: "Print the dotai version",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			v := env.Version()
-			if *jsonOut {
-				return envelope.Write(env.Stdout, envelope.Success(commandName(cmd), v))
-			}
-			_, err := fmt.Fprintf(env.Stdout,
-				"dotai %s\ncommit:   %s\nbuilt:    %s\ngo:       %s\nplatform: %s/%s\n",
-				v.Version, orUnknown(v.Commit), orUnknown(v.BuildDate), v.GoVersion, v.OS, v.Arch)
-			return err
+			return writeVersion(env, *jsonOut, commandName(cmd))
 		},
 	}
+}
+
+// writeVersion prints the version of the binary: the dotai version command,
+// and the root's --version flag under the name of that command.
+func writeVersion(env Env, jsonOut bool, command string) error {
+	v := env.Version()
+	if jsonOut {
+		return envelope.Write(env.Stdout, envelope.Success(command, v))
+	}
+	_, err := fmt.Fprintf(env.Stdout,
+		"dotai %s\ncommit:   %s\nbuilt:    %s\ngo:       %s\nplatform: %s/%s\n",
+		v.Version, orUnknown(v.Commit), orUnknown(v.BuildDate), v.GoVersion, v.OS, v.Arch)
+	return err
 }
 
 func newValidateCmd(env Env, jsonOut *bool) *cobra.Command {
