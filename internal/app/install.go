@@ -22,7 +22,9 @@ import (
 )
 
 // The install modes: isolated (decision 0031), and replace, which resets
-// each selected harness to a fresh install (decision 0038).
+// each selected harness that has no replace install yet to a fresh install
+// (decision 0038), and only updates the pack for one that has (decision
+// 0051).
 const (
 	ModeIsolated = string(harness.Isolated)
 	ModeReplace  = string(harness.Replace)
@@ -455,7 +457,7 @@ func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run run
 	}
 	var rp replacePlan
 	if mode == ModeReplace {
-		res.Reinstall = reinstalled(prev, s.Harnesses)
+		res.Reinstall = reinstalled(home, prev, s.Harnesses)
 		projects, err := readProjects(d, home)
 		if err != nil {
 			return err

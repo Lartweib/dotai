@@ -511,9 +511,7 @@ func journal(base state.State, id string, ops []plan.Op, ex *extra) state.State 
 		s.Pending.Wipes = append(s.Pending.Wipes, w.Path)
 	}
 	for _, sp := range ex.splits {
-		if !sp.folded { // its op is in the journal
-			s.Pending.Splits = append(s.Pending.Splits, sp.target)
-		}
+		s.Pending.Splits = append(s.Pending.Splits, sp.target)
 	}
 	return s
 }

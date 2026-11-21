@@ -114,20 +114,62 @@ func (rp replacePlan) relocations() []Refusal {
 // later one for (decision 0051): those the install state prev records as
 // installed in the replace mode, whose install is settled. An install that
 // stopped midway while it reset, as its journal says, did not finish the
-// first one, so it is not a later one. A harness that is not in the state's
-// harnesses, such as one added to the selection since, has none either.
-// Never nil.
-func reinstalled(prev *state.State, selected []string) []string {
+// first one, so it is not a later one: each wipe and each split file of the
+// journal is mapped to the harnesses whose reset it belongs to, by their
+// areas, leak entries and split files, and only those are left out; one
+// that no harness claims leaves out every harness. A harness that is not in
+// the state's harnesses, such as one added to the selection since, has none
+// either. Never nil.
+func reinstalled(home string, prev *state.State, selected []string) []string {
 	out := []string{}
-	if prev == nil || prev.Mode != ModeReplace || prev.Pending != nil && (len(prev.Pending.Wipes) > 0 || len(prev.Pending.Splits) > 0) {
+	if prev == nil || prev.Mode != ModeReplace {
 		return out
 	}
+	unsettled := map[string]bool{}
+	all := false
+	if prev.Pending != nil {
+		for _, name := range slices.Concat(prev.Pending.Wipes, prev.Pending.Splits) {
+			claimed := false
+			for _, a := range harness.All() {
+				if resets(home, a.Real, name) {
+					unsettled[a.ID], claimed = true, true
+				}
+			}
+			all = all || !claimed
+		}
+	}
 	for _, id := range selected {
-		if slices.Contains(prev.Harnesses, id) {
+		if slices.Contains(prev.Harnesses, id) && !all && !unsettled[id] {
 			out = append(out, id)
 		}
 	}
 	return out
+}
+
+// resets reports whether the reset of the harness with the own configuration
+// r wipes or rewrites name, an absolute path under home: it is, or is below,
+// one of its areas, a leak entry or a split file.
+func resets(home string, r harness.Real, name string) bool {
+	in := func(rel string) bool {
+		dir := filepath.Join(home, filepath.FromSlash(rel))
+		return samePath(dir, name) || below(dir, name)
+	}
+	for _, ar := range r.Areas {
+		if in(ar.Dir) {
+			return true
+		}
+	}
+	for _, l := range r.Leaks {
+		if in(l.Path) {
+			return true
+		}
+	}
+	for _, sf := range r.Split {
+		if in(sf.Path) {
+			return true
+		}
+	}
+	return false
 }
 
 // wipedKeys are the keys rp wipes in the split file target.
