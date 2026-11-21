@@ -466,6 +466,7 @@ func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run run
 			Link: op.Link, BeforeLink: op.BeforeLink, Kind: opKind(byID, harness.Mode(mode), home, op),
 		})
 	}
+	res.Warnings = append(res.Warnings, p.Warnings...)
 	return then(planned{plan: res, shared: shared, ops: p.Ops, tree: tree, prev: prev, harnesses: s.Harnesses, choice: sel.Choice, owned: p.Owned, keys: p.Keys, ignoreExec: !d.ExecBit()})
 }
 

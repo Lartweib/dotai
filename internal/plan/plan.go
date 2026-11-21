@@ -147,6 +147,8 @@ type Plan struct {
 	Ops   []Op
 	Owned map[string]Current
 	Keys  map[string][]Key
+	// Warnings are what the plan carries out but the user should read.
+	Warnings []Warning
 }
 
 // Op is one file operation. Harness is empty for a tool, which is not
@@ -375,21 +377,28 @@ func Build(in Input) (Plan, error) {
 		}
 	}
 	for target, st := range settings {
-		op, keys, err := in.planSettings(target, st, edited)
+		op, keys, whole, err := in.planSettings(target, st, edited)
 		if err != nil {
 			return Plan{}, err
 		}
 		if op != nil {
 			p.Ops = append(p.Ops, *op)
 		}
-		if len(keys) > 0 {
+		if len(keys) > 0 || whole {
 			if p.Owned == nil {
 				p.Owned = map[string]Current{}
 			}
-			if p.Keys == nil {
-				p.Keys = map[string][]Key{}
+			p.Owned[target] = in.Disk[target]
+			if whole && st.staged != nil {
+				p.Warnings = append(p.Warnings, Warning{Code: CodeHooksFileRebased, Harness: st.harness, Path: target,
+					Message: fmt.Sprintf("%s was recorded as dotai's whole file by an install before decision 0050 and has changed since, so dotai cannot tell which of its keys are its own: it rewrites the keys the pack stages, such as rulesync, even if you edited them, and keeps every other key; the file as it was is saved in the backup", target)})
 			}
-			p.Owned[target], p.Keys[target] = in.Disk[target], keys
+			if len(keys) > 0 {
+				if p.Keys == nil {
+					p.Keys = map[string][]Key{}
+				}
+				p.Keys[target] = keys
+			}
 		}
 	}
 	if len(edited.Targets) > 0 || len(edited.Keys) > 0 {

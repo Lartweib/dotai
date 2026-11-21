@@ -579,3 +579,29 @@ func TestRemoveAndReplaceElement(t *testing.T) {
 		}
 	})
 }
+
+// TestRemoveElementNestedWithALineComment checks an array two objects deep
+// whose element before the deleted one ends in a line comment and whose
+// closing bracket sits on the same line as the deleted element: the
+// bracket moves to its own line, at the depth of the array.
+func TestRemoveElementNestedWithALineComment(t *testing.T) {
+	const src = "{\n  \"a\": {\n    \"b\": [\n      1, // first\n      2]\n  }\n}\n"
+	doc, err := jsonc.Parse([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := doc.RemoveElement([]string{"a", "b"}, 1); err != nil {
+		t.Fatal(err)
+	}
+	const want = `{
+  "a": {
+    "b": [
+      1 // first
+    ]
+  }
+}
+`
+	if got := string(doc.Bytes()); got != want {
+		t.Errorf("RemoveElement() = %q, want %q", got, want)
+	}
+}
