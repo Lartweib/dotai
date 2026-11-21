@@ -40,12 +40,16 @@ func (e *RefusedError) Error() string {
 
 // splitWrite is a split file an operation rewrites by key: its harness,
 // target, what it holds before (prior, with its state before) and the
-// content it is given, data, and the keys it deletes or puts back.
+// content it is given, data, and the keys it deletes or puts back. A
+// folded one is also the target of a settings op of the install, which
+// writes the wipe together with dotai's keys (decision 0049): the backup
+// records it, with the op's copy as its own, and nothing else writes it.
 type splitWrite struct {
 	harness, target string
 	before          plan.Current
 	prior, data     []byte
 	keys            [][]string
+	folded          bool
 }
 
 // extra is what an operation writes besides its plan's ops: the entries it
@@ -75,18 +79,28 @@ func (r runner) keyWipes(keys []WipeKey) ([]splitWrite, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", s.target, err)
 		}
-		doc, err := jsonc.Parse(data)
+		wiped, err := deleteKeys(data, s.keys)
 		if err != nil {
-			return nil, fmt.Errorf("%s is no longer a JSON object: %w", s.target, err)
+			return nil, fmt.Errorf("%s: %w", s.target, err)
 		}
-		for _, k := range s.keys {
-			if err := doc.Delete(k); err != nil {
-				return nil, fmt.Errorf("%s: deleting %s: %w", s.target, strings.Join(k, "."), err)
-			}
-		}
-		out[i].before, out[i].prior, out[i].data = cur, data, doc.Bytes()
+		out[i].before, out[i].prior, out[i].data = cur, data, wiped
 	}
 	return slices.DeleteFunc(out, func(s splitWrite) bool { return string(s.data) == string(s.prior) }), nil
+}
+
+// deleteKeys is data, a JSON object, with each key of keys deleted through
+// the JSONC edit layer, so that every other byte stays.
+func deleteKeys(data []byte, keys [][]string) ([]byte, error) {
+	doc, err := jsonc.Parse(data)
+	if err != nil {
+		return nil, fmt.Errorf("no longer a JSON object: %w", err)
+	}
+	for _, k := range keys {
+		if err := doc.Delete(k); err != nil {
+			return nil, fmt.Errorf("deleting %s: %w", strings.Join(k, "."), err)
+		}
+	}
+	return doc.Bytes(), nil
 }
 
 // items lists the entry at name and, for a real directory, everything
@@ -176,6 +190,16 @@ func (r runner) backupExtra(dir string, m *backup.Manifest, ex *extra) (map[stri
 				return nil, &ChangedError{Path: s.target}
 			}
 			rec.File, rec.Before = path.Join(backup.FilesDir, rel), backup.Content{SHA256: s.before.Hash, Exec: s.before.Exec}
+			if s.folded {
+				// The op's copy, of the same content, is the split's.
+				if !slices.ContainsFunc(m.Ops, func(op backup.Op) bool {
+					return op.Target == s.target && op.File == rec.File && op.Before != nil && op.Before.SHA256 == s.before.Hash
+				}) {
+					return nil, &ChangedError{Path: s.target}
+				}
+				m.Splits = append(m.Splits, rec)
+				continue
+			}
 			if err := r.d.WriteSynced(dir, rec.File, s.prior, 0o600); err != nil {
 				return nil, err
 			}
@@ -341,6 +365,9 @@ func (r runner) writeSplits(splits []splitWrite) ([]splitWrite, error) {
 		if err := r.ctx.Err(); err != nil {
 			return done, err
 		}
+		if s.folded { // its op writes it
+			continue
+		}
 		cur, err := r.d.Hash(r.ctx, s.target)
 		switch {
 		case s.prior == nil && errors.Is(err, fs.ErrNotExist):
@@ -425,6 +452,11 @@ func (r runner) resetWork() (*extra, error) {
 	if ex.splits, err = r.keyWipes(r.p.plan.WipeKeys); err != nil {
 		return nil, err
 	}
+	for i, s := range ex.splits {
+		ex.splits[i].folded = slices.ContainsFunc(r.p.ops, func(op plan.Op) bool {
+			return op.Target == s.target && op.Settings && op.Action != plan.Unchanged
+		})
+	}
 	for _, w := range r.p.plan.Wipes {
 		rel, err := backup.Rel(r.home, w.Path)
 		if err != nil {
@@ -469,7 +501,9 @@ func journal(base state.State, id string, ops []plan.Op, ex *extra) state.State 
 		s.Pending.Wipes = append(s.Pending.Wipes, w.Path)
 	}
 	for _, sp := range ex.splits {
-		s.Pending.Splits = append(s.Pending.Splits, sp.target)
+		if !sp.folded { // its op is in the journal
+			s.Pending.Splits = append(s.Pending.Splits, sp.target)
+		}
 	}
 	return s
 }

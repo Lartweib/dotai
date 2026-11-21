@@ -385,6 +385,18 @@ func TestCheckWipesAndSplits(t *testing.T) {
 	if err := backup.Check(unrecorded, id, home); err != nil {
 		t.Errorf("Check() of an install's wipe without items = %v, want it valid", err)
 	}
+	// A split folded into the settings op of its file shares the op's copy
+	// (decision 0049); a copy of another content is still a second target.
+	folded := valid()
+	claudeJSON := filepath.Join(home, ".claude.json")
+	folded.Ops = append(folded.Ops, backup.Op{Action: plan.Replace, Target: claudeJSON, File: "files/.claude.json", Before: &backup.Content{SHA256: "b"}, After: &backup.Content{SHA256: "c"}})
+	if err := backup.Check(folded, id, home); err != nil {
+		t.Errorf("Check() of a split folded into its op = %v, want it valid", err)
+	}
+	folded.Ops[1].Before.SHA256 = "x"
+	if err := backup.Check(folded, id, home); err == nil || !strings.Contains(err.Error(), "twice") {
+		t.Errorf("Check() of a split and an op with other copies = %v, want it refused", err)
+	}
 	r.Wipes[0].Items, r.Wipes[0].File = nil, "moved/"+id+"/CLAUDE.md"
 	if err := backup.Check(r, restoreID, home); err == nil || !strings.Contains(err.Error(), "items") {
 		t.Errorf("Check() of a restore's wipe without items = %v, want it refused", err)

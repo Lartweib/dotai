@@ -184,7 +184,9 @@ func foreign(d installFS, p planned) (entries, keys, files int, err error) {
 		}
 	}
 	for _, op := range p.ops {
-		if op.Action == plan.Replace && !ownedAt(ownedTargets(p.prev), op.Target) {
+		// A harness's home file is merged key by key, and the keys of it
+		// that are wiped count as keys.
+		if op.Action == plan.Replace && !ownedAt(ownedTargets(p.prev), op.Target) && !(op.Settings && homeConfigSource(op.Source)) {
 			files++
 		}
 	}
@@ -245,3 +247,9 @@ func replaceHarnesses(home string, res RestoreResult) []string {
 
 // processList is how the host lists its processes.
 type processList = func() ([]proc.Process, error)
+
+// homeConfigSource reports whether source is the staged HomeConfig of a
+// harness (decision 0049).
+func homeConfigSource(source string) bool {
+	return slices.ContainsFunc(harness.All(), func(a harness.Adapter) bool { return a.HomeConfig != "" && source == a.HomeConfig })
+}

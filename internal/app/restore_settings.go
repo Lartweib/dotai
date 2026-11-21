@@ -63,6 +63,7 @@ func (r *restorer) undoSettings(s state.State, chain []undone, h, target string,
 			if copied, err = r.d.ReadFile(st.u.dir, op.File); err != nil { // checked when the backup was loaded
 				return settingsEnd{}, err
 			}
+			copied = foldedBefore(st.u.m, op, copied)
 		}
 		// An interrupted operation may not have written the file yet.
 		found := st.i == 0 && s.Pending != nil && op.Before != nil && end.data != nil && contentHash(end.data) == op.Before.SHA256
@@ -139,6 +140,24 @@ func (r *restorer) undoSettings(s state.State, chain []undone, h, target string,
 		}
 	}
 	return end, nil
+}
+
+// foldedBefore is what the op of the backup m on its target started from
+// when a split of m is folded into it (decision 0049): its copy, which is
+// the split's, with the split's keys wiped, as the install wiped them
+// before it set dotai's, so that undoing the op leaves what the wipe left
+// and the split then puts the file back whole. Any other op, or a wipe
+// that does not give what the split recorded, keeps its copy.
+func foldedBefore(m backup.Manifest, op backup.Op, copied []byte) []byte {
+	i := slices.IndexFunc(m.Splits, func(s backup.Split) bool { return s.Target == op.Target && s.File == op.File })
+	if i < 0 {
+		return copied
+	}
+	wiped, err := deleteKeys(copied, m.Splits[i].Keys)
+	if err != nil || contentHash(wiped) != m.Splits[i].After.SHA256 {
+		return copied
+	}
+	return wiped
 }
 
 // keysAfter gives the keys dotai owned in target once the install at index

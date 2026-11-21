@@ -42,6 +42,12 @@ func TestSettingsKeys(t *testing.T) {
 		}},
 		{name: "env that is not an object", harness: "claudecode", data: `{"env": "x"}`, want: []plan.Key{key(`"x"`, "env")}},
 		{name: "empty env", harness: "claudecode", data: `{"env": {}}`, want: nil},
+		// Claude Code's MCP servers in its .claude.json (decision 0049).
+		{name: "claude code mcp servers per server", harness: "claudecode", data: `{"userID": "u", "mcpServers": {"b": {"command": "b"}, "a": {"command": "a"}}}`, want: []plan.Key{
+			key(`"u"`, "userID"), key(`{"command":"b"}`, "mcpServers", "b"), key(`{"command":"a"}`, "mcpServers", "a"),
+		}},
+		{name: "mcp servers whole elsewhere", harness: "opencode", data: `{"mcpServers": {"a": 1}}`, want: []plan.Key{key(`{"a":1}`, "mcpServers")}},
+		{name: "empty mcp servers", harness: "claudecode", data: `{"mcpServers": {}}`, want: nil},
 		{name: "empty file", harness: "claudecode", data: "", want: nil},
 		{name: "empty object", harness: "claudecode", data: "{}\n", want: nil},
 		{name: "duplicate key, the last wins", harness: "opencode", data: `{"a": 1, "a": 2}`, want: []plan.Key{key(`2`, "a")}},
@@ -99,6 +105,11 @@ func TestWriteKeys(t *testing.T) {
   "theme": "dark"
 }
 `,
+		},
+		{
+			name: "an emptied mcpServers goes", current: "{\n  \"userID\": \"u\",\n  \"mcpServers\": {\n    \"a\": {}\n  }\n}\n", from: `{}`,
+			paths: [][]string{{"mcpServers", "a"}},
+			want:  "{\n  \"userID\": \"u\"\n}\n",
 		},
 		{
 			name: "into a missing file", current: "", from: `{"model": "opus", "env": {"A": "1"}}`,

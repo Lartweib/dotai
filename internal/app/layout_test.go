@@ -14,7 +14,7 @@ import (
 // TestInstallRoot checks the directory each target is written through, by
 // the layouts an install may write in: a harness's isolated directory or
 // the tools directory, and in the replace layout the harness's own
-// configuration directory, never anything else.
+// configuration directory and its home file, never anything else.
 func TestInstallRoot(t *testing.T) {
 	home := t.TempDir()
 	isolated, replace := []harness.Mode{harness.Isolated}, []harness.Mode{harness.Replace}
@@ -34,7 +34,12 @@ func TestInstallRoot(t *testing.T) {
 		{".config/opencode/opencode.jsonc", replace, ".config/opencode", "opencode.jsonc"},
 		{".dotai/isolated/claude/CLAUDE.md", replace, "", ""},
 		{".dotai/isolated/claude/CLAUDE.md", both, ".dotai/isolated/claude", "CLAUDE.md"},
-		{".claude.json", replace, "", ""},
+		// Claude Code's home file, at the root of the home directory, in the
+		// replace layout only (decision 0049).
+		{".claude.json", replace, ".", ".claude.json"},
+		{".claude.json", isolated, "", ""},
+		{".claude.json.bak", replace, "", ""},
+		{".dotai/isolated/claude/.claude.json", isolated, ".dotai/isolated/claude", ".claude.json"},
 		{".claude", replace, "", ""},
 		{".config/other/x", replace, "", ""},
 		{".ssh/config", both, "", ""},

@@ -427,13 +427,13 @@ func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run run
 			res.Notices = append(res.Notices, fmt.Sprintf("the entry of %s in %s is ignored: the project or its record is gone, so the replace install wipes its MCP servers like any other",
 				p, filepath.Join(home, dotaiDir, projectsFile)))
 		}
-		if rp, err = planWipes(ctx, d, h, home, adapters, shared, ownedTargets(prev), projects); err != nil {
+		if rp, err = planWipes(ctx, d, h, home, adapters, shared, ownedTargets(prev), projects, ownedKeys(prev)); err != nil {
 			return err
 		}
 		res.Wipes, res.Keeps = append(res.Wipes, rp.wipes...), append(res.Keeps, rp.keeps...)
 		res.WipeKeys, res.Refusals = append(res.WipeKeys, rp.keys...), append(res.Refusals, rp.refusals...)
 	}
-	p, sp, err := buildPlan(ctx, d, tree, home, harness.Mode(mode), adapters, prev, shared, rp.unread)
+	p, sp, err := buildPlan(ctx, d, tree, home, harness.Mode(mode), adapters, prev, shared, rp.unread, rp.wipedKeys)
 	if u, ok := errors.AsType[*plan.UnmappedError](err); ok {
 		res.Diagnostics = unmappedDiagnostics(u)
 		return then(planned{plan: res})
@@ -481,9 +481,13 @@ func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run run
 // of its name. prev is the previous install's state, nil when there is
 // none. The staged files install in the layout of mode. A target for
 // which wiped is true is taken as missing without reading it: a replace
-// install wipes it first. It also returns the shared skills, nil unless
-// shared is set.
-func buildPlan(ctx context.Context, d installFS, tree, home string, mode harness.Mode, adapters []harness.Adapter, prev *state.State, shared bool, wiped func(string) bool) (plan.Plan, *SharedSkillsPlan, error) {
+// install wipes it first. A settings target of which keys gives keys to
+// wipe, a split file that is also a harness's HomeConfig, such as
+// ~/.claude.json (decision 0049), is planned from what it holds once they
+// are wiped, and its op, which the install carries out with that wipe as
+// one write, starts from what it holds now. It also returns the shared
+// skills, nil unless shared is set.
+func buildPlan(ctx context.Context, d installFS, tree, home string, mode harness.Mode, adapters []harness.Adapter, prev *state.State, shared bool, wiped func(string) bool, keys func(string) [][]string) (plan.Plan, *SharedSkillsPlan, error) {
 	names, err := d.Files(tree)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return plan.Plan{}, nil, err
@@ -533,9 +537,10 @@ func buildPlan(ctx context.Context, d installFS, tree, home string, mode harness
 		in.Files = append(in.Files, plan.File{Path: op.Source, Hash: staged.Hash, Exec: staged.Exec, Data: data})
 		targets = append(targets, op.Target)
 	}
-	dirs := map[string]error{}    // the outcome of checkDir for each directory checked
-	realDirs := map[string]bool{} // the staged links whose target is a real directory
-	gone := map[string]bool{}     // the owned links a killed install removed
+	dirs := map[string]error{}          // the outcome of checkDir for each directory checked
+	realDirs := map[string]bool{}       // the staged links whose target is a real directory
+	folded := map[string]plan.Current{} // the settings targets planned after their wipe, as they are now
+	gone := map[string]bool{}           // the owned links a killed install removed
 	if prev != nil {
 		in.Owned = prev.Owned()
 		for _, f := range prev.Files {
@@ -588,6 +593,13 @@ func buildPlan(ctx context.Context, d installFS, tree, home string, mode harness
 		if err != nil {
 			return plan.Plan{}, nil, err
 		}
+		if wipe := keysOf(keys, target); ok && settings && len(wipe) > 0 {
+			if data, err = deleteKeys(data, wipe); err != nil {
+				return plan.Plan{}, nil, fmt.Errorf("%s: %w", target, err)
+			}
+			folded[target] = cur
+			cur.Hash = contentHash(data)
+		}
 		if ok {
 			in.Disk[target] = cur
 		}
@@ -599,6 +611,16 @@ func buildPlan(ctx context.Context, d installFS, tree, home string, mode harness
 	if err != nil {
 		return plan.Plan{}, nil, err
 	}
+	for target, cur := range folded {
+		if _, owned := p.Owned[target]; owned {
+			p.Owned[target] = cur
+		}
+		for i, op := range p.Ops {
+			if op.Target == target && op.Action != plan.Unchanged {
+				p.Ops[i].Before, p.Ops[i].BeforeExec = cur.Hash, cur.Exec
+			}
+		}
+	}
 	if err := checkLinkDirs(d, p.Ops, realDirs); err != nil {
 		return plan.Plan{}, nil, err
 	}
@@ -607,6 +629,14 @@ func buildPlan(ctx context.Context, d installFS, tree, home string, mode harness
 	}
 	p.Ops = permute(p.Ops, orderLinks(p.Ops))
 	return p, sp, nil
+}
+
+// keysOf is what keys gives for target, nil when keys is nil.
+func keysOf(keys func(string) [][]string, target string) [][]string {
+	if keys == nil {
+		return nil
+	}
+	return keys(target)
 }
 
 // readState reads the state of the previous install in home, nil when
@@ -745,9 +775,21 @@ func unmappedDiagnostics(u *plan.UnmappedError) []Diagnostic {
 	var diags []Diagnostic
 	for _, p := range u.Paths {
 		diags = append(diags, pack.NewDiagnostic("dotai.yaml", 0, 0, CodePathUnmapped, "staged file %s/%s is installed by no harness of the pack", ScopeUser, p).
-			WithHint("add the harness that reads it to harnesses, or remove the source that renders it"))
+			WithHint("%s", unmappedHint(p)))
 	}
 	return diags
+}
+
+// unmappedHint is the hint for the staged user-scope file p that nothing
+// installs: a file of a harness the install does not include is fixed by
+// adding the harness, and any other is one that dotai has no place for.
+func unmappedHint(p string) string {
+	for _, a := range harness.All() {
+		if p == a.HomeConfig || strings.HasPrefix(p, a.Staging+"/") {
+			return fmt.Sprintf("it is a file of %s, which this install does not include: add %s to harnesses, or remove the source that renders it", a.Name, a.ID)
+		}
+	}
+	return "dotai knows no place to install it for any harness: remove the source that renders it, and report the path if a harness should read it"
 }
 
 // opKind is the kind of item the target of op holds: by its staged

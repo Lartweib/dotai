@@ -244,6 +244,20 @@ func (a Adapter) SettingsTarget(m Mode) string {
 	return path.Join(a.InstallDir(m), a.Settings)
 }
 
+// HomeConfigTarget is the slash path, relative to the home directory, of
+// the harness's HomeConfig in mode m: inside its isolated directory, or at
+// the root of the home directory in the replace mode; "" for a harness
+// without one.
+func (a Adapter) HomeConfigTarget(m Mode) string {
+	switch {
+	case a.HomeConfig == "":
+		return ""
+	case m == Replace:
+		return a.HomeConfig
+	}
+	return path.Join(IsolatedDir, a.Dir, a.HomeConfig)
+}
+
 // The replace layout of each harness (decision 0038), from the replace
 // inventory of HARNESS-NOTES. A keep-list errs on the side of keeping: an
 // entry kept by mistake leaves the result less clean, one wiped by mistake

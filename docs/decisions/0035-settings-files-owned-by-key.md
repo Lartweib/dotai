@@ -38,3 +38,5 @@ tags: [engine, install, restore, settings, state]
 - [CLI-JSON](../CLI-JSON.md): `install`, `restore` and the install state.
 
 Update 2026-11-02 (roadmap PR 10-3): at project scope, the project's record under the home directory owns keys the same way, each with the value it held before dotai first set it, so that a key of the user's that a profile changed gets its value back from a later apply without that profile or from `dotai restore --project` ([0041](0041-project-scope-local-and-untracked.md)).
+
+Update 2026-11-20: [0049](0049-claude-user-mcp-servers-in-claude-json.md) widens the scope to Claude Code's `.claude.json`, in `~/.dotai/isolated/claude/` and, in replace mode, at the root of the home directory, owned key by key the same way. In Claude Code's files each server of `mcpServers` is a key of its own, as each variable of `env` is, and an `mcpServers` that a deletion empties goes. That file is never owned whole: a record without keys for it is an edited state.
