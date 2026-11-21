@@ -606,6 +606,139 @@ func TestPlanReplaceLooksInsideWipedDirectoriesForCredentialsOnly(t *testing.T) 
 	}
 }
 
+// TestPlanReplaceWipesVendorTreesWithoutLookingInside checks the vendor
+// trees: a package manager's node_modules and Claude Code's plugin
+// marketplaces and cache hold published code whose file names often hold a
+// credential signal, such as Tokenizer.js, Cookies.ts, tokens.css or
+// secret.py (found on a real Windows install, 2026-11-21). They are wiped
+// with their entry and nothing inside them is refused, while a credential
+// beside them, in a plugin's data directory, in the user's own files or in
+// a leak entry, still is.
+func TestPlanReplaceWipesVendorTreesWithoutLookingInside(t *testing.T) {
+	home, h := realHome(t)
+	vendored := []string{
+		".claude/plugins/marketplaces/official/plugins/security-guidance/tests/test_reviewer_oauth_token.py",
+		".claude/plugins/marketplaces/official/plugins/claude-security/scripts/lib/secret.py",
+		".claude/plugins/marketplaces/official/plugins/m/skills/c/reference/credentials-and-failure-modes.md",
+		".claude/plugins/marketplaces/impeccable/site/styles/tokens.css",
+		".claude/plugins/marketplaces/cloudflare/skills/cloudflare/references/secrets-store/README.md",
+		".claude/plugins/cache/cloudflare/cloudflare/1.0.0/skills/cloudflare/references/secrets-store/README.md",
+		".claude/plugins/cache/p/1.0.0/test/fixtures/server.key",
+		".claude/plugins/marketplaces/m/node_modules/x/credentials.json",
+		".config/opencode/node_modules/effect/dist/unstable/ai/Tokenizer.js",
+		".config/opencode/node_modules/effect/src/unstable/http/Cookies.ts",
+		".config/opencode/node_modules/effect/src/unstable/eventlog/internal/identityRootSecretDerivation.ts",
+		".config/opencode/plugins/node_modules/dep/auth.json",
+		".opencode/node_modules/dep/token.js",
+	}
+	for _, rel := range vendored {
+		writeFile(t, at(home, rel), "x")
+	}
+	writeFile(t, at(home, ".claude/plugins/installed_plugins.json"), "{}")
+	p, err := planReplace(t, home, h, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Refusals) != 0 {
+		t.Errorf("refusals = %+v, want none inside a vendor tree", p.Refusals)
+	}
+	for _, rel := range []string{".claude/plugins", ".config/opencode/node_modules", ".config/opencode/plugins", ".opencode"} {
+		if !slices.ContainsFunc(p.Wipes, func(w app.WipePlan) bool { return w.Path == at(home, rel) }) {
+			t.Errorf("%s is not wiped whole: wipes = %+v", rel, rels(home, wipePaths(p.Wipes)))
+		}
+	}
+
+	// A credential outside the vendor trees still refuses its entry.
+	credentials := []string{
+		".claude/plugins/data/p/token.json",
+		".claude/plugins/.credentials.json",
+		".claude/plugins/marketplaces.key",
+		".config/opencode/plugins/my-plugin/api_token.txt",
+		".opencode/client_secret.json",
+	}
+	for _, rel := range credentials {
+		writeFile(t, at(home, rel), "x")
+	}
+	if p, err = planReplace(t, home, h, ""); err != nil {
+		t.Fatal(err)
+	}
+	var refused []string
+	for _, r := range p.Refusals {
+		if r.Code != app.RefuseUnclassified {
+			t.Errorf("refusal %+v, want %s", r, app.RefuseUnclassified)
+		}
+		refused = append(refused, r.Path)
+	}
+	want := rels(home, func() []string {
+		var out []string
+		for _, rel := range credentials {
+			out = append(out, at(home, rel))
+		}
+		return out
+	}())
+	if got := rels(home, refused); !reflect.DeepEqual(got, want) {
+		t.Errorf("refused =\n%q\nwant\n%q", got, want)
+	}
+	for _, rel := range []string{".claude/plugins", ".config/opencode/plugins", ".opencode"} {
+		if slices.ContainsFunc(p.Wipes, func(w app.WipePlan) bool { return w.Path == at(home, rel) }) {
+			t.Errorf("%s is wiped with a credential in it", rel)
+		}
+	}
+}
+
+// TestPlanReplaceKeepsClaudeCodeAndAgyRuntimeState checks the entries found
+// on a real Windows install of Claude Code 2.1.330 and agy 1.5 (2026-11-21)
+// that no keep-list classified, each of which refused the whole replace:
+// they are kept, without refusing, the key files inside them included.
+func TestPlanReplaceKeepsClaudeCodeAndAgyRuntimeState(t *testing.T) {
+	home, h := realHome(t)
+	entries := []string{
+		".claude/sessions/18360.34a33e9b6477994227bfbb3d81cf9f8d30b91459671310e13df0a7ded6de3c44.key",
+		".claude/sessions/18360.json",
+		".claude/daemon/control.key",
+		".claude/daemon/pipe.key",
+		".claude/daemon/roster.json",
+		".claude/daemon.log",
+		".claude/jobs/j1/state.json",
+		".claude/transcripts/t.jsonl",
+		".claude/mcp-needs-auth-cache.json",
+		".claude/agent-memory/a/MEMORY.md",
+		".claude/stats-cache.json",
+		".gemini/antigravity-cli/history.jsonl",
+	}
+	for _, rel := range entries {
+		writeFile(t, at(home, rel), "x")
+	}
+	p, err := planReplace(t, home, h, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Refusals) != 0 {
+		t.Errorf("refusals = %+v, want none", p.Refusals)
+	}
+	kinds := map[string]string{}
+	for _, k := range p.Keeps {
+		rel, _ := filepath.Rel(home, k.Path)
+		kinds[filepath.ToSlash(rel)] = k.Kind
+	}
+	for rel, want := range map[string]string{
+		".claude/sessions": "state", ".claude/daemon": "state", ".claude/daemon.log": "history", ".claude/jobs": "state",
+		".claude/transcripts": "history", ".claude/mcp-needs-auth-cache.json": "cache", ".claude/agent-memory": "history",
+		".claude/stats-cache.json": "history", ".gemini/antigravity-cli/history.jsonl": "history",
+	} {
+		if kinds[rel] != want {
+			t.Errorf("%s kept as %q, want %q", rel, kinds[rel], want)
+		}
+	}
+	for _, w := range p.Wipes {
+		for _, rel := range entries {
+			if w.Path == at(home, rel) || strings.HasPrefix(at(home, rel), w.Path+string(filepath.Separator)) {
+				t.Errorf("%s is wiped, want it kept", w.Path)
+			}
+		}
+	}
+}
+
 // TestPlanReplaceKeepsTheMCPServersAProjectApplyOwns checks that a replace
 // install never wipes the per-project MCP servers that a project apply
 // recorded in ~/.dotai/projects.json (decision 0041): a server it owns

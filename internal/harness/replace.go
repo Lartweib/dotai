@@ -34,6 +34,11 @@ type Real struct {
 	// Areas are the directories wiped by keep-list: every entry not on
 	// its keep-list goes, unknown entries included.
 	Areas []Area
+	// Vendor are the directories, slash paths relative to the home
+	// directory, whose contents a package manager or a plugin marketplace
+	// put there: a replace wipes them with their entry without looking for
+	// credentials inside. Any node_modules is one too.
+	Vendor []string
 	// Leaks are the paths outside Areas that the harness reads and that
 	// are wiped whole.
 	Leaks []LeakEntry
@@ -234,6 +239,19 @@ func LooksSensitiveInside(name string) bool {
 		slices.ContainsFunc(credential, func(s string) bool { return strings.Contains(lower, s) })
 }
 
+// Vendored reports whether rel, a path relative to the home directory
+// with either separator, is a vendor tree of the harness: one of its
+// Vendor directories or any node_modules, compared without case. Inside a
+// vendor tree the names are those of published code, such as Tokenizer.js
+// or secret.py, and a package manager or a marketplace puts them back, so
+// a replace wipes the tree with its entry without looking inside it for
+// credentials (decision 0038).
+func (r Real) Vendored(rel string) bool {
+	rel = path.Clean(strings.ReplaceAll(rel, `\`, "/"))
+	return strings.EqualFold(path.Base(rel), "node_modules") ||
+		slices.ContainsFunc(r.Vendor, func(v string) bool { return strings.EqualFold(v, rel) })
+}
+
 // ReplaceRelogin is whether the user must log in again after a replace
 // install: no, since it keeps each harness's login (decision 0038).
 const ReplaceRelogin = ReloginNo
@@ -286,7 +304,34 @@ var (
 			{Name: "ide", Kind: KeepState},
 			{Name: "statsig", Kind: KeepCache},
 			{Name: "paste-cache", Kind: KeepCache},
+			// Found on 2.1.330 (HARNESS-NOTES): the files of the running
+			// sessions, the background sessions' supervisor, its jobs and
+			// its log, which the docs list as state to keep, and two
+			// entries the docs do not name.
+			{Name: "sessions", Kind: KeepState},
+			{Name: "daemon", Kind: KeepState},
+			{Name: "jobs", Kind: KeepState},
+			{Name: "daemon.log", Kind: KeepHistory},
+			{Name: "transcripts", Kind: KeepHistory},
+			{Name: "mcp-needs-auth-cache.json", Kind: KeepCache},
+			// The rest of the application data the docs list.
+			{Name: "agent-memory", Kind: KeepHistory},
+			{Name: "stats-cache.json", Kind: KeepHistory},
+			{Name: "usage-data", Kind: KeepHistory},
+			{Name: "uploads", Kind: KeepHistory},
+			{Name: "feedback", Kind: KeepHistory},
+			{Name: "feedback-bundles", Kind: KeepHistory},
+			{Name: "logs", Kind: KeepHistory},
+			{Name: "tasks", Kind: KeepState},
+			{Name: "seed-admin", Kind: KeepState},
+			{Name: "image-cache", Kind: KeepCache},
+			{Name: "remote-settings.json", Kind: KeepCache},
+			{Name: "policy-limits.json", Kind: KeepCache},
+			{Name: "policy-limits.json.stamp.json", Kind: KeepCache},
 		}}},
+		// Cloned marketplaces and the installed copies of plugins; a
+		// plugin's own data, in plugins/data, is not one.
+		Vendor: []string{".claude/plugins/marketplaces", ".claude/plugins/cache"},
 		// Loaded as a project CLAUDE.md under the home directory.
 		Leaks: []LeakEntry{{Path: "CLAUDE.md", Collateral: "other tools that read ~/CLAUDE.md lose it until a restore"}},
 		Split: []SplitFile{{
@@ -317,6 +362,8 @@ var (
 				{Name: "conversations", Kind: KeepHistory},
 				{Name: "crashes", Kind: KeepHistory},
 				{Name: "log", Kind: KeepHistory},
+				// Found on 1.5 (HARNESS-NOTES).
+				{Name: "history.jsonl", Kind: KeepHistory},
 				{Name: "cache", Kind: KeepCache},
 				{Name: "bin", Kind: KeepState},
 				{Name: "builtin", Kind: KeepState},
@@ -361,6 +408,7 @@ var (
 // clone is r in a copy the caller may change.
 func (r Real) clone() Real {
 	r.Moves, r.Leaks, r.Relocation = slices.Clone(r.Moves), slices.Clone(r.Leaks), slices.Clone(r.Relocation)
+	r.Vendor = slices.Clone(r.Vendor)
 	r.Processes, r.NodePackages = slices.Clone(r.Processes), slices.Clone(r.NodePackages)
 	r.Areas = slices.Clone(r.Areas)
 	for i := range r.Areas {

@@ -109,6 +109,30 @@ func TestKeepLists(t *testing.T) {
 		{"claudecode", ".claude", "statsig", false, harness.KeepCache},
 		{"claudecode", ".claude", "todos", false, harness.KeepState},
 		{"claudecode", ".claude", "shell-snapshots", false, harness.KeepState},
+		// Found on Claude Code 2.1.330: the running sessions, the background
+		// sessions' supervisor and its log, an MCP cache, and transcripts.
+		{"claudecode", ".claude", "sessions", false, harness.KeepState},
+		{"claudecode", ".claude", "daemon", false, harness.KeepState},
+		{"claudecode", ".claude", "daemon.log", false, harness.KeepHistory},
+		{"claudecode", ".claude", "jobs", false, harness.KeepState},
+		{"claudecode", ".claude", "transcripts", false, harness.KeepHistory},
+		{"claudecode", ".claude", "mcp-needs-auth-cache.json", false, harness.KeepCache},
+		// The application data the Claude Code docs list.
+		{"claudecode", ".claude", "agent-memory", false, harness.KeepHistory},
+		{"claudecode", ".claude", "stats-cache.json", false, harness.KeepHistory},
+		{"claudecode", ".claude", "tasks", false, harness.KeepState},
+		{"claudecode", ".claude", "uploads", false, harness.KeepHistory},
+		{"claudecode", ".claude", "usage-data", false, harness.KeepHistory},
+		{"claudecode", ".claude", "feedback", false, harness.KeepHistory},
+		{"claudecode", ".claude", "feedback-bundles", false, harness.KeepHistory},
+		{"claudecode", ".claude", "logs", false, harness.KeepHistory},
+		{"claudecode", ".claude", "image-cache", false, harness.KeepCache},
+		{"claudecode", ".claude", "remote-settings.json", false, harness.KeepCache},
+		{"claudecode", ".claude", "policy-limits.json", false, harness.KeepCache},
+		{"claudecode", ".claude", "policy-limits.json.stamp.json", false, harness.KeepCache},
+		{"claudecode", ".claude", "seed-admin", false, harness.KeepState},
+		{"claudecode", ".claude", "dev-mods", false, ""}, // mods, which a fresh install has none of
+		{"claudecode", ".claude", "themes", false, ""},
 		{"claudecode", ".claude", "settings.json", false, ""},
 		{"claudecode", ".claude", "settings.local.json", false, ""},
 		{"claudecode", ".claude", "CLAUDE.md", false, ""},
@@ -134,6 +158,7 @@ func TestKeepLists(t *testing.T) {
 		{"antigravity-cli", ".gemini/antigravity-cli", "conversation_summaries.db-wal", false, harness.KeepHistory},
 		{"antigravity-cli", ".gemini/antigravity-cli", "brain", false, harness.KeepHistory},
 		{"antigravity-cli", ".gemini/antigravity-cli", "log", false, harness.KeepHistory},
+		{"antigravity-cli", ".gemini/antigravity-cli", "history.jsonl", false, harness.KeepHistory},
 		{"antigravity-cli", ".gemini/antigravity-cli", "cache", false, harness.KeepCache},
 		{"antigravity-cli", ".gemini/antigravity-cli", "builtin", false, harness.KeepState},
 		{"antigravity-cli", ".gemini/antigravity-cli", "installation_id", false, harness.KeepState},
@@ -303,6 +328,43 @@ func TestLooksSensitiveInside(t *testing.T) {
 	} {
 		if got := harness.LooksSensitiveInside(name); got != want {
 			t.Errorf("LooksSensitiveInside(%q) = %v, want %v", name, got, want)
+		}
+	}
+}
+
+// TestVendored checks the vendor trees of each harness, whose contents a
+// package manager or a plugin marketplace put there and which a replace
+// wipes without looking for credentials inside: any node_modules, and
+// Claude Code's plugin marketplaces and cache, compared without case and
+// with either separator, as on Windows. A plugin's data directory, which
+// the plugin itself writes, is not one.
+func TestVendored(t *testing.T) {
+	tests := []struct {
+		id, rel string
+		want    bool
+	}{
+		{"claudecode", ".claude/plugins/marketplaces", true},
+		{"claudecode", ".claude/plugins/cache", true},
+		{"claudecode", `.claude\Plugins\Marketplaces`, true},
+		{"claudecode", `.claude\plugins\cache`, true},
+		{"claudecode", ".claude/plugins/marketplaces/m/node_modules", true},
+		{"claudecode", ".claude/skills/s/node_modules", true},
+		{"claudecode", ".claude/plugins", false},
+		{"claudecode", ".claude/plugins/data", false},
+		{"claudecode", ".claude/plugins/data/p/cache", false},
+		{"claudecode", ".claude/plugins/marketplaces-old", false},
+		{"claudecode", ".claude/cache", false},
+		{"opencode", ".config/opencode/node_modules", true},
+		{"opencode", `.config\opencode\Node_Modules`, true},
+		{"opencode", ".config/opencode/plugins", false},
+		{"opencode", ".config/opencode/my_node_modules", false},
+		{"opencode", ".claude/plugins/cache", false}, // Claude Code's, not OpenCode's
+		{"antigravity-cli", ".gemini/config/plugins", false},
+		{"antigravity-cli", ".gemini/config/plugins/p/node_modules", true},
+	}
+	for _, tt := range tests {
+		if got := adapter(t, tt.id).Real.Vendored(tt.rel); got != tt.want {
+			t.Errorf("%s: Vendored(%q) = %v, want %v", tt.id, tt.rel, got, tt.want)
 		}
 	}
 }
