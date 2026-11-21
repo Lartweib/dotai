@@ -72,7 +72,7 @@ To release:
 How it fits together, for when something breaks:
 
 - The workflow uses the run's `GITHUB_TOKEN`, with no secret. GitHub starts no workflow for what that token creates (the release pull request, the tag) except a `workflow_dispatch`. So `release-please.yml` starts `release.yml` itself, with `gh workflow run --ref <tag>`, and runs `ci.yml` on the release pull request's branch so that the required checks exist. Because the tag push fires nothing, a release runs `release.yml` once.
-- The release is a draft from the start (`draft` and `force-tag-creation` in `release-please-config.json`), so it is never public without its files. `release.yml` keeps the draft's notes, puts the toolchain line in front and publishes it. A `v*` tag pushed by a person still runs `release.yml`, which then creates the release itself: that is how to release by hand if `release-please.yml` ever fails, and how to try a pre-release (`v0.1.0-rc.1`) on a commit of `main`. The `release tags` ruleset does not allow deleting a tag, so a test tag stays; delete its release, not the tag.
+- The release is a draft from the start (`draft` and `force-tag-creation` in `release-please-config.json`), so it is never public without its files. `release.yml` keeps the draft's notes, puts the toolchain line in front and publishes it. A `v*` tag pushed by a person still runs `release.yml`, which then creates the release itself: that is how to release by hand if `release-please.yml` ever fails (then change the merged release pull request's label from `autorelease: pending` to `autorelease: tagged`, or release-please opens no later release pull request), and how to try a pre-release (`v0.1.0-rc.1`) on a commit of `main`. The `release tags` ruleset does not allow deleting a tag, so a test tag stays; delete its release, not the tag.
 - If `release.yml` fails after the tag exists (a failing check, say), fix `main`, then run **Actions > release > Run workflow** from the tag. It completes the same draft. A published release is never changed: it fails with an error instead.
 - `bootstrap-sha` and `initial-version` in `release-please-config.json` only matter until the first release is merged: they cut the first changelog at the commit before release-please was adopted, and make the first version `0.1.0`. The summary of `v0.1.0` is in the message of the commit `docs: seed the notes of the first release, v0.1.0`. After the release, the manifest records the version and both settings can be deleted.
 - `CHANGELOG.md` does not exist before the first release: release-please creates it when that pull request is merged. Once it exists, a header can be added above the first version heading and release-please keeps it.
@@ -80,7 +80,7 @@ How it fits together, for when something breaks:
 
 ### One-time setup
 
-In Settings > Actions > General, under Workflow permissions, check **Allow GitHub Actions to create and approve pull requests**. Without it release-please cannot open the release pull request.
+In Settings > Actions > General, under Workflow permissions, check **Allow GitHub Actions to create and approve pull requests**. Without it release-please cannot open the release pull request. The `release tags` ruleset must keep allowing the creation of `v*` tags (it restricts deletion, update and force-push only), or release-please cannot tag the release.
 
 ## Decision records
 
