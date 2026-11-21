@@ -456,3 +456,41 @@ func TestIsolatedIgnoresRunningHarnesses(t *testing.T) {
 	}
 	sameSnapshot(t, "home after the isolated install and restore", snapshot(t, e.home, ".dotai"), seeded)
 }
+
+// TestReplaceShowsItsProgressOnStderr checks that a replace install and
+// its restore tell a person what they are doing on stderr, a line per
+// phase with a running count, so that a long wipe is not mistaken for a
+// hang, and that --json prints nothing there and keeps its envelope.
+func TestReplaceShowsItsProgressOnStderr(t *testing.T) {
+	e := newE2E(t)
+	code, stdout, stderr := e.run("install", examplePack, "--harness", every, "--mode", "replace", "--yes")
+	if code != cli.ExitOK || !strings.Contains(stdout, "installed") {
+		t.Fatalf("install: exit code = %d, stdout = %q, stderr = %q", code, stdout, stderr)
+	}
+	lines := strings.Split(strings.TrimSpace(stderr), "\n")
+	for _, want := range []string{"backing up...", "wiping 1/", "recording 1/", "writing 1/"} {
+		if !slices.ContainsFunc(lines, func(l string) bool { return strings.HasPrefix(l, want) }) {
+			t.Errorf("install stderr has no line starting %q:\n%s", want, stderr)
+		}
+	}
+	wipe := slices.IndexFunc(lines, func(l string) bool { return strings.HasPrefix(l, "wiping ") })
+	last := slices.IndexFunc(lines, func(l string) bool { return strings.HasPrefix(l, "writing ") })
+	if wipe < 0 || last < wipe || lines[len(lines)-1] != "done" || !strings.Contains(stderr, "~/.claude") {
+		t.Errorf("install stderr = %q, want the wipes before the writes, paths under ~/, and a last line done", stderr)
+	}
+
+	code, stdout, stderr = e.run("restore")
+	if code != cli.ExitOK || !strings.Contains(stderr, "restoring 1/") || !strings.HasSuffix(stderr, "done\n") {
+		t.Errorf("restore: exit code = %d, stdout = %q, stderr = %q, want its moves counted and done", code, stdout, stderr)
+	}
+
+	// --json keeps stderr free of progress and the envelope a success.
+	code, stdout, stderr = e.run("install", examplePack, "--harness", every, "--mode", "replace", "--yes", "--json")
+	if env := decode(t, stdout); code != cli.ExitOK || !env.OK || stderr != "" {
+		t.Errorf("install --json: exit code = %d, stdout = %s, stderr = %q, want an envelope and no progress", code, stdout, stderr)
+	}
+	code, stdout, stderr = e.run("restore", "--json")
+	if env := decode(t, stdout); code != cli.ExitOK || !env.OK || stderr != "" {
+		t.Errorf("restore --json: exit code = %d, stdout = %s, stderr = %q, want an envelope and no progress", code, stdout, stderr)
+	}
+}

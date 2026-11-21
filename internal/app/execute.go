@@ -553,6 +553,7 @@ func (r runner) recheckState(statePath string) error {
 // (nil for none), and then the manifest, each synced to the disk with its
 // directories. A backup that fails is removed.
 func (r runner) backup(operation string, info backup.Info, prior *state.State, writes []plan.Op, ex *extra) (ref *BackupRef, err error) {
+	r.announce(PhaseBackup)
 	root := filepath.Join(r.home, dotaiDir, backupsDir)
 	if err := ensureDir(r.d, r.home, root, 0o700); err != nil {
 		return nil, err
@@ -570,11 +571,20 @@ func (r runner) backup(operation string, info backup.Info, prior *state.State, w
 	if err != nil {
 		return nil, err
 	}
-	dirs := map[string]bool{}  // the directories under dir that hold copies
+	dirs := map[string]bool{} // the directories under dir that hold copies
+	copies := 0
+	for _, op := range m.Ops {
+		if op.File != "" {
+			copies++
+		}
+	}
+	copied := 0
 	for i, op := range m.Ops { // m.Ops are writes, in order
 		if op.File == "" {
 			continue
 		}
+		copied++
+		r.step(PhaseBackup, copied, copies, r.tilde(op.Target))
 		data, cur, err := r.d.Read(r.ctx, op.Target)
 		if errors.Is(err, fs.ErrNotExist) || err == nil && !r.same(cur, writes[i].Before, writes[i].BeforeExec) {
 			return nil, &ChangedError{Path: op.Target}
@@ -646,7 +656,8 @@ func newBackupDir(d executeFS, root string, t time.Time, operation string) (id, 
 // directories it created, so that they can be rolled back.
 func (r runner) execute(writes []plan.Op) ([]applied, error) {
 	var done []applied
-	for _, op := range writes {
+	for i, op := range writes {
+		r.step(PhaseWrite, i+1, len(writes), r.tilde(op.Target))
 		a, err := r.apply(op)
 		if err != nil {
 			if len(a.dirs) > 0 {
@@ -854,6 +865,7 @@ func (r runner) detached() (runner, context.CancelFunc) {
 func (r runner) rollback(dir string, done []applied) error {
 	r, cancel := r.detached()
 	defer cancel()
+	r.announce(PhaseRollback)
 	var errs []error
 	for _, a := range slices.Backward(done) {
 		if a.op.Target != "" {

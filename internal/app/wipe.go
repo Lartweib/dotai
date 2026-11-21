@@ -236,6 +236,7 @@ func (r runner) backupExtra(dir string, m *backup.Manifest, ex *extra) (map[stri
 // restore reads from the backup in turn.
 func (r runner) recordItems(dir string, ex *extra) error {
 	for i, w := range ex.wipes {
+		r.step(PhaseRecord, i+1, len(ex.wipes), r.tilde(w.Path))
 		items, err := r.items(r.ctx, filepath.Join(dir, filepath.FromSlash(w.File)))
 		if err != nil {
 			return err
@@ -311,7 +312,8 @@ func (r runner) moveEntry(from, to string) (moved, error) {
 // directories it made.
 func (r runner) wipe(dir string, wipes []backup.Wipe) ([]moved, error) {
 	var done []moved
-	for _, w := range wipes {
+	for i, w := range wipes {
+		r.step(PhaseWipe, i+1, len(wipes), r.tilde(w.Path))
 		mode, err := r.d.Lstat(w.Path)
 		if errors.Is(err, fs.ErrNotExist) || err == nil && entryKind(mode) != w.Kind {
 			return done, &ChangedError{Path: w.Path}
@@ -339,8 +341,11 @@ func (r runner) unmove(done []moved) error {
 	r, cancel := r.detached()
 	defer cancel()
 	var errs []error
+	n := 0
 	for _, m := range slices.Backward(done) {
 		if m.from != "" {
+			n++
+			r.step(PhaseRollback, n, len(done), r.tilde(m.from))
 			if _, err := r.d.Lstat(m.from); err == nil {
 				errs = append(errs, fmt.Errorf("%s was left in %s: something took its place since", m.from, m.to))
 			} else if _, err := r.moveEntry(m.to, m.from); err != nil {
