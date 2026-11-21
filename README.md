@@ -48,6 +48,80 @@ variants:
     default: true
 ```
 
+Every layer has the same shape. The base always applies, one variant is chosen per machine, and profiles are combined per project:
+
+```mermaid
+flowchart LR
+  M(["<b>dotai.yaml</b><br/>name · version · rulesync<br/>harnesses · profiles · variants"])
+
+  M --> B["<b>base/</b><br/><i>always applied</i>"]
+  M --> V["<b>variants/&lt;name&gt;/</b><br/><i>one per machine, such as standalone</i>"]
+  M --> P["<b>profiles/&lt;name&gt;/</b><br/><i>per project type, combinable</i>"]
+  M -.-> MO["<b>mods/&lt;name&gt;/</b><br/><i>Claude Code plugins, named by profiles</i>"]
+
+  B --> L
+  V --> L
+  P --> L
+
+  L["<b>Every layer</b><br/><b>.rulesync/</b> rules · commands · subagents · skills<br/>MCP servers · hooks · permissions<br/><b>dotai/settings.yaml</b> statusLine · env · models<br/><b>dotai/tools/</b> scripts and binaries"]
+
+  classDef manifest fill:#334155,stroke:#0f172a,color:#ffffff
+  classDef base fill:#1d4ed8,stroke:#1e3a8a,color:#ffffff
+  classDef variant fill:#b45309,stroke:#78350f,color:#ffffff
+  classDef profile fill:#15803d,stroke:#14532d,color:#ffffff
+  classDef mod fill:#f1f5f9,stroke:#475569,color:#0f172a
+  classDef layer fill:#f8fafc,stroke:#334155,color:#0f172a
+  class M manifest
+  class B base
+  class V variant
+  class P profile
+  class MO mod
+  class L layer
+```
+
+`dotai install` puts the base and a variant into each harness's user configuration; `dotai apply` puts profiles into one project, in local files git does not track. Both go through the same steps:
+
+```mermaid
+flowchart LR
+  subgraph PK["Pack"]
+    direction TB
+    U["<b>base + variant</b>"]
+    PR["<b>profiles</b>"]
+  end
+
+  U -->|"dotai install"| R
+  PR -->|"dotai apply"| R
+
+  subgraph E["dotai"]
+    direction TB
+    R["<b>render</b><br/>pinned rulesync<br/>+ settings and tools"] --> PL["<b>plan</b><br/>every file and key<br/>--dry-run stops here"]
+    PL --> BK["<b>backup and journal</b><br/>rollback on failure<br/>dotai restore to undo"]
+  end
+
+  BK --> US
+  BK --> PJ
+
+  subgraph US["User scope"]
+    direction TB
+    CC["Claude Code"]
+    AG["Antigravity CLI"]
+    OC["OpenCode"]
+  end
+
+  PJ["<b>Project scope</b><br/>.claude/ · .agents/ · .opencode/<br/>listed in .git/info/exclude"]
+
+  classDef base fill:#1d4ed8,stroke:#1e3a8a,color:#ffffff
+  classDef profile fill:#15803d,stroke:#14532d,color:#ffffff
+  classDef engine fill:#475569,stroke:#1e293b,color:#ffffff
+  classDef target fill:#f8fafc,stroke:#334155,color:#0f172a
+  class U base
+  class PR profile
+  class R,PL,BK engine
+  class CC,AG,OC,PJ target
+```
+
+A first install is isolated under `~/.dotai/isolated/` unless it is given `--mode replace`, which resets each harness and writes into its own configuration; later installs keep the recorded mode.
+
 The base layer holds the shared rules, skills and subagents, such as `base/.rulesync/rules/overview.md` and `base/.rulesync/skills/commit-message/SKILL.md`. A dry run shows every file and key an install would write, and writes nothing but the rulesync cache (trimmed):
 
 ```text
