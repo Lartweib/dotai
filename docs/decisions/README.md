@@ -84,6 +84,7 @@ Read these first for the shape of the engine:
 | [0035](0035-settings-files-owned-by-key.md) | dotai owns only its keys in a harness's settings file | accepted | 2026-10-30 |
 | [0038](0038-replace-mode-resets-harness-to-fresh-install.md) | Replace mode resets each selected harness to a fresh install (partially superseded by 0049) | accepted | 2026-11-01 |
 | [0049](0049-claude-user-mcp-servers-in-claude-json.md) | Claude Code's user-scope MCP servers are owned server by server in its `.claude.json` | accepted | 2026-11-20 |
+| [0050](0050-hook-entries-owned-one-by-one.md) | dotai owns its own hook entries, not the hook files other programs also write | accepted | 2026-11-21 |
 
 ### Project scope and onboarding
 
