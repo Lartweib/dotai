@@ -68,3 +68,5 @@ Update 2026-11-18: [0046](0046-pack-templates-and-wizard.md) is implemented. The
 Update 2026-11-18: the note above that says "The wizard of 0046 is not built yet" no longer holds: the wizard is built, as the previous note records, and the Packs board's Create a pack step (`#/new`) is it.
 
 Update 2026-11-18: the install board asks which harnesses to manage, as [0047](0047-harness-selection-and-preview-harnesses.md) decides, and shows each one's state.
+
+Update 2026-11-21: under [0051](0051-later-replace-install-updates-unless-reset.md), the install and plan requests take `reset`, and the install step offers the choice between updating the pack only, the default, and resetting again for a replace plan with harnesses that already have a replace install. A change of the choice plans again, so the digest is that of the plan the user chose.

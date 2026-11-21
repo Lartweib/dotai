@@ -300,6 +300,10 @@ type installRequest struct {
 	Variant   string   `json:"variant"`
 	Mode      string   `json:"mode"`
 	Harnesses []string `json:"harnesses"`
+	// Reset resets again the harnesses that already have a replace install,
+	// as install --reset does (decision 0051); false, a later replace
+	// install only updates the pack there.
+	Reset bool `json:"reset"`
 }
 
 // planInstall runs install --dry-run as the body asks.

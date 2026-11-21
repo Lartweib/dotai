@@ -129,6 +129,11 @@ func newApplyCmd(env Env, jsonOut *bool) *cobra.Command {
 		} else {
 			footer += "backup: none, no file was written\n"
 		}
+		if asked {
+			// The plan was printed before the question: print its summary
+			// and the backup, not the plan again.
+			return writeProjectSummary(env.Stdout, res.ProjectPlan, footer)
+		}
 		return writeProjectPlan(env.Stdout, res.ProjectPlan, color, footer)
 	}
 	return cmd
@@ -139,6 +144,23 @@ func newApplyCmd(env Env, jsonOut *bool) *cobra.Command {
 // files dotai keeps for itself, the exclude entries, the warnings, and a
 // count of each action followed by footer.
 func writeProjectPlan(w io.Writer, p app.ProjectPlan, color bool, footer string) error {
+	body, tail := renderProjectPlan(p, color, footer)
+	_, err := io.WriteString(w, body+"\n"+tail)
+	return err
+}
+
+// writeProjectSummary prints only the last line of a project plan, the
+// count of each action followed by footer, for a plan that was printed
+// before.
+func writeProjectSummary(w io.Writer, p app.ProjectPlan, footer string) error {
+	_, tail := renderProjectPlan(p, false, footer)
+	_, err := io.WriteString(w, tail)
+	return err
+}
+
+// renderProjectPlan is a plan as writeProjectPlan prints it, split in its
+// body and the line that counts each action, followed by footer.
+func renderProjectPlan(p app.ProjectPlan, color bool, footer string) (body, tail string) {
 	var b strings.Builder
 	subject := ""
 	if p.Pack != nil {
@@ -237,11 +259,9 @@ func writeProjectPlan(w io.Writer, p app.ProjectPlan, color bool, footer string)
 	for _, r := range p.Refusals {
 		fmt.Fprintf(&b, "  %s\n", r.Message)
 	}
-	fmt.Fprintf(&b, "\n%d create, %d replace, %d merge, %d remove, %d unchanged, %d conflict, %d skipped · ",
-		count[plan.Create], count[plan.Replace], count[plan.Merge], count[plan.Remove], count[plan.Unchanged], count[plan.Conflict], len(p.Skipped))
-	b.WriteString(footer)
-	_, err := io.WriteString(w, b.String())
-	return err
+	tail = fmt.Sprintf("%d create, %d replace, %d merge, %d remove, %d unchanged, %d conflict, %d skipped · ",
+		count[plan.Create], count[plan.Replace], count[plan.Merge], count[plan.Remove], count[plan.Unchanged], count[plan.Conflict], len(p.Skipped)) + footer
+	return b.String(), tail
 }
 
 // projectStyle is the style of each action of a project plan: a create

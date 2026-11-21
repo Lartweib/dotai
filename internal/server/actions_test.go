@@ -238,7 +238,10 @@ func TestTheActionsPassTheirRequestToTheUseCases(t *testing.T) {
 	deps := fakeDeps()
 	var got []string
 	deps.Install = func(_ context.Context, cache, dir, home string, opts app.InstallOptions, _ app.Progress, _ app.Warn, _ app.Consent) (app.InstallResult, error) {
-		got = append(got, "install "+dir+" "+opts.Variant+" "+opts.Mode+" "+strings.Join(opts.Harnesses, ","))
+		got = append(got, "install "+dir+" "+opts.Variant+" "+opts.Mode+" "+strings.Join(opts.Harnesses, ",")+" reset="+map[bool]string{true: "yes", false: "no"}[opts.Reset])
+		if opts.ChooseReset != nil {
+			t.Error("the web UI asks no question while planning: its choice comes in the request")
+		}
 		if cache != cfg.CacheDir || home != cfg.Home || opts.IgnoreRunning {
 			t.Errorf("Install(%q, %q, %+v), want the configured directories and the running check", cache, home, opts)
 		}
@@ -262,7 +265,7 @@ func TestTheActionsPassTheirRequestToTheUseCases(t *testing.T) {
 	h := server.New(cfg, deps, testWeb)
 	d := digests(t)
 	for _, r := range []*http.Request{
-		post("/api/install", `{"pack":`+jsonString(abs("pack"))+`,"variant":"tmux","mode":"replace","harnesses":["claudecode"],"digest":`+jsonString(d["/api/install"])+`}`, testToken),
+		post("/api/install", `{"pack":`+jsonString(abs("pack"))+`,"variant":"tmux","mode":"replace","harnesses":["claudecode"],"reset":true,"digest":`+jsonString(d["/api/install"])+`}`, testToken),
 		post("/api/restore", `{"id":"20261029T101500.000Z_install","digest":`+jsonString(d["/api/restore"])+`}`, testToken),
 		post("/api/restore/project", `{"project":`+jsonString(abs("repo"))+`,"digest":`+jsonString(d["/api/restore/project"])+`}`, testToken),
 		post("/api/doctor/fix", `{"digest":`+jsonString(d["/api/doctor/fix"])+`}`, testToken),
@@ -271,7 +274,7 @@ func TestTheActionsPassTheirRequestToTheUseCases(t *testing.T) {
 			t.Errorf("%s = %d; body %s", r.URL, w.Code, w.Body)
 		}
 	}
-	want := []string{"install " + abs("pack") + " tmux replace claudecode", "restore 20261029T101500.000Z_install", "restore --project " + abs("repo"), "doctor fix=yes"}
+	want := []string{"install " + abs("pack") + " tmux replace claudecode reset=yes", "restore 20261029T101500.000Z_install", "restore --project " + abs("repo"), "doctor fix=yes"}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("use cases ran %q, want %q", got, want)
 	}

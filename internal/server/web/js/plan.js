@@ -6,7 +6,9 @@
 // needs consent come with the plan. The harness step shows every harness
 // with its state and sends the user's choice as the plan's harnesses,
 // none until the user changes a tick, so that the plan keeps the saved
-// choice or the default (decision 0047).
+// choice or the default (decision 0047). A replace install of harnesses that
+// already have one offers the choice between updating the pack only, the
+// default, and resetting them again, sent as the plan's reset (decision 0051).
 
 import { actions, boardHead, busy, failure, h, hint, lm, loading, mount, notice, op, sec, warning } from "./dom.js";
 import { guard, rel } from "./flows.js";
@@ -28,14 +30,14 @@ export async function render(root, ctx) {
     return;
   }
   const s = installed();
-  const state = { mode: isInstalled(pack) && s ? s.mode : "", variant: "", consent: false, harnesses: null };
+  const state = { mode: isInstalled(pack) && s ? s.mode : "", variant: "", consent: false, harnesses: null, reset: false };
   const info = await loadPack(pack);
   if (ctx.stale()) return;
   const summary = info.data && info.data.pack;
 
   const replan = async (msg) => {
     loading(pane, t("plan.planning"));
-    const res = await post("/api/install/plan", { pack, mode: state.mode, variant: state.variant, harnesses: state.harnesses }, ctx.signal);
+    const res = await post("/api/install/plan", { pack, mode: state.mode, variant: state.variant, harnesses: state.harnesses, reset: state.reset }, ctx.signal);
     if (ctx.stale()) return;
     show(res, msg);
   };
@@ -86,7 +88,7 @@ export async function render(root, ctx) {
     sync();
     go.addEventListener("click", async () => {
       mount(out, busy(t("plan.installing")));
-      const r = await g.run(() => act("/api/install", { pack, mode: p.mode, variant: p.variant, harnesses: state.harnesses, digest: p.digest, yes: state.consent }));
+      const r = await g.run(() => act("/api/install", { pack, mode: p.mode, variant: p.variant, harnesses: state.harnesses, reset: state.reset, digest: p.digest, yes: state.consent }));
       if (!r || ctx.stale()) return;
       if (r.ok) {
         await ctx.refresh();
@@ -116,6 +118,7 @@ export async function render(root, ctx) {
           h("div", { class: "tabs", role: "radiogroup", "aria-label": t("plan.variant") }, variants.map((v) =>
             h("button", { class: "btn sm", type: "button", role: "radio", "aria-checked": String(v === p.variant), "aria-selected": String(v === p.variant), onclick: () => { state.variant = v; state.consent = false; replan(); }, text: v })))) : null,
         modes(p.mode, (m) => { state.mode = m; state.consent = false; replan(); }),
+        p.mode === "replace" && p.reinstall && p.reinstall.length ? reinstallStep(p, (reset) => { state.reset = reset; state.consent = false; replan(); }) : null,
         harnessStep(harnessRows(p.harnesses, state.harnesses), (id, on) => pick(p.harnesses, harnessRows(p.harnesses, state.harnesses), id, on))),
       h("div", { class: "col wide" },
         h("p", { class: "summary", text: counts(p) }),
@@ -165,6 +168,28 @@ function modes(current, pick) {
       return h("label", { class: "mode", "data-on": String(id === current) }, input,
         h("span", {}, h("b", { text: t("mode." + id) }), h("span", { text: t("mode." + id + "Desc") })));
     })));
+}
+
+// reinstallStep is the choice of a replace install over harnesses that
+// already have one (decision 0051): update the pack only, which wipes
+// nothing, or reset them again as the first install did; onPick is called
+// with whether it is a reset, and the plan is made again for the choice.
+function reinstallStep(p, onPick) {
+  // Only what a reset takes from the harnesses of reinstall: a first install in
+  // the same plan wipes either way.
+  const later = (x) => p.reinstall.includes(x.harness);
+  const would = p.reset ? { wipes: p.wipes.filter(later), wipeKeys: p.wipeKeys.filter(later) } : p.wouldReset;
+  const list = p.reinstall.map((id) => harnessName(id)).join(", ");
+  return h("fieldset", { class: "field" }, h("legend", { class: "label", text: t("plan.reinstall") }),
+    hint(t("hint.reinstall", { list })),
+    h("div", { class: "modes" }, [false, true].map((reset) => {
+      const key = reset ? "reset" : "update";
+      const input = h("input", { type: "radio", name: "reinstall", value: key, onchange: () => onPick(reset) });
+      input.checked = reset === !!p.reset;
+      return h("label", { class: "mode", "data-on": String(reset === !!p.reset) }, input,
+        h("span", {}, h("b", { text: t("plan.reinstall." + key) }), h("span", { text: t("plan.reinstall." + key + "Desc") })));
+    })),
+    would ? h("p", { class: "help", text: t("plan.reinstall.wouldWipe", { n: would.wipes.length, k: would.wipeKeys.length }) }) : null);
 }
 
 const managed = (p) => p.harnesses.filter((x) => x.managed);

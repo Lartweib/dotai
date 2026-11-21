@@ -433,16 +433,16 @@ func TestPlanInstallTakesItsOptionsFromTheBody(t *testing.T) {
 		return app.InstallPlan{Mode: app.ModeIsolated}, nil
 	}
 	h := server.New(cfg, deps, testWeb)
-	body := `{"pack":` + jsonString(abs("pack")) + `,"variant":"tmux","mode":"replace","harnesses":["claudecode","opencode"]}`
+	body := `{"pack":` + jsonString(abs("pack")) + `,"variant":"tmux","mode":"replace","harnesses":["claudecode","opencode"],"reset":true}`
 	if w := serve(h, post("/api/install/plan", body, testToken)); w.Code != http.StatusOK {
 		t.Fatalf("status = %d; body %s", w.Code, w.Body)
 	}
-	want := app.InstallOptions{Variant: "tmux", Mode: "replace", Harnesses: []string{"claudecode", "opencode"}}
+	want := app.InstallOptions{Variant: "tmux", Mode: "replace", Harnesses: []string{"claudecode", "opencode"}, Reset: true}
 	if gotCache != cfg.CacheDir || gotDir != abs("pack") || gotHome != cfg.Home || !reflect.DeepEqual(gotOpts, want) {
 		t.Errorf("PlanInstall(%q, %q, %q, %+v), want the configured directories and %+v", gotCache, gotDir, gotHome, gotOpts, want)
 	}
-	if w := serve(h, post("/api/install/plan", `{"pack":`+jsonString(abs("pack"))+`}`, testToken)); w.Code != http.StatusOK || gotOpts.Harnesses != nil {
-		t.Errorf("without harnesses: status %d, harnesses %#v, want nil, the saved selection", w.Code, gotOpts.Harnesses)
+	if w := serve(h, post("/api/install/plan", `{"pack":`+jsonString(abs("pack"))+`}`, testToken)); w.Code != http.StatusOK || gotOpts.Harnesses != nil || gotOpts.Reset {
+		t.Errorf("without harnesses: status %d, harnesses %#v, reset %v, want nil, the saved selection, and an update only (decision 0051)", w.Code, gotOpts.Harnesses, gotOpts.Reset)
 	}
 	for _, bad := range []string{`{}`, `{"pack":"relative/pack"}`, `{"pack":` + jsonString(abs("pack")) + `,"profile":["web"]}`, `not json`, ``} {
 		wantFailure(t, serve(h, post("/api/install/plan", bad, testToken)), http.StatusBadRequest, envelope.CodeUsage)

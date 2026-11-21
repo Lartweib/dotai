@@ -183,14 +183,31 @@ func foreign(d installFS, p planned) (entries, keys, files int, err error) {
 			entries++
 		}
 	}
+	keys = len(p.plan.WipeKeys)
 	for _, op := range p.ops {
 		// A harness's home file is merged key by key, and the keys of it
 		// that are wiped count as keys.
-		if op.Action == plan.Replace && !ownedAt(ownedTargets(p.prev), op.Target) && !(op.Settings && homeConfigSource(op.Source)) {
-			files++
+		if op.Action != plan.Replace {
+			continue
+		}
+		if !(op.Settings && homeConfigSource(op.Source)) {
+			if !ownedAt(ownedTargets(p.prev), op.Target) {
+				files++
+			}
+			continue
+		}
+		// A reset wipes the keys it would overwrite, which asked consent as
+		// keys; a later install that only updates (decision 0051) wipes none,
+		// so each key it replaces that the previous install did not own is
+		// one the user's.
+		owned := ownedKeys(p.prev)[op.Target]
+		for _, c := range op.Changes {
+			if c.Action == plan.Replace && !slices.ContainsFunc(owned, func(k []string) bool { return (plan.Key{Path: k}).Name() == c.Key }) {
+				keys++
+			}
 		}
 	}
-	return entries, len(p.plan.WipeKeys), files, nil
+	return entries, keys, files, nil
 }
 
 // holdsSomething reports whether the entry name of kind holds a file or a

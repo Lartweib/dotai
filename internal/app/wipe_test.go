@@ -127,7 +127,17 @@ func installReplace(t *testing.T, d app.ExecuteFS, h app.Host, home string) (app
 	return app.InstallReplace(context.Background(), d, h, f.fetch, replaceRun(t), examplePack, home, app.InstallOptions{Harnesses: pack.Harnesses})
 }
 
+// installAgain is a replace install over one that is settled, with Reset:
+// it resets again (decision 0051).
 func installAgain(t *testing.T, d app.ExecuteFS, h app.Host, home string) (app.InstallResult, error) {
+	t.Helper()
+	f := quiet(t)
+	return app.InstallAgainReplace(context.Background(), d, h, f.fetch, replaceRun(t), examplePack, home, app.InstallOptions{Harnesses: pack.Harnesses, Reset: true})
+}
+
+// installUpdate is a replace install over one that is settled, without
+// Reset: it only updates the pack (decision 0051).
+func installUpdate(t *testing.T, d app.ExecuteFS, h app.Host, home string) (app.InstallResult, error) {
 	t.Helper()
 	f := quiet(t)
 	return app.InstallAgainReplace(context.Background(), d, h, f.fetch, replaceRun(t), examplePack, home, app.InstallOptions{Harnesses: pack.Harnesses})

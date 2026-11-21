@@ -216,7 +216,7 @@ func TestPinnedReplaceBackupIsNeverPruned(t *testing.T) {
 			f := quiet(t)
 			d := newClockFS(t)
 			replace := func(d app.ExecuteFS) (app.InstallResult, error) {
-				return app.InstallReplace(context.Background(), d, h, f.fetch, replaceRun(t), examplePack, home, app.InstallOptions{Variant: "tmux"})
+				return app.InstallReplace(context.Background(), d, h, f.fetch, replaceRun(t), examplePack, home, app.InstallOptions{Variant: "tmux", Reset: true})
 			}
 			var isolated []string
 			for _, variant := range []string{"standalone", "tmux"} {
@@ -404,10 +404,13 @@ func TestKilledReplaceIsSettled(t *testing.T) {
 				pinned := s.Pending.Backup
 				id := ""
 				if next == "install" {
-					if _, err := installAgain(t, newClockFS(t), h, home); err != nil {
-						t.Fatalf("Install() after the kill error = %v", err)
+					// A plain install, with no Reset: the kill left a reset that was
+					// not settled, so it is a first install again (decision 0051).
+					settled, err := installUpdate(t, newClockFS(t), h, home)
+					if err != nil || len(settled.Reinstall) != 0 {
+						t.Fatalf("Install() after the kill = reinstall %v, %v, want a first install that finishes the reset", settled.Reinstall, err)
 					}
-					p, err := app.PlanInstallHost(context.Background(), app.OSInstallFS{}, h, quiet(t).fetch, replaceRun(t), examplePack, home, app.InstallOptions{})
+					p, err := app.PlanInstallHost(context.Background(), app.OSInstallFS{}, h, quiet(t).fetch, replaceRun(t), examplePack, home, app.InstallOptions{Reset: true})
 					if err != nil || len(p.Wipes) != 0 || len(p.WipeKeys) != 0 || len(p.Refusals) != 0 {
 						t.Fatalf("plan after the settling install = %+v, %v, want nothing left to wipe", p, err)
 					}

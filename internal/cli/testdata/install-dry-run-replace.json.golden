@@ -196,6 +196,9 @@
     ],
     "warnings": [],
     "diagnostics": [],
+    "reinstall": [],
+    "reset": false,
+    "wouldReset": null,
     "blocked": false,
     "consent": false,
     "consentForeign": false

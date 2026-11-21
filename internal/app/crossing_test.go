@@ -173,8 +173,8 @@ func TestKilledMoveAcrossVolumesIsSettled(t *testing.T) {
 					}
 					id := ""
 					if next == "install" {
-						if _, err := installAgain(t, &volumesFS{clockFS: newClockFS(t)}, h, home); err != nil {
-							t.Fatalf("Install() after the kill error = %v", err)
+						if res, err := installUpdate(t, &volumesFS{clockFS: newClockFS(t)}, h, home); err != nil || len(res.Reinstall) != 0 {
+							t.Fatalf("Install() after the kill = reinstall %v, %v, want a first install that finishes the reset", res.Reinstall, err)
 						}
 						id = app.PinnedBackup(t, home)
 					}

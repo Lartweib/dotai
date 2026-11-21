@@ -22,7 +22,9 @@ import (
 )
 
 // The install modes: isolated (decision 0031), and replace, which resets
-// each selected harness to a fresh install (decision 0038).
+// each selected harness that has no replace install yet to a fresh install
+// (decision 0038), and only updates the pack for one that has (decision
+// 0051).
 const (
 	ModeIsolated = string(harness.Isolated)
 	ModeReplace  = string(harness.Replace)
@@ -76,6 +78,15 @@ type InstallPlan struct {
 	// consent; a code that does says so where it is defined.
 	Warnings    []plan.Warning `json:"warnings"`
 	Diagnostics []Diagnostic   `json:"diagnostics"`
+	// Reinstall are the managed harnesses that the install state records
+	// as installed in the replace mode: for them this install is a later
+	// one (decision 0051). Reset is whether it resets them again, as a
+	// first replace install does; false, it only updates the pack there,
+	// wiping nothing, and WouldReset is what a reset would do instead. A
+	// harness that is not in Reinstall is reset either way.
+	Reinstall  []string      `json:"reinstall"`
+	Reset      bool          `json:"reset"`
+	WouldReset *ResetPreview `json:"wouldReset"` // nil unless Reinstall is not empty and Reset is false
 	// Blocked says that the install refuses the plan whatever the consent,
 	// for its diagnostics or refusals; Consent that it needs consent
 	// (--yes) for what it asks to confirm: what a replace install wipes or
@@ -87,6 +98,25 @@ type InstallPlan struct {
 	ConsentForeign bool `json:"consentForeign"`
 }
 
+// ResetPreview is what a replace install would do to the harnesses it
+// updates only, if it reset them again (decision 0051): what it would
+// wipe, and why it would refuse. Lists are never nil.
+type ResetPreview struct {
+	Wipes    []WipePlan `json:"wipes"`
+	WipeKeys []WipeKey  `json:"wipeKeys"`
+	Refusals []Refusal  `json:"refusals"`
+}
+
+// empty reports whether a reset would wipe nothing.
+func (r ResetPreview) empty() bool { return len(r.Wipes) == 0 && len(r.WipeKeys) == 0 }
+
+// ResetChoice is what InstallOptions.ChooseReset is asked: the harnesses
+// that a later replace install updates, and what resetting them would do.
+type ResetChoice struct {
+	Harnesses []string
+	Preview   ResetPreview
+}
+
 // InstallOptions are the choices of an install besides the pack: the
 // variant, the pack's default when empty, and the harnesses to manage,
 // --harness, nil to reuse the saved selection or take the pack's
@@ -96,6 +126,14 @@ type InstallPlan struct {
 // install state records, or isolated when there is none. IgnoreRunning
 // skips the check that refuses a replace install while a harness it
 // resets is running (decision 0038).
+//
+// A replace install of a harness that the install state records in the
+// replace mode only updates the pack there (decision 0051), unless Reset is
+// set, which resets it again as a first replace install does, or
+// ChooseReset, when it is not nil and a reset would wipe something, answers
+// true. It is asked while planning, before anything is written, and an
+// error from it stops the install. Neither matters for a harness that is
+// not recorded in the replace mode, nor outside the replace mode.
 //
 // Confirm, when it is not nil, is asked with the plan, so that a caller
 // carries out only the plan its user saw. The install first completes the
@@ -109,6 +147,8 @@ type InstallOptions struct {
 	Harnesses     []string
 	Mode          string
 	IgnoreRunning bool
+	Reset         bool
+	ChooseReset   func(ResetChoice) (bool, error)
 	Confirm       func(InstallPlan) error
 }
 
@@ -385,7 +425,7 @@ func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run run
 	res := InstallPlan{
 		Pack: s.Pack, Variant: opts.Variant, Mode: mode, Root: root,
 		Harnesses: []HarnessPlan{}, Ops: []InstallOp{}, Notices: []string{}, Warnings: append([]plan.Warning{}, s.Warnings...), Diagnostics: s.Diagnostics,
-		Wipes: []WipePlan{}, Keeps: []KeepPlan{}, WipeKeys: []WipeKey{}, Refusals: []Refusal{},
+		Wipes: []WipePlan{}, Keeps: []KeepPlan{}, WipeKeys: []WipeKey{}, Refusals: []Refusal{}, Reinstall: []string{},
 	}
 	if s.Pack != nil {
 		res.Variant = cmp.Or(opts.Variant, s.Pack.DefaultVariant)
@@ -417,6 +457,7 @@ func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run run
 	}
 	var rp replacePlan
 	if mode == ModeReplace {
+		res.Reinstall = reinstalled(home, prev, s.Harnesses)
 		projects, err := readProjects(d, home)
 		if err != nil {
 			return err
@@ -427,8 +468,45 @@ func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run run
 			res.Notices = append(res.Notices, fmt.Sprintf("the entry of %s in %s is ignored: the project or its record is gone, so the replace install wipes its MCP servers like any other",
 				p, filepath.Join(home, dotaiDir, projectsFile)))
 		}
-		if rp, err = planWipes(ctx, d, h, home, adapters, shared, ownedTargets(prev), projects, ownedKeys(prev)); err != nil {
+		// A harness the previous install recorded in the replace mode is
+		// updated only, unless it is reset again (decision 0051); the
+		// others are reset, as a first replace install does.
+		var first, later []harness.Adapter
+		for _, a := range adapters {
+			if slices.Contains(res.Reinstall, a.ID) {
+				later = append(later, a)
+			} else {
+				first = append(first, a)
+			}
+		}
+		wipesOf := func(as []harness.Adapter) (replacePlan, error) {
+			return planWipes(ctx, d, h, home, as, shared, ownedTargets(prev), projects, ownedKeys(prev))
+		}
+		if rp, err = wipesOf(first); err != nil {
 			return err
+		}
+		if len(later) > 0 {
+			lp, err := wipesOf(later)
+			if err != nil {
+				return err
+			}
+			reset := opts.Reset
+			preview := ResetPreview{Wipes: slices.Concat([]WipePlan{}, lp.wipes), WipeKeys: slices.Concat([]WipeKey{}, lp.keys), Refusals: slices.Concat([]Refusal{}, lp.refusals)}
+			if !reset && opts.ChooseReset != nil && !preview.empty() {
+				if reset, err = opts.ChooseReset(ResetChoice{Harnesses: res.Reinstall, Preview: preview}); err != nil {
+					return err
+				}
+			}
+			if reset {
+				res.Reset = true
+				rp = rp.merge(lp)
+			} else {
+				// A harness that is only updated is still refused when a
+				// variable relocates its configuration: the pack would be
+				// written where the harness does not read it.
+				rp.refusals = append(rp.refusals, lp.relocations()...)
+				res.WouldReset = &preview
+			}
 		}
 		res.Wipes, res.Keeps = append(res.Wipes, rp.wipes...), append(res.Keeps, rp.keeps...)
 		res.WipeKeys, res.Refusals = append(res.WipeKeys, rp.keys...), append(res.Refusals, rp.refusals...)
