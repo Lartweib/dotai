@@ -519,3 +519,63 @@ func TestFailedEditKeepsBytes(t *testing.T) {
 		}
 	}
 }
+
+// TestRemoveAndReplaceElement checks the edits of one element of an array,
+// byte for byte: the neighbours, their commas, indentation and comments
+// stay as they were, in the layouts a settings file comes in.
+func TestRemoveAndReplaceElement(t *testing.T) {
+	tests := []struct {
+		name, src, op string
+		i             int
+		value         string
+		want          string
+	}{
+		{"middle of a list on lines", "{\n  \"a\": [\n    1,\n    2,\n    3\n  ]\n}\n", "remove", 1, "", "{\n  \"a\": [\n    1,\n    3\n  ]\n}\n"},
+		{"first of a list on lines", "{\n  \"a\": [\n    1,\n    2,\n    3\n  ]\n}\n", "remove", 0, "", "{\n  \"a\": [\n    2,\n    3\n  ]\n}\n"},
+		{"last of a list on lines", "{\n  \"a\": [\n    1,\n    2,\n    3\n  ]\n}\n", "remove", 2, "", "{\n  \"a\": [\n    1,\n    2\n  ]\n}\n"},
+		{"last with a trailing comma", "{\n  \"a\": [\n    1,\n    2,\n  ],\n  \"b\": 1\n}\n", "remove", 1, "", "{\n  \"a\": [\n    1,\n  ],\n  \"b\": 1\n}\n"},
+		{"only element", "{\n  \"a\": [\n    1\n  ],\n  \"b\": 1\n}\n", "remove", 0, "", "{\n  \"a\": [],\n  \"b\": 1\n}\n"},
+		{"first of an inline list", `{"a": [1, 2, 3]}`, "remove", 0, "", `{"a": [2, 3]}`},
+		{"middle of an inline list", `{"a": [1, 2, 3]}`, "remove", 1, "", `{"a": [1, 3]}`},
+		{"last of an inline list", `{"a": [1, 2, 3]}`, "remove", 2, "", `{"a": [1, 2]}`},
+		{"comments of the others stay", "{\n  \"a\": [\n    // one\n    1, // first\n    2, // second\n    3 // third\n  ]\n}\n", "remove", 1, "", "{\n  \"a\": [\n    // one\n    1, // first\n    3 // third\n  ]\n}\n"},
+		{"last with a line comment before", "{\n  \"a\": [\n    1, // first\n    2 // second\n  ]\n}\n", "remove", 1, "", "{\n  \"a\": [\n    1 // first\n  ]\n}\n"},
+		{"windows line ends", "{\r\n  \"a\": [\r\n    1,\r\n    2\r\n  ]\r\n}\r\n", "remove", 0, "", "{\r\n  \"a\": [\r\n    2\r\n  ]\r\n}\r\n"},
+		{"replace in a list on lines", "{\n  \"a\": [\n    1,\n    2,\n    3\n  ]\n}\n", "replace", 1, `{"x": 9}`, "{\n  \"a\": [\n    1,\n    {\n      \"x\": 9\n    },\n    3\n  ]\n}\n"},
+		{"replace in an inline list", `{"a": [1, 2, 3]}`, "replace", 2, `"z"`, `{"a": [1, 2, "z"]}`},
+		{"replace by an equal value", `{"a": [1, {"x": 1,  "y": 2}]}`, "replace", 1, `{"y": 2, "x": 1}`, `{"a": [1, {"x": 1,  "y": 2}]}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			doc, err := jsonc.Parse([]byte(tt.src))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tt.op == "remove" {
+				err = doc.RemoveElement([]string{"a"}, tt.i)
+			} else {
+				err = doc.ReplaceElement([]string{"a"}, tt.i, []byte(tt.value))
+			}
+			if err != nil {
+				t.Fatalf("%s error = %v", tt.op, err)
+			}
+			if got := string(doc.Bytes()); got != tt.want {
+				t.Errorf("%s =\n%q\nwant\n%q", tt.op, got, tt.want)
+			}
+		})
+	}
+
+	t.Run("elements", func(t *testing.T) {
+		doc, _ := jsonc.Parse([]byte(`{"a": {"b": [1, {"c": 2,}, "x"]}, "n": 1}`))
+		got, ok := doc.Elements([]string{"a", "b"})
+		if want := []string{`1`, `{"c":2}`, `"x"`}; !ok || len(got) != 3 || string(got[0]) != want[0] || string(got[1]) != want[1] || string(got[2]) != want[2] {
+			t.Errorf("Elements() = %q, %v, want %q", got, ok, want)
+		}
+		if _, ok := doc.Elements([]string{"n"}); ok {
+			t.Error("Elements() of a number = ok, want none")
+		}
+		if err := doc.RemoveElement([]string{"a", "b"}, 3); err == nil {
+			t.Error("RemoveElement() past the end = nil, want an error")
+		}
+	})
+}
