@@ -239,17 +239,22 @@ func LooksSensitiveInside(name string) bool {
 		slices.ContainsFunc(credential, func(s string) bool { return strings.Contains(lower, s) })
 }
 
-// Vendored reports whether rel, a path relative to the home directory
-// with either separator, is a vendor tree of the harness: one of its
-// Vendor directories or any node_modules, compared without case. Inside a
-// vendor tree the names are those of published code, such as Tokenizer.js
-// or secret.py, and a package manager or a marketplace puts them back, so
-// a replace wipes the tree with its entry without looking inside it for
+// Vendored reports whether rel, a slash path relative to the home
+// directory, is a vendor tree of the harness: one of its Vendor
+// directories or any node_modules, compared without case where fold is
+// set, as on Windows and macOS, and exactly otherwise. Inside a vendor
+// tree the names are those of published code, such as Tokenizer.js or
+// secret.py, and a package manager or a marketplace puts them back, so a
+// replace wipes the tree with its entry without looking inside it for
 // credentials (decision 0038).
-func (r Real) Vendored(rel string) bool {
-	rel = path.Clean(strings.ReplaceAll(rel, `\`, "/"))
-	return strings.EqualFold(path.Base(rel), "node_modules") ||
-		slices.ContainsFunc(r.Vendor, func(v string) bool { return strings.EqualFold(v, rel) })
+func (r Real) Vendored(rel string, fold bool) bool {
+	same := func(a, b string) bool { return a == b }
+	if fold {
+		same = strings.EqualFold
+	}
+	rel = path.Clean(rel)
+	return same(path.Base(rel), "node_modules") ||
+		slices.ContainsFunc(r.Vendor, func(v string) bool { return same(v, rel) })
 }
 
 // ReplaceRelogin is whether the user must log in again after a replace

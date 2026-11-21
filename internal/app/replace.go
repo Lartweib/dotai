@@ -123,9 +123,11 @@ func planWipes(ctx context.Context, d installFS, h host, home string, adapters [
 	rp := replacePlan{}
 	dirs := map[string]error{}
 	for _, a := range adapters {
+		// File systems ignore case on Windows and, by default, on macOS.
+		fold := h.goos == "windows" || h.goos == "darwin"
 		vendored := func(p string) bool {
 			rel, err := filepath.Rel(home, p)
-			return err == nil && a.Real.Vendored(filepath.ToSlash(rel))
+			return err == nil && a.Real.Vendored(filepath.ToSlash(rel), fold)
 		}
 		for _, name := range a.Real.Relocated(h.environ, h.goos == "windows") {
 			rp.refusals = append(rp.refusals, Refusal{Code: RefuseRelocation, Harness: a.ID, Variable: name,

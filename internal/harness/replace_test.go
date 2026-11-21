@@ -335,36 +335,43 @@ func TestLooksSensitiveInside(t *testing.T) {
 // TestVendored checks the vendor trees of each harness, whose contents a
 // package manager or a plugin marketplace put there and which a replace
 // wipes without looking for credentials inside: any node_modules, and
-// Claude Code's plugin marketplaces and cache, compared without case and
-// with either separator, as on Windows. A plugin's data directory, which
-// the plugin itself writes, is not one.
+// Claude Code's plugin marketplaces and cache. They are compared without
+// case where fold is set, as on Windows and macOS, and exactly otherwise,
+// as on Linux, where Node_Modules is another directory. A plugin's data
+// directory, which the plugin itself writes, is not one.
 func TestVendored(t *testing.T) {
 	tests := []struct {
-		id, rel string
-		want    bool
+		id, rel    string
+		fold, want bool
 	}{
-		{"claudecode", ".claude/plugins/marketplaces", true},
-		{"claudecode", ".claude/plugins/cache", true},
-		{"claudecode", `.claude\Plugins\Marketplaces`, true},
-		{"claudecode", `.claude\plugins\cache`, true},
-		{"claudecode", ".claude/plugins/marketplaces/m/node_modules", true},
-		{"claudecode", ".claude/skills/s/node_modules", true},
-		{"claudecode", ".claude/plugins", false},
-		{"claudecode", ".claude/plugins/data", false},
-		{"claudecode", ".claude/plugins/data/p/cache", false},
-		{"claudecode", ".claude/plugins/marketplaces-old", false},
-		{"claudecode", ".claude/cache", false},
-		{"opencode", ".config/opencode/node_modules", true},
-		{"opencode", `.config\opencode\Node_Modules`, true},
-		{"opencode", ".config/opencode/plugins", false},
-		{"opencode", ".config/opencode/my_node_modules", false},
-		{"opencode", ".claude/plugins/cache", false}, // Claude Code's, not OpenCode's
-		{"antigravity-cli", ".gemini/config/plugins", false},
-		{"antigravity-cli", ".gemini/config/plugins/p/node_modules", true},
+		{"claudecode", ".claude/plugins/marketplaces", false, true},
+		{"claudecode", ".claude/plugins/cache", false, true},
+		{"claudecode", ".claude/plugins/cache/", false, true},
+		{"claudecode", ".claude/Plugins/Marketplaces", true, true},
+		{"claudecode", ".claude/Plugins/Marketplaces", false, false},
+		{"claudecode", ".claude/plugins/CACHE", true, true},
+		{"claudecode", ".claude/plugins/CACHE", false, false},
+		{"claudecode", ".claude/plugins/marketplaces/m/node_modules", false, true},
+		{"claudecode", ".claude/skills/s/node_modules", false, true},
+		{"claudecode", ".claude/skills/s/Node_Modules", true, true},
+		{"claudecode", ".claude/skills/s/Node_Modules", false, false},
+		{"claudecode", ".claude/plugins", true, false},
+		{"claudecode", ".claude/plugins/data", true, false},
+		{"claudecode", ".claude/plugins/data/p/cache", true, false},
+		{"claudecode", ".claude/plugins/marketplaces-old", true, false},
+		{"claudecode", ".claude/cache", true, false},
+		{"opencode", ".config/opencode/node_modules", false, true},
+		{"opencode", ".config/opencode/NODE_MODULES", true, true},
+		{"opencode", ".config/opencode/NODE_MODULES", false, false},
+		{"opencode", ".config/opencode/plugins", true, false},
+		{"opencode", ".config/opencode/my_node_modules", true, false},
+		{"opencode", ".claude/plugins/cache", true, false}, // Claude Code's, not OpenCode's
+		{"antigravity-cli", ".gemini/config/plugins", true, false},
+		{"antigravity-cli", ".gemini/config/plugins/p/node_modules", false, true},
 	}
 	for _, tt := range tests {
-		if got := adapter(t, tt.id).Real.Vendored(tt.rel); got != tt.want {
-			t.Errorf("%s: Vendored(%q) = %v, want %v", tt.id, tt.rel, got, tt.want)
+		if got := adapter(t, tt.id).Real.Vendored(tt.rel, tt.fold); got != tt.want {
+			t.Errorf("%s: Vendored(%q, fold %v) = %v, want %v", tt.id, tt.rel, tt.fold, got, tt.want)
 		}
 	}
 }

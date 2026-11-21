@@ -625,6 +625,8 @@ func TestPlanReplaceWipesVendorTreesWithoutLookingInside(t *testing.T) {
 		".claude/plugins/cache/cloudflare/cloudflare/1.0.0/skills/cloudflare/references/secrets-store/README.md",
 		".claude/plugins/cache/p/1.0.0/test/fixtures/server.key",
 		".claude/plugins/marketplaces/m/node_modules/x/credentials.json",
+		// A node_modules of Claude Code's outside its plugin vendor trees.
+		".claude/skills/s/node_modules/x/credentials.json",
 		".config/opencode/node_modules/effect/dist/unstable/ai/Tokenizer.js",
 		".config/opencode/node_modules/effect/src/unstable/http/Cookies.ts",
 		".config/opencode/node_modules/effect/src/unstable/eventlog/internal/identityRootSecretDerivation.ts",
@@ -642,7 +644,7 @@ func TestPlanReplaceWipesVendorTreesWithoutLookingInside(t *testing.T) {
 	if len(p.Refusals) != 0 {
 		t.Errorf("refusals = %+v, want none inside a vendor tree", p.Refusals)
 	}
-	for _, rel := range []string{".claude/plugins", ".config/opencode/node_modules", ".config/opencode/plugins", ".opencode"} {
+	for _, rel := range []string{".claude/plugins", ".claude/skills", ".config/opencode/node_modules", ".config/opencode/plugins", ".opencode"} {
 		if !slices.ContainsFunc(p.Wipes, func(w app.WipePlan) bool { return w.Path == at(home, rel) }) {
 			t.Errorf("%s is not wiped whole: wipes = %+v", rel, rels(home, wipePaths(p.Wipes)))
 		}
@@ -653,6 +655,7 @@ func TestPlanReplaceWipesVendorTreesWithoutLookingInside(t *testing.T) {
 		".claude/plugins/data/p/token.json",
 		".claude/plugins/.credentials.json",
 		".claude/plugins/marketplaces.key",
+		".claude/skills/s/token.json",
 		".config/opencode/plugins/my-plugin/api_token.txt",
 		".opencode/client_secret.json",
 	}
@@ -679,7 +682,7 @@ func TestPlanReplaceWipesVendorTreesWithoutLookingInside(t *testing.T) {
 	if got := rels(home, refused); !reflect.DeepEqual(got, want) {
 		t.Errorf("refused =\n%q\nwant\n%q", got, want)
 	}
-	for _, rel := range []string{".claude/plugins", ".config/opencode/plugins", ".opencode"} {
+	for _, rel := range []string{".claude/plugins", ".claude/skills", ".config/opencode/plugins", ".opencode"} {
 		if slices.ContainsFunc(p.Wipes, func(w app.WipePlan) bool { return w.Path == at(home, rel) }) {
 			t.Errorf("%s is wiped with a credential in it", rel)
 		}
