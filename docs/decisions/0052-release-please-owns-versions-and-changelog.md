@@ -39,6 +39,10 @@ tags: [release, ci, versioning, changelog]
 
 The first draft of the decision dispatched `ci.yml` on the release branch, assuming a pull request opened with `GITHUB_TOKEN` gets no `pull_request` run. It does get them, held as `action_required` because a bot opened it. The dispatched `ci.yml` run passed but did not count for the ruleset's required checks: `mergeStateStatus` stayed `BLOCKED` until the owner clicked "Approve and run workflows" and the `pull_request` run finished. The dispatch step was removed; only `release.yml` is dispatched, on the tag.
 
+## Update, rebase merges only
+
+Pull requests were merged with a merge commit whose body GitHub fills with the pull request title. That title is a conventional commit, so release-please counted each change twice: once from the branch's commits and once from the merge commit (three duplicated entries in the first release pull request). The repository now allows rebase merges only, in its settings and in the `main` ruleset, as otea does: each commit of a pull request lands on `main` once, the history is linear and there are no merge commits. The duplicates already on `main` are corrected by hand in the notes of `v0.1.0`.
+
 ## Evidence
 
 - `.github/workflows/release-please.yml`, `release-please-config.json`, `.release-please-manifest.json` and `.github/workflows/release.yml`.
