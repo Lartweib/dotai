@@ -213,18 +213,27 @@ func (r runner) backupExtra(dir string, m *backup.Manifest, ex *extra) (map[stri
 	// (recordItems), so that a file a harness still running changes before
 	// its entry moves is recorded as it is in the backup; a restore knows
 	// what it will move out of the way.
+	// An entry that is gone since the plan, as a temporary file a running
+	// tool renames, is already wiped: it is dropped from the work.
+	var kept []backup.Wipe
 	for _, w := range ex.wipes {
 		if w.Items != nil {
+			kept = append(kept, w)
 			continue
 		}
 		mode, err := r.d.Lstat(w.Path)
-		if errors.Is(err, fs.ErrNotExist) || err == nil && entryKind(mode) != w.Kind {
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err == nil && entryKind(mode) != w.Kind {
 			return nil, &ChangedError{Path: w.Path}
 		}
 		if err != nil {
 			return nil, err
 		}
+		kept = append(kept, w)
 	}
+	ex.wipes = kept
 	m.Wipes = slices.Clone(ex.wipes)
 	return dirs, nil
 }
@@ -235,14 +244,20 @@ func (r runner) backupExtra(dir string, m *backup.Manifest, ex *extra) (map[stri
 // An install killed before then leaves a manifest without them, which a
 // restore reads from the backup in turn.
 func (r runner) recordItems(dir string, ex *extra) error {
+	var kept []backup.Wipe
 	for i, w := range ex.wipes {
 		r.step(PhaseRecord, i+1, len(ex.wipes), r.tilde(w.Path))
 		items, err := r.items(r.ctx, filepath.Join(dir, filepath.FromSlash(w.File)))
+		if errors.Is(err, fs.ErrNotExist) { // it was gone before its move
+			continue
+		}
 		if err != nil {
 			return err
 		}
-		ex.wipes[i].Items = items
+		w.Items = items
+		kept = append(kept, w)
 	}
+	ex.wipes = kept
 	data, err := r.d.ReadFile(dir, backup.ManifestName)
 	if err != nil {
 		return err
@@ -308,6 +323,7 @@ func (r runner) moveEntry(from, to string) (moved, error) {
 
 // wipe moves each entry of wipes, still of the kind its backup records,
 // into the backup directory dir, in order, and stops at the first failure.
+// An entry that is already gone is skipped.
 // It gives the entries it moved, and the one that failed with the
 // directories it made.
 func (r runner) wipe(dir string, wipes []backup.Wipe) ([]moved, error) {
@@ -315,13 +331,26 @@ func (r runner) wipe(dir string, wipes []backup.Wipe) ([]moved, error) {
 	for i, w := range wipes {
 		r.step(PhaseWipe, i+1, len(wipes), r.tilde(w.Path))
 		mode, err := r.d.Lstat(w.Path)
-		if errors.Is(err, fs.ErrNotExist) || err == nil && entryKind(mode) != w.Kind {
+		if errors.Is(err, fs.ErrNotExist) { // already gone: nothing to move
+			continue
+		}
+		if err == nil && entryKind(mode) != w.Kind {
 			return done, &ChangedError{Path: w.Path}
 		}
 		if err != nil {
 			return done, err
 		}
 		m, err := r.moveEntry(w.Path, filepath.Join(dir, filepath.FromSlash(w.File)))
+		if errors.Is(err, fs.ErrNotExist) {
+			if _, lerr := r.d.Lstat(w.Path); errors.Is(lerr, fs.ErrNotExist) { // gone since the check
+				for _, d := range slices.Backward(m.dirs) {
+					if rel, rerr := backup.Rel(r.home, d); rerr == nil {
+						_ = r.d.RemoveIn(r.home, rel)
+					}
+				}
+				continue
+			}
+		}
 		if err != nil {
 			if len(m.dirs) > 0 {
 				done = append(done, moved{dirs: m.dirs})
