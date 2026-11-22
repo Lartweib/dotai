@@ -342,20 +342,28 @@ func TestReplaceInstallAsksOnATerminal(t *testing.T) {
 	}
 	// A later replace install only updates the pack and asks which one is
 	// wanted when a reset would wipe something (decision 0051): a file added
-	// since in a wiped area is that case, and a reset is asked about too.
+	// since in a wiped area is that case. Yes, or Enter, to "Only update the
+	// pack" asks nothing more and wipes nothing; no resets, and asks about it.
 	added := filepath.Join(e.home, ".claude", "added-later.md")
 	if err := os.WriteFile(added, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	e.prompt = func(string) bool { asked++; return true }
-	if code, _, stderr := e.run("install", examplePack); code != cli.ExitOK || asked != 4 {
-		t.Errorf("again with a file added, answered yes: exit code = %d, asked %d times, stderr = %q, want the choice and the consent", code, asked, stderr)
+	if code, _, stderr := e.run("install", examplePack); code != cli.ExitOK || asked != 3 {
+		t.Errorf("again with a file added, answered yes: exit code = %d, asked %d times, stderr = %q, want the choice only", code, asked, stderr)
+	}
+	if _, err := os.Stat(added); err != nil {
+		t.Errorf("the file added since = %v, want it kept by the update", err)
+	}
+	e.prompt = func(q string) bool { asked++; return !strings.Contains(q, "Only update") }
+	if code, _, stderr := e.run("install", examplePack); code != cli.ExitOK || asked != 5 {
+		t.Errorf("again with a file added, answered no: exit code = %d, asked %d times, stderr = %q, want the choice and the consent", code, asked, stderr)
 	}
 	if _, err := os.Stat(added); err == nil {
 		t.Error("the file added since is still there after the reset")
 	}
 	e.prompt = func(string) bool { asked++; return false }
-	if code, _, stderr := e.run("install", examplePack); code != cli.ExitOK || asked != 4 {
+	if code, _, stderr := e.run("install", examplePack); code != cli.ExitOK || asked != 5 {
 		t.Errorf("again with nothing of the user's to wipe: exit code = %d, asked %d times, stderr = %q, want no question", code, asked, stderr)
 	}
 }

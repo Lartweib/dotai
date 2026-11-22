@@ -345,8 +345,13 @@ func terminalPrompt(in, out *os.File, isTerminal func(fd int) bool) func(context
 	return func(ctx context.Context, question string) (bool, error) { return ask(ctx, in, out, question) }
 }
 
+// defaultYesMark ends a question whose default answer is yes: Enter, and
+// anything but n or no, is a yes, so that only an explicit no is a no.
+const defaultYesMark = "[Y/n] "
+
 // ask prints question to out and reads one line from in: y or yes, in any
-// case, is a yes, anything else a no. It gives up when ctx is done, as on
+// case, is a yes, anything else a no; for a question that ends with
+// defaultYesMark, n or no is a no, anything else a yes. It gives up when ctx is done, as on
 // Ctrl-C, which would otherwise wait for the line.
 func ask(ctx context.Context, in io.Reader, out io.Writer, question string) (bool, error) {
 	if _, err := io.WriteString(out, question); err != nil {
@@ -371,7 +376,9 @@ func ask(ctx context.Context, in io.Reader, out io.Writer, question string) (boo
 		switch strings.ToLower(strings.TrimSpace(a.line)) {
 		case "y", "yes":
 			return true, nil
+		case "n", "no":
+			return false, nil
 		}
-		return false, nil
+		return strings.HasSuffix(question, defaultYesMark), nil
 	}
 }
