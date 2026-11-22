@@ -17,7 +17,6 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/lartweib/dotai.svg)](https://pkg.go.dev/github.com/lartweib/dotai)
 [![Go version](https://img.shields.io/github/go-mod/go-version/lartweib/dotai)](go.mod)
 [![Release](https://img.shields.io/github/v/release/lartweib/dotai)](https://github.com/lartweib/dotai/releases)
-[![Go Report Card](https://goreportcard.com/badge/github.com/lartweib/dotai)](https://goreportcard.com/report/github.com/lartweib/dotai)
 
 </div>
 
