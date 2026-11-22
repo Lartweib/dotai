@@ -126,7 +126,7 @@
   --t-detail: 30px;
   --t-display: 56px;
   --t-dek: 18px;
-  --gutter: 40px;
+  --gutter: clamp(20px, 3.2vw, 56px);
   --pad-y: 32px;
   --pad-x: 36px;
   --gap: 24px;
@@ -145,7 +145,19 @@
   --d-spin: 800ms;
   --loop: infinite;
   --step: 50ms;
+  --zoom: 1;
 }
+
+/* A big screen. The shell stops growing at 2000px (a rail and about 1600px
+   of board, the width of two readable columns), so a wider screen scales
+   the whole interface up instead of leaving it a column in a sea of
+   ground: 1.25 from 2400px, 1.5 from 3000px and 2 from 3600px, which
+   keeps the shell at 1800px or more of the screen on a 4K one. A browser
+   without CSS zoom shows the shell centred at its maximum. */
+@media (min-width: 2400px) { :root { --zoom: 1.25; } }
+@media (min-width: 3000px) { :root { --zoom: 1.5; } }
+@media (min-width: 3600px) { :root { --zoom: 2; } }
+html { zoom: var(--zoom); }
 
 *, *::before, *::after { box-sizing: border-box; }
 h1, h2, h3, p, ul, ol, dl, dd, pre, fieldset { margin: 0; }
@@ -156,7 +168,7 @@ legend { padding: 0; }
 
 body {
   margin: 0;
-  min-height: 100vh;
+  min-height: calc(100vh / var(--zoom));
   background-color: var(--ground);
   background-image: radial-gradient(circle at 1px 1px, var(--dot) 0.9px, transparent 1.15px);
   background-size: 22px 22px;
@@ -176,7 +188,7 @@ a:hover { color: var(--ink); }
 
 /* Shell: a solid top bar with the mark in the middle, then a centred
    column of a rail and the board. */
-.wrap { max-width: 1200px; margin: 0 auto; padding: 0 var(--gutter); }
+.wrap { max-width: 2000px; margin: 0 auto; padding: 0 var(--gutter); }
 .top { position: sticky; top: 0; z-index: 5; height: 60px; background: var(--ground); box-shadow: 0 1px 0 var(--rule); transition: background-color var(--d-2) var(--o-drift); }
 .topin { height: 60px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: var(--gap); }
 .topl { display: flex; align-items: center; gap: 10px; min-width: 0; }
@@ -196,8 +208,8 @@ a.brand:hover { color: var(--ink); }
 .ibtn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--ink-2); cursor: pointer; transition: background-color var(--d-1) var(--ease), color var(--d-1) var(--ease); }
 .ibtn:hover { background: var(--hov); color: var(--ink); }
 
-.frame { display: flex; gap: 48px; padding: 48px 0 120px; }
-.side { flex: 0 0 184px; min-width: 0; }
+.frame { display: flex; gap: clamp(32px, 3vw, 56px); padding: 48px 0 120px; }
+.side { flex: 0 0 clamp(184px, 12vw, 216px); min-width: 0; }
 .nav { position: sticky; top: 84px; display: flex; flex-direction: column; gap: 2px; }
 .nav-e { display: flex; align-items: center; justify-content: space-between; gap: 10px; height: 36px; padding: 0 12px; border-radius: var(--r); color: var(--ink-2); font-weight: 500; text-decoration: none; transition: background-color var(--d-1) var(--ease), color var(--d-1) var(--ease), box-shadow var(--d-2) var(--o-drift); }
 a.nav-e { color: var(--ink-2); }
@@ -219,8 +231,8 @@ a.nav-e { color: var(--ink-2); }
 /* Panes: sheets on the ground. The list keeps its width and the detail
    takes the rest; a narrow board stacks them. */
 .sheet, .listpane, .treepane, .detail { background: var(--sheet); border-radius: var(--r-sheet); box-shadow: 0 0 0 1px var(--rule); }
-.listpane { flex: 1 1 280px; max-width: 360px; min-width: 0; padding: 6px; }
-.treepane { flex: 0 1 380px; min-width: 0; padding: 6px; }
+.listpane { flex: 0 1 clamp(320px, 27cqi, 460px); min-width: 0; padding: 6px; }
+.treepane { flex: 0 1 clamp(340px, 28cqi, 460px); min-width: 0; padding: 6px; }
 .detail { flex: 999 1 420px; min-width: 0; min-height: 240px; padding: var(--pad-y) var(--pad-x); }
 .detail.solo { flex-basis: 100%; }
 @container (max-width: 760px) {
@@ -229,11 +241,15 @@ a.nav-e { color: var(--ink-2); }
 @container (max-width: 823px) {
   .treepane, .treepane ~ .detail { flex-basis: 100%; }
 }
-.col { display: flex; flex-direction: column; max-width: 48rem; }
+.col { display: flex; flex-direction: column; max-width: 48rem; min-width: 0; }
 .col.wide { max-width: 56rem; }
 .col + .col { margin-top: 8px; }
 .listhead { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-height: 40px; padding: 8px 14px; }
 .listhead.stack { flex-direction: column; align-items: stretch; gap: 12px; padding-bottom: 14px; }
+/* The ways to add, side by side at one width when the list is wide enough
+   for both, else one above the other at the same width. */
+.listhead.stack:has(> .listadd) { padding-bottom: 6px; }
+.listadd { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: 8px; }
 
 /* Text */
 .t-meta { font-size: var(--t-sm); color: var(--ink-3); }
@@ -242,7 +258,6 @@ a.t-meta:hover { color: var(--ink); text-decoration: underline; }
 .label, .t-label { font: 600 var(--t-body)/1.4 var(--fh); color: var(--ink); }
 legend.label { margin-bottom: 8px; }
 .pth .part { display: inline-block; max-width: 100%; vertical-align: top; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.leaf .sub { display: block; }
 .t-path, .src-path { font: 400 var(--t-mono)/18px var(--fm); letter-spacing: 0.01em; color: var(--ink-3); overflow-wrap: anywhere; min-width: 0; }
 .t-path.ink { color: var(--ink); font-size: var(--t-sm); line-height: 20px; }
 .h-page, .h-detail { font: 420 var(--t-detail)/1.1 var(--fs); letter-spacing: -0.02em; text-wrap: balance; overflow-wrap: anywhere; }
@@ -440,10 +455,8 @@ form.well { gap: 12px; }
 .layer-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
 .layer-head .full { flex: 1 1 100%; }
 .layer .kv { grid-template-columns: minmax(7rem, max-content) minmax(0, 1fr); gap: 6px 16px; }
-.repos { display: flex; flex-direction: column; }
-.repo { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 0; }
-.repo + .repo { box-shadow: inset 0 1px 0 var(--rule); }
-.repo:first-child { padding-top: 2px; }
+.repos { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 30rem), 1fr)); gap: 12px; }
+.repo { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 14px 16px; border-radius: var(--r); box-shadow: 0 0 0 1px var(--rule); }
 .repo-main { display: flex; flex-direction: column; gap: 3px; flex: 1 1 18rem; min-width: 0; }
 .repo-main .title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
 .repo-main .title b { font: 450 var(--t-row)/1.3 var(--fs); overflow-wrap: anywhere; min-width: 0; }
@@ -506,7 +519,7 @@ form.well { gap: 12px; }
 .leaf[aria-pressed="true"] { background: var(--sel); box-shadow: 0 0 0 1px var(--rule-2); }
 .leaf .main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
 .leaf .nm { font-weight: 500; line-height: 20px; overflow-wrap: anywhere; }
-.leaf .sub { padding: 0; font: 400 11px/16px var(--fm); color: var(--ink-3); overflow-wrap: anywhere; }
+.leaf .sub { display: block; padding: 0; font: 400 11px/16px var(--fm); color: var(--ink-3); overflow-wrap: anywhere; }
 .leaf .tag { flex: none; }
 
 /* Adding and updating a pack: a column of sheets under the board head,
@@ -639,6 +652,31 @@ form.well { gap: 12px; }
   @keyframes inkright { from { opacity: 0; } to { opacity: 1; } }
   .bridge::after, .tabs.source::before { display: none; }
   .tabs.source button[aria-pressed="true"] { background: var(--sheet); box-shadow: 0 0 0 1px var(--rule-2); }
+}
+
+/* A wide board. Where the detail has room for it, its identity and its
+   actions (.intro) stand in a column of their own beside the sections,
+   instead of above them, and a page with no such split puts its sections
+   in two columns. Prose keeps its own measure (.body, .help, .facts). The
+   widths are those of the board (.view), not of the screen. */
+@container (min-width: 1280px) {
+  .listpane ~ .detail:has(> .col.intro + .col:not(.intro, .form)),
+  .detail.solo:has(> .col.intro + .col:not(.intro, .form)) { display: grid; grid-template-columns: minmax(17rem, 24rem) minmax(0, 1fr); column-gap: 56px; align-items: start; }
+  .detail:has(> .col.intro + .col:not(.intro, .form)) > .col.intro { grid-column: 1; padding-bottom: 0; }
+  @media (min-height: 800px) { .detail:has(> .col.intro + .col:not(.intro, .form)) > .col.intro { position: sticky; top: 84px; } }
+  .listpane ~ .detail:has(> .col.intro + .col:not(.intro, .form)) > .col:not(.intro),
+  .detail.solo:has(> .col.intro + .col:not(.intro, .form)) > .col:not(.intro) { grid-column: 2; max-width: none; margin-top: 0; }
+  .detail:has(> .col.intro + .col:not(.intro, .form)) > .col:not(.intro) > :first-child.sec,
+  .detail:has(> .col.intro + .col:not(.intro, .form)) > .col:not(.intro) > .lanes:first-child > .sec:first-child { padding-top: 0; box-shadow: none; }
+}
+@container (min-width: 1000px) {
+  .detail.solo > .col.wide:only-child:not(.intro) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 64px; align-items: start; max-width: none; }
+  .detail.solo > .col.wide:only-child:not(.intro) > :nth-child(-n+2) { padding-top: 0; box-shadow: none; }
+  .detail.solo:has(> .col.form) { display: grid; grid-template-columns: minmax(20rem, 28rem) minmax(0, 1fr); grid-template-rows: auto 1fr; column-gap: 56px; align-items: start; }
+  .detail.solo:has(> .col.form) > .col { max-width: none; margin-top: 0; }
+  .detail.solo:has(> .col.form) > .col.intro { grid-column: 1; grid-row: 1; padding-bottom: 20px; }
+  .detail.solo:has(> .col.form) > .col.form { grid-column: 1; grid-row: 2; }
+  .detail.solo:has(> .col.form) > .col:not(.intro):not(.form) { grid-column: 2; grid-row: 1 / span 2; }
 }
 
 /* A laptop: a narrower rail, so the list and the detail still sit side

@@ -57,11 +57,11 @@ export async function render(root, ctx) {
 
   const rows = h("ul", { class: "rows gap" });
   mount(list,
-    h("div", { class: "listhead" },
+    h("div", { class: "listhead stack" },
       h("span", { class: "t-meta", text: t("packs.known", { n: packs.length }) }),
-      h("span", { class: "grow" }),
-      h("a", { class: "btn quiet sm", href: "#/new" }, icon("plus", 16), t("packs.create")),
-      h("a", { class: "btn quiet sm", href: "#/add" }, icon("plus", 16), t("packs.add"))),
+      h("div", { class: "listadd" },
+        h("a", { class: "btn quiet sm", href: "#/new" }, icon("plus", 16), t("packs.create")),
+        h("a", { class: "btn quiet sm", href: "#/add" }, icon("plus", 16), t("packs.add")))),
     rows);
 
   let shown = 0; // only the latest selection mounts its detail
