@@ -9,13 +9,14 @@ name: release-please
 #
 # This uses the run's GITHUB_TOKEN, so no secret is needed. Anything it creates with that token (the
 # release pull request, the tag) does not start other workflows by itself, which GitHub does on
-# purpose to avoid loops, except a workflow_dispatch. So the two steps below start what the missing
-# events would have started:
+# purpose to avoid loops, except a workflow_dispatch:
 #
 # - A release creates its tag with no `push: tags` event: the tag is dispatched to release.yml
 #   with `gh workflow run --ref <tag>`. Because the tag push never fires, a release runs it once.
-# - The release pull request opens with no pull_request event, so the required checks would never
-#   run on it: ci.yml and commits.yml are dispatched on its branch, and the checks attach to its head.
+# - The release pull request does get its pull_request runs (ci.yml, commits.yml), held for
+#   approval because a bot opened it: the owner clicks "Approve and run workflows" on the pull
+#   request. Checks from a workflow_dispatch run on its branch do not count for the ruleset's
+#   required checks, so none is dispatched (seen on the first release pull request, #80).
 on:
   push:
     branches: [main]
@@ -55,15 +56,3 @@ jobs:
         run: |
           gh workflow run release.yml --ref "$TAG"
           echo "Started release.yml on $TAG" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Run the required checks on the release pull request
-        if: steps.release.outputs.prs_created == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-          PR: ${{ steps.release.outputs.pr }}
-        run: |
-          branch="$(jq -r '.headBranchName' <<< "$PR")"
-          gh workflow run ci.yml --ref "$branch"
-          gh workflow run commits.yml --ref "$branch"
-          echo "Started ci.yml and commits.yml on $branch" >> "$GITHUB_STEP_SUMMARY"
