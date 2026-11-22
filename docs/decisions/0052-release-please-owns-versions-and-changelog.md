@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-11-22
 tags: [release, ci, versioning, changelog]
 ---
@@ -33,7 +33,7 @@ tags: [release, ci, versioning, changelog]
 - Bad or accepted cost: changelog quality depends on commit subjects, so a user-visible change is a `feat:` or a `fix:` with a clear subject.
 - Bad or accepted cost: the repository setting "Allow GitHub Actions to create and approve pull requests" must be on, and the tag dispatch step and the manual approval of the release pull request's runs are a workaround for `GITHUB_TOKEN`; a GitHub App token would remove them.
 - Accepted: the `release tags` ruleset does not allow deleting a `v*` tag, so a test tag such as `v0.1.0-rc.1` stays.
-- Pending: the first release has not run yet.
+- Done: the first release, [`v0.1.0`](https://github.com/Lartweib/dotai/releases/tag/v0.1.0), ran on 2026-11-22 through the draft path: release-please tagged the merge of #80 and created the draft, `release.yml` built, attested and published it, and both one-line installers installed it.
 
 ## Update, first release pull request (#80)
 
