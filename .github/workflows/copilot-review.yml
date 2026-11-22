@@ -1,0 +1,42 @@
+name: copilot review
+
+# Requests a GitHub Copilot code review on a pull request from outside the repository: an author
+# who is not the owner, a member or a collaborator, and not a bot. The owner's and the agents'
+# pull requests already go through their own reviews, and a ruleset's copilot_code_review rule
+# reviewed them too, despite an admin bypass (seen in otea), leaving threads that the `main`
+# ruleset requires resolved. Copilot reads .github/copilot-instructions.md.
+#
+# pull_request_target gives a fork's pull request a token that can request the review. The job
+# checks out nothing and runs no code from the pull request; its values reach the script only
+# through env. Whether GITHUB_TOKEN may request a Copilot review is not documented: if it is
+# refused, the run warns and the review is requested by hand from Reviewers.
+on:
+  pull_request_target:
+    types: [opened, ready_for_review]
+
+permissions: {}
+
+jobs:
+  request:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    if: >-
+      !github.event.pull_request.draft &&
+      github.event.pull_request.user.type != 'Bot' &&
+      !contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)
+    steps:
+      - name: Request a Copilot review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          if gh api --method POST "repos/$GH_REPO/pulls/$PR/copilot-code-review" >/dev/null; then
+            echo "Copilot review requested (REST)"
+          elif gh pr edit "$PR" --add-reviewer @copilot >/dev/null; then
+            echo "Copilot review requested (gh pr edit)"
+          else
+            echo "::warning::Could not request a Copilot review for #$PR; request it by hand from Reviewers."
+          fi
