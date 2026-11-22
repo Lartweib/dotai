@@ -256,8 +256,9 @@ func restore(ctx context.Context, d executeFS, h host, home, id string, opts Res
 		}
 	}
 	if !opts.IgnoreRunning {
-		if err := running(h, "restore", replaceHarnesses(home, res)); err != nil {
-			return RestoreResult{}, err
+		ids, wiped, writes := replaceHarnesses(home, res)
+		if refused, _, _ := guard(h, home, "restore", ids, wiped, writes, checkRunning(h, ids)); refused != nil {
+			return RestoreResult{}, refused
 		}
 	}
 	for _, w := range res.Warnings {

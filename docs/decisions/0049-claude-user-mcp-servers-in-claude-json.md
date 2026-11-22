@@ -31,7 +31,7 @@ Claude Code reads user-scope MCP servers only from `~/.claude.json`, at the root
 - Partially supersedes [0038](0038-replace-mode-resets-harness-to-fresh-install.md): at user level dotai now owns the MCP servers it writes into `~/.claude.json`, server by server, and nothing else of the file.
 - Good: packs with MCP servers install in both modes, and a restore keeps what Claude Code wrote since.
 - Accepted cost: a server dotai owns that the user edits with `claude mcp` is a conflict at the next install, as a changed settings key is.
-- Accepted cost: in replace mode a running Claude Code can lose dotai's write if it rewrites the file at the same moment; the replace install refuses while Claude Code runs.
+- Accepted cost: in replace mode a running Claude Code can lose dotai's write if it rewrites the file at the same moment; the replace install refuses while Claude Code runs and would write `~/.claude.json` (the file is live-written, [0053](0053-running-check-by-live-written-file.md)).
 - Accepted cost: the same holds in the isolated mode while a Claude Code session started with `dotai run` is open, and an isolated install does not refuse while Claude Code runs. The window is the gap between the check of the file's hash and the atomic rename over it, and an install run again puts the servers back.
 - Good: a `.claude.json` that dotai creates is written with mode `0600`, as Claude Code writes it, since a server may carry tokens in its `env` or headers; a file that is there keeps its mode.
 

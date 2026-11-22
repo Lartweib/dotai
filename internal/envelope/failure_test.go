@@ -28,7 +28,7 @@ func TestClassify(t *testing.T) {
 			name:     "running carries the harnesses and an empty process list",
 			err:      &app.RunningError{Harnesses: []string{"claudecode"}},
 			wantCode: envelope.CodeRunning,
-			wantData: map[string]any{"harnesses": []string{"claudecode"}, "running": []app.RunningHarness{}},
+			wantData: map[string]any{"harnesses": []string{"claudecode"}, "running": []app.RunningHarness{}, "files": []app.RunningFile{}},
 		},
 		{name: "project refused", err: &app.ProjectRefusedError{}, wantCode: envelope.CodeProjectRefused},
 		{

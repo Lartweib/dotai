@@ -41,7 +41,8 @@ func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
 			"directory: each entry it wipes is moved into the backup first, with the keys of ~/.claude.json it wipes, and\n" +
 			"dotai restore moves them back. It wipes what dotai does not own only with your consent: on a terminal you are\n" +
 			"asked once, after the plan; otherwise, and with --json, it is refused unless --yes is given. It is refused, even\n" +
-			"with --yes, when its plan lists refusals, and while a harness it resets is running, unless --ignore-running.\n" +
+			"with --yes, when its plan lists refusals, and while a harness it resets, or one it only updates and whose settings\n" +
+			"file it would write, which that harness rewrites while it runs, is running, unless --ignore-running (decision 0053).\n" +
 			"With --dry-run it lists what would be wiped, kept and written per harness, and why it would refuse. Without\n" +
 			"--mode, install uses the mode the install state records, or isolated; it never switches a replace install to\n" +
 			"isolated: run dotai restore first.\n" +
@@ -65,7 +66,7 @@ func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
 	cmd.Flags().StringVar(&variant, "variant", "", "variant applied on top of the base")
 	cmd.Flags().StringVar(&mode, "mode", "", "install mode: isolated or replace (default: the mode the install state records, or isolated)")
 	cmd.Flags().BoolVar(&yes, "yes", false, "accept what the plan asks to confirm without asking: what a replace install wipes into the backup, and template files left unchanged")
-	cmd.Flags().BoolVar(&ignoreRunning, "ignore-running", false, "in the replace mode, install even when a harness it resets looks like it is running")
+	cmd.Flags().BoolVar(&ignoreRunning, "ignore-running", false, "in the replace mode, install even when a harness it resets, or whose live settings file it writes, looks like it is running")
 	cmd.Flags().BoolVar(&reset, "reset", false, "in the replace mode, reset again a harness that already has a replace install, instead of only updating the pack there")
 	cmd.Flags().StringSliceVar(&harnesses, "harness", nil, "harnesses to manage, comma-separated (default: the saved selection, or the pack's harnesses that are installed)")
 	cmd.Flags().StringSlice("profile", nil, "not accepted: profiles are project scope")

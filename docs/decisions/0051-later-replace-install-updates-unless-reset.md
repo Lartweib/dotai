@@ -59,3 +59,5 @@ The human output also printed the whole plan twice: before the consent question,
 
 - Observation on the maintainer's real install, 2026-11-21: the second replace install wiped the 14 entries added since the first, and the plan printed twice.
 - Tests: `TestALaterReplaceInstallWipesNothingByDefault`, `TestResetWipesAsTodayOnALaterInstall`, `TestTheFirstReplaceInstallStillResets`, `TestALaterReplaceInstallAsksWhichOneOnATerminal`, `TestADryRunShowsThePlanOfWhatTheFlagsImply`, `TestThePlanIsPrintedOnce` and `TestRunApplyPrintsThePlanOnce`.
+
+Update 2026-11-22: the running-harness check this decision keeps for a later install is decided file by file in [0053](0053-running-check-by-live-written-file.md): an update goes on while a harness runs, with the warning `harness-running-update`, unless it writes one of that harness's live-written files; `--reset` is refused as a first install is.

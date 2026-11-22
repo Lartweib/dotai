@@ -78,15 +78,16 @@ Read these first for the shape of the engine:
 | No. | Title | Status | Date |
 |---|---|---|---|
 | [0013](0013-renderer-merges-by-key.md) | The renderer merges by key and never rewrites files with foreign content (partially superseded by 0027) | accepted | 2026-10-23 |
-| [0018](0018-install-modes-and-mandatory-backup.md) | Install modes (isolated, replace, merge) with a mandatory backup (partially superseded by 0038) | accepted | 2026-10-25 |
+| [0018](0018-install-modes-and-mandatory-backup.md) | Install modes (isolated, replace, merge) with a mandatory backup (partially superseded by 0038 and 0053) | accepted | 2026-10-25 |
 | [0031](0031-isolated-install-root.md) | Isolated installs live under `~/.dotai/isolated/` (partially superseded by 0034) | accepted | 2026-10-29 |
 | [0032](0032-install-state-backup-and-isolated-launch.md) | Install state, backup layout and the isolated launch command (partially superseded by 0035) | accepted | 2026-10-29 |
 | [0033](0033-restore-from-the-install-history.md) | Restore follows the install history kept in the backups (partially superseded by 0035) | accepted | 2026-10-30 |
 | [0035](0035-settings-files-owned-by-key.md) | dotai owns only its keys in a harness's settings file | accepted | 2026-10-30 |
-| [0038](0038-replace-mode-resets-harness-to-fresh-install.md) | Replace mode resets each selected harness to a fresh install (partially superseded by 0049 and 0051) | accepted | 2026-11-01 |
+| [0038](0038-replace-mode-resets-harness-to-fresh-install.md) | Replace mode resets each selected harness to a fresh install (partially superseded by 0049, 0051 and 0053) | accepted | 2026-11-01 |
 | [0049](0049-claude-user-mcp-servers-in-claude-json.md) | Claude Code's user-scope MCP servers are owned server by server in its `.claude.json` | accepted | 2026-11-20 |
 | [0050](0050-hook-entries-owned-one-by-one.md) | dotai owns its own hook entries, not the hook files other programs also write | accepted | 2026-11-21 |
 | [0051](0051-later-replace-install-updates-unless-reset.md) | A later replace install only updates the pack, unless it is asked to reset again | accepted | 2026-11-21 |
+| [0053](0053-running-check-by-live-written-file.md) | A running harness stops a replace install only for the files it rewrites itself | accepted | 2026-11-22 |
 
 ### Project scope and onboarding
 
