@@ -2,9 +2,6 @@
 
 dotai is one binary, `dotai` (`dotai.exe` on Windows), for the platforms listed in the [README](../README.md#supported-harnesses-and-platforms). Install it with a script, from a release archive, or from source.
 
-> [!NOTE]
-> No release is published yet. The install scripts and the release archives work once the first release, `v0.1.0`, is published; until then the scripts stop with "no release found". Install [from source](#from-source) until then.
-
 ## One command
 
 On Linux and macOS:

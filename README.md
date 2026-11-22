@@ -12,8 +12,6 @@
 </picture>
 </h1>
 
-<!-- The release badge shows "no releases" until v0.1.0 is published. -->
-
 [![CI](https://github.com/lartweib/dotai/actions/workflows/ci.yml/badge.svg)](https://github.com/lartweib/dotai/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/github/license/lartweib/dotai)](LICENSE)
 [![Go Reference](https://pkg.go.dev/badge/github.com/lartweib/dotai.svg)](https://pkg.go.dev/github.com/lartweib/dotai)
@@ -177,9 +175,6 @@ Isolation is partial for every harness: each install plan names what of your own
 These are the platforms of the release archives and of the rulesync checksums the engine embeds ([0042](docs/decisions/0042-tag-driven-release-binaries.md)). CI runs on Windows, Linux and macOS. Adding or updating a pack from GitHub needs git 2.41 or later on `PATH`, and a project apply uses git to find the files a repository tracks.
 
 ## Install
-
-> [!NOTE]
-> No release is published yet. The one-line installers below work once the first release, `v0.1.0`, is published; until then, install with `go install`.
 
 ```sh
 # Linux and macOS
