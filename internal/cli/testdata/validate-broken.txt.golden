@@ -2,7 +2,7 @@
 
 dotai.yaml
   3:10  version-invalid   version "1.0" is not a semantic version
-  5:11  rulesync-invalid  rulesync "^43.10.0" must be an exact version such as 43.10.0
+  5:11  rulesync-invalid  rulesync "^43.12.0" must be an exact version such as 43.12.0
   6:25  harness-unknown   unknown harness "vscode", want one of [claudecode antigravity-cli opencode]
   7:1   variant-default   exactly one variant must set default: true, found 0
   9:11  layer-missing     variant standalone: directory "variants/standalone" does not exist

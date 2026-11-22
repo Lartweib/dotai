@@ -553,8 +553,8 @@ var adapters = []Adapter{
 		UserKinds: []KindPath{{"AGENTS.md", ProjectRules}, {"memories/", ProjectRules}, {"agents/", ProjectAgents}, {"agent/", ProjectAgents}, {"skills/", ProjectSkills}, {"commands/", ProjectCommands}, {"command/", ProjectCommands}},
 		Command:   "opencode", BatchTarget: "node_modules/@opencode/cli/bin/opencode.exe",
 		Status: Preview,
-		StatusReason: "the OpenCode hooks plugin that rulesync generates does not pass a sessionStart hook's output to the model, " +
-			"and in opencode run and opencode serve sessionStart races plugin startup",
+		StatusReason: "the OpenCode hooks plugin that rulesync generates passes a sessionStart hook's output to the model " +
+			"through a context hook of OpenCode 2.x, which no live OpenCode session has confirmed yet",
 		// Not checked: OpenCode has no statusline setting.
 		Commands: ShellQuoted,
 		Real:     openCodeReal,

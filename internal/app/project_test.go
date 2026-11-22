@@ -22,7 +22,7 @@ import (
 
 // profileTree is what a fake rulesync writes into the project scope: a
 // profile with a rule, a skill, an MCP server and settings, as rulesync
-// 43.10.0 renders it for every harness.
+// 43.12.0 renders it for every harness.
 var profileTree = map[string]string{
 	".claude/rules/web.md":         "# web\n",
 	".claude/skills/lint/SKILL.md": "lint\n",

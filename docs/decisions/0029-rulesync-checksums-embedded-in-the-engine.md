@@ -42,3 +42,5 @@ A pack can only pin a rulesync version the engine knows; `dotai validate` report
 Update 2026-11-18: the engine embeds rulesync 43.9.2 in place of 41.0.0, so a pack pins 43.9.2. All five v43.9.2 binaries were downloaded from the release's download URLs and hashed independently, and each hash matched both the release's `SHA256SUMS` and the asset digest the GitHub API reports. The asset names are unchanged.
 
 Update 2026-11-19: the engine embeds rulesync 43.10.0 in place of 43.9.2, so a pack pins 43.10.0. All five v43.10.0 binaries were downloaded from the release's download URLs and hashed independently, and each hash matched both the release's `SHA256SUMS` and the asset digest the GitHub API reports. The asset names are unchanged.
+
+Update 2026-11-22: the engine embeds rulesync 43.12.0 in place of 43.10.0, so a pack pins 43.12.0. All five v43.12.0 binaries were downloaded with `gh release download` and hashed independently, and each hash matched both the release's `SHA256SUMS` and the asset digest the GitHub API reports. The asset names are unchanged.

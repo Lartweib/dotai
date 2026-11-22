@@ -57,7 +57,7 @@ func TestExpandPathsUnknownDirectory(t *testing.T) {
 
 func TestStageFailsOnlyWhenATokenNeedsAnUnknownDirectory(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, "dotai.yaml"), "schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\nrulesync: 43.10.0\nharnesses: [opencode]\n")
+	writeFile(t, filepath.Join(dir, "dotai.yaml"), "schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\nrulesync: 43.12.0\nharnesses: [opencode]\n")
 	rule := filepath.Join(dir, "base", ".rulesync", "rules", "r.md")
 	writeFile(t, rule, "No tokens.\n")
 	f := quiet(t)
@@ -78,7 +78,7 @@ func TestStageFailsOnlyWhenATokenNeedsAnUnknownDirectory(t *testing.T) {
 
 func TestStageInstallsToolsAndExpandsPaths(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, "dotai.yaml"), "schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\nrulesync: 43.10.0\nharnesses: [opencode]\nprofiles:\n  p:\n    path: profiles/p\n    description: P.\n")
+	writeFile(t, filepath.Join(dir, "dotai.yaml"), "schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\nrulesync: 43.12.0\nharnesses: [opencode]\nprofiles:\n  p:\n    path: profiles/p\n    description: P.\n")
 	writeFile(t, filepath.Join(dir, "base", ".rulesync", "rules", "r.md"), "Run ${DOTAI_TOOLS}/hello.sh.\n")
 	writeFile(t, filepath.Join(dir, "base", "dotai", "tools", "logo.bin"), "\xff${DOTAI_TOOLS}")
 	writeFile(t, filepath.Join(dir, "profiles", "p", "dotai", "tools", "lint.sh"), "echo ${DOTAI_PROJECT_TOOLS}\n")

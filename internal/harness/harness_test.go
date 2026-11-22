@@ -407,10 +407,11 @@ func TestStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	// rulesync 43.10.0 fixed the hooks that read stdin and the missing
-	// timeouts; what remains is the sessionStart output and its race.
+	// timeouts, and 43.12.0 passes the sessionStart output to the model;
+	// what remains is that no live OpenCode session has confirmed it.
 	r := oc[0].StatusReason
-	if !strings.Contains(r, "sessionStart") || !strings.Contains(r, "model") || !strings.Contains(r, "plugin startup") {
-		t.Errorf("OpenCode's reason %q, want the sessionStart output that never reaches the model and its race with plugin startup named", r)
+	if !strings.Contains(r, "sessionStart") || !strings.Contains(r, "model") || !strings.Contains(r, "no live OpenCode session") {
+		t.Errorf("OpenCode's reason %q, want the sessionStart output to the model and the missing live confirmation named", r)
 	}
 	if strings.Contains(r, "stdin") || strings.Contains(r, "timeout") {
 		t.Errorf("OpenCode's reason %q still names the stdin hang or the hook timeouts, which rulesync 43.10.0 fixed", r)
