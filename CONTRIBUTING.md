@@ -53,8 +53,9 @@ The engine is written test-first, strictly: every behavior change starts with a 
 
 ## Commits and pull requests
 
-- Commits follow [Conventional Commits](https://www.conventionalcommits.org/): `feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`, `ci:`, with an optional scope such as `fix(plan):`. release-please builds the changelog and the next version from them, so `feat:` and `fix:` are for what a user sees ([Releasing](#releasing)). The subject is 72 characters or fewer, in the imperative mood, without a trailing period. The `commits` check (`.github/workflows/commits.yml`) holds the pull request title and every commit to this, and to the 72 characters; merge commits that GitHub writes and release-please's `chore: release <version>` pass. Run it locally with `node .github/scripts/check-commits.mjs origin/main HEAD`, and its tests with `node --test scripts/tests/check-commits.test.mjs`.
+- Commits follow [Conventional Commits](https://www.conventionalcommits.org/): `feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`, `ci:`, with an optional scope such as `fix(plan):`. release-please builds the changelog and the next version from them, so `feat:` and `fix:` are for what a user sees ([Releasing](#releasing)). The subject is 72 characters or fewer, in the imperative mood, without a trailing period. The `commits` check (`.github/workflows/commits.yml`) holds the pull request title and every commit to this, and to the 72 characters; reverts that GitHub writes and release-please's `chore: release <version>` pass. Run it locally with `node .github/scripts/check-commits.mjs origin/main HEAD`, and its tests with `node --test scripts/tests/check-commits.test.mjs`.
 - Each commit is a reviewable unit of work that builds and passes its tests on its own: keep the tests and the docs of a change in the same commit as the code.
+- Pull requests are merged with a rebase only, as the repository settings and the `main` ruleset enforce: each commit lands on `main` as it is, so release-please counts it once ([0052](docs/decisions/0052-release-please-owns-versions-and-changelog.md)).
 - A pull request does one thing, leaves something that can be run or inspected, and starts from the current `main`. Describe what changed, why, and how you verified it; the [pull request template](.github/pull_request_template.md) lists what to include.
 - Update the docs a change affects in the same pull request: [CLI-JSON.md](docs/CLI-JSON.md) for any command output, [PACK-FORMAT.md](docs/PACK-FORMAT.md) for the pack contract, [HARNESS-NOTES.md](docs/HARNESS-NOTES.md) for harness behavior, and the [roadmap](docs/ROADMAP.md) when a deliverable is done.
 
@@ -66,7 +67,7 @@ The owner decides when to release by merging one pull request. Nobody computes a
 
 To release:
 
-1. Read the release pull request (the version and the changelog) and merge it, with a merge commit like any other pull request. Its required checks come from its `pull_request` runs, which the owner approves with "Approve and run workflows" because a bot opened it.
+1. Read the release pull request (the version and the changelog) and merge it with a rebase, like any other pull request. Its required checks come from its `pull_request` runs, which the owner approves with "Approve and run workflows" because a bot opened it.
 2. The merge makes the workflow create the `v<version>` tag and a **draft** GitHub Release with the changelog as its notes, and start `.github/workflows/release.yml` on that tag. That workflow runs the tests, builds the archives and `SHA256SUMS`, signs the provenance attestation, uploads them to the draft and publishes it ([0042](docs/decisions/0042-tag-driven-release-binaries.md)). Nothing else is manual.
 
 How it fits together, for when something breaks:
