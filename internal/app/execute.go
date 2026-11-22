@@ -169,7 +169,7 @@ type executeFS interface {
 // writes nothing.
 //
 // In the replace mode (decision 0038), nothing is written when the plan
-// has refusals, a *RefusedError; while a harness it resets is running, a
+// has refusals, a *RefusedError; while a harness it resets, or whose live-written file it writes (decision 0053), is running, a
 // *RunningError, unless opts.IgnoreRunning; or when it wipes or
 // overwrites anything dotai does not own and consent, asked once with the
 // plan before the lock, does not answer true, a *ConsentError (a nil
@@ -235,10 +235,11 @@ func install(ctx context.Context, d executeFS, h host, fetch fetchFunc, run runF
 		}
 		var reminder string
 		if p.plan.Mode == ModeReplace && !opts.IgnoreRunning {
-			if err := running(h, "install", p.harnesses); err != nil {
-				return err
+			refused, _, risky := p.guardInstall(h, home, p.running)
+			if refused != nil {
+				return refused
 			}
-			reminder = runningReminder(p.harnesses)
+			reminder = runningReminder(risky)
 		}
 		entries, keys, files, err := foreign(d, p)
 		if err != nil {

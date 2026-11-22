@@ -57,6 +57,15 @@ type Real struct {
 	// command line shows the harness running as node, as an npm install
 	// runs it.
 	NodePackages []string
+	// LiveWritten are the files, slash paths relative to the home
+	// directory, that the harness or a program beside it rewrites while it
+	// runs, from its own copy in memory, so that a change dotai makes there
+	// under a running harness may be lost, or the harness's write lost to
+	// dotai's. A replace install that does not wipe the harness, and the
+	// restore of one, refuse while it runs only when they write one of
+	// these (decision 0053); everything else the harness reads when it
+	// starts.
+	LiveWritten []string
 }
 
 // KeepKind is why an entry of an Area is kept.
@@ -188,6 +197,18 @@ func (r Real) RunsAs(name string, fold bool) bool {
 			return strings.HasPrefix(name, prefix)
 		}
 		return name == p
+	})
+}
+
+// WritesLive reports whether rel, a slash path relative to the home
+// directory, is one of the harness's LiveWritten files, compared without
+// case where fold is set, as on Windows and macOS.
+func (r Real) WritesLive(rel string, fold bool) bool {
+	return slices.ContainsFunc(r.LiveWritten, func(p string) bool {
+		if fold {
+			return strings.EqualFold(p, rel)
+		}
+		return p == rel
 	})
 }
 
@@ -355,6 +376,10 @@ var (
 			ProjectKeys: []string{"mcpServers", "allowedTools", "enabledMcpjsonServers", "disabledMcpjsonServers", "mcpContextUris"},
 		}},
 		Relocation: []string{"CLAUDE_CONFIG_DIR"},
+		// settings.json gets the keys Claude Code's own commands set, such as
+		// theme and model (decision 0035); .claude.json is rewritten by every
+		// session and by claude mcp (decision 0049, HARNESS-NOTES).
+		LiveWritten: []string{".claude/settings.json", ".claude.json"},
 		// The native install's executable; an npm install runs as node.
 		Processes:    []string{"claude"},
 		NodePackages: []string{"@anthropic-ai/claude-code"},
@@ -397,7 +422,13 @@ var (
 			{Path: ".gemini/GEMINI.md", Collateral: "Gemini CLI reads it too, and loses it until a restore"},
 			{Path: ".gemini/AGENTS.md", Collateral: "Gemini CLI reads it too, and loses it until a restore"},
 		},
-		Processes: []string{"agy"},
+		// The settings file the harness writes into (decision 0035), the hooks
+		// file that programs register their own hooks in at each of their
+		// starts (HARNESS-NOTES), and the config.json that agy's changelog
+		// documents as holding the plugin enablement and the always-allow
+		// rules, which it writes at runtime: not written by dotai.
+		LiveWritten: []string{".gemini/antigravity-cli/settings.json", ".gemini/config/hooks.json", ".gemini/config/config.json"},
+		Processes:   []string{"agy"},
 	}
 	openCodeReal = Real{
 		Dir: ".config/opencode",
@@ -416,6 +447,9 @@ var (
 		},
 		// The XDG base directories OpenCode honors, and its own variables.
 		Relocation: []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "OPENCODE_CONFIG*", "OPENCODE_DB"},
+		// The settings file the harness writes into (decision 0035); its
+		// plugins, agents and skills are read when it starts.
+		LiveWritten: []string{".config/opencode/opencode.jsonc"},
 		// The background service runs from a copy of the binary in the
 		// cache, opencode-service-<pid>-<hash> (HARNESS-NOTES).
 		Processes:    []string{"opencode", "opencode-service-*"},
@@ -428,6 +462,7 @@ func (r Real) clone() Real {
 	r.Moves, r.Leaks, r.Relocation = slices.Clone(r.Moves), slices.Clone(r.Leaks), slices.Clone(r.Relocation)
 	r.Vendor = slices.Clone(r.Vendor)
 	r.Processes, r.NodePackages = slices.Clone(r.Processes), slices.Clone(r.NodePackages)
+	r.LiveWritten = slices.Clone(r.LiveWritten)
 	r.Areas = slices.Clone(r.Areas)
 	for i := range r.Areas {
 		r.Areas[i].Keep = slices.Clone(r.Areas[i].Keep)

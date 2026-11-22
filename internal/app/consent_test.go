@@ -121,6 +121,10 @@ func TestRunningErrorReads(t *testing.T) {
 			"claudecode (claude 5), opencode (opencode 7) are running, and the restore would put back their configuration under them; the restore wrote nothing: close them, then run again;"},
 		{&app.RunningError{Operation: "restore", Harnesses: []string{"claudecode", "opencode"}, Err: errors.New("no access")},
 			"dotai could not check whether claudecode, opencode are running (no access), and the restore would put back their configuration while they run: the restore wrote nothing; close them, then run again with --ignore-running"},
+		{&app.RunningError{Operation: "install", Running: one, Harnesses: []string{"opencode"}, Files: []app.RunningFile{{Harness: "opencode", Path: "/h/.config/opencode/opencode.jsonc"}}},
+			"opencode (opencode 7) is running, and the install would write /h/.config/opencode/opencode.jsonc, a file it rewrites while it runs; the install wrote nothing: close it, then run again;"},
+		{&app.RunningError{Operation: "restore", Harnesses: []string{"claudecode"}, Files: []app.RunningFile{{Harness: "claudecode", Path: "/h/.claude/settings.json"}}, Err: errors.New("no access")},
+			"dotai could not check whether claudecode is running (no access), and the restore would write /h/.claude/settings.json, a file it rewrites while it runs: the restore wrote nothing; close it, then run again with --ignore-running"},
 		{&app.ConsentError{Entries: 2, Files: 1, Keys: 3},
 			"the replace install would move into its backup what dotai does not own: 2 entries it wipes, 1 file it overwrites and 3 keys of ~/.claude.json it deletes; the install wrote nothing: run it again with --yes"},
 	} {

@@ -39,7 +39,7 @@ func Classify(err error) (code string, data any) {
 	case errors.As(err, &refused):
 		code, data = CodeRefused, refused.Plan
 	case errors.As(err, &running):
-		code, data = CodeRunning, map[string]any{"harnesses": running.Harnesses, "running": runningList(running.Running)}
+		code, data = CodeRunning, map[string]any{"harnesses": running.Harnesses, "running": runningList(running.Running), "files": filesList(running.Files)}
 	case errors.As(err, &harnesses):
 		code, data = CodeHarnessRefused, map[string]any{"refusals": harnesses.Refusals, "harnesses": harnesses.Harnesses}
 	case errors.As(err, &project):
@@ -98,4 +98,12 @@ func runningList(r []app.RunningHarness) []app.RunningHarness {
 		return []app.RunningHarness{}
 	}
 	return r
+}
+
+// filesList is never nil, so that it is [] in an envelope.
+func filesList(f []app.RunningFile) []app.RunningFile {
+	if f == nil {
+		return []app.RunningFile{}
+	}
+	return f
 }

@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/lartweib/dotai/internal/app"
 	"github.com/lartweib/dotai/internal/cli"
+	"github.com/lartweib/dotai/internal/plan"
 	"github.com/lartweib/dotai/internal/proc"
 )
 
@@ -357,5 +359,65 @@ func TestThePlanIsPrintedOnce(t *testing.T) {
 				t.Errorf("stdout lacks the plan of the question:\n%s", stdout)
 			}
 		})
+	}
+}
+
+// TestAnUpdateThatWritesNoLiveFileGoesOnWhileAHarnessRuns checks decision
+// 0053 through the command line: a later replace install of a pack whose
+// only change is a tool script goes on while Claude Code runs and warns,
+// in its plan, that new sessions pick it up; one that writes settings.json,
+// which Claude Code rewrites while it runs, is refused naming the file;
+// --ignore-running overrides it, and a reset is refused whatever it writes.
+func TestAnUpdateThatWritesNoLiveFileGoesOnWhileAHarnessRuns(t *testing.T) {
+	exe := "claude"
+	if runtime.GOOS == "windows" {
+		exe += ".exe"
+	}
+	pack := filepath.Join(t.TempDir(), "pack")
+	if err := os.CopyFS(pack, os.DirFS(examplePack)); err != nil {
+		t.Fatal(err)
+	}
+	e := newE2E(t)
+	install := func(args ...string) (int, string, string) {
+		return e.run(append([]string{"install", pack, "--harness", every, "--mode", "replace", "--yes", "--json"}, args...)...)
+	}
+	if code, stdout, stderr := install(); code != cli.ExitOK {
+		t.Fatalf("first install: exit code = %d, stdout = %s, stderr = %q", code, stdout, stderr)
+	}
+	if err := os.WriteFile(filepath.Join(pack, "base", "dotai", "tools", "hello.sh"), []byte("#!/bin/sh\necho changed\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	e.procs = []proc.Process{{PID: 4242, Name: exe}}
+
+	code, stdout, stderr := install("--dry-run")
+	var dry app.InstallPlan
+	if err := json.Unmarshal(decode(t, stdout).Data, &dry); err != nil || code != cli.ExitOK {
+		t.Fatalf("dry run: exit code = %d, stdout = %s, stderr = %q, %v", code, stdout, stderr, err)
+	}
+	if i := slices.IndexFunc(dry.Warnings, func(w plan.Warning) bool { return w.Code == app.CodeHarnessRunningUpdate }); i < 0 || dry.Warnings[i].Harness != "claudecode" {
+		t.Errorf("warnings = %+v, want %s for claudecode", dry.Warnings, app.CodeHarnessRunningUpdate)
+	}
+	if code, stdout, stderr := install(); code != cli.ExitOK {
+		t.Fatalf("tool update with claude running: exit code = %d, stdout = %s, stderr = %q, want it installed", code, stdout, stderr)
+	}
+
+	// A reset still refuses, and so does an update that writes settings.json.
+	before := snapshot(t, e.home, ".dotai")
+	if code, stdout, _ := install("--reset"); code != cli.ExitInternal || decode(t, stdout).Error.Code != "harness-running" {
+		t.Errorf("reset with claude running: exit code = %d, stdout = %s, want harness-running", code, stdout)
+	}
+	code, stdout, _ = install("--variant", "tmux")
+	var data struct {
+		Files []app.RunningFile `json:"files"`
+	}
+	env := decode(t, stdout)
+	if err := json.Unmarshal(env.Data, &data); err != nil || code != cli.ExitInternal || env.Error.Code != "harness-running" ||
+		len(data.Files) != 1 || data.Files[0].Harness != "claudecode" || filepath.Base(data.Files[0].Path) != "settings.json" ||
+		!strings.Contains(env.Error.Message, "settings.json") {
+		t.Errorf("update of settings.json with claude running: exit code = %d, envelope = %s, want harness-running naming claudecode's settings.json", code, stdout)
+	}
+	sameSnapshot(t, "home after the refusals", snapshot(t, e.home, ".dotai"), before)
+	if code, stdout, stderr := install("--variant", "tmux", "--ignore-running"); code != cli.ExitOK {
+		t.Errorf("--ignore-running: exit code = %d, stdout = %s, stderr = %q, want it installed", code, stdout, stderr)
 	}
 }

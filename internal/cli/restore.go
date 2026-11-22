@@ -33,7 +33,8 @@ func newRestoreCmd(env Env, jsonOut *bool) *cobra.Command {
 			"changed after the install is a conflict: on a terminal you are asked once whether to overwrite it; otherwise, and\n" +
 			"with --json, the restore is refused unless\n" +
 			"--yes is given. What the restore overwrites or deletes is first copied into a new backup. Close the harnesses first:\n" +
-			"the restore of a replace install is refused while a harness it writes into is running, unless --ignore-running.\n" +
+			"the restore of a replace install is refused while a harness it moves entries back into, or whose settings file it\n" +
+			"puts back, is running, unless --ignore-running.\n" +
 			"With --project, undo the profiles applied to the project in the current directory instead, the top of its git\n" +
 			"worktree: every file dotai created there is deleted, every file it overwrote is put back from the backup of the\n" +
 			"apply, every key it set gets back the value it had before the first apply, its block leaves .git/info/exclude and\n" +
