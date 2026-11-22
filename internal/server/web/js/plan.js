@@ -189,7 +189,7 @@ function reinstallStep(p, onPick) {
       return h("label", { class: "mode", "data-on": String(reset === !!p.reset) }, input,
         h("span", {}, h("b", { text: t("plan.reinstall." + key) }), h("span", { text: t("plan.reinstall." + key + "Desc") })));
     })),
-    would ? h("p", { class: "help", text: t("plan.reinstall.wouldWipe", { n: would.wipes.length, k: would.wipeKeys.length }) }) : null);
+    would ? h("p", { class: "help", text: t("plan.reinstall.wouldWipe", { n: would.wipes?.length ?? 0, k: would.wipeKeys?.length ?? 0 }) }) : null);
 }
 
 const managed = (p) => p.harnesses.filter((x) => x.managed);

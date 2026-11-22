@@ -491,7 +491,7 @@ func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run run
 				return err
 			}
 			reset := opts.Reset
-			preview := ResetPreview{Wipes: slices.Concat([]WipePlan{}, lp.wipes), WipeKeys: slices.Concat([]WipeKey{}, lp.keys), Refusals: slices.Concat([]Refusal{}, lp.refusals)}
+			preview := ResetPreview{Wipes: append([]WipePlan{}, lp.wipes...), WipeKeys: append([]WipeKey{}, lp.keys...), Refusals: append([]Refusal{}, lp.refusals...)}
 			if !reset && opts.ChooseReset != nil && !preview.empty() {
 				if reset, err = opts.ChooseReset(ResetChoice{Harnesses: res.Reinstall, Preview: preview}); err != nil {
 					return err
