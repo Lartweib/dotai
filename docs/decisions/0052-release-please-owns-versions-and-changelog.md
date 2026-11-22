@@ -16,7 +16,7 @@ tags: [release, ci, versioning, changelog]
 - **CHANGELOG.md.** release-please writes it, and the same text is the notes of the GitHub release. `docs`, `chore`, `ci`, `build`, `test`, `refactor` and `style` commits stay out of it.
 - **Build path unchanged.** [0042](0042-tag-driven-release-binaries.md) still builds, checksums, attests and publishes. The tag, and the release it publishes, now come from release-please, and `v*` tag pushes by a person still work.
 - **Draft release.** release-please creates the tag (`force-tag-creation`) and the release as a draft. `release.yml` uploads the archives to that draft, keeps its notes with the toolchain line in front, and publishes it, so a release is never public without its files and a published release is never changed. Without a draft (a hand-pushed tag) `release.yml` creates it as before.
-- **Dispatch.** A tag or a pull request made with `GITHUB_TOKEN` starts no workflow, so `release-please.yml` runs `gh workflow run release.yml --ref <tag>` on a release and `gh workflow run ci.yml --ref <branch>` on the release pull request, for its required checks. `release.yml` and `ci.yml` gain `workflow_dispatch`.
+- **Dispatch.** A tag made with `GITHUB_TOKEN` starts no workflow, so `release-please.yml` runs `gh workflow run release.yml --ref <tag>` on a release; `release.yml` gains `workflow_dispatch`. The release pull request's checks come from its own `pull_request` runs, approved with "Approve and run workflows" because a bot opened it; dispatched checks do not satisfy required checks, so none is dispatched (see the update below).
 - **First release.** `bootstrap-sha` is the commit of this change's base, so the history before it is not listed, and `initial-version` makes the first version `0.1.0`. The summary of what `v0.1.0` holds is in the message of one commit, as release-please's nested commits, so that it appears in the first changelog; the "Unreleased" section is gone with `CHANGELOG.md`, which release-please creates with that release.
 - **`--version`.** The root command takes `--version`, with the output of `dotai version`.
 
@@ -31,9 +31,13 @@ tags: [release, ci, versioning, changelog]
 - Good: a release is one merge, with a reviewed version and changelog.
 - Good: both repositories release the same way.
 - Bad or accepted cost: changelog quality depends on commit subjects, so a user-visible change is a `feat:` or a `fix:` with a clear subject.
-- Bad or accepted cost: the repository setting "Allow GitHub Actions to create and approve pull requests" must be on, and the dispatch steps are a workaround for `GITHUB_TOKEN`; a GitHub App token would remove them.
+- Bad or accepted cost: the repository setting "Allow GitHub Actions to create and approve pull requests" must be on, and the tag dispatch step and the manual approval of the release pull request's runs are a workaround for `GITHUB_TOKEN`; a GitHub App token would remove them.
 - Accepted: the `release tags` ruleset does not allow deleting a `v*` tag, so a test tag such as `v0.1.0-rc.1` stays.
 - Pending: the first release has not run yet.
+
+## Update, first release pull request (#80)
+
+The first draft of the decision dispatched `ci.yml` on the release branch, assuming a pull request opened with `GITHUB_TOKEN` gets no `pull_request` run. It does get them, held as `action_required` because a bot opened it. The dispatched `ci.yml` run passed but did not count for the ruleset's required checks: `mergeStateStatus` stayed `BLOCKED` until the owner clicked "Approve and run workflows" and the `pull_request` run finished. The dispatch step was removed; only `release.yml` is dispatched, on the tag.
 
 ## Evidence
 
