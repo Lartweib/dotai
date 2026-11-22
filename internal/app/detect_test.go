@@ -19,6 +19,14 @@ import (
 	"github.com/lartweib/dotai/internal/state"
 )
 
+// previewOpenCode makes OpenCode a preview harness for the test: no
+// shipped harness is a preview (decision 0047, update 2026-11-22), so the
+// tests of the preview handling use this stand-in, restored afterwards.
+func previewOpenCode(t *testing.T) {
+	t.Helper()
+	t.Cleanup(harness.PreviewForTest("opencode", "its hooks plugin is not checked on a real install"))
+}
+
 // found is a lookPath that finds each command of names in bin, and no
 // other.
 func found(bin string, names ...string) func(string) (string, error) {
@@ -117,6 +125,7 @@ func adapterOf(t *testing.T, id string) harness.Adapter {
 // code. Only an explicit choice is saved, and a harness skipped as
 // undetected never changes it.
 func TestSelectHarnesses(t *testing.T) {
+	previewOpenCode(t)
 	m := pack.Manifest{Name: "p", Harnesses: []string{"claudecode", "antigravity-cli", "opencode"}, Requires: []string{"claudecode"}}
 	det := func(ids ...string) map[string]app.Detection {
 		out := map[string]app.Detection{}
@@ -262,6 +271,7 @@ func TestSelectHarnesses(t *testing.T) {
 // manifest's order, then the others; whether each is compatible, required,
 // a preview with its reason, detected, and managed.
 func TestSelectHarnessesStates(t *testing.T) {
+	previewOpenCode(t)
 	m := pack.Manifest{Name: "p", Harnesses: []string{"opencode", "claudecode"}, Requires: []string{"claudecode"}}
 	det := map[string]app.Detection{
 		"claudecode":      {Config: "/h/claude", Detected: true},
@@ -283,6 +293,31 @@ func TestSelectHarnessesStates(t *testing.T) {
 	}
 }
 
+// TestOpenCodeIsSelectedByDefaultWhenDetected checks that OpenCode, a
+// supported harness since decision 0047's update of 2026-11-22, is managed
+// like the other two when detected: no choice is needed, no notice or
+// harness-preview warning is given, and it has no reason.
+func TestOpenCodeIsSelectedByDefaultWhenDetected(t *testing.T) {
+	m := pack.Manifest{Name: "p", Harnesses: []string{"claudecode", "antigravity-cli", "opencode"}}
+	det := map[string]app.Detection{}
+	for _, id := range pack.Harnesses {
+		det[id] = app.Detection{Config: "/h/" + id, Detected: true}
+	}
+	got, err := app.SelectHarnesses(m, nil, nil, det)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"claudecode", "antigravity-cli", "opencode"}; !slices.Equal(got.Selected, want) {
+		t.Errorf("selected = %v, want %v", got.Selected, want)
+	}
+	if len(got.Notices) != 0 || len(got.Warnings) != 0 || got.Choice != nil {
+		t.Errorf("notices %v, warnings %+v, choice %v, want none for a supported harness", got.Notices, got.Warnings, got.Choice)
+	}
+	if oc := adapterOf(t, "opencode"); oc.Status != harness.Supported || oc.StatusReason != "" {
+		t.Errorf("OpenCode status %q with reason %q, want supported with none", oc.Status, oc.StatusReason)
+	}
+}
+
 // TestPlanInstallSelectsHarnesses checks the selection of a plan (decision
 // 0047): of a pack compatible with every harness and requiring none, the
 // plan manages the detected supported ones, lists every harness with its
@@ -292,6 +327,7 @@ func TestSelectHarnessesStates(t *testing.T) {
 // preview harness, with a harness-preview warning, and is saved and
 // reused.
 func TestPlanInstallSelectsHarnesses(t *testing.T) {
+	previewOpenCode(t)
 	home, _ := installHome(t)
 	h := app.NewHost(found(at(home, "bin"), "claude", "opencode"), nil, "")
 	f := quiet(t)
@@ -430,6 +466,7 @@ func TestInstallStopsOnAMissingRequiredHarness(t *testing.T) {
 // managing it, with the harness-preview warning, and removes none of its
 // files, rather than dropping it without consent.
 func TestAnInstallFromBefore0047KeepsItsPreviewHarness(t *testing.T) {
+	previewOpenCode(t)
 	home, _ := installHome(t)
 	h := app.NewHost(found(at(home, "bin"), "claude", "agy", "opencode"), nil, "")
 	f := quiet(t)

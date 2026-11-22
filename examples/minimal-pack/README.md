@@ -31,4 +31,4 @@ dotai stage examples/minimal-pack --out /tmp/minimal-stage
 dotai install examples/minimal-pack --dry-run
 ```
 
-The pack is compatible with all three harnesses (`harnesses` in `dotai.yaml`) and requires none of them: an install manages those that are installed, except OpenCode, a preview harness, which it manages only when `--harness` or the saved choice names it, or the previous install of the pack managed it. Add `requires: [claudecode]` to make an install stop when Claude Code is not installed.
+The pack is compatible with all three harnesses (`harnesses` in `dotai.yaml`) and requires none of them: an install manages those that are installed. Add `requires: [claudecode]` to make an install stop when Claude Code is not installed.

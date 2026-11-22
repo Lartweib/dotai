@@ -159,9 +159,9 @@ claudecode
 |---|---|---|---|---|
 | Claude Code | `claudecode` | `claude` | `CLAUDE_CONFIG_DIR` | Supported |
 | Google Antigravity CLI (agy) | `antigravity-cli` | `agy` | `--gemini_dir` | Supported |
-| OpenCode | `opencode` | `opencode` | `XDG_*` directories | Preview |
+| OpenCode | `opencode` | `opencode` | `XDG_*` directories | Supported |
 
-OpenCode is a preview: the pinned rulesync, 43.12.0, generates an OpenCode hooks plugin that passes a `sessionStart` hook's output to the model through a context hook of OpenCode 2.x ([dyoshikawa/rulesync#3926](https://github.com/dyoshikawa/rulesync/pull/3926), [#3932](https://github.com/dyoshikawa/rulesync/pull/3932)), by its code, but no live OpenCode session has confirmed it yet ([HARNESS-NOTES](docs/HARNESS-NOTES.md#rulesync-43120)). Since 43.10.0 its hooks no longer read the plugin's stdin and hook timeouts are enforced ([HARNESS-NOTES](docs/HARNESS-NOTES.md#rulesync-43100)). An install never selects a preview harness by default: name it with `--harness`, or tick it in the web UI's harness step, and the plan warns `harness-preview`; the saved choice, or an earlier install of the pack that managed it, keeps it managed.
+OpenCode is supported since rulesync 43.12.0, whose generated OpenCode hooks plugin passes a `sessionStart` hook's output to the model ([dyoshikawa/rulesync#3926](https://github.com/dyoshikawa/rulesync/pull/3926), [#3932](https://github.com/dyoshikawa/rulesync/pull/3932)); a real `opencode run` on OpenCode 2.3.2 answered with the marker a `sessionStart` hook printed ([HARNESS-NOTES](docs/HARNESS-NOTES.md#rulesync-43120)). A harness that is only a preview is never selected by default: name it with `--harness`, or tick it in the web UI's harness step, and the plan warns `harness-preview`; no harness is a preview now.
 
 Isolation is partial for every harness: each install plan names what of your own setup still loads, such as a shared login. The verified behavior of each harness, with the version and OS it was checked on, is in [Harness notes](docs/HARNESS-NOTES.md).
 
@@ -207,7 +207,7 @@ dotai ui
 - `dotai pack new` writes dotai's template, one commented example of each file a pack holds, and adds the pack to the registry. Edit the examples: a file left as the template wrote it is flagged `template-unchanged`, and `install` asks before installing it.
 - `dotai install --mode isolated` installs under `~/.dotai/isolated/`, never into your own harness configuration; `dotai restore` undoes it.
 - `dotai run claudecode` launches Claude Code against the isolated install; pass the harness's own arguments after `--`.
-- `dotai install` manages the pack's `harnesses` that are installed on your machine, or those `--harness` names. A harness listed in `requires` that is missing stops the install. A preview harness, such as OpenCode, is managed only when you choose it, as [Supported harnesses](#supported-harnesses-and-platforms) describes ([Pack format](docs/PACK-FORMAT.md#manifest)).
+- `dotai install` manages the pack's `harnesses` that are installed on your machine, or those `--harness` names. A harness listed in `requires` that is missing stops the install. A preview harness, if dotai has one, is managed only when you choose it, as [Supported harnesses](#supported-harnesses-and-platforms) describes ([Pack format](docs/PACK-FORMAT.md#manifest)).
 
 For a complete, small pack to read, see [examples/minimal-pack](examples/minimal-pack/README.md). [Creating a pack](docs/PACK-FORMAT.md#creating-a-pack) covers `dotai pack new` in full, and [Applying a pack](docs/PACK-FORMAT.md#applying-a-pack) the project profiles.
 

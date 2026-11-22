@@ -32,3 +32,5 @@ The adapter interface is designed from the start so that adding a harness means 
 - Internal research (not published): harness install modes verification, 2026-10-24.
 
 Update 2026-11-18: [0047](0047-harness-selection-and-preview-harnesses.md) gives each harness a status, `supported` or `preview`; OpenCode is a preview harness until the pinned rulesync fixes its hooks plugin and its notes are verified on a real install.
+
+Update 2026-11-22: OpenCode is `supported` since rulesync 43.12.0 and a live session confirmed its `sessionStart` output reaches the model ([0047](0047-harness-selection-and-preview-harnesses.md)).
