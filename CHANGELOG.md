@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/Lartweib/dotai/compare/v0.1.0...v0.1.1) (2026-11-22)
+
+
+### Bug fixes
+
+* **install:** skip entries that vanish while scanning ([b9541b0](https://github.com/Lartweib/dotai/commit/b9541b029d84815dcacd1c659007188072e7e12d))
+
 ## 0.1.0 (2026-11-22)
 
 
