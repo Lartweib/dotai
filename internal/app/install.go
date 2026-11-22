@@ -354,6 +354,7 @@ type planned struct {
 	owned      map[string]plan.Current // the targets the previous install owns, as they are
 	keys       map[string][]plan.Key   // the keys it owns in each settings file of owned
 	ignoreExec bool
+	running    runCheck // what the processes show of the harnesses, when it is a replace install that checks (decision 0053)
 }
 
 // withPlan plans the install as PlanInstall describes and calls then with
@@ -545,7 +546,17 @@ func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run run
 		})
 	}
 	res.Warnings = append(res.Warnings, p.Warnings...)
-	return then(planned{plan: res, shared: shared, ops: p.Ops, tree: tree, prev: prev, harnesses: s.Harnesses, choice: sel.Choice, owned: p.Owned, keys: p.Keys, ignoreExec: !d.ExecBit()})
+	pl := planned{plan: res, shared: shared, ops: p.Ops, tree: tree, prev: prev, harnesses: s.Harnesses, choice: sel.Choice, owned: p.Owned, keys: p.Keys, ignoreExec: !d.ExecBit()}
+	if mode == ModeReplace && !opts.IgnoreRunning {
+		// A harness that runs while the install only updates files it does
+		// not rewrite is warned about in the plan (decision 0053); the
+		// install refuses for the rest.
+		pl.running = checkRunning(h, s.Harnesses)
+		if _, allowed, _ := pl.guardInstall(h, home, pl.running); len(allowed) > 0 {
+			pl.plan.Warnings = append(pl.plan.Warnings, runningWarnings(allowed)...)
+		}
+	}
+	return then(pl)
 }
 
 // buildPlan plans the user-scope staging tree tree into home. A first
