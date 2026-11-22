@@ -197,20 +197,20 @@ func TestTheFirstReplaceInstallStillResets(t *testing.T) {
 }
 
 // TestALaterReplaceInstallAsksWhichOneOnATerminal checks the interactive
-// choice: the question comes with what a reset would wipe, no answers
-// updates only, yes resets, and a terminal without a choice to make is not
-// asked.
+// choice: the question comes with what a reset would wipe and is for the
+// safe choice, so yes, which is Enter, updates only, no resets, and a
+// terminal without a choice to make is not asked.
 func TestALaterReplaceInstallAsksWhichOneOnATerminal(t *testing.T) {
 	for _, tt := range []struct {
-		answer bool
+		answer bool // to "Only update the pack ...?"
 		reset  bool
-	}{{false, false}, {true, true}} {
+	}{{true, false}, {false, true}} {
 		e := firstReplace(t)
 		e.addLater()
 		var questions []string
 		e.prompt = func(q string) bool {
 			questions = append(questions, q)
-			return strings.Contains(strings.ToLower(q), "reset") && tt.answer || !strings.Contains(strings.ToLower(q), "reset")
+			return !strings.Contains(q, "Only update") || tt.answer
 		}
 		code, stdout, stderr := e.run("install", examplePack, "--harness", every, "--mode", "replace")
 		if code != cli.ExitOK {
@@ -220,7 +220,7 @@ func TestALaterReplaceInstallAsksWhichOneOnATerminal(t *testing.T) {
 		if kept := err == nil; kept == tt.reset {
 			t.Errorf("answer %v: ~/.claude/keybindings.json kept = %v, want %v", tt.answer, kept, !tt.reset)
 		}
-		if len(questions) == 0 || !strings.Contains(strings.ToLower(questions[0]), "reset") || !strings.Contains(questions[0], "[y/N]") {
+		if len(questions) == 0 || questions[0] != "Only update the pack in "+strings.ReplaceAll(every, ",", ", ")+", wiping nothing? [Y/n] " {
 			t.Fatalf("answer %v: questions = %q, want the choice first", tt.answer, questions)
 		}
 		if !strings.Contains(stdout, "keybindings.json") || !strings.Contains(stdout, "reset would instead wipe") {
@@ -329,7 +329,7 @@ func TestThePlanIsPrintedOnce(t *testing.T) {
 				t.Fatalf("first install: exit code = %d, stdout = %s, stderr = %q", code, stdout, stderr)
 			}
 			e.addLater()
-		}, func(string) bool { return true }, nil, 2},
+		}, func(q string) bool { return !strings.Contains(q, "Only update") }, nil, 2}, // no to the choice resets, yes to the consent
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newE2E(t)

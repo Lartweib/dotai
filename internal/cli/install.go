@@ -125,7 +125,9 @@ func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
 				if err := writeResetChoice(env.Stdout, c, color); err != nil {
 					return false, err
 				}
-				return env.Prompt(ctx, resetQuestion(c))
+				// The question is for the safe choice, so a yes updates only.
+				update, err := env.Prompt(ctx, resetQuestion(c))
+				return !update && err == nil, err
 			}
 		}
 		steps := newStepPrinter(env, *jsonOut)
@@ -435,14 +437,15 @@ func writeResetChoice(w io.Writer, c app.ResetChoice, color bool) error {
 	if n := len(c.Preview.Refusals); n > 0 {
 		fmt.Fprintf(&b, "%s, so a reset would be refused: see dotai install --dry-run --reset\n", countText(n, "path looks like a login, a secret or a history, or cannot be read", "paths look like a login, a secret or a history, or cannot be read"))
 	}
-	b.WriteString("\n")
+	b.WriteString("Answer n to reset instead, wiping what is listed above, after the usual consent.\n\n")
 	_, err := io.WriteString(w, b.String())
 	return err
 }
 
-// resetQuestion asks whether the harnesses of c are reset again.
+// resetQuestion asks whether the harnesses of c only update the pack, wiping
+// nothing, which is the default: Enter or y updates only, n resets them again.
 func resetQuestion(c app.ResetChoice) string {
-	return "Reset " + strings.Join(c.Harnesses, ", ") + " again, wiping what is listed above, instead of only updating the pack? [y/N] "
+	return "Only update the pack in " + strings.Join(c.Harnesses, ", ") + ", wiping nothing? [Y/n] "
 }
 
 // actionWidth is the width of the action column of a plan, that of its

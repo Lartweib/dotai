@@ -18,6 +18,14 @@ func TestAsk(t *testing.T) {
 			t.Errorf("ask(%q) = %v, %v, printed %q, want %v after the question", in, got, err, out.String(), want)
 		}
 	}
+	// A question that ends with [Y/n] is a yes unless it is answered n or no.
+	for in, want := range map[string]bool{"\n": true, "y\n": true, "": true, "what\n": true, "n\n": false, " No \r\n": false} {
+		var out strings.Builder
+		got, err := ask(context.Background(), strings.NewReader(in), &out, "Only update? [Y/n] ")
+		if err != nil || got != want || out.String() != "Only update? [Y/n] " {
+			t.Errorf("ask(%q) with [Y/n] = %v, %v, printed %q, want %v after the question", in, got, err, out.String(), want)
+		}
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	r, w := io.Pipe() // never answers
