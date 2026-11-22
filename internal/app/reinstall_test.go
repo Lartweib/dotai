@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"reflect"
@@ -115,5 +116,35 @@ func TestAnUpdateOnlyInstallStillRefusesARelocation(t *testing.T) {
 	}
 	if p.Reset || !p.Blocked || !slices.ContainsFunc(p.Refusals, func(r app.Refusal) bool { return r.Code == app.RefuseRelocation && r.Harness == "claudecode" }) {
 		t.Errorf("update with CLAUDE_CONFIG_DIR set: reset %v, blocked %v, refusals %+v, want the relocation refusal", p.Reset, p.Blocked, p.Refusals)
+	}
+}
+
+// TestWouldResetListsMarshalAsEmptyArrays checks the plan JSON contract: a
+// later replace install that a reset would wipe no keys for still sends
+// wipeKeys and refusals as [], never null, because the web UI reads their length.
+func TestWouldResetListsMarshalAsEmptyArrays(t *testing.T) {
+	home, h, _ := replaceHome(t)
+	if _, err := installReplace(t, newClockFS(t), h, home); err != nil {
+		t.Fatal(err)
+	}
+	second, err := installUpdate(t, newClockFS(t), h, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.WouldReset == nil {
+		t.Fatal("wouldReset = nil, want the preview of a later replace install")
+	}
+	raw, err := json.Marshal(second.WouldReset)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"wipes", "wipeKeys", "refusals"} {
+		if string(got[k]) == "null" || got[k] == nil {
+			t.Errorf("wouldReset.%s = %s, want an array", k, got[k])
+		}
 	}
 }
