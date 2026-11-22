@@ -236,7 +236,7 @@ func withProjectPlan(ctx context.Context, d installFS, h host, g gitPort, fetch 
 		notices, warnings, states = sel.Notices, sel.Warnings, sel.States
 		return sel.Selected, err
 	}
-	s, err := stage(ctx, d, fetch, run, cacheDir, dir, filepath.Join(tmp, "staging"), Selection{Variant: variant, Profiles: opts.Profiles}, pick, ToolsIn(home, project), false, progress)
+	s, err := stage(ctx, d, fetch, run, cacheDir, dir, filepath.Join(tmp, "staging"), Selection{Variant: variant, Profiles: opts.Profiles}, pick, nil, ToolsIn(home, project), false, progress)
 	if err != nil {
 		return err
 	}

@@ -31,3 +31,5 @@ For example, a pack might declare a `standalone` variant and an `orca` variant f
 
 - The source schema must define how a pack declares variants, their layers and their optional detection rule (pending, together with the rest of the schema).
 - The engine records which variant was installed, so that `dotai doctor` and updates reapply the same one.
+
+Update 2026-11-22: the variant is sticky, as the mode is ([0038](0038-replace-mode-resets-harness-to-fresh-install.md)). Observed on the maintainer's machine: the state recorded `orca` in the replace mode, and a plain `dotai install <pack>` installed `standalone`, the default, and rewrote the state and the backup manifest with it, silently. Without `--variant`, install now uses the variant the install state records for the same pack (by name) when the pack still declares it, and otherwise the order above: the default. A recorded variant the pack dropped gives the warning `recorded-variant-missing` and the default. The web UI's install step gets this through the plan, whose `variant` it preselects. `--variant` always wins. `apply` already worked this way.
