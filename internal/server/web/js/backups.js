@@ -30,7 +30,7 @@ export async function render(root, ctx) {
     mount(list,
       h("div", { class: "listhead" }, h("span", { class: "t-meta", text: t("backups.count", { n: all.length }) }), h("span", { class: "grow" }), h("span", { class: "t-meta", text: t("backups.newest") })),
       groups.map((g) => h("div", { class: "group" },
-        h("div", { class: "gh" }, h("h2", { text: g.label }), h("span", { class: "cnt", text: String(g.items.length) })),
+        h("div", { class: "gh" }, h("h2", { path: g.label }), h("span", { class: "cnt", text: String(g.items.length) })),
         g.error ? notice("bad", t("backups.unreadable"), g.error) : null,
         h("ul", { class: "rows" }, g.items.length ? g.items.map((b) => h("li", {},
           h("button", { class: "rowbtn", type: "button", "aria-pressed": String(cur && cur.b === b), onclick: () => { cur = all.find((x) => x.b === b); draw(); } },

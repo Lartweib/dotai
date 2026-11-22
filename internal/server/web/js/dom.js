@@ -3,18 +3,41 @@
 // path or a message from the API can never become markup.
 
 import { errorText, t } from "./i18n.js";
+import { isPathy, pathParts } from "./pathbreak.js";
 
+// h builds an element. Its text is set with textContent, but for the
+// path prop, and for the text of a .t-path, which is a path by its class:
+// those wrap only after a slash (setPath).
 export function h(tag, props, ...kids) {
   const el = document.createElement(tag);
+  const pathText = typeof (props && props.class) === "string" && /(^|\s)t-path(\s|$)/.test(props.class);
   for (const [k, v] of Object.entries(props || {})) {
     if (v === undefined || v === null || v === false) continue;
     if (k === "class") el.className = v;
     else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else if (k === "path" || (k === "text" && pathText)) setPath(el, v);
     else if (k === "text") el.textContent = v;
     else el.setAttribute(k, v === true ? "" : String(v));
   }
   append(el, kids);
   return el;
+}
+
+// setPath puts an identity or a path in el so that a long one wraps only
+// after a slash: each name is a part that stays whole (.part, styles.css),
+// with a break opportunity after it. A text with no slash inside is plain
+// text; the text content of el is the text, whole.
+function setPath(el, text) {
+  const s = String(text);
+  if (!isPathy(s)) {
+    el.textContent = s;
+    return;
+  }
+  el.classList.add("pth");
+  pathParts(s).forEach((p, i) => {
+    if (i > 0) el.append(document.createElement("wbr"));
+    el.append(p.free ? document.createTextNode(p.text) : h("span", { class: "part", text: p.text }));
+  });
 }
 
 function append(el, kids) {
@@ -163,14 +186,14 @@ export const hint = (text) => h("p", { class: "hint", text });
 export function kv(pairs) {
   return h("dl", { class: "kv" },
     pairs.filter(([, v]) => v !== undefined && v !== null && v !== "").map(([k, v, mono]) =>
-      [h("dt", { text: k }), h("dd", { class: mono ? "mono" : null }, v)]));
+      [h("dt", { text: k }), typeof v === "string" && mono ? h("dd", { class: "mono", path: v }) : h("dd", { class: mono ? "mono" : null }, v)]));
 }
 
 // op is one line of a plan: what it does, to which path.
 export function op(action, path, note, why) {
   return h("li", { class: "op" },
     h("span", { class: "tag", "data-a": action, text: t("action." + action) }),
-    h("span", { class: "p", text: path }),
+    h("span", { class: "p", path }),
     note ? h("span", { class: "n", text: note }) : null,
     why ? h("span", { class: "why", text: why }) : null);
 }

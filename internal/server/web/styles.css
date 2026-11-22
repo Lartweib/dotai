@@ -241,6 +241,8 @@ a.t-meta { color: var(--ink-3); text-decoration: none; }
 a.t-meta:hover { color: var(--ink); text-decoration: underline; }
 .label, .t-label { font: 600 var(--t-body)/1.4 var(--fh); color: var(--ink); }
 legend.label { margin-bottom: 8px; }
+.pth .part { display: inline-block; max-width: 100%; vertical-align: top; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.leaf .sub { display: block; }
 .t-path, .src-path { font: 400 var(--t-mono)/18px var(--fm); letter-spacing: 0.01em; color: var(--ink-3); overflow-wrap: anywhere; min-width: 0; }
 .t-path.ink { color: var(--ink); font-size: var(--t-sm); line-height: 20px; }
 .h-page, .h-detail { font: 420 var(--t-detail)/1.1 var(--fs); letter-spacing: -0.02em; text-wrap: balance; overflow-wrap: anywhere; }
