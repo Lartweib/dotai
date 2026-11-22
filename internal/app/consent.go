@@ -133,6 +133,9 @@ func holdsSomething(d installFS, name, kind string) (bool, error) {
 		return true, nil
 	}
 	names, err := d.List(name)
+	if errors.Is(err, fs.ErrNotExist) { // gone since the plan
+		return false, nil
+	}
 	if err != nil {
 		return false, err
 	}

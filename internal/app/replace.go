@@ -277,18 +277,25 @@ func planWipes(ctx context.Context, d installFS, h host, home string, adapters [
 // An entry whose name looks like a login, a secret or a history, or that
 // holds, found without following a link or looking into a vendor tree, by
 // vendored, anything whose name looks like a credential, is not wiped:
-// each such path is a refusal.
+// each such path is a refusal. An entry that is gone since its directory was
+// listed is not planned.
 func (rp *replacePlan) wipe(d installFS, h, entry, collateral string, owned map[string]bool, vendored func(string) bool) error {
 	if ownedAt(owned, entry) {
 		return nil
 	}
 	mode, err := d.Lstat(entry)
+	if errors.Is(err, fs.ErrNotExist) { // gone since its directory was listed
+		return nil
+	}
 	if err != nil {
 		return err
 	}
 	real := mode.IsDir() && mode&(fs.ModeSymlink|fs.ModeIrregular) == 0
 	if real && ownedBelow(owned, entry) {
 		names, err := d.List(entry)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
 		if err != nil {
 			return err
 		}
@@ -317,7 +324,9 @@ func (rp *replacePlan) wipe(d installFS, h, entry, collateral string, owned map[
 // sensitivePaths are entry, when looks reports its name, and, for a real
 // directory that is not a vendor tree, by vendored, every path inside it
 // whose name looks like a credential, in walk order; nothing is followed
-// through a link, and no vendor tree is looked into.
+// through a link, and no vendor tree is looked into. An entry that is gone
+// since its directory was listed, as a temporary file a running tool
+// renames, is not there to look at.
 func sensitivePaths(d installFS, entry string, real bool, looks, vendored func(string) bool) ([]string, error) {
 	var out []string
 	if looks(filepath.Base(entry)) {
@@ -327,6 +336,9 @@ func sensitivePaths(d installFS, entry string, real bool, looks, vendored func(s
 		return out, nil
 	}
 	names, err := d.List(entry)
+	if errors.Is(err, fs.ErrNotExist) {
+		return out, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -334,6 +346,9 @@ func sensitivePaths(d installFS, entry string, real bool, looks, vendored func(s
 	for _, name := range names {
 		child := filepath.Join(entry, name)
 		mode, err := d.Lstat(child)
+		if errors.Is(err, fs.ErrNotExist) { // gone since the listing
+			continue
+		}
 		if err != nil {
 			return nil, err
 		}
