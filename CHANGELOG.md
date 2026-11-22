@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/Lartweib/dotai/compare/v0.1.1...v0.1.2) (2026-11-22)
+
+
+### Bug fixes
+
+* **ui:** drop the cached pack after an action rewrites it ([e1a33e9](https://github.com/Lartweib/dotai/commit/e1a33e91e571da5eb7a5dd486c07624d6da8b41c))
+
 ## [0.1.1](https://github.com/Lartweib/dotai/compare/v0.1.0...v0.1.1) (2026-11-22)
 
 
