@@ -118,9 +118,10 @@ func gitEntry(home, id string) (packsItem, error) {
 func planUpdate(ctx context.Context, g packGit, home string, entry packsItem, src GitSource, ref string) (PackUpdatePlan, fetched, error) {
 	// The recorded ref is fetched by its full name, as it was resolved
 	// when the pack was added: a tag that wins over a branch of the same
-	// name, or the default branch of then.
+	// name, or the default branch of then. A pack that follows its latest
+	// release resolves that again, to the release that is the latest now.
 	fetchRef := ref
-	if ref == entry.Source.Ref {
+	if ref == entry.Source.Ref && !entry.Source.TracksLatest() {
 		fetchRef = entry.Source.FullRef
 	}
 	f, err := fetchChecked(ctx, g, home, src, fetchRef)

@@ -8,7 +8,7 @@
 import { actions, boardHead, h, mount, notice } from "./dom.js";
 import { t } from "./i18n.js";
 import { backLink, fetchFailure, packWarnings, review, sourceLine, working } from "./packreview.js";
-import { moves, planNotes, shortCommit, visible } from "./packsource.js";
+import { moves, planNotes, shortCommit, trackingLabel, visible } from "./packsource.js";
 import { act, isInstalled, post, registry, setRegistry } from "./store.js";
 
 export async function render(root, ctx) {
@@ -47,7 +47,9 @@ export async function render(root, ctx) {
     }
     const p = res.data;
     if (!moves(p)) {
-      mount(status, notice("good", t("update.upToDate", { commit: shortCommit(p.to.commit) })), packWarnings(planNotes(p)),
+      mount(status, notice("good", trackingLabel(p.to)
+        ? t("update.upToDateLatest", { tag: visible(p.to.fullRef.replace(/^refs\/tags\//, "")), commit: shortCommit(p.to.commit) })
+        : t("update.upToDate", { commit: shortCommit(p.to.commit) })), packWarnings(planNotes(p)),
         actions([h("a", { class: "btn", href: "#/packs", text: t("nav.packs") })]));
       return;
     }

@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -238,12 +239,23 @@ func (g packGit) treeModes(ctx context.Context, dir string) map[string]string {
 	return treeModes(out)
 }
 
-// resolveRef is what fetchPack fetches for ref: the branch the remote's
-// HEAD points to for "", which must be one; a tag or a branch for a run of
-// hexadecimal digits shorter than a full SHA, which must name one, since
-// an abbreviated SHA cannot be fetched; ref itself otherwise.
+// resolveRef is what fetchPack fetches for ref: the full name of the
+// highest release tag for LatestRef, which must have one; the branch the
+// remote's HEAD points to for "", which must be one; a tag or a branch for
+// a run of hexadecimal digits shorter than a full SHA, which must name
+// one, since an abbreviated SHA cannot be fetched; ref itself otherwise.
 func (g packGit) resolveRef(ctx context.Context, dir, url, remote string, extra []string, ref string) (string, error) {
 	switch {
+	case ref == LatestRef:
+		out, err := g.run(ctx, packFetchTimeout, dir, extra, "ls-remote", "--tags", "--refs", "--", remote)
+		if err != nil {
+			return "", fetchFailed(url, ref, err)
+		}
+		tag, ok := latestReleaseTag(string(out))
+		if !ok {
+			return "", &NoReleaseTagError{URL: url}
+		}
+		return tag, nil
 	case ref == "":
 		out, err := g.run(ctx, packFetchTimeout, dir, extra, "ls-remote", "--symref", "--", remote, "HEAD")
 		if err != nil {
@@ -312,4 +324,46 @@ func parseFetchHead(data, wanted string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("FETCH_HEAD %q does not name the ref fetched for %q", line, wanted)
+}
+
+// releaseTag matches the name of a release tag, vX.Y.Z of SemVer 2 with
+// no pre-release and no build metadata; a number has no leading zero.
+var releaseTag = regexp.MustCompile(`^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
+
+// latestReleaseTag is the full name of the highest release tag in the
+// output of git ls-remote --tags --refs, and false when it lists none. A
+// tag is annotated or lightweight alike: fetching its name peels it to
+// the commit.
+func latestReleaseTag(out string) (string, bool) {
+	best, bestNums := "", [3]string{}
+	for line := range strings.Lines(out) {
+		_, name, ok := strings.Cut(strings.TrimRight(line, "\r\n"), "\t")
+		if !ok {
+			continue
+		}
+		tag, ok := strings.CutPrefix(name, "refs/tags/")
+		if !ok {
+			continue
+		}
+		m := releaseTag.FindStringSubmatch(tag)
+		if m == nil {
+			continue
+		}
+		nums := [3]string{m[1], m[2], m[3]}
+		if best == "" || compareVersion(nums, bestNums) > 0 {
+			best, bestNums = name, nums
+		}
+	}
+	return best, best != ""
+}
+
+// compareVersion orders two versions whose numbers have no leading zero,
+// each number by its length, then by its digits, so that none overflows.
+func compareVersion(a, b [3]string) int {
+	for i := range a {
+		if c := cmp.Or(cmp.Compare(len(a[i]), len(b[i])), cmp.Compare(a[i], b[i])); c != 0 {
+			return c
+		}
+	}
+	return 0
 }

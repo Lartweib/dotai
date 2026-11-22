@@ -58,6 +58,7 @@ func TestClassify(t *testing.T) {
 		{name: "git missing", err: &app.GitUnavailableError{}, wantCode: envelope.CodeGitMissing},
 		{name: "git too old", err: &app.GitUnavailableError{Version: "2.40.0", TooOld: true}, wantCode: envelope.CodeGitTooOld},
 		{name: "fetch failed", err: &app.FetchFailedError{URL: "https://github.com/a/b", Err: errors.New("exit 128")}, wantCode: envelope.CodeFetchFailed},
+		{name: "no release tag", err: &app.NoReleaseTagError{URL: "https://github.com/a/b"}, wantCode: envelope.CodeNoReleaseTag},
 		{name: "fetch by commit refused", err: &app.FetchByCommitRefusedError{URL: "https://github.com/a/b"}, wantCode: envelope.CodeFetchByCommit},
 		{
 			name:     "a refused tree carries its problems",

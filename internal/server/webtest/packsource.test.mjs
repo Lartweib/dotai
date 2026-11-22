@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { addCommand, diffLines, failureKind, gitIdentity, modeChanged, moves, planNotes, refProblem, shortCommit, shortDigest, tally, visible } from "../web/js/packsource.js";
+import { addCommand, diffLines, failureKind, gitIdentity, modeChanged, moves, planNotes, refLabel, refProblem, shortCommit, shortDigest, tally, trackingLabel, visible } from "../web/js/packsource.js";
 
 test("gitIdentity reads the three URL forms of github.com, in lower case", () => {
   for (const url of [
@@ -48,6 +48,31 @@ test("refProblem asks for a name, or for a full commit SHA", () => {
   assert.equal(refProblem("commit", "a".repeat(12)), "commit-full");
   assert.equal(refProblem("commit", "z".repeat(40)), "commit-full");
   assert.equal(refProblem("commit", ""), "commit-full");
+});
+
+test("refProblem takes no ref for the latest release", () => {
+  assert.equal(refProblem("latest", ""), "");
+  assert.equal(refProblem("latest", "anything"), "");
+});
+
+test("trackingLabel says what a latest pack follows, and nothing for any other ref", () => {
+  assert.equal(trackingLabel({ ref: "latest", fullRef: "refs/tags/v0.1.0" }), "latest → v0.1.0");
+  assert.equal(trackingLabel({ ref: "latest", fullRef: "refs/tags/v10.2.13" }), "latest → v10.2.13");
+  assert.equal(trackingLabel({ ref: "v0.1.0", fullRef: "refs/tags/v0.1.0" }), "");
+  assert.equal(trackingLabel({ ref: "latest", fullRef: "refs/heads/latest" }), "");
+  assert.equal(trackingLabel({ ref: "latest", fullRef: "refs/tags/latest" }), "");
+  assert.equal(trackingLabel({ ref: "", fullRef: "refs/heads/main" }), "");
+  assert.equal(trackingLabel(null), "");
+});
+
+test("refLabel shows the tracking, else the ref, else its full name", () => {
+  assert.equal(refLabel({ ref: "latest", fullRef: "refs/tags/v0.1.0" }), "latest → v0.1.0");
+  assert.equal(refLabel({ ref: "v1", fullRef: "refs/tags/v1" }), "v1");
+  assert.equal(refLabel({ ref: "", fullRef: "refs/heads/main" }), "refs/heads/main");
+});
+
+test("addCommand carries --ref latest", () => {
+  assert.equal(addCommand("https://github.com/acme/pack", "latest"), "dotai pack add 'https://github.com/acme/pack' --ref 'latest'");
 });
 
 test("shortCommit keeps the first twelve digits, as the command line prints them", () => {

@@ -148,6 +148,7 @@ func TestPackAddFailuresKeepTheirCodes(t *testing.T) {
 		"host-unsupported":        &app.HostUnsupportedError{URL: "https://gitlab.com/a/b", Host: "gitlab.com"},
 		"git-too-old":             &app.GitUnavailableError{Version: "2.40.0", TooOld: true},
 		"fetch-by-commit-refused": &app.FetchByCommitRefusedError{URL: "u", Commit: strings.Repeat("1", 40)},
+		"no-release-tag":          &app.NoReleaseTagError{URL: "https://github.com/a/b"},
 		"pack-tree-refused":       &app.PackTreeRefusedError{Problems: []app.TreeProblem{{Path: "l", Problem: "is a link"}}},
 	} {
 		var stdout, stderr bytes.Buffer
@@ -351,5 +352,81 @@ func TestErrorsReachTheTerminalEscaped(t *testing.T) {
 	cli.Run([]string{"pack", "add", "https://github.com/a/b"}, env)
 	if strings.Contains(stderr.String(), "\x1b") || strings.Contains(stderr.String(), "\x07") || !strings.Contains(stderr.String(), "\nsecond line") {
 		t.Errorf("stderr = %q, want the controls escaped and the lines kept", &stderr)
+	}
+}
+
+// latestPack is a pack that follows its latest release, at v0.1.0.
+func latestPack() app.PackEntry {
+	return app.PackEntry{ID: "github.com/acme/pack", Path: "/h/.dotai/packs/github.com/acme/pack", Name: "acme-pack", Version: "0.1.0",
+		Source: &app.PackSource{URL: "https://github.com/acme/pack", Ref: "latest", FullRef: "refs/tags/v0.1.0", Commit: strings.Repeat("c", 40)}}
+}
+
+func TestPackListShowsWhatALatestPackFollows(t *testing.T) {
+	packHome(t)
+	var stdout, stderr bytes.Buffer
+	var c packCalls
+	env := packEnv(&stdout, &stderr, &c, nil)
+	env.ListPacks = func(string) (app.PackList, error) {
+		return app.PackList{Path: "/h/.dotai/packs.json", Packs: []app.PackEntry{latestPack()}}, nil
+	}
+	if code := cli.Run([]string{"pack", "list"}, env); code != cli.ExitOK {
+		t.Fatalf("exit = %d; stderr %s", code, &stderr)
+	}
+	if !strings.Contains(stdout.String(), "latest → v0.1.0") {
+		t.Errorf("stdout = %q, want latest → v0.1.0", &stdout)
+	}
+	stdout.Reset()
+	if code := cli.Run([]string{"pack", "list", "--json"}, env); code != cli.ExitOK {
+		t.Fatalf("exit = %d; stderr %s", code, &stderr)
+	}
+	pack := envelopeOf(t, &stdout)["data"].(map[string]any)["packs"].([]any)[0].(map[string]any)
+	src := pack["source"].(map[string]any)
+	if src["ref"] != "latest" || src["fullRef"] != "refs/tags/v0.1.0" || src["commit"] != strings.Repeat("c", 40) {
+		t.Errorf("source = %v, want ref latest at refs/tags/v0.1.0", src)
+	}
+}
+
+func TestPackListOfAPackWithAnExplicitRefShowsNoTracking(t *testing.T) {
+	packHome(t)
+	var stdout, stderr bytes.Buffer
+	var c packCalls
+	if code := cli.Run([]string{"pack", "list"}, packEnv(&stdout, &stderr, &c, nil)); code != cli.ExitOK {
+		t.Fatalf("exit = %d; stderr %s", code, &stderr)
+	}
+	if strings.Contains(stdout.String(), "latest") {
+		t.Errorf("stdout = %q, want no tracking for the default branch", &stdout)
+	}
+}
+
+func TestPackAddAndUpdateSayWhatALatestPackFollows(t *testing.T) {
+	packHome(t)
+	for outcome, want := range map[string]string{
+		app.PackUnchanged: "already on the latest release",
+		app.PackUpdated:   "latest → v0.1.0",
+	} {
+		var stdout, stderr bytes.Buffer
+		var c packCalls
+		env := packEnv(&stdout, &stderr, &c, nil)
+		env.UpdatePack = func(context.Context, string, string, app.PackGitOptions) (app.PackAddResult, error) {
+			return app.PackAddResult{Pack: latestPack(), Outcome: outcome, Warnings: []app.PackWarning{}}, nil
+		}
+		if code := cli.Run([]string{"pack", "update", "github.com/acme/pack", "--yes"}, env); code != cli.ExitOK {
+			t.Fatalf("%s: exit = %d; stderr %s", outcome, code, &stderr)
+		}
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("%s: stdout = %q, want %q", outcome, &stdout, want)
+		}
+	}
+}
+
+func TestPackAddPassesRefLatestThrough(t *testing.T) {
+	packHome(t)
+	var stdout, stderr bytes.Buffer
+	var c packCalls
+	if code := cli.Run([]string{"pack", "add", "https://github.com/acme/pack", "--ref", "latest"}, packEnv(&stdout, &stderr, &c, nil)); code != cli.ExitOK {
+		t.Fatalf("exit = %d; stderr %s", code, &stderr)
+	}
+	if c.opts.Ref != "latest" {
+		t.Errorf("ref = %q, want latest", c.opts.Ref)
 	}
 }

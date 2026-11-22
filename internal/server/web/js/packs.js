@@ -8,7 +8,7 @@
 
 import { actions, boardHead, closeMenu, failure, h, hint, icon, kv, lm, loading, menu, mount, notice, sec, settle, submitGuard, tech, warning } from "./dom.js";
 import { diagnostics, packWarnings, sourceLine } from "./packreview.js";
-import { shortCommit, visible } from "./packsource.js";
+import { shortCommit, trackingLabel, visible } from "./packsource.js";
 import { fmtDate, lower, t } from "./i18n.js";
 import { act, harnessName, installed, isAbsolute, isInstalled, loadOutline, loadPack, registry, selectPack, selectedPack, setRegistry, shared, tilde } from "./store.js";
 
@@ -205,7 +205,7 @@ function origin(entry) {
     h("dt", { text: t("packs.identity") }), h("dd", { class: "mono", text: visible(entry.id || "—") }),
     src ? [
       h("dt", { text: t("packs.repository") }), h("dd", { class: "mono", text: visible(src.url) }),
-      h("dt", { text: t("packs.ref") }), h("dd", { class: "mono", text: visible(src.fullRef || src.ref) }),
+      h("dt", { text: t("packs.ref") }), h("dd", { class: "mono", text: visible(trackingLabel(src) || src.fullRef || src.ref) }),
       h("dt", { text: t("packs.commit") }), h("dd", { class: "mono", title: src.commit, text: shortCommit(src.commit) }),
     ] : [h("dt", { text: t("packs.source") }), h("dd", { text: t("packs.localSource") })]);
 }

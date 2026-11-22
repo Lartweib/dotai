@@ -63,6 +63,9 @@ const (
 	// A full commit SHA the remote does not serve, with no fallback to a
 	// full clone (decision 0044).
 	CodeFetchByCommit = "fetch-by-commit-refused"
+	// --ref latest on a repository with no release tag, a tag of the form
+	// vX.Y.Z (decision 0054): nothing was fetched or registered.
+	CodeNoReleaseTag = "no-release-tag"
 	// A commit whose tree holds a link, a submodule or a .git path, or more
 	// than a copy of a pack takes; nothing was checked out or registered.
 	CodeTreeRefused = "pack-tree-refused"
@@ -74,7 +77,7 @@ const (
 var Codes = []string{
 	CodeUsage, CodeInternal, CodeInvalid, CodeConsent, CodeRefused, CodeRunning, CodeHarnessRefused,
 	CodeProjectRefused, CodeApplyRefused, CodeRecordInvalid, CodeCopyRefused, CodeNewRefused, CodeRegistryInvalid,
-	CodePackNameTaken, CodeHostUnsupported, CodeGitMissing, CodeGitTooOld, CodeFetchFailed, CodeFetchByCommit, CodeTreeRefused,
+	CodePackNameTaken, CodeHostUnsupported, CodeGitMissing, CodeGitTooOld, CodeFetchFailed, CodeFetchByCommit, CodeNoReleaseTag, CodeTreeRefused,
 }
 
 // Envelope is the single JSON document a command prints with --json.

@@ -38,8 +38,9 @@ func newPackAddCmd(env Env, jsonOut *bool) *cobra.Command {
 		Use:   "add <github-url> [--ref <ref>] | add --dir <path>",
 		Short: "Add a pack from a GitHub repository or a local directory",
 		Long: "Fetch the pack at <github-url>, https://github.com/<owner>/<repo>, ssh://git@github.com/<owner>/<repo> or\n" +
-			"git@github.com:<owner>/<repo>, at --ref, a tag, a branch or a full commit SHA (default: the default branch), into\n" +
-			"~/.dotai/packs/<identity>. Its hooks, attributes and submodules never run; a link, a submodule, a .git path or\n" +
+			"git@github.com:<owner>/<repo>, at --ref, a tag, a branch, a full commit SHA or latest (default: the default branch),\n" +
+			"into ~/.dotai/packs/<identity>. --ref latest follows the highest release tag vX.Y.Z, with no pre-release, which dotai\n" +
+			"pack update moves forward; with no such tag it is refused. Its hooks, attributes and submodules never run; a link, a submodule, a .git path or\n" +
 			"more than 10000 files or 64 MiB is refused; then it is validated as by dotai validate. Nothing is registered\n" +
 			"unless every check passes. A branch can move: the pack stays at its commit until dotai pack update.\n" +
 			"Adding a pack of the same identity again, from any form of its URL, is an update, as dotai pack update, to\n" +
@@ -57,7 +58,7 @@ func newPackAddCmd(env Env, jsonOut *bool) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&ref, "ref", "", "tag, branch or full commit SHA to fetch (default: the default branch)")
+	cmd.Flags().StringVar(&ref, "ref", "", "tag, branch, full commit SHA or latest, the highest release tag vX.Y.Z (default: the default branch)")
 	cmd.Flags().StringVar(&dir, "dir", "", "add the pack in this local directory instead")
 	cmd.Flags().BoolVar(&yes, "yes", false, "update a pack already added without asking")
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
@@ -98,7 +99,8 @@ func newPackUpdateCmd(env Env, jsonOut *bool) *cobra.Command {
 		Long: "Fetch the ref recorded for the git pack <identity> again, by its full name, check and validate it as dotai pack\n" +
 			"add does, and show what changed in executable content: every layer's .rulesync/hooks.jsonc, .rulesync/mcp.jsonc\n" +
 			"and dotai/settings.yaml, dotai/tools/ and mods/. Once you confirm, or with --yes, the new clone replaces the old\n" +
-			"one, which is put back on any failure. With --json and without --yes, a move to another commit fails with\n" +
+			"one, which is put back on any failure. A pack added with --ref latest looks for its highest release tag again: it\n" +
+			"moves to it when it is newer, or reports that it is already on the latest release. With --json and without --yes, a move to another commit fails with\n" +
 			"consent-required and the plan. An unreachable remote leaves the pack as it was. Installs and projects change only\n" +
 			"when dotai install or dotai apply runs again.",
 		Args: cobra.ExactArgs(1),
@@ -199,6 +201,12 @@ func writePackResult(env Env, cmd *cobra.Command, jsonOut bool, res app.PackAddR
 	fmt.Fprintf(&b, "%s %s (%s %s)\npath:   %s\n", res.Outcome, termSafe(p.ID), termSafe(cmp.Or(p.Name, "?")), termSafe(cmp.Or(p.Version, "?")), termSafe(p.Path))
 	if s := p.Source; s != nil {
 		fmt.Fprintf(&b, "source: %s\ncommit: %s (%s)\n", termSafe(s.URL), termSafe(s.Commit), termSafe(s.FullRef))
+		if tracking := s.Tracking(); tracking != "" {
+			if res.Outcome == app.PackUnchanged {
+				tracking += ", already on the latest release"
+			}
+			fmt.Fprintf(&b, "tracks: %s\n", termSafe(tracking))
+		}
 	}
 	if _, err := io.WriteString(env.Stdout, b.String()); err != nil {
 		return err
@@ -274,6 +282,9 @@ func newPackListCmd(env Env, jsonOut *bool) *cobra.Command {
 				fmt.Fprintf(&b, "%s  %s %s\n  %s\n", termSafe(cmp.Or(e.ID, "?")), termSafe(cmp.Or(e.Name, "?")), termSafe(e.Version), termSafe(e.Path))
 				if s := e.Source; s != nil {
 					fmt.Fprintf(&b, "  %s at %s (%s)\n", termSafe(s.URL), termSafe(s.Commit), termSafe(s.FullRef))
+					if tracking := s.Tracking(); tracking != "" {
+						fmt.Fprintf(&b, "  tracks %s\n", termSafe(tracking))
+					}
 				}
 				if e.Error != "" {
 					fmt.Fprintf(&b, "  error: %s\n", termSafe(e.Error))

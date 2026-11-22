@@ -7,7 +7,7 @@
 
 import { actions, busy, failure, h, icon, mount, notice, warning } from "./dom.js";
 import { t } from "./i18n.js";
-import { diffLines, failureKind, modeChanged, planNotes, shortCommit, shortDigest, tally, visible } from "./packsource.js";
+import { diffLines, failureKind, modeChanged, planNotes, refLabel, shortCommit, shortDigest, tally, visible } from "./packsource.js";
 import { tilde } from "./store.js";
 
 // backLink leads back to the Packs board.
@@ -21,7 +21,7 @@ export function sourceLine(entry) {
   const s = entry.source;
   return h("span", { class: "srcline" },
     h("span", { class: "mono id", text: visible(entry.id || tilde(entry.path)) }),
-    s ? h("span", { class: "mono ref", text: visible(s.ref || s.fullRef) + " · " + shortCommit(s.commit) }) : null);
+    s ? h("span", { class: "mono ref", text: visible(refLabel(s)) + " · " + shortCommit(s.commit) }) : null);
 }
 
 // diagnostics lists what validate reported, each at its file and line.
