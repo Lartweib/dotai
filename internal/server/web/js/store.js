@@ -55,7 +55,22 @@ export async function act(path, body) {
   if (res.error && (res.error.code === "network" || res.error.code === "bad-response")) {
     res.error.maybeRan = true;
   }
+  if (res.ok) {
+    // An action may have rewritten a pack in place: what was read of it
+    // is stale, whichever field names it.
+    const b = body || {};
+    for (const p of [b.path, b.pack, b.from, b.to, res.data && res.data.pack && res.data.pack.path]) {
+      if (typeof p === "string") invalidatePack(p);
+    }
+  }
   return res;
+}
+
+// invalidatePack drops what was read of the pack at path, its manifest and
+// its outline, so the next render reads it again.
+export function invalidatePack(path) {
+  shared.packs.delete(path);
+  shared.packs.delete("outline:" + path);
 }
 
 function read(key, fallback) {
