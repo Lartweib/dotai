@@ -12,6 +12,7 @@ import (
 	"github.com/lartweib/dotai/internal/app"
 	"github.com/lartweib/dotai/internal/cli"
 	"github.com/lartweib/dotai/internal/envelope"
+	"github.com/lartweib/dotai/internal/harness"
 )
 
 // newEnv runs the real use cases of dotai pack new.
@@ -82,6 +83,9 @@ func TestRunPackNewFromFlagsWritesAndAddsThePack(t *testing.T) {
 // (decision 0047): without --harness, the pack is compatible with every
 // supported harness, and --require lists the ones it requires.
 func TestRunPackNewHarnessFlags(t *testing.T) {
+	// No shipped harness is a preview (decision 0047, update 2026-11-22):
+	// OpenCode stands in for one, restored afterwards.
+	t.Cleanup(harness.PreviewForTest("opencode", "its hooks plugin is not checked on a real install"))
 	packHome(t)
 	dir := filepath.Join(t.TempDir(), "my-pack")
 	var stdout, stderr bytes.Buffer

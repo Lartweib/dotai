@@ -6,7 +6,7 @@ engine: ">=0.1.0"
 rulesync: 43.12.0
 # The harnesses the pack is compatible with, by their rulesync target
 # names: an install manages those that are installed, and the user may
-# pick fewer. A preview harness, such as opencode, is managed only when
+# pick fewer. A preview harness, if dotai has one, is managed only when
 # the user chooses it, or the previous install of the pack managed it.
 harnesses: [claudecode, antigravity-cli, opencode]
 # The harnesses of harnesses the pack cannot do without: an install

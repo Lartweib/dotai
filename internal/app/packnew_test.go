@@ -25,6 +25,7 @@ var newPackInput = app.PackNewInput{
 // compatible with every supported harness and no preview one; a required
 // harness that is not compatible is invalid.
 func TestPlanPackNewAsksCompatibleAndRequiredHarnesses(t *testing.T) {
+	previewOpenCode(t)
 	home := t.TempDir()
 	in := newPackInput
 	in.Requires = []string{"claudecode"}

@@ -386,10 +386,11 @@ func TestAdapterData(t *testing.T) {
 	}
 }
 
-// TestStatus checks each harness's status (decision 0047): OpenCode is a
-// preview harness, with the reason, and the others are supported.
+// TestStatus checks each harness's status (decision 0047): all three are
+// supported, OpenCode since a live session confirmed its sessionStart
+// output (0047, update 2026-11-22), and a preview one needs a reason.
 func TestStatus(t *testing.T) {
-	want := map[string]harness.Status{"claudecode": harness.Supported, "antigravity-cli": harness.Supported, "opencode": harness.Preview}
+	want := map[string]harness.Status{"claudecode": harness.Supported, "antigravity-cli": harness.Supported, "opencode": harness.Supported}
 	for _, a := range harness.All() {
 		// Every adapter states its status: a missing one is no default.
 		if a.Status != harness.Supported && a.Status != harness.Preview {
@@ -401,20 +402,6 @@ func TestStatus(t *testing.T) {
 		if (a.Status == harness.Preview) != (a.StatusReason != "") {
 			t.Errorf("%s: status %q with reason %q, want a reason for a preview harness only", a.ID, a.Status, a.StatusReason)
 		}
-	}
-	oc, err := harness.Lookup([]string{"opencode"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	// rulesync 43.10.0 fixed the hooks that read stdin and the missing
-	// timeouts, and 43.12.0 passes the sessionStart output to the model;
-	// what remains is that no live OpenCode session has confirmed it.
-	r := oc[0].StatusReason
-	if !strings.Contains(r, "sessionStart") || !strings.Contains(r, "model") || !strings.Contains(r, "no live OpenCode session") {
-		t.Errorf("OpenCode's reason %q, want the sessionStart output to the model and the missing live confirmation named", r)
-	}
-	if strings.Contains(r, "stdin") || strings.Contains(r, "timeout") {
-		t.Errorf("OpenCode's reason %q still names the stdin hang or the hook timeouts, which rulesync 43.10.0 fixed", r)
 	}
 }
 

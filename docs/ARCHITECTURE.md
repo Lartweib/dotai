@@ -10,7 +10,7 @@ This document is a map, not an atlas. The why lives in the [decision records](de
 
 ## 1. What it is
 
-`dotai` is a Go binary that renders a single configuration source (rules, agents, skills, hooks, MCP servers, settings, profiles) to Claude Code, agy (Google Antigravity CLI) and OpenCode. OpenCode support is a preview: the pinned rulesync, 43.12.0, generates an OpenCode hooks plugin that passes a `sessionStart` hook's output to the model through a context hook of OpenCode 2.x ([dyoshikawa/rulesync#3926](https://github.com/dyoshikawa/rulesync/pull/3926), [#3932](https://github.com/dyoshikawa/rulesync/pull/3932)), by its code, but no live OpenCode session has confirmed it yet ([HARNESS-NOTES](HARNESS-NOTES.md#rulesync-43120)). Since 43.10.0 its hooks no longer read the plugin's stdin and hook timeouts are enforced ([HARNESS-NOTES](HARNESS-NOTES.md#rulesync-43100)). Everything opinionated (policies, modules, workflows) comes from a pack; the engine contains nothing personal ([0010](decisions/0010-engine-and-pack-separated.md)). Controlled token consumption is a central goal: every always-on piece should justify its cost ([0007](decisions/0007-always-on-context-budget.md), proposed).
+`dotai` is a Go binary that renders a single configuration source (rules, agents, skills, hooks, MCP servers, settings, profiles) to Claude Code, agy (Google Antigravity CLI) and OpenCode. OpenCode is supported: the pinned rulesync, 43.12.0, generates an OpenCode hooks plugin that passes a `sessionStart` hook's output to the model ([dyoshikawa/rulesync#3926](https://github.com/dyoshikawa/rulesync/pull/3926), [#3932](https://github.com/dyoshikawa/rulesync/pull/3932)), and a live `opencode run` on OpenCode 2.3.2 confirmed it ([HARNESS-NOTES](HARNESS-NOTES.md#rulesync-43120), [0047](decisions/0047-harness-selection-and-preview-harnesses.md)). Since 43.10.0 its hooks no longer read the plugin's stdin and hook timeouts are enforced ([HARNESS-NOTES](HARNESS-NOTES.md#rulesync-43100)). Everything opinionated (policies, modules, workflows) comes from a pack; the engine contains nothing personal ([0010](decisions/0010-engine-and-pack-separated.md)). Controlled token consumption is a central goal: every always-on piece should justify its cost ([0007](decisions/0007-always-on-context-budget.md), proposed).
 
 ## 2. Overview
 
@@ -39,7 +39,7 @@ flowchart TB
   subgraph HARNESS["Target harnesses"]
     CC["Claude Code"]
     AGY["agy"]
-    OC["OpenCode (preview)"]
+    OC["OpenCode"]
   end
 
   DOTAI -- "install, apply" --> CC
@@ -172,7 +172,7 @@ dotai does not control these surfaces: it uses them and can break if they change
 | **rulesync** | Pinned binary that renders rules, commands, subagents, skills, MCP, hooks and permissions into staging; per-target frontmatter blocks; strips the `dotai:` block | [0021](decisions/0021-go-engine-orchestrates-rulesync.md), [0029](decisions/0029-rulesync-checksums-embedded-in-the-engine.md). Version pinned per pack in `dotai.yaml` ([0022](decisions/0022-pack-format-and-manifest.md)) |
 | **Claude Code** | `CLAUDE.md`, loose skills, commands, agents and hooks, mods as plugins, `settings.json` keys (`permissions`, `env`, `statusLine`, hooks), MCP servers in `.claude.json`; `CLAUDE_CONFIG_DIR` for isolation | [0012](decisions/0012-rules-file-per-harness.md), [0013](decisions/0013-renderer-merges-by-key.md), [0025](decisions/0025-settings-as-per-harness-passthrough.md), [0027](decisions/0027-loose-files-and-plugins-only-for-mods.md) |
 | **agy** | `AGENTS.md`, `.agents/rules/`, skills, MCP configuration, hooks, user settings; the `--gemini_dir` flag for isolation | [0012](decisions/0012-rules-file-per-harness.md), [0025](decisions/0025-settings-as-per-harness-passthrough.md), [0031](decisions/0031-isolated-install-root.md) |
-| **OpenCode** (preview) | `AGENTS.md`, agents, commands, skills, MCP and settings in `opencode.jsonc`; the `XDG_*` directories for isolation | [0019](decisions/0019-v1-harness-targets.md), [0018](decisions/0018-install-modes-and-mandatory-backup.md). Preview until rulesync's generated OpenCode hooks plugin is fixed upstream |
+| **OpenCode** | `AGENTS.md`, agents, commands, skills, MCP and settings in `opencode.jsonc`; the `XDG_*` directories for isolation | [0019](decisions/0019-v1-harness-targets.md), [0018](decisions/0018-install-modes-and-mandatory-backup.md). Supported since rulesync 43.12.0 passes a `sessionStart` hook's output to the model, checked in a live session ([HARNESS-NOTES](HARNESS-NOTES.md#rulesync-43120)) |
 | **git** | The user's git, 2.41 or later, to fetch git packs and to ask which project files are tracked | [0041](decisions/0041-project-scope-local-and-untracked.md), [0044](decisions/0044-git-pack-distribution.md) |
 
 ## Maintenance

@@ -525,6 +525,7 @@ func TestOSGitWithoutGit(t *testing.T) {
 // that requires it is refused with harness-refused, whose message points
 // at dotai install --harness, since apply takes no --harness.
 func TestPlanProjectFollowsTheInstallsChoiceOfAPreviewHarness(t *testing.T) {
+	previewOpenCode(t)
 	project, home, _ := projectDirs(t)
 	p, err := planProject(t, &fakeGit{}, examplePack, project, home)
 	if err != nil || len(p.Diagnostics) != 0 {
@@ -585,6 +586,7 @@ func TestPlanProjectFollowsTheInstallsChoiceOfAPreviewHarness(t *testing.T) {
 // pack is not compatible with comes after the compatible ones, never
 // managed, with its detection. harnesses still names those planned.
 func TestPlanProjectListsEveryHarnessWithItsState(t *testing.T) {
+	previewOpenCode(t)
 	type st struct {
 		id                                      string
 		compatible, required, detected, managed bool
