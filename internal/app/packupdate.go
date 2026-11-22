@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 )
 
 // WarnCloneMissing is an update of a pack whose clone was gone, which it
@@ -60,7 +61,7 @@ func UpdatePack(ctx context.Context, home, id string, opts PackGitOptions) (Pack
 		return PackAddResult{}, err
 	}
 	defer done()
-	return updatePack(ctx, g, home, entry, GitSource{URL: entry.Source.URL, ID: entry.ID}, entry.Source.Ref, opts)
+	return updatePack(ctx, g, home, entry, GitSource{URL: entry.Source.URL, ID: entry.ID}, entry.Source.Ref, false, opts)
 }
 
 // PlanPackUpdate is the plan of UpdatePack, which it fetches and checks
@@ -80,7 +81,7 @@ func PlanPackUpdate(ctx context.Context, home, id string, opts PackGitOptions) (
 		return PackUpdatePlan{}, nil, err
 	}
 	defer done()
-	p, f, err := planUpdate(ctx, g, home, entry, GitSource{URL: entry.Source.URL, ID: entry.ID}, entry.Source.Ref)
+	p, f, err := planUpdate(ctx, g, home, entry, GitSource{URL: entry.Source.URL, ID: entry.ID}, entry.Source.Ref, false)
 	if err != nil {
 		return PackUpdatePlan{}, nil, err
 	}
@@ -114,14 +115,19 @@ func gitEntry(home, id string) (packsItem, error) {
 // planUpdate fetches ref of src ("" for the default branch) for the
 // registered entry with g, and plans the update against the clone, or
 // against nothing when the clone is gone. The fetch is left for the caller
-// to place or clean up.
-func planUpdate(ctx context.Context, g packGit, home string, entry packsItem, src GitSource, ref string) (PackUpdatePlan, fetched, error) {
+// to place or clean up. explicit says the user gave ref, as dotai pack add
+// --ref does, rather than the update reusing the recorded one.
+func planUpdate(ctx context.Context, g packGit, home string, entry packsItem, src GitSource, ref string, explicit bool) (PackUpdatePlan, fetched, error) {
 	// The recorded ref is fetched by its full name, as it was resolved
 	// when the pack was added: a tag that wins over a branch of the same
-	// name, or the default branch of then. A pack that follows its latest
-	// release resolves that again, to the release that is the latest now.
+	// name, or the default branch of then. latest is resolved again, to the
+	// release that is the latest now, when the user gives it or the pack
+	// follows it; a latest recorded as a branch or a tag before it meant a
+	// release stays that one until the user gives latest again.
 	fetchRef := ref
-	if ref == entry.Source.Ref && !entry.Source.TracksLatest() {
+	switch {
+	case ref == LatestRef && (explicit || entry.Source.TracksLatest()):
+	case ref == entry.Source.Ref:
 		fetchRef = entry.Source.FullRef
 	}
 	f, err := fetchChecked(ctx, g, home, src, fetchRef)
@@ -129,6 +135,12 @@ func planUpdate(ctx context.Context, g packGit, home string, entry packsItem, sr
 		return PackUpdatePlan{}, fetched{}, err
 	}
 	to := PackSource{URL: src.URL, Ref: ref, FullRef: f.fullRef, Commit: f.commit}
+	// A pack that follows latest never goes down by itself: the release it
+	// follows was deleted or its tag was lowered, which the user decides.
+	if entry.Source.TracksLatest() && to.TracksLatest() && lowerRelease(to.FullRef, entry.Source.FullRef) {
+		return PackUpdatePlan{}, fetched{}, errors.Join(&LatestDowngradeError{ID: entry.ID,
+			From: strings.TrimPrefix(entry.Source.FullRef, "refs/tags/"), To: strings.TrimPrefix(to.FullRef, "refs/tags/")}, removeFetch(f.dir))
+	}
 	old, oldModes := entry.Path, map[string]string{}
 	_, statErr := os.Stat(entry.Path)
 	missing := errors.Is(statErr, os.ErrNotExist)
@@ -151,8 +163,8 @@ func planUpdate(ctx context.Context, g packGit, home string, entry packsItem, sr
 // Confirm sees the plan first; a plan that moves the pack to another
 // commit needs Consent; one at the same commit only records the source,
 // unless the clone is gone, when it is placed again.
-func updatePack(ctx context.Context, g packGit, home string, entry packsItem, src GitSource, ref string, opts PackGitOptions) (res PackAddResult, err error) {
-	p, f, err := planUpdate(ctx, g, home, entry, src, ref)
+func updatePack(ctx context.Context, g packGit, home string, entry packsItem, src GitSource, ref string, explicit bool, opts PackGitOptions) (res PackAddResult, err error) {
+	p, f, err := planUpdate(ctx, g, home, entry, src, ref, explicit)
 	if err != nil {
 		return PackAddResult{}, err
 	}

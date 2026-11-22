@@ -229,6 +229,14 @@ func (s PackSource) Tracking() string {
 	return LatestRef + " → " + strings.TrimPrefix(s.FullRef, "refs/tags/")
 }
 
+// lowerRelease reports whether the full names of two release tags order
+// a below b, by their versions.
+func lowerRelease(a, b string) bool {
+	av, aok := releaseVersion(a)
+	bv, bok := releaseVersion(b)
+	return aok && bok && compareVersion(av, bv) < 0
+}
+
 // localID is the identity of the local pack named name.
 func localID(name string) string { return localPrefix + name }
 

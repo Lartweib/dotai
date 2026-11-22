@@ -66,6 +66,10 @@ const (
 	// --ref latest on a repository with no release tag, a tag of the form
 	// vX.Y.Z (decision 0054): nothing was fetched or registered.
 	CodeNoReleaseTag = "no-release-tag"
+	// An update of a pack that follows latest whose highest release tag is
+	// now below the installed one: it stays as it was, and --ref goes down
+	// on purpose (decision 0054).
+	CodeLatestDowngrade = "latest-downgrade"
 	// A commit whose tree holds a link, a submodule or a .git path, or more
 	// than a copy of a pack takes; nothing was checked out or registered.
 	CodeTreeRefused = "pack-tree-refused"
@@ -77,7 +81,7 @@ const (
 var Codes = []string{
 	CodeUsage, CodeInternal, CodeInvalid, CodeConsent, CodeRefused, CodeRunning, CodeHarnessRefused,
 	CodeProjectRefused, CodeApplyRefused, CodeRecordInvalid, CodeCopyRefused, CodeNewRefused, CodeRegistryInvalid,
-	CodePackNameTaken, CodeHostUnsupported, CodeGitMissing, CodeGitTooOld, CodeFetchFailed, CodeFetchByCommit, CodeNoReleaseTag, CodeTreeRefused,
+	CodePackNameTaken, CodeHostUnsupported, CodeGitMissing, CodeGitTooOld, CodeFetchFailed, CodeFetchByCommit, CodeNoReleaseTag, CodeLatestDowngrade, CodeTreeRefused,
 }
 
 // Envelope is the single JSON document a command prints with --json.

@@ -29,6 +29,7 @@ func TestEveryCodeHasItsIntendedStatus(t *testing.T) {
 		envelope.CodeFetchFailed:     http.StatusBadGateway,
 		envelope.CodeFetchByCommit:   http.StatusConflict,
 		envelope.CodeNoReleaseTag:    http.StatusConflict,
+		envelope.CodeLatestDowngrade: http.StatusConflict,
 		envelope.CodeTreeRefused:     http.StatusConflict,
 		CodeUnauthorized:             http.StatusUnauthorized,
 		CodeForbidden:                http.StatusForbidden,

@@ -138,8 +138,17 @@ func packConsent(ctx context.Context, env Env, jsonOut, yes bool, asked *bool) f
 		if err := writeUpdatePlan(env.Stdout, p); err != nil {
 			return false, err
 		}
-		return env.Prompt(ctx, fmt.Sprintf("Update %s from %s to %s, with the changes above? [y/N] ", termSafe(p.ID), termSafe(app.ShortCommit(p.From.Commit)), termSafe(app.ShortCommit(p.To.Commit))))
+		return env.Prompt(ctx, fmt.Sprintf("Update %s from %s to %s, with the changes above? [y/N] ", termSafe(p.ID), termSafe(revision(p.From)), termSafe(revision(p.To))))
 	}
+}
+
+// revision is where a source is, for people: its tag and its short commit,
+// v1.3.0 (0123456789ab), or just the short commit when it is not a tag.
+func revision(s app.PackSource) string {
+	if tag, ok := strings.CutPrefix(s.FullRef, "refs/tags/"); ok {
+		return tag + " (" + app.ShortCommit(s.Commit) + ")"
+	}
+	return app.ShortCommit(s.Commit)
 }
 
 // packUpdateFailed is err of an addition or an update: one the user

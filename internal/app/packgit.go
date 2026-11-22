@@ -197,10 +197,18 @@ func (g packGit) fetchPack(ctx context.Context, dir, url, ref string) (PackFetch
 		if ge, ok := errors.AsType[*gitError](err); ok && fullSHA(want) && commitRefused.MatchString(ge.stderr) {
 			return PackFetch{}, &FetchByCommitRefusedError{URL: url, Commit: want, Stderr: ge.stderr}
 		}
+		if ref == LatestRef {
+			// The release tag latest resolved to, which the user can look at.
+			ref = want
+		}
 		return PackFetch{}, fetchFailed(url, ref, err)
 	}
 	out, err := g.run(ctx, gitTimeout, dir, nil, "rev-parse", "FETCH_HEAD^{commit}")
 	if err != nil {
+		// A tag of a blob or a tree, which a pack cannot be: no commit to peel it to.
+		if ge, ok := errors.AsType[*gitError](err); ok {
+			return PackFetch{}, &FetchFailedError{URL: url, Ref: want, Err: errors.New("it does not point to a commit"), Stderr: ge.stderr}
+		}
 		return PackFetch{}, err
 	}
 	commit := strings.TrimSpace(string(out))
@@ -341,20 +349,29 @@ func latestReleaseTag(out string) (string, bool) {
 		if !ok {
 			continue
 		}
-		tag, ok := strings.CutPrefix(name, "refs/tags/")
+		nums, ok := releaseVersion(name)
 		if !ok {
 			continue
 		}
-		m := releaseTag.FindStringSubmatch(tag)
-		if m == nil {
-			continue
-		}
-		nums := [3]string{m[1], m[2], m[3]}
 		if best == "" || compareVersion(nums, bestNums) > 0 {
 			best, bestNums = name, nums
 		}
 	}
 	return best, best != ""
+}
+
+// releaseVersion is the numbers of the release tag with the full name
+// fullRef, and false when it is not one.
+func releaseVersion(fullRef string) ([3]string, bool) {
+	tag, ok := strings.CutPrefix(fullRef, "refs/tags/")
+	if !ok {
+		return [3]string{}, false
+	}
+	m := releaseTag.FindStringSubmatch(tag)
+	if m == nil {
+		return [3]string{}, false
+	}
+	return [3]string{m[1], m[2], m[3]}, true
 }
 
 // compareVersion orders two versions whose numbers have no leading zero,

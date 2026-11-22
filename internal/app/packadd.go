@@ -81,7 +81,7 @@ func AddGitPack(ctx context.Context, home, rawURL string, opts PackGitOptions) (
 		if ref == "" {
 			ref = entry.Source.Ref
 		}
-		return updatePack(ctx, g, home, entry, src, ref, opts)
+		return updatePack(ctx, g, home, entry, src, ref, opts.Ref != "", opts)
 	}
 	f, err := fetchChecked(ctx, g, home, src, opts.Ref)
 	if err != nil {
