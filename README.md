@@ -194,7 +194,7 @@ go install github.com/lartweib/dotai/cmd/dotai@latest
 
 ## Quickstart
 
-Create a pack, check it, see what an install would do, install it isolated, launch a harness against it, and open the UI. The example uses Claude Code; use the harness you have instead (`claudecode` or `antigravity-cli`, or `opencode` as a preview), which must already be installed. The first install downloads the pinned rulesync once and verifies its checksum.
+Create a pack, check it, see what an install would do, install it isolated, launch a harness against it, and open the UI. The example uses Claude Code; use the harness you have instead (`claudecode`, `antigravity-cli` or `opencode`), which must already be installed. The first install downloads the pinned rulesync once and verifies its checksum.
 
 ```sh
 dotai pack new my-pack --name my-pack --harness claudecode --profile web:"Web projects"
