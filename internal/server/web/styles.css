@@ -662,12 +662,18 @@ form.well { gap: 12px; }
 @container (min-width: 1280px) {
   .listpane ~ .detail:has(> .col.intro + .col:not(.intro, .form)),
   .detail.solo:has(> .col.intro + .col:not(.intro, .form)) { display: grid; grid-template-columns: minmax(17rem, 24rem) minmax(0, 1fr); column-gap: 56px; align-items: start; }
-  .detail:has(> .col.intro + .col:not(.intro, .form)) > .col.intro { grid-column: 1; padding-bottom: 0; }
-  @media (min-height: 800px) { .detail:has(> .col.intro + .col:not(.intro, .form)) > .col.intro { position: sticky; top: 84px; } }
+  .listpane ~ .detail:has(> .col.intro + .col:not(.intro, .form)) > .col.intro,
+  .detail.solo:has(> .col.intro + .col:not(.intro, .form)) > .col.intro { grid-column: 1; padding-bottom: 0; }
+  @media (min-height: 800px) {
+    .listpane ~ .detail:has(> .col.intro + .col:not(.intro, .form)) > .col.intro,
+    .detail.solo:has(> .col.intro + .col:not(.intro, .form)) > .col.intro { position: sticky; top: 84px; }
+  }
   .listpane ~ .detail:has(> .col.intro + .col:not(.intro, .form)) > .col:not(.intro),
   .detail.solo:has(> .col.intro + .col:not(.intro, .form)) > .col:not(.intro) { grid-column: 2; max-width: none; margin-top: 0; }
-  .detail:has(> .col.intro + .col:not(.intro, .form)) > .col:not(.intro) > :first-child.sec,
-  .detail:has(> .col.intro + .col:not(.intro, .form)) > .col:not(.intro) > .lanes:first-child > .sec:first-child { padding-top: 0; box-shadow: none; }
+  .listpane ~ .detail:has(> .col.intro + .col:not(.intro, .form)) > .col:not(.intro) > :first-child.sec,
+  .detail.solo:has(> .col.intro + .col:not(.intro, .form)) > .col:not(.intro) > :first-child.sec,
+  .listpane ~ .detail:has(> .col.intro + .col:not(.intro, .form)) > .col:not(.intro) > .lanes:first-child > .sec:first-child,
+  .detail.solo:has(> .col.intro + .col:not(.intro, .form)) > .col:not(.intro) > .lanes:first-child > .sec:first-child { padding-top: 0; box-shadow: none; }
 }
 @container (min-width: 1000px) {
   .detail.solo > .col.wide:only-child:not(.intro) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 64px; align-items: start; max-width: none; }
