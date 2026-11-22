@@ -1,0 +1,35 @@
+name: commits
+
+# Holds the pull request title and every commit to conventional commits (and 72 characters).
+# The check is named `commits`: the owner adds it to the required checks of the `main` ruleset.
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+  # release-please.yml runs it on the release pull request's branch: a pull request that Actions
+  # opens with GITHUB_TOKEN starts no pull_request run, and a required check would never appear.
+  # The check run attaches to the branch head, like ci.yml's.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  commits:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - name: Test the check
+        run: node --test scripts/tests/check-commits.test.mjs
+      - name: Check the commit messages and the pull request title
+        env:
+          # On a dispatch run (no pull request): the branch's commits since main, and no title.
+          BASE: ${{ github.event.pull_request.base.sha || 'origin/main' }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          TITLE: ${{ github.event.pull_request.title }}
+        run: node .github/scripts/check-commits.mjs "$BASE" "$HEAD" "$TITLE"

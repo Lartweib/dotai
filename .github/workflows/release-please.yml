@@ -15,7 +15,7 @@ name: release-please
 # - A release creates its tag with no `push: tags` event: the tag is dispatched to release.yml
 #   with `gh workflow run --ref <tag>`. Because the tag push never fires, a release runs it once.
 # - The release pull request opens with no pull_request event, so the required checks would never
-#   run on it: ci.yml is dispatched on its branch, and the checks attach to its head.
+#   run on it: ci.yml and commits.yml are dispatched on its branch, and the checks attach to its head.
 on:
   push:
     branches: [main]
@@ -65,4 +65,5 @@ jobs:
         run: |
           branch="$(jq -r '.headBranchName' <<< "$PR")"
           gh workflow run ci.yml --ref "$branch"
-          echo "Started ci.yml on $branch" >> "$GITHUB_STEP_SUMMARY"
+          gh workflow run commits.yml --ref "$branch"
+          echo "Started ci.yml and commits.yml on $branch" >> "$GITHUB_STEP_SUMMARY"
