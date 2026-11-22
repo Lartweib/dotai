@@ -17,6 +17,7 @@ import (
 	"github.com/lartweib/dotai/internal/pack"
 	"github.com/lartweib/dotai/internal/plan"
 	"github.com/lartweib/dotai/internal/rulesync"
+	"github.com/lartweib/dotai/internal/state"
 )
 
 // Staging scopes, also the directories under --out.
@@ -38,6 +39,9 @@ type StageResult struct {
 	// ToolCommands are the tool commands the settings run (decision 0037),
 	// which an install plan shows.
 	ToolCommands []ToolCommand `json:"-"`
+	// Variant is the variant it asked for or kept from the install state;
+	// "" for the pack's default.
+	Variant string `json:"-"`
 	// Harnesses are the harnesses it rendered, which an install plans.
 	Harnesses []string `json:"-"`
 	// Warnings are what an install plan warns about the staging, such as
@@ -101,7 +105,7 @@ type stageFS interface {
 // nothing is written. rulesync is fetched into cacheDir as FetchRulesync
 // does; progress may be nil.
 func Stage(ctx context.Context, cacheDir, dir, out string, sel Selection, tools ToolPaths, force bool, progress Progress) (StageResult, error) {
-	return stage(ctx, osStageFS{}, download, generate, cacheDir, dir, out, sel, nil, tools, force, progress)
+	return stage(ctx, osStageFS{}, download, generate, cacheDir, dir, out, sel, nil, nil, tools, force, progress)
 }
 
 // pickHarnesses chooses, once the pack is valid, the harnesses a stage
@@ -109,10 +113,28 @@ func Stage(ctx context.Context, cacheDir, dir, out string, sel Selection, tools 
 // is compatible with, the ones it does not require included (decision 0047).
 type pickHarnesses func(m pack.Manifest) ([]string, error)
 
+// CodeRecordedVariantMissing warns that the install state records a variant
+// the pack no longer declares, so an install without --variant takes the
+// pack's default one instead of keeping it. Item is the recorded variant.
+const CodeRecordedVariantMissing = "recorded-variant-missing"
+
+// recordedVariantMissing is that warning for the variant recorded, which
+// the pack of m does not declare.
+func recordedVariantMissing(m pack.Manifest, recorded string) plan.Warning {
+	def := ""
+	for _, v := range m.Variants {
+		if v.Default {
+			def = v.Name
+		}
+	}
+	return plan.Warning{Code: CodeRecordedVariantMissing, Item: recorded,
+		Message: fmt.Sprintf("the install state records the variant %s, which the pack no longer declares: installing the default variant %s; name one with --variant to choose another", recorded, def)}
+}
+
 // GeneratorRulesync is the Generator of the files rulesync renders.
 const GeneratorRulesync = "rulesync"
 
-func stage(ctx context.Context, w stageFS, fetch fetchFunc, run runFunc, cacheDir, dir, out string, sel Selection, pick pickHarnesses, tools ToolPaths, force bool, progress Progress) (StageResult, error) {
+func stage(ctx context.Context, w stageFS, fetch fetchFunc, run runFunc, cacheDir, dir, out string, sel Selection, pick pickHarnesses, recorded *state.State, tools ToolPaths, force bool, progress Progress) (StageResult, error) {
 	if err := checkOut(dir, out); err != nil {
 		return StageResult{}, err
 	}
@@ -128,6 +150,16 @@ func stage(ctx context.Context, w stageFS, fetch fetchFunc, run runFunc, cacheDi
 	if !v.Valid {
 		return res, nil
 	}
+	// Without a variant asked for, the one the install state records for
+	// this pack stays, when the pack still declares it (decision 0017).
+	if sel.Variant == "" && recorded != nil && recorded.Variant != "" && recorded.Pack.Name == p.Manifest.Name {
+		if slices.ContainsFunc(p.Manifest.Variants, func(v pack.Variant) bool { return v.Name == recorded.Variant }) {
+			sel.Variant = recorded.Variant
+		} else {
+			res.Warnings = append(res.Warnings, recordedVariantMissing(p.Manifest, recorded.Variant))
+		}
+	}
+	res.Variant = sel.Variant
 	s, diags := merge.Stage(p, sel)
 	if len(diags) > 0 {
 		res.Diagnostics = diags

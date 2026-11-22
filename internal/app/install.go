@@ -415,7 +415,7 @@ func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run run
 		sel, err = selectHarnesses(m, opts.Harnesses, prev, detected, byInstall)
 		return sel.Selected, err
 	}
-	s, err := stage(ctx, d, fetch, run, cacheDir, dir, out, Selection{Variant: opts.Variant}, pick, tools, false, progress)
+	s, err := stage(ctx, d, fetch, run, cacheDir, dir, out, Selection{Variant: opts.Variant}, pick, prev, tools, false, progress)
 	if err != nil {
 		return err
 	}
@@ -429,7 +429,7 @@ func withPlan(ctx context.Context, d installFS, h host, fetch fetchFunc, run run
 		Wipes: []WipePlan{}, Keeps: []KeepPlan{}, WipeKeys: []WipeKey{}, Refusals: []Refusal{}, Reinstall: []string{},
 	}
 	if s.Pack != nil {
-		res.Variant = cmp.Or(opts.Variant, s.Pack.DefaultVariant)
+		res.Variant = cmp.Or(s.Variant, s.Pack.DefaultVariant)
 	}
 	if len(s.Diagnostics) > 0 {
 		return then(planned{plan: res})

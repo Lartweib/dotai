@@ -25,7 +25,8 @@ func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
 		Short: "Install the pack in path, or print its plan with --dry-run",
 		Long: "Install the user scope (base and variant) of the pack in path (default: current directory) isolated, under\n" +
 			"~/.dotai/isolated, and print the plan: how each harness runs isolated, what still leaks from your own setup,\n" +
-			"and each file it creates, replaces, removes or leaves unchanged. Without --variant, the default variant is used.\n" +
+			"and each file it creates, replaces, removes or leaves unchanged. Without --variant, install uses the variant the\n" +
+			"install state records for this pack, if the pack still declares it (else it warns), or the pack's default one.\n" +
 			"In each harness's settings file dotai owns only the keys the pack puts there: the keys the harness writes stay,\n" +
 			"and a key dotai owns that was changed since is named and not overwritten. A variant with shared-skills also\n" +
 			"links each skill of ~/.agents/skills into Claude Code's and agy's isolated skills, unless the pack has a skill\n" +
@@ -63,7 +64,7 @@ func newInstallCmd(env Env, jsonOut *bool) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print the plan and write nothing")
-	cmd.Flags().StringVar(&variant, "variant", "", "variant applied on top of the base")
+	cmd.Flags().StringVar(&variant, "variant", "", "variant applied on top of the base (default: the variant the install state records for the pack, or the pack's default)")
 	cmd.Flags().StringVar(&mode, "mode", "", "install mode: isolated or replace (default: the mode the install state records, or isolated)")
 	cmd.Flags().BoolVar(&yes, "yes", false, "accept what the plan asks to confirm without asking: what a replace install wipes into the backup, and template files left unchanged")
 	cmd.Flags().BoolVar(&ignoreRunning, "ignore-running", false, "in the replace mode, install even when a harness it resets, or whose live settings file it writes, looks like it is running")

@@ -221,3 +221,25 @@ func TestApplyThenRestoreAProjectThroughTheApp(t *testing.T) {
 		t.Errorf("project .dotai = %v, want it removed by the restore", err)
 	}
 }
+
+// TestPlanInstallWithoutAVariantKeepsTheInstalledOne checks that the plan
+// request of the install step, which names no variant, gets the variant
+// the install state records, which the step then shows selected.
+func TestPlanInstallWithoutAVariantKeepsTheInstalledOne(t *testing.T) {
+	cfg := appHome(t)
+	pack, err := filepath.Abs(filepath.Join("..", "..", "examples", "minimal-pack"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := server.New(cfg, server.AppDeps(fakePorts), server.Web())
+	body := `{"pack":` + jsonString(pack) + `,"variant":"tmux"`
+	_, digest := planData(t, h, post("/api/install/plan", body+`}`, testToken))
+	if w := serve(h, post("/api/install", body+`,"digest":`+jsonString(digest)+`}`, testToken)); w.Code != http.StatusOK {
+		t.Fatalf("install = %d; body %s", w.Code, w.Body)
+	}
+	data, _ := planData(t, h, post("/api/install/plan", `{"pack":`+jsonString(pack)+`}`, testToken))
+	var p app.InstallPlan
+	if err := json.Unmarshal(data, &p); err != nil || p.Variant != "tmux" {
+		t.Errorf("plan = variant %q, %v, want the installed tmux", p.Variant, err)
+	}
+}
