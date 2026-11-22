@@ -227,8 +227,8 @@ For a complete, small pack to read, see [examples/minimal-pack](examples/minimal
 | `dotai restore [backup-id]` | Undo the last install, or every install down to the one that took `backup-id`. |
 | `dotai restore --project` | Undo the profiles applied to the project in the current directory. |
 | `dotai doctor [--fix]` | Report what changed outside dotai since it wrote it; `--fix` writes missing `.git/info/exclude` entries. |
-| `dotai pack add <github-url>` | Add a pack from GitHub at `--ref`, or a local one with `--dir <path>`. |
-| `dotai pack update <identity>` | Fetch a GitHub pack again and show what changed in its executable content before replacing it. |
+| `dotai pack add <github-url>` | Add a pack from GitHub at `--ref` (a tag, a branch, a commit, or `latest` for its highest `vX.Y.Z` release), or a local one with `--dir <path>`. |
+| `dotai pack update <identity>` | Fetch a GitHub pack again and show what changed in its executable content before replacing it; a pack added with `--ref latest` moves to a newer release. |
 | `dotai pack new <dir> --name <n>` | Create a pack from the template embedded in the engine and add it to the registry. |
 | `dotai ui` | Serve the local web UI on `127.0.0.1`. |
 | `dotai validate [path]` | Check a pack's structure and merge rules. |

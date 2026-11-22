@@ -67,6 +67,7 @@ Any `--json` or `--json=<value>` argument requests JSON output, so an invalid va
 - **`host-unsupported`** (exit code 1): `pack add` of a git URL of a host other than github.com; the message points to a manual clone added with `--dir`. No `data`.
 - **`git-missing`, `git-too-old`** (exit code 1): `pack add` or `pack update` without git on `PATH`, or with a git older than 2.41, the release that added `--attr-source`; the message names the version found. Nothing was fetched. No `data`.
 - **`fetch-failed`** (exit code 1): git could not fetch the pack: a remote that cannot be reached, a ref it does not have, or credentials git did not get; the message names the URL and the ref and carries git's message. Nothing changed. No `data`.
+- **`no-release-tag`** (exit code 1): `pack add --ref latest` (or the web UI's "Latest release") on a repository with no release tag, a tag of the form `vX.Y.Z`: pre-releases, a build suffix, a short version, a name without the `v` and any other tag do not count ([0054](decisions/0054-pack-ref-latest-follows-the-highest-release-tag.md)). The message suggests `--ref <branch|tag|sha>`, or leaving `--ref` out for the default branch. Nothing was fetched or registered. No `data`.
 - **`fetch-by-commit-refused`** (exit code 1): `--ref` is a full commit SHA the remote does not serve, such as one no longer reachable from any of its refs; dotai does not fall back to a full clone. No `data`.
 - **`pack-tree-refused`** (exit code 1): The tree of the fetched commit holds a symbolic link (`120000`), a submodule (`160000`), a path with a `.git` component, another mode than a file's, or more than 10000 files or 64 MiB. Nothing was checked out or registered. `data`: `problems`, each `path` (`""` for the whole tree) and `problem`.
 - **`copy-refused`** (exit code 1): `pack copy`, and the web UI's copy of a pack (`POST /api/packs/copy`): its target exists, or none of the first hundred default names is free, has no parent or is inside the pack, or the pack holds a link or another kind of file. Nothing was written. No `data`.
@@ -708,9 +709,11 @@ Usage: `pack add <github-url> [--ref r] [--yes]`
 
 Adds a pack fetched from GitHub ([0044](decisions/0044-git-pack-distribution.md)): `https://github.com/<owner>/<repo>[.git]`, `ssh://git@github.com/<owner>/<repo>[.git]` or `git@github.com:<owner>/<repo>[.git]`; one trailing `/` is dropped; another host is `host-unsupported`, anything else, such as a path, a port, a user other than `git`, a third segment, or an owner or repository that is a Windows device name, `usage`.
 
-`--ref` is a tag, a branch or a full commit SHA (40 or 64 digits); a ref starting with `-`, or holding a space, a control character or what `git check-ref-format` refuses (`:`, `*`, `?`, `[`, `\`, `^`, `~`, `..`, `@{`), is `usage`.
+`--ref` is a tag, a branch, a full commit SHA (40 or 64 digits) or `latest`; a ref starting with `-`, or holding a space, a control character or what `git check-ref-format` refuses (`:`, `*`, `?`, `[`, `\`, `^`, `~`, `..`, `@{`), is `usage`.
 
 A ref of 7 to 39 hexadecimal digits is looked up with `git ls-remote` as `refs/tags/<ref>` and `refs/heads/<ref>`; when neither exists it is taken for an abbreviated SHA, which cannot be fetched, and is `usage`, asking for the full SHA or `refs/tags/<name>`.
+
+`--ref latest` follows the pack's latest release ([0054](decisions/0054-pack-ref-latest-follows-the-highest-release-tag.md)): the highest tag of the form `vX.Y.Z`, found with `git ls-remote --tags --refs -- <url>` (no GitHub API, no token) and fetched by its full name, `refs/tags/vX.Y.Z`. The numbers are compared as numbers; a pre-release (`v1.2.0-rc.1`), a build suffix, a short version (`v1.2`), a version without the `v` and any other tag are ignored; annotated and lightweight tags both count, and `commit` is the commit the tag peels to. A repository with no such tag is `no-release-tag`. The source then records `ref` `"latest"` with `fullRef` the tag and `commit` its commit, and no warning (a release tag does not move like a branch): that is how `pack list` and the web UI show `latest → v0.1.0`. A branch or a tag really named `latest` is given as `refs/heads/latest` or `refs/tags/latest`.
 
 Without `--ref` the default branch is resolved with `git ls-remote --symref` and fetched by its full name; a remote whose `HEAD` is not a branch is `usage`, asking for `--ref`. The identity is `github.com/<owner>/<repo>` in lower case.
 
@@ -722,7 +725,7 @@ Then, under `~/.dotai/lock`, the clone is renamed to `~/.dotai/packs/<identity>`
 
 `data`: the registry (`path` and `packs`, as `GET /api/packs`), `pack`, the entry added, `outcome` (`added`, `updated` or `unchanged`), `update`, the update plan of `pack update` when the identity was already added (`null` otherwise), and `warnings`, each `code` and `message`, whose text may come from the pack or git and is escaped on the terminal: `ref-branch` (the ref is a branch, which can move, and the pack stays at its commit until `pack update`), `pack-same-commit` (another identity is registered at the same commit, as a renamed or transferred repository is), `template-unchanged` (files of the pack are example files of dotai's pack template, unchanged, which the message lists, as `validate` warns) and `pack-delete-failed` (the previous clone could not be deleted), `pack-cleanup-failed` (the temporary fetch could not be deleted) and `pack-clone-missing` (the clone of a pack already added was gone and was fetched again).
 
-An identity already added, from any URL form or case, is updated as by `pack update`, to `--ref` when given, else to the recorded ref, and the registry keeps the URL last used.
+An identity already added, from any URL form or case, is updated as by `pack update`, to `--ref` when given, else to the recorded ref (a pack that follows `latest` looks its highest release up again), and the registry keeps the URL last used.
 
 ### pack add --dir
 
@@ -737,6 +740,8 @@ A directory already listed is left as it is (`outcome` `unchanged`); another dir
 Usage: `pack update <identity> [--yes]`
 
 Fetches the ref recorded for a git pack again, by its full name (`fullRef`), and checks and validates it as `pack add` does; a local or unknown identity is `usage`. At the same commit, `outcome` is `unchanged` and nothing is asked.
+
+A pack that follows `latest` (`ref` `"latest"`, `fullRef` a `refs/tags/v...` tag) resolves `latest` again instead of fetching its recorded tag: when a higher release tag exists, the plan moves the pack to it, with `to.fullRef` the new tag, `to.ref` still `"latest"`, and the same diff and consent as any update; when the highest tag is the one installed, `outcome` is `unchanged` (the terminal says the pack is already on the latest release), and a pre-release or a commit past the tag changes nothing. A tag that was deleted or moved shows as an update to the highest one now, behind the same consent. A pack added with an explicit tag, branch or commit never changes its ref.
 
 Otherwise it shows the update plan, the change of executable content between the installed clone and the new one: every `.rulesync/hooks.jsonc`, `.rulesync/mcp.jsonc` and `dotai/settings.yaml` and every file under a `dotai/tools/` and under `mods/`, as [0044](decisions/0044-git-pack-distribution.md) lists, and, beyond that list, every `.rulesync/permissions.jsonc`, every file other than Markdown under `.rulesync/skills/`, `.rulesync/commands/` and `.rulesync/subagents/`, `dotai.yaml`, and any file whose mode is executable (`100755`), matched in any directory, declared as a layer or not, and in any case.
 
@@ -812,7 +817,7 @@ Outside a git repository, without an installed pack, or for a pack with `onboard
 
 Usage: `pack list`
 
-The registry, as `GET /api/packs`: `path`, `packs` and `recovered`.
+The registry, as `GET /api/packs`: `path`, `packs` and `recovered`. A pack added with `--ref latest` has `source.ref` `"latest"` and `source.fullRef` the release tag followed, such as `refs/tags/v0.1.0`; the terminal prints it as `tracks latest → v0.1.0`, below the source line.
 
 Every `pack` command first sweeps `~/.dotai/packs/github.com` under `~/.dotai/lock` (a list only when the lock is free): a clone that a swap killed halfway moved aside to `.<repo>.old-*` or `.<repo>.remove-*` is put back when the registry names that pack and its clone is missing or at another commit, and listed in `recovered`, in the `data` of every `pack` command; the other siblings, a temporary `.<repo>.fetch-*` older than an hour, and the directories of owners left empty are deleted.
 
@@ -1115,7 +1120,7 @@ A wrong code is refused and leaves the code good. The embedded frontend itself i
     As `pack add --dir`: the registry (`path` and `packs`) with the pack added as `local/<name>`, once it validates, `pack`, `outcome`, `update` (`null`) and `warnings`; a path already listed is left as it is. A path that is not a directory is `usage`; a pack with problems is `invalid`, with the result of `validate` in `data`; a name taken by another directory is `pack-name-taken`.
 
     Writes `~/.dotai/packs.json` (`dotai.packs/v2`) atomically under `~/.dotai/lock`.
-- **`POST /api/packs/add`** (command `pack add`; input: Body `{"url", "ref", "digest"}`: `url` required):
+- **`POST /api/packs/add`** (command `pack add`; input: Body `{"url", "ref", "digest"}`: `url` required; `ref` may be `"latest"`, which a repository with no release tag refuses with `no-release-tag`, 409):
   As `pack add <url> --ref <ref>`, with git's prompts off: stdin closed, `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never`, `-c credential.interactive=false`, `-c core.askPass=`, no `GIT_ASKPASS` or `SSH_ASKPASS` and `GIT_SSH_COMMAND="ssh -o BatchMode=yes"`, which overrides `core.sshCommand`, so that a repository behind an unknown host key or a key without an agent fails instead of waiting; the user adds it once with the command line.
 
     A pack already added is an update: without `digest`, one that moves the pack to another commit fails with `consent-required` (409) and the update plan with its `digest` in `data`; sent back with that `digest`, it is carried out as `POST /api/packs/update` does, with `plan-changed` when the fetch differs.

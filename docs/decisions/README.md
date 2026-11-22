@@ -71,6 +71,7 @@ Read these first for the shape of the engine:
 | [0040](0040-list-files-merged-as-a-union.md) | Hooks and permissions merge as a union in layer order | accepted | 2026-11-01 |
 | [0044](0044-git-pack-distribution.md) | Packs are distributed as git repositories, fetched with the user's git | accepted | 2026-11-16 |
 | [0046](0046-pack-templates-and-wizard.md) | Packs start from an embedded template and a wizard | accepted | 2026-11-17 |
+| [0054](0054-pack-ref-latest-follows-the-highest-release-tag.md) | `--ref latest` follows a pack's highest release tag | proposed | 2026-11-22 |
 
 ### Install, backup and restore
 
