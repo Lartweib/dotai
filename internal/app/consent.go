@@ -179,8 +179,9 @@ func replaceHarnesses(home string, res RestoreResult) (ids, wiped []string, writ
 	tools := filepath.Join(home, dotaiDir)
 	for _, op := range res.Ops {
 		if !below(isolated, op.Target) && !below(tools, op.Target) {
-			add(op.Harness)
-			writes = append(writes, writeTo{op.Harness, op.Target})
+			id := writerOf(home, op.Harness, op.Target)
+			add(id)
+			writes = append(writes, writeTo{id, op.Target})
 		}
 	}
 	return ids, wiped, writes

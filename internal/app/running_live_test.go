@@ -220,3 +220,34 @@ func TestARestoreRefusesOnlyForTheFilesARunningHarnessRewrites(t *testing.T) {
 		})
 	}
 }
+
+// TestARestoreOfAResetRefusesWhileTheHarnessRuns checks that the restore of
+// a replace install that wiped a harness's entries is refused whole while
+// that harness runs, for a wipe and not for a file, and that
+// --ignore-running puts them back.
+func TestARestoreOfAResetRefusesWhileTheHarnessRuns(t *testing.T) {
+	home, _ := installHome(t)
+	mine := at(home, ".claude/keybindings.json")
+	writeFile(t, mine, "[]\n")
+	if _, err := app.InstallReplace(context.Background(), newClockFS(t), hostListing(nil, nil), quiet(t).fetch, replaceRun(t), examplePack, home,
+		app.InstallOptions{Harnesses: []string{"claudecode"}}); err != nil {
+		t.Fatalf("replace install: %v", err)
+	}
+	if exists(mine) {
+		t.Fatal("the install did not wipe ~/.claude/keybindings.json, which the test needs")
+	}
+	running := hostListing([]proc.Process{{PID: 10, Name: "claude"}}, nil)
+	restore := func(opts app.RestoreOptions) (app.RestoreResult, error) {
+		return app.RestoreHost(context.Background(), newClockFS(t), running, home, "", opts, func(app.RestoreResult) (bool, error) { return true, nil })
+	}
+	before := homeEntries(t, home)
+	_, err := restore(app.RestoreOptions{})
+	var re *app.RunningError
+	if !errors.As(err, &re) || re.Operation != "restore" || len(re.Running) != 1 || len(re.Files) != 0 {
+		t.Fatalf("restore of a reset with claude running: error = %v, want a *RunningError for the wipe, naming no file", err)
+	}
+	diff(t, "home after the refusal", homeEntries(t, home), before)
+	if _, err := restore(app.RestoreOptions{IgnoreRunning: true}); err != nil || !exists(mine) {
+		t.Errorf("restore with --ignore-running: %v, keybindings back = %v, want it put back", err, exists(mine))
+	}
+}

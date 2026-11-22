@@ -424,10 +424,10 @@ var (
 		},
 		// The settings file the harness writes into (decision 0035), the hooks
 		// file that programs register their own hooks in at each of their
-		// starts (HARNESS-NOTES), and the config.json that agy's changelog
-		// documents as holding the plugin enablement and the always-allow
-		// rules, which it writes at runtime: not written by dotai.
-		LiveWritten: []string{".gemini/antigravity-cli/settings.json", ".gemini/config/hooks.json", ".gemini/config/config.json"},
+		// starts (HARNESS-NOTES). agy's config.json, which holds the plugin
+		// enablement and the always-allow rules, is not listed: dotai never
+		// writes it.
+		LiveWritten: []string{".gemini/antigravity-cli/settings.json", ".gemini/config/hooks.json"},
 		Processes:   []string{"agy"},
 	}
 	openCodeReal = Real{

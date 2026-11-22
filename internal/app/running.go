@@ -59,17 +59,19 @@ func (e *RunningError) Error() string {
 	// Only files, when every harness it refuses for is refused for one.
 	if len(e.Files) > 0 && e.onlyFiles() {
 		n := len(e.Harnesses)
-		if e.Err == nil {
-			n = len(e.Running)
-		}
 		what = fmt.Sprintf("the %s would write %s, %s while %s", e.Operation, e.fileList(),
 			pick(len(e.Files), "a file", "files")+" "+pick(n, "it rewrites", "they rewrite"), pick(n, "it runs", "they run"))
 		config = false
 	}
+	// A harness it wipes and another it writes a file of: both are said.
+	var also string
+	if len(e.Files) > 0 && config {
+		also = fmt.Sprintf(" and write %s, %s its harness rewrites while it runs", e.fileList(), pick(len(e.Files), "a file", "files"))
+	}
 	if e.Err != nil {
 		cfg := ""
 		if config {
-			cfg = fmt.Sprintf(" %s configuration while %s", pick(len(e.Harnesses), "its", "their"), pick(len(e.Harnesses), "it runs", "they run"))
+			cfg = fmt.Sprintf(" %s configuration while %s", pick(len(e.Harnesses), "its", "their"), pick(len(e.Harnesses), "it runs", "they run")) + also
 		}
 		return fmt.Sprintf("dotai could not check whether %s %s running (%v), and %s%s: "+
 			"the %s wrote nothing; close %s, then run again with --ignore-running",
@@ -91,7 +93,7 @@ func (e *RunningError) Error() string {
 	n := len(items)
 	cfg := ""
 	if config {
-		cfg = fmt.Sprintf(" %s configuration under %s", pick(n, "its", "their"), pick(n, "it", "them"))
+		cfg = fmt.Sprintf(" %s configuration under %s", pick(n, "its", "their"), pick(n, "it", "them")) + also
 	}
 	return fmt.Sprintf("%s %s running, and %s%s; the %s wrote nothing: "+
 		"close %s, then run again; --ignore-running skips this check when dotai mistakes another program for a harness",
@@ -188,9 +190,12 @@ func liveFiles(h host, home string, ids, wiped []string, writes []writeTo) []Run
 			if w.harness != id {
 				continue
 			}
+			// A target that cannot be related to the home directory is taken
+			// for a live file: the check fails closed.
 			rel, err := filepath.Rel(home, w.target)
+			unrelated := err != nil || rel == ".." || strings.HasPrefix(filepath.ToSlash(rel), "../")
 			f := RunningFile{Harness: id, Path: w.target}
-			if err == nil && adapters[0].Real.WritesLive(filepath.ToSlash(rel), h.goos == "windows") && !slices.Contains(out, f) {
+			if (unrelated || adapters[0].Real.WritesLive(filepath.ToSlash(rel), plan.FoldsCase(h.goos))) && !slices.Contains(out, f) {
 				out = append(out, f)
 			}
 		}
@@ -250,13 +255,24 @@ func filesOf(all []RunningFile, ids []string) []RunningFile {
 	return out
 }
 
+// writerOf is the harness that writes target: id, or, when an operation
+// names none, the harness whose settings, hooks or home file it is.
+func writerOf(home, id, target string) string {
+	if id != "" {
+		return id
+	}
+	owner, _ := plan.SettingsOf(home, target)
+	return owner
+}
+
 // installWrites are the targets of ops that an install writes: every
-// operation that is not unchanged.
-func installWrites(ops []plan.Op) []writeTo {
+// operation that is not unchanged, of its harness, found from the target
+// when the operation names none.
+func installWrites(home string, ops []plan.Op) []writeTo {
 	var out []writeTo
 	for _, op := range ops {
-		if op.Action != plan.Unchanged && op.Harness != "" {
-			out = append(out, writeTo{op.Harness, op.Target})
+		if id := writerOf(home, op.Harness, op.Target); op.Action != plan.Unchanged && id != "" {
+			out = append(out, writeTo{id, op.Target})
 		}
 	}
 	return out
@@ -280,7 +296,7 @@ func (p planned) wipedHarnesses() []string {
 // guardInstall applies the running-harness check to the replace install p
 // with the processes c, as guard does.
 func (p planned) guardInstall(h host, home string, c runCheck) (*RunningError, []RunningHarness, []string) {
-	return guard(h, home, "install", p.harnesses, p.wipedHarnesses(), installWrites(p.ops), c)
+	return guard(h, home, "install", p.harnesses, p.wipedHarnesses(), installWrites(home, p.ops), c)
 }
 
 // runningWarnings are the warnings, one per harness that runs, of an
