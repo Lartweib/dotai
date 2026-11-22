@@ -69,6 +69,10 @@ func Classify(err error) (code string, data any) {
 		}
 	case errors.As(err, new(*app.FetchByCommitRefusedError)):
 		code = CodeFetchByCommit
+	case errors.As(err, new(*app.NoReleaseTagError)):
+		code = CodeNoReleaseTag
+	case errors.As(err, new(*app.LatestDowngradeError)):
+		code = CodeLatestDowngrade
 	case errors.As(err, new(*app.FetchFailedError)):
 		code = CodeFetchFailed
 	case errors.As(err, &tree):

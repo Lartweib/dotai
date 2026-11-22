@@ -148,6 +148,8 @@ func TestPackAddFailuresKeepTheirCodes(t *testing.T) {
 		"host-unsupported":        &app.HostUnsupportedError{URL: "https://gitlab.com/a/b", Host: "gitlab.com"},
 		"git-too-old":             &app.GitUnavailableError{Version: "2.40.0", TooOld: true},
 		"fetch-by-commit-refused": &app.FetchByCommitRefusedError{URL: "u", Commit: strings.Repeat("1", 40)},
+		"no-release-tag":          &app.NoReleaseTagError{URL: "https://github.com/a/b"},
+		"latest-downgrade":        &app.LatestDowngradeError{ID: "github.com/a/b", From: "v1.1.0", To: "v1.0.0"},
 		"pack-tree-refused":       &app.PackTreeRefusedError{Problems: []app.TreeProblem{{Path: "l", Problem: "is a link"}}},
 	} {
 		var stdout, stderr bytes.Buffer
@@ -351,5 +353,111 @@ func TestErrorsReachTheTerminalEscaped(t *testing.T) {
 	cli.Run([]string{"pack", "add", "https://github.com/a/b"}, env)
 	if strings.Contains(stderr.String(), "\x1b") || strings.Contains(stderr.String(), "\x07") || !strings.Contains(stderr.String(), "\nsecond line") {
 		t.Errorf("stderr = %q, want the controls escaped and the lines kept", &stderr)
+	}
+}
+
+// latestPack is a pack that follows its latest release, at v0.1.0.
+func latestPack() app.PackEntry {
+	return app.PackEntry{ID: "github.com/acme/pack", Path: "/h/.dotai/packs/github.com/acme/pack", Name: "acme-pack", Version: "0.1.0",
+		Source: &app.PackSource{URL: "https://github.com/acme/pack", Ref: "latest", FullRef: "refs/tags/v0.1.0", Commit: strings.Repeat("c", 40)}}
+}
+
+func TestPackListShowsWhatALatestPackFollows(t *testing.T) {
+	packHome(t)
+	var stdout, stderr bytes.Buffer
+	var c packCalls
+	env := packEnv(&stdout, &stderr, &c, nil)
+	env.ListPacks = func(string) (app.PackList, error) {
+		return app.PackList{Path: "/h/.dotai/packs.json", Packs: []app.PackEntry{latestPack()}}, nil
+	}
+	if code := cli.Run([]string{"pack", "list"}, env); code != cli.ExitOK {
+		t.Fatalf("exit = %d; stderr %s", code, &stderr)
+	}
+	if !strings.Contains(stdout.String(), "latest → v0.1.0") {
+		t.Errorf("stdout = %q, want latest → v0.1.0", &stdout)
+	}
+	stdout.Reset()
+	if code := cli.Run([]string{"pack", "list", "--json"}, env); code != cli.ExitOK {
+		t.Fatalf("exit = %d; stderr %s", code, &stderr)
+	}
+	pack := envelopeOf(t, &stdout)["data"].(map[string]any)["packs"].([]any)[0].(map[string]any)
+	src := pack["source"].(map[string]any)
+	if src["ref"] != "latest" || src["fullRef"] != "refs/tags/v0.1.0" || src["commit"] != strings.Repeat("c", 40) {
+		t.Errorf("source = %v, want ref latest at refs/tags/v0.1.0", src)
+	}
+}
+
+func TestPackListOfAPackWithAnExplicitRefShowsNoTracking(t *testing.T) {
+	packHome(t)
+	var stdout, stderr bytes.Buffer
+	var c packCalls
+	if code := cli.Run([]string{"pack", "list"}, packEnv(&stdout, &stderr, &c, nil)); code != cli.ExitOK {
+		t.Fatalf("exit = %d; stderr %s", code, &stderr)
+	}
+	if strings.Contains(stdout.String(), "latest") {
+		t.Errorf("stdout = %q, want no tracking for the default branch", &stdout)
+	}
+}
+
+func TestPackUpdateSaysWhatALatestPackFollowsAndWhetherItMoved(t *testing.T) {
+	packHome(t)
+	for outcome, tc := range map[string]struct{ first, tracks string }{
+		app.PackUnchanged: {"unchanged github.com/acme/pack", "tracks: latest → v0.1.0, already on the latest release"},
+		app.PackUpdated:   {"updated github.com/acme/pack", "tracks: latest → v0.1.0"},
+	} {
+		var stdout, stderr bytes.Buffer
+		var c packCalls
+		env := packEnv(&stdout, &stderr, &c, nil)
+		env.UpdatePack = func(context.Context, string, string, app.PackGitOptions) (app.PackAddResult, error) {
+			return app.PackAddResult{Pack: latestPack(), Outcome: outcome, Warnings: []app.PackWarning{}}, nil
+		}
+		if code := cli.Run([]string{"pack", "update", "github.com/acme/pack", "--yes"}, env); code != cli.ExitOK {
+			t.Fatalf("%s: exit = %d; stderr %s", outcome, code, &stderr)
+		}
+		out := stdout.String()
+		if !strings.HasPrefix(out, tc.first) || !strings.Contains(out, tc.tracks) {
+			t.Errorf("%s: stdout = %q, want it to start with %q and hold %q", outcome, out, tc.first, tc.tracks)
+		}
+		if outcome == app.PackUpdated && strings.Contains(out, "already on the latest release") {
+			t.Errorf("an update that moved says it is already on the latest release: %q", out)
+		}
+	}
+}
+
+func TestPackUpdatePromptNamesTheTagsItMovesBetween(t *testing.T) {
+	packHome(t)
+	var stdout, stderr bytes.Buffer
+	var c packCalls
+	var consented bool
+	var question string
+	env := updateEnv(&stdout, &stderr, &c, &consented)
+	env.UpdatePack = func(_ context.Context, _, _ string, opts app.PackGitOptions) (app.PackAddResult, error) {
+		plan := app.PackUpdatePlan{ID: "github.com/acme/pack",
+			From: app.PackSource{Ref: "latest", FullRef: "refs/tags/v1.3.0", Commit: strings.Repeat("a", 40)},
+			To:   app.PackSource{Ref: "latest", FullRef: "refs/tags/v1.4.0", Commit: strings.Repeat("b", 40)}}
+		ok, err := opts.Consent(plan)
+		if err != nil || !ok {
+			return app.PackAddResult{}, &app.PackConsentError{Plan: plan}
+		}
+		return app.PackAddResult{Pack: latestPack(), Outcome: app.PackUpdated, Update: &plan, Warnings: []app.PackWarning{}}, nil
+	}
+	env.Prompt = func(_ context.Context, q string) (bool, error) { question = q; return true, nil }
+	if code := cli.Run([]string{"pack", "update", "github.com/acme/pack"}, env); code != cli.ExitOK {
+		t.Fatalf("exit = %d; stderr %s", code, &stderr)
+	}
+	if want := "from v1.3.0 (aaaaaaaaaaaa) to v1.4.0 (bbbbbbbbbbbb)"; !strings.Contains(question, want) {
+		t.Errorf("question = %q, want it to hold %q", question, want)
+	}
+}
+
+func TestPackAddPassesRefLatestThrough(t *testing.T) {
+	packHome(t)
+	var stdout, stderr bytes.Buffer
+	var c packCalls
+	if code := cli.Run([]string{"pack", "add", "https://github.com/acme/pack", "--ref", "latest"}, packEnv(&stdout, &stderr, &c, nil)); code != cli.ExitOK {
+		t.Fatalf("exit = %d; stderr %s", code, &stderr)
+	}
+	if c.opts.Ref != "latest" {
+		t.Errorf("ref = %q, want latest", c.opts.Ref)
 	}
 }

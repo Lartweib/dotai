@@ -115,11 +115,11 @@ function githubForm(state, submit) {
   const kinds = h("div", { class: "tabs", role: "radiogroup", "aria-label": t("add.refLabel") });
 
   const sync = () => {
-    mount(kinds, ["default", "named", "commit"].map((k) => h("button", {
+    mount(kinds, ["default", "latest", "named", "commit"].map((k) => h("button", {
       class: "btn sm", type: "button", role: "radio", "aria-checked": String(k === state.kind),
-      text: t("add.kind." + k), onclick: () => { state.kind = k; sync(); if (k !== "default") ref.focus(); },
+      text: t("add.kind." + k), onclick: () => { state.kind = k; sync(); if (k === "named" || k === "commit") ref.focus(); },
     })));
-    ref.hidden = state.kind === "default";
+    ref.hidden = state.kind === "default" || state.kind === "latest";
     ref.placeholder = t("add.kind." + state.kind + "Placeholder");
     refHelp.textContent = t("add.kind." + state.kind + "Help");
   };
@@ -151,7 +151,7 @@ function githubForm(state, submit) {
       ref.focus();
       return;
     }
-    submitGuard(go, () => submit(u, state.kind === "default" ? "" : ref.value.trim()));
+    submitGuard(go, () => submit(u, state.kind === "default" ? "" : state.kind === "latest" ? "latest" : ref.value.trim()));
   } },
   h("div", { class: "field" },
     h("label", { class: "label", for: "add-url", text: t("add.urlLabel") }), url,

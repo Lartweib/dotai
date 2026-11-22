@@ -201,6 +201,42 @@ func fullSHA(ref string) bool {
 	return (len(ref) == 40 || len(ref) == 64) && hexRef.MatchString(ref)
 }
 
+// LatestRef is the ref that follows a pack's latest release (decision
+// 0054): the highest tag of the form vX.Y.Z, with no pre-release and no
+// build suffix. A tag or a branch that is really named latest is given by
+// its full name, refs/tags/latest or refs/heads/latest.
+const LatestRef = "latest"
+
+// releaseTagPrefix starts the full name of a release tag that LatestRef
+// resolves to.
+const releaseTagPrefix = "refs/tags/v"
+
+// TracksLatest reports whether the pack follows its latest release: it was
+// added with --ref latest, so its ref is LatestRef and its full ref is the
+// release tag that was the latest then. A ref latest recorded before it
+// meant this resolved to refs/heads/latest or refs/tags/latest, and stays a
+// plain ref.
+func (s PackSource) TracksLatest() bool {
+	return s.Ref == LatestRef && strings.HasPrefix(s.FullRef, releaseTagPrefix)
+}
+
+// Tracking says what the pack follows, "latest → v1.2.0", or "" when it
+// follows a tag, a branch or a commit it was given.
+func (s PackSource) Tracking() string {
+	if !s.TracksLatest() {
+		return ""
+	}
+	return LatestRef + " → " + strings.TrimPrefix(s.FullRef, "refs/tags/")
+}
+
+// lowerRelease reports whether the full names of two release tags order
+// a below b, by their versions.
+func lowerRelease(a, b string) bool {
+	av, aok := releaseVersion(a)
+	bv, bok := releaseVersion(b)
+	return aok && bok && compareVersion(av, bv) < 0
+}
+
 // localID is the identity of the local pack named name.
 func localID(name string) string { return localPrefix + name }
 

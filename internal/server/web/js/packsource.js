@@ -13,17 +13,31 @@ export function gitIdentity(url) {
 }
 
 // refProblem names what is wrong with ref for its kind, "" when nothing
-// is: "default" takes no ref, "named" a tag or a branch, "commit" a full
-// SHA, which is all git can fetch by commit.
+// is: "default" and "latest" take no ref, "named" a tag or a branch,
+// "commit" a full SHA, which is all git can fetch by commit.
 export function refProblem(kind, ref) {
   const r = String(ref || "").trim();
-  if (kind === "default") return "";
+  if (kind === "default" || kind === "latest") return "";
   if (kind === "commit") return /^([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$/.test(r) ? "" : "commit-full";
   if (r === "") return "ref-empty";
   if (r.startsWith("-")) return "ref-dash";
   if (/\s/.test(r)) return "ref-space";
   return "";
 }
+
+// trackingLabel is what a pack that follows its latest release follows,
+// "latest → v1.2.0", or "" for any other source: its ref is "latest"
+// and its full ref the release tag (a tag or a branch really named latest
+// has no v in its full name; the server reads it the same way).
+export function trackingLabel(source) {
+  const s = source || {};
+  const m = s.ref === "latest" ? /^refs\/tags\/(v.*)$/.exec(s.fullRef || "") : null;
+  return m ? "latest → " + m[1] : "";
+}
+
+// refLabel is the ref of a source for people: what it follows when it
+// follows the latest release, else the ref asked for, else its full name.
+export const refLabel = (source) => trackingLabel(source) || (source && (source.ref || source.fullRef)) || "";
 
 // shortCommit is the commit as the command line prints it.
 export const shortCommit = (sha) => String(sha || "").slice(0, 12);

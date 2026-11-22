@@ -66,6 +66,29 @@ func (e *FetchByCommitRefusedError) Error() string {
 	return fmt.Sprintf("%s does not serve the commit %s, which may no longer be reachable from any of its branches or tags: give a tag or a branch, or a commit it serves (%s)", e.URL, e.Commit, e.Stderr)
 }
 
+// NoReleaseTagError is --ref latest on a repository with no release tag,
+// a tag of the form vX.Y.Z: nothing was fetched or registered.
+type NoReleaseTagError struct {
+	URL string
+}
+
+func (e *NoReleaseTagError) Error() string {
+	return fmt.Sprintf("%s has no release tag, a tag of the form vX.Y.Z such as v1.2.3 (pre-releases and other names do not count), so there is no latest release to follow: give --ref <branch|tag|sha>, or leave --ref out to follow its default branch", e.URL)
+}
+
+// LatestDowngradeError is an update of a pack that follows latest whose
+// highest release tag is now below the one installed, because a tag was
+// deleted or recreated lower: the pack stays as it was, and going down is
+// the user's decision, with --ref.
+type LatestDowngradeError struct {
+	ID       string
+	From, To string // release tags, such as v1.3.0
+}
+
+func (e *LatestDowngradeError) Error() string {
+	return fmt.Sprintf("the latest release of %s is %s, below %s, which is installed (a release tag was deleted or recreated): dotai does not go down by itself; to go down on purpose, give --ref %s", e.ID, e.To, e.From, e.To)
+}
+
 // TreeProblem is an entry of a pack's tree that dotai refuses, by its
 // path; Path is "" for a problem of the whole tree.
 type TreeProblem struct {

@@ -214,3 +214,17 @@ func TestAnotherFailureOfAFetchCarriesNoData(t *testing.T) {
 		t.Errorf("envelope = %+v, data %s, want internal without data", e, e.Data)
 	}
 }
+
+func TestAddingAGitPackAtLatestWithoutAReleaseTagIsAConflict(t *testing.T) {
+	deps := fakeDeps()
+	var got app.PackGitOptions
+	deps.AddGitPack = func(_ context.Context, _, u string, opts app.PackGitOptions) (app.PackAddResult, error) {
+		got = opts
+		return app.PackAddResult{}, &app.NoReleaseTagError{URL: u}
+	}
+	h := server.New(testConfig(t), deps, testWeb)
+	wantFailure(t, serve(h, post("/api/packs/add", `{"url":"https://github.com/acme/pack","ref":"latest"}`, testToken)), http.StatusConflict, "no-release-tag")
+	if got.Ref != "latest" {
+		t.Errorf("the ref given to AddGitPack = %q, want latest", got.Ref)
+	}
+}

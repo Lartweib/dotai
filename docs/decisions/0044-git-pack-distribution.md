@@ -75,3 +75,5 @@ The commands and the error and warning codes below are proposed names.
   - A full SHA, tip or not, fetches with `--depth 1`, protocol v0 included; a 12-character SHA does not.
   - `ssh://-oProxyCommand=...` is refused ("strange hostname"); an option after `--` is read as a refspec. `GIT_TERMINAL_PROMPT=0` fails a missing https credential (Linux). Submodules stay out with `submodule.recurse=true`. `core.fsmonitor=false` is harmless.
   - Not tested: Git Credential Manager prompts, long paths, `safe.directory`, and a SHA no longer reachable from any ref.
+
+Update 2026-11-22: `--ref` also takes `latest`, which follows the highest `vX.Y.Z` release tag and which `pack update` moves forward ([0054](0054-pack-ref-latest-follows-the-highest-release-tag.md)); the default without `--ref` is still the default branch.

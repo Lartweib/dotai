@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -196,10 +197,18 @@ func (g packGit) fetchPack(ctx context.Context, dir, url, ref string) (PackFetch
 		if ge, ok := errors.AsType[*gitError](err); ok && fullSHA(want) && commitRefused.MatchString(ge.stderr) {
 			return PackFetch{}, &FetchByCommitRefusedError{URL: url, Commit: want, Stderr: ge.stderr}
 		}
+		if ref == LatestRef {
+			// The release tag latest resolved to, which the user can look at.
+			ref = want
+		}
 		return PackFetch{}, fetchFailed(url, ref, err)
 	}
 	out, err := g.run(ctx, gitTimeout, dir, nil, "rev-parse", "FETCH_HEAD^{commit}")
 	if err != nil {
+		// A tag of a blob or a tree, which a pack cannot be: no commit to peel it to.
+		if ge, ok := errors.AsType[*gitError](err); ok {
+			return PackFetch{}, &FetchFailedError{URL: url, Ref: want, Err: errors.New("it does not point to a commit"), Stderr: ge.stderr}
+		}
 		return PackFetch{}, err
 	}
 	commit := strings.TrimSpace(string(out))
@@ -238,12 +247,23 @@ func (g packGit) treeModes(ctx context.Context, dir string) map[string]string {
 	return treeModes(out)
 }
 
-// resolveRef is what fetchPack fetches for ref: the branch the remote's
-// HEAD points to for "", which must be one; a tag or a branch for a run of
-// hexadecimal digits shorter than a full SHA, which must name one, since
-// an abbreviated SHA cannot be fetched; ref itself otherwise.
+// resolveRef is what fetchPack fetches for ref: the full name of the
+// highest release tag for LatestRef, which must have one; the branch the
+// remote's HEAD points to for "", which must be one; a tag or a branch for
+// a run of hexadecimal digits shorter than a full SHA, which must name
+// one, since an abbreviated SHA cannot be fetched; ref itself otherwise.
 func (g packGit) resolveRef(ctx context.Context, dir, url, remote string, extra []string, ref string) (string, error) {
 	switch {
+	case ref == LatestRef:
+		out, err := g.run(ctx, packFetchTimeout, dir, extra, "ls-remote", "--tags", "--refs", "--", remote)
+		if err != nil {
+			return "", fetchFailed(url, ref, err)
+		}
+		tag, ok := latestReleaseTag(string(out))
+		if !ok {
+			return "", &NoReleaseTagError{URL: url}
+		}
+		return tag, nil
 	case ref == "":
 		out, err := g.run(ctx, packFetchTimeout, dir, extra, "ls-remote", "--symref", "--", remote, "HEAD")
 		if err != nil {
@@ -312,4 +332,55 @@ func parseFetchHead(data, wanted string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("FETCH_HEAD %q does not name the ref fetched for %q", line, wanted)
+}
+
+// releaseTag matches the name of a release tag, vX.Y.Z of SemVer 2 with
+// no pre-release and no build metadata; a number has no leading zero.
+var releaseTag = regexp.MustCompile(`^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
+
+// latestReleaseTag is the full name of the highest release tag in the
+// output of git ls-remote --tags --refs, and false when it lists none. A
+// tag is annotated or lightweight alike: fetching its name peels it to
+// the commit.
+func latestReleaseTag(out string) (string, bool) {
+	best, bestNums := "", [3]string{}
+	for line := range strings.Lines(out) {
+		_, name, ok := strings.Cut(strings.TrimRight(line, "\r\n"), "\t")
+		if !ok {
+			continue
+		}
+		nums, ok := releaseVersion(name)
+		if !ok {
+			continue
+		}
+		if best == "" || compareVersion(nums, bestNums) > 0 {
+			best, bestNums = name, nums
+		}
+	}
+	return best, best != ""
+}
+
+// releaseVersion is the numbers of the release tag with the full name
+// fullRef, and false when it is not one.
+func releaseVersion(fullRef string) ([3]string, bool) {
+	tag, ok := strings.CutPrefix(fullRef, "refs/tags/")
+	if !ok {
+		return [3]string{}, false
+	}
+	m := releaseTag.FindStringSubmatch(tag)
+	if m == nil {
+		return [3]string{}, false
+	}
+	return [3]string{m[1], m[2], m[3]}, true
+}
+
+// compareVersion orders two versions whose numbers have no leading zero,
+// each number by its length, then by its digits, so that none overflows.
+func compareVersion(a, b [3]string) int {
+	for i := range a {
+		if c := cmp.Or(cmp.Compare(len(a[i]), len(b[i])), cmp.Compare(a[i], b[i])); c != 0 {
+			return c
+		}
+	}
+	return 0
 }

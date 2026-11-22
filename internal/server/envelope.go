@@ -46,7 +46,7 @@ func statusOf(code string) int {
 		return http.StatusUnprocessableEntity
 	case envelope.CodeConsent, envelope.CodeRefused, envelope.CodeRunning, envelope.CodeHarnessRefused,
 		envelope.CodeProjectRefused, envelope.CodeApplyRefused, envelope.CodeRecordInvalid, envelope.CodeCopyRefused, envelope.CodeNewRefused, envelope.CodeRegistryInvalid,
-		envelope.CodePackNameTaken, envelope.CodeHostUnsupported, envelope.CodeFetchByCommit, envelope.CodeTreeRefused:
+		envelope.CodePackNameTaken, envelope.CodeHostUnsupported, envelope.CodeFetchByCommit, envelope.CodeNoReleaseTag, envelope.CodeLatestDowngrade, envelope.CodeTreeRefused:
 		return http.StatusConflict
 	case envelope.CodeFetchFailed:
 		return http.StatusBadGateway
