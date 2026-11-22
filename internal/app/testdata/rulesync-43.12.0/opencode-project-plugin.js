@@ -122,15 +122,18 @@ export default {
       const timeout = () => new Promise((resolve) => (timer = setTimeout(resolve, seconds * 1000, null)));
       if (inProcess || !(await __rulesyncCanExec)) {
         const run = Bun.$`echo ${input} | ${{ raw: command }}`.cwd(directory).nothrow();
-        const result = await Promise.race([echo ? run : run.quiet(), timeout()]).finally(() => clearTimeout(timer));
-        if (!result || echo) return result && { exitCode: result.exitCode };
+        // A sessionStart command's stderr reaches the host when it ends, even after its timeout.
+        const finished = echo === true ? run : run.quiet().then((done) => (echo && process.stderr.write(done.stderr), done));
+        const result = await Promise.race([finished, timeout()]).finally(() => clearTimeout(timer));
+        if (!result || echo === true) return result && { exitCode: result.exitCode };
         const { exitCode, stdout, stderr } = result;
         return { exitCode, stdout: stdout.toString(), stderr: stderr.toString(), overflow: stdout.length > 1048576 };
       }
-      // An ordinary command writes to the host's stdout and stderr; a preToolUse one is read.
-      const output = echo ? "inherit" : "pipe";
-      const proc = Bun.spawn([process.execPath, "--no-env-file", "exec", "export BUN_BE_BUN=\n" + command], { cwd: directory, env: { ...process.env, BUN_BE_BUN: "1" }, stdin: new TextEncoder().encode(input + "\n"), stdout: output, stderr: output, windowsHide: true });
-      const [stdout, stderr] = echo ? [] : [__rulesyncRead(proc.stdout), __rulesyncRead(proc.stderr)];
+      // An ordinary command writes to the host's stdout and stderr; a preToolUse one is read, and
+      // a sessionStart one (`echo: "stderr"`) has its stdout read.
+      const proc = Bun.spawn([process.execPath, "--no-env-file", "exec", "export BUN_BE_BUN=\n" + command], { cwd: directory, env: { ...process.env, BUN_BE_BUN: "1" }, stdin: new TextEncoder().encode(input + "\n"), stdout: echo === true ? "inherit" : "pipe", stderr: echo ? "inherit" : "pipe", windowsHide: true });
+      const stdout = echo === true ? undefined : __rulesyncRead(proc.stdout);
+      const stderr = echo ? undefined : __rulesyncRead(proc.stderr);
       const exitCode = await Promise.race([proc.exited, timeout()]).finally(() => clearTimeout(timer));
       if (exitCode === null) {
         stdout?.stop(), stderr?.stop();
@@ -138,15 +141,15 @@ export default {
         else __rulesyncKillTree(proc);
         return null;
       }
-      if (echo) return { exitCode };
-      await Promise.race([Promise.all([stdout.done, stderr.done]), Bun.sleep(1000)]);
-      stdout.stop(), stderr.stop();
-      return { exitCode, stdout: stdout.text(), stderr: stderr.text(), overflow: stdout.overflow() };
+      if (echo === true) return { exitCode };
+      await Promise.race([Promise.all([stdout.done, stderr?.done]), Bun.sleep(1000)]);
+      stdout.stop(), stderr?.stop();
+      return { exitCode, stdout: stdout.text(), stderr: stderr?.text() ?? "", overflow: stdout.overflow() };
     };
-    const __rulesyncRunHook = async ({ label, command, input, blocking, seconds, inProcess = false }) => {
+    const __rulesyncRunHook = async ({ label, command, input, blocking, seconds, inProcess = false, context = false }) => {
       let result;
       try {
-        result = await __rulesyncRunCommand({ command, input, seconds, inProcess, echo: true });
+        result = await __rulesyncRunCommand({ command, input, seconds, inProcess, echo: context ? "stderr" : true });
       } catch (error) {
         if (blocking) throw error;
         console.error("[rulesync-hooks] " + label + " hook failed:", error);
@@ -157,43 +160,112 @@ export default {
         if (blocking) throw new Error(message);
         return console.error(message);
       }
-      if (result.exitCode === 0) return;
+      if (result.exitCode === 0) return result;
       const message = "[rulesync-hooks] " + label + " hook exited with code " + result.exitCode;
       if (blocking) throw new Error(message);
       console.error(message);
     };
 
+    const __rulesyncSessionContexts = new Map();
+    const __rulesyncKept = new WeakSet();
+    const __rulesyncContextOf = (result) => {
+      if (typeof result?.stdout !== "string") return "";
+      if (result.overflow) {
+        console.error("[rulesync-hooks] sessionStart hook wrote more than 1 MiB to stdout; it is ignored");
+        return "";
+      }
+      let text = result.stdout;
+      try {
+        const parsed = JSON.parse(text);
+        // Like Claude Code, only a JSON object counts as JSON output; anything else is plain text.
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) text = parsed.hookSpecificOutput?.additionalContext;
+      } catch {}
+      return typeof text === "string" ? text.trim().slice(0, 10000) : "";
+    };
+    const __rulesyncSessionStart = (sessionID, run) => {
+      const results = [];
+      const pending = run(results)
+        .catch(() => {})
+        .then(() => results.map(__rulesyncContextOf).filter(Boolean).join("\n\n"));
+      if (typeof sessionID === "string") {
+        __rulesyncSessionContexts.delete(sessionID);
+        __rulesyncSessionContexts.set(sessionID, pending);
+        // Only a non-empty context is kept, and only it counts towards the 100: a running
+        // or empty one never evicts another session's context.
+        pending.then((context) => {
+          if (__rulesyncSessionContexts.get(sessionID) !== pending) return;
+          if (!context) return void __rulesyncSessionContexts.delete(sessionID);
+          __rulesyncKept.add(pending);
+          // Evict in completion order: a context counts as used once it is ready.
+          __rulesyncSessionContexts.delete(sessionID);
+          __rulesyncSessionContexts.set(sessionID, pending);
+          const kept = [...__rulesyncSessionContexts].filter(([, entry]) => __rulesyncKept.has(entry));
+          if (kept.length > 100) __rulesyncSessionContexts.delete(kept[0][0]);
+        });
+      }
+      return pending;
+    };
+    const __rulesyncSessionContext = async (sessionID) => {
+      const pending = __rulesyncSessionContexts.get(sessionID);
+      if (!pending) return "";
+      __rulesyncSessionContexts.delete(sessionID);
+      __rulesyncSessionContexts.set(sessionID, pending);
+      return pending;
+    };
+
+    const __rulesyncRegistrations = [];
+    try {
+      __rulesyncRegistrations.push(
+        await ctx.session.hook("context", async (event) => {
+          const context = await __rulesyncSessionContext(event?.sessionID);
+          if (context && Array.isArray(event?.system)) event.system.push({ type: "text", text: context });
+        }),
+      );
+    } catch (error) {
+      console.error("[rulesync-hooks] could not register the session context hook; sessionStart output does not reach the model:", error);
+    }
+
     const __rulesyncEvents = new AbortController();
+    let __rulesyncEventQueue = Promise.resolve();
     void (async () => {
       for await (const event of ctx.event.subscribe({
-        types: ["session.created", "session.execution.succeeded"],
+        types: ["session.created", "session.execution.succeeded", "session.deleted"],
         signal: __rulesyncEvents.signal,
       })) {
+        if (event.type === "session.deleted") __rulesyncSessionContexts.delete(event.data?.sessionID);
         if (event.type === "session.created") {
-          try {
-            await __rulesyncRunHook({ label: "sessionStart", command: "echo hi", input: "", blocking: false, seconds: 600 });
-          } catch (error) {
-            console.error("[rulesync-hooks] sessionStart hook failed:", error);
-          }
+          void __rulesyncSessionStart(event.data?.sessionID, async (__rulesyncResults) => {
+            try {
+              __rulesyncResults.push(await __rulesyncRunHook({ label: "sessionStart", command: "echo hi", input: "", blocking: false, seconds: 600, context: true }));
+            } catch (error) {
+              console.error("[rulesync-hooks] sessionStart hook failed:", error);
+            }
+          });
         } else if (event.type === "session.execution.succeeded") {
-          let __rulesyncStopInputCache;
-          const __rulesyncStopInput = () =>
-            (__rulesyncStopInputCache ??= JSON.stringify({
-              hook_event_name: "Stop",
-              session_id: event.data?.sessionID,
-              cwd: directory,
-            }));
-          try {
-            await __rulesyncRunHook({ label: "stop", command: "echo bye", input: __rulesyncStopInput(), blocking: false, seconds: 600 });
-          } catch (error) {
-            console.error("[rulesync-hooks] stop hook failed:", error);
-          }
+          __rulesyncEventQueue = __rulesyncEventQueue
+            .then(async () => {
+              if (__rulesyncEvents.signal.aborted) return;
+              let __rulesyncStopInputCache;
+              const __rulesyncStopInput = () =>
+                (__rulesyncStopInputCache ??= JSON.stringify({
+                  hook_event_name: "Stop",
+                  session_id: event.data?.sessionID,
+                  cwd: directory,
+                }));
+              try {
+                await __rulesyncRunHook({ label: "stop", command: "echo bye", input: __rulesyncStopInput(), blocking: false, seconds: 600 });
+              } catch (error) {
+                console.error("[rulesync-hooks] stop hook failed:", error);
+              }
+            })
+            .catch((error) => console.error("[rulesync-hooks] session.execution.succeeded event hook failed:", error));
         }
       }
     })().catch(() => {});
 
     return async () => {
       __rulesyncEvents.abort();
+      await Promise.all(__rulesyncRegistrations.map((registration) => registration.dispose()));
     };
   },
 };

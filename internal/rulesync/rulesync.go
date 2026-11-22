@@ -34,12 +34,12 @@ type Asset struct {
 // downloaded independently. The release targets in scripts/release.sh
 // follow its platforms: a platform is added to both together (0042).
 var releases = map[string]map[string]Asset{
-	"43.10.0": {
-		"windows/amd64": {"rulesync-windows-x64.exe", "ba4368a264c76505bf3fb38f78109adcf1ed7772b6c5d3bde18859b471f2750e"},
-		"linux/amd64":   {"rulesync-linux-x64", "d9aed6fdac164b984430751c333d716230342da1ac84044c7d8f34533e5cd5f7"},
-		"linux/arm64":   {"rulesync-linux-arm64", "51f1c25ccfa3e758afc3d4a68b129b77b14046f384061ce556e148023a8978d6"},
-		"darwin/amd64":  {"rulesync-darwin-x64", "02935b6a6eee1e10def50be5f4f36de9da5428897eeee435af2997e61ad77bde"},
-		"darwin/arm64":  {"rulesync-darwin-arm64", "773b77d1cde9f6013868aaa4de3ab6570ca361c15fef9f9a645280b4935de118"},
+	"43.12.0": {
+		"windows/amd64": {"rulesync-windows-x64.exe", "e0c12618e86bb8bb713ce8327fd51a6ced289729229e5031b5b367f443a5e1eb"},
+		"linux/amd64":   {"rulesync-linux-x64", "cfea6df75e90b2dc43359bd4174d295e3236149fda8a9cf93519f582fdf61230"},
+		"linux/arm64":   {"rulesync-linux-arm64", "126f8c7306adba8a9fcdc1ebd5f2cc581e8be9aebb4e4a770e8b198fb4b0f32c"},
+		"darwin/amd64":  {"rulesync-darwin-x64", "977ac7a8fcbdae934afcebffd12ded37d4b0e191f0653858fd30b70c69794551"},
+		"darwin/arm64":  {"rulesync-darwin-arm64", "2de06914fd180181be64cab4d5588f801396bf5a49d4b29772557473c0c7bd07"},
 	},
 }
 

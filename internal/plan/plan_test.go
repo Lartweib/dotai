@@ -14,7 +14,7 @@ import (
 )
 
 // exampleTree is the user-scope tree that dotai stage writes for the
-// example pack with rulesync 43.10.0.
+// example pack with rulesync 43.12.0.
 var exampleTree = []string{
 	".claude/CLAUDE.md",
 	".claude/agents/reviewer.md",

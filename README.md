@@ -30,7 +30,7 @@ A pack is a `dotai.yaml` manifest and layers in the rulesync layout: a base, var
 schema: dotai.pack/v1
 name: minimal-pack
 version: 0.1.0
-rulesync: 43.10.0
+rulesync: 43.12.0
 harnesses: [claudecode, antigravity-cli, opencode]
 
 profiles:
@@ -161,7 +161,7 @@ claudecode
 | Google Antigravity CLI (agy) | `antigravity-cli` | `agy` | `--gemini_dir` | Supported |
 | OpenCode | `opencode` | `opencode` | `XDG_*` directories | Preview |
 
-OpenCode is a preview: rulesync's generated OpenCode hooks plugin does not pass a `sessionStart` hook's output to the model (an upstream fix, [dyoshikawa/rulesync#3926](https://github.com/dyoshikawa/rulesync/pull/3926), is pending), and in `opencode run` and `opencode serve` `sessionStart` races plugin startup, so the first request of a session can start before the hook has run. The pinned rulesync, 43.10.0, fixed the hooks that read stdin and enforces hook timeouts ([HARNESS-NOTES](docs/HARNESS-NOTES.md#rulesync-43100)). An install never selects a preview harness by default: name it with `--harness`, or tick it in the web UI's harness step, and the plan warns `harness-preview`; the saved choice, or an earlier install of the pack that managed it, keeps it managed.
+OpenCode is a preview: the pinned rulesync, 43.12.0, generates an OpenCode hooks plugin that passes a `sessionStart` hook's output to the model through a context hook of OpenCode 2.x ([dyoshikawa/rulesync#3926](https://github.com/dyoshikawa/rulesync/pull/3926), [#3932](https://github.com/dyoshikawa/rulesync/pull/3932)), by its code, but no live OpenCode session has confirmed it yet ([HARNESS-NOTES](docs/HARNESS-NOTES.md#rulesync-43120)). Since 43.10.0 its hooks no longer read the plugin's stdin and hook timeouts are enforced ([HARNESS-NOTES](docs/HARNESS-NOTES.md#rulesync-43100)). An install never selects a preview harness by default: name it with `--harness`, or tick it in the web UI's harness step, and the plan warns `harness-preview`; the saved choice, or an earlier install of the pack that managed it, keeps it managed.
 
 Isolation is partial for every harness: each install plan names what of your own setup still loads, such as a shared login. The verified behavior of each harness, with the version and OS it was checked on, is in [Harness notes](docs/HARNESS-NOTES.md).
 

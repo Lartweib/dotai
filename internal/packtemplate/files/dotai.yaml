@@ -3,7 +3,7 @@ schema: dotai.pack/v1
 name: example-pack
 version: 0.1.0
 engine: ">=0.1.0"
-rulesync: 43.10.0
+rulesync: 43.12.0
 # The harnesses the pack is compatible with, by their rulesync target
 # names: an install manages those that are installed, and the user may
 # pick fewer. A preview harness, such as opencode, is managed only when

@@ -16,7 +16,7 @@ import (
 func agyPack(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, "dotai.yaml"), "schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\nrulesync: 43.10.0\nharnesses: [antigravity-cli]\n")
+	writeFile(t, filepath.Join(dir, "dotai.yaml"), "schema: dotai.pack/v1\nname: p\nversion: 1.0.0\nengine: '>=0.1.0'\nrulesync: 43.12.0\nharnesses: [antigravity-cli]\n")
 	writeFile(t, filepath.Join(dir, "base", ".rulesync", "rules", "r.md"), "# R\n")
 	return dir
 }

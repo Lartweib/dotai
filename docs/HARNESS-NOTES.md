@@ -176,6 +176,18 @@ How Claude Code loads a mod, for the mods of [0027](decisions/0027-loose-files-a
 - **Turning it off, documented:** `enabledPlugins["<name>@skills-dir"]: false`, which `.claude/settings.local.json` can set over the team's settings; `disableAllHooks`; `--safe-mode`.
 - **Version, documented:** mods need Claude Code 2.1.287 or later, in the terminal.
 
+<a id="rulesync-43120"></a>
+
+## rulesync (43.12.0)
+
+Checked with rulesync 43.12.0 (diff of the v43.10.0 and v43.12.0 tags, 2026-11-22) and by rendering a project with `rulesync generate --targets opencode --features hooks` on Windows 11, in a temporary directory with a temporary home, with a `sessionStart` hook (`echo hi`) and a `stop` hook (`echo bye`). The facts of the 43.10.0 section hold unless this list says otherwise. dotai's command line use of rulesync (`generate --targets <list> --features *`) is unchanged.
+
+- **Release assets:** the same five binaries and `SHA256SUMS`; the engine's hashes match the release's `SHA256SUMS`, the asset digests of the GitHub API and an independent hash of each downloaded binary ([0029](decisions/0029-rulesync-checksums-embedded-in-the-engine.md)).
+- **OpenCode `sessionStart` output (rulesync PRs 3926 and 3932):** by the generated plugin's code, a `sessionStart` command now runs with its stdout read (1 MiB at most) and its stderr passed to the host; the output, or the `hookSpecificOutput.additionalContext` of a JSON object, is cut to 10000 characters and kept per session; and the plugin registers `ctx.session.hook("context", ...)`, which pushes `{ type: "text", text }` into `event.system` before each model request of that session. The command starts on `session.created` outside the event queue, so a slow command does not hold back later events, and the context hook waits for its pending result, which closes the race with the first request that 43.10.0 left open. Where the host has no `ctx.session.hook` or no `context` hook point, the plugin logs `could not register the session context hook; sessionStart output does not reach the model` and its other hooks still load. The fixture is `internal/app/testdata/rulesync-43.12.0/opencode-project-plugin.js`, byte for byte what rulesync rendered. **Unverified at runtime:** that OpenCode 2.x has that `context` hook point and sends `event.system` to the model; the published `@opencode-ai/plugin` types (1.19.6 and the `dev` tag of 2026-11-17) do not describe the 2.x `ctx.session` API, and rulesync tests the plugin against mocks. OpenCode stays a preview until the check in [0047](decisions/0047-harness-selection-and-preview-harnesses.md) is done in a live session.
+- **OpenCode plugin id and file name:** unchanged (`id: "rulesync-hooks:" + import.meta.url,`), so dotai's project rename and its id check are unchanged.
+- **Claude Code hooks and permissions:** `mcp_tool` hooks accept `failClosed` (as `onFailure`), the Claude Code sandbox warnings follow its new `autoAllowBashIfSandboxed` default of `false`, and `permissions.denyInsteadOfPrompting` is dropped at project scope with a warning. dotai's packs use none of them, and no generated Claude Code file changes for the example pack.
+- **agy permissions:** an `agentMode` override of `default` is written as `""`, as agy 1.5.7 stores its Default mode. dotai writes no `agentMode`.
+
 <a id="rulesync-4100"></a>
 <a id="rulesync-4392"></a>
 
