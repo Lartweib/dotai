@@ -154,6 +154,16 @@ What a program that registers its own hooks does to the files dotai writes hooks
 - **agy, `~/.gemini/config/hooks.json`:** the file has the top-level key `rulesync`, which holds dotai's hooks, and the program added a sibling top-level key of its own with its own events. dotai owns the top-level keys it writes there.
 - **OpenCode:** no shared hooks file. rulesync's hooks plugin is `plugins/rulesync-hooks.js`, a file of dotai's own that rulesync writes ([rulesync](#rulesync-4392)), and OpenCode loads each plugin from its own file or from the `plugin` list of its settings file, which is owned by key. Not checked at runtime: no program that registers hooks with OpenCode was available.
 
+## Files a running harness rewrites
+
+Which files a replace install may not write while a harness runs ([0053](decisions/0053-running-check-by-live-written-file.md)); the adapters list them in `Real.LiveWritten`. Everything else a harness reads when a session starts, so an update of it is picked up by the next session.
+
+- **Claude Code:** `~/.claude/settings.json` (it added `theme` on a first launch, and `/model` writes `model`, [0035](decisions/0035-settings-files-owned-by-key.md)) and `~/.claude.json` (a running session rewrites it, see the concurrent-writes note above). Rules, agents, skills, commands and plugins were not seen written by a running session.
+- **agy:** `~/.gemini/antigravity-cli/settings.json` (inferred: it is a settings file the harness writes into), `~/.gemini/config/hooks.json` (a program that registers hooks added a top-level key at each of its starts, see above) and `~/.gemini/config/config.json` (documented by agy's changelog as plugin enablement and "always allow" rules; not checked, and dotai never writes it). Its session files live under `antigravity-cli/`, which dotai does not write.
+- **OpenCode:** `~/.config/opencode/opencode.jsonc` (inferred, as agy's settings). Its background service stays running after a session, so OpenCode is often "running" to the check ([0038](decisions/0038-replace-mode-resets-harness-to-fresh-install.md)); its plugins, agents and skills are read when it starts.
+
+Not checked on a real running harness: what each does with its own copy of these files when dotai changes one under it.
+
 ## Mods
 
 How Claude Code loads a mod, for the mods of [0027](decisions/0027-loose-files-and-plugins-only-for-mods.md) and [PACK-FORMAT](PACK-FORMAT.md#mods). The facts come from the official Claude Code docs, read on 2026-11-02 ([skills](https://code.claude.com/docs/en/skills), [plugin loading](https://code.claude.com/docs/en/plugins/loading), [mods overview](https://code.claude.com/docs/en/plugins/mods/overview), [mods reference](https://code.claude.com/docs/en/plugins/mods/reference), [plugin components](https://code.claude.com/docs/en/plugins/components), [hooks](https://code.claude.com/docs/en/hooks)). Those marked **verified** were checked on Claude Code 2.1.316, Windows 11, with an isolated `CLAUDE_CONFIG_DIR` and no session: `dotai apply --profile web` of the example pack in a test repository, then `claude plugin list` and `claude plugin validate .claude/skills/hello` in the project. The others are documented, not session-checked.
