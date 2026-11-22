@@ -20,7 +20,7 @@ export function backLink() {
 export function sourceLine(entry) {
   const s = entry.source;
   return h("span", { class: "srcline" },
-    h("span", { class: "mono id", text: visible(entry.id || tilde(entry.path)) }),
+    h("span", { class: "mono id", path: visible(entry.id || tilde(entry.path)) }),
     s ? h("span", { class: "mono ref", text: visible(refLabel(s)) + " · " + shortCommit(s.commit) }) : null);
 }
 
@@ -155,7 +155,7 @@ const kinds = { added: "create", modified: "replace", removed: "remove" };
 
 function change(c) {
   const head = h("div", { class: "chead" },
-    h("span", { class: "mono cpath", text: visible(c.path) }),
+    h("span", { class: "mono cpath", path: visible(c.path) }),
     h("span", { class: "cmarks" },
       modeChanged(c) ? h("span", { class: "pill sm warn", text: t("review.mode", { from: c.modeBefore, to: c.modeAfter }) }) : null,
       h("span", { class: "tag", "data-a": kinds[c.change] || "replace", text: t("review.kind." + c.change, {}, c.change) })));

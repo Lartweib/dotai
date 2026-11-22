@@ -202,10 +202,10 @@ function onboarding(o) {
 function origin(entry) {
   const src = entry.source;
   return h("dl", { class: "kv origin" },
-    h("dt", { text: t("packs.identity") }), h("dd", { class: "mono", text: visible(entry.id || "—") }),
+    h("dt", { text: t("packs.identity") }), h("dd", { class: "mono", path: visible(entry.id || "—") }),
     src ? [
-      h("dt", { text: t("packs.repository") }), h("dd", { class: "mono", text: visible(src.url) }),
-      h("dt", { text: t("packs.ref") }), h("dd", { class: "mono", text: visible(trackingLabel(src) || src.fullRef || src.ref) }),
+      h("dt", { text: t("packs.repository") }), h("dd", { class: "mono", path: visible(src.url) }),
+      h("dt", { text: t("packs.ref") }), h("dd", { class: "mono", path: visible(trackingLabel(src) || src.fullRef || src.ref) }),
       h("dt", { text: t("packs.commit") }), h("dd", { class: "mono", title: src.commit, text: shortCommit(src.commit) }),
     ] : [h("dt", { text: t("packs.source") }), h("dd", { text: t("packs.localSource") })]);
 }

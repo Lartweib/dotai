@@ -77,7 +77,7 @@ export async function render(root, ctx) {
             h("span", { class: "chev" }, icon("chev", 16)), h("span", { class: "ico" }, icon(ic, 18)), h("span", { text: groupName(gid) }), h("span", { class: "cnt", text: String(kids.length) })),
           open ? h("ul", { class: "kids" }, kids.length ? kids.map((it) =>
             h("li", {}, h("button", { class: "leaf", type: "button", "aria-pressed": String(it === cur), onclick: () => { view.sel = it.id; draw(); } },
-              h("span", { class: "main" }, h("span", { class: "nm", text: leafName(it) }), h("span", { class: "sub", text: it.path })),
+              h("span", { class: "main" }, h("span", { class: "nm", text: leafName(it) }), h("span", { class: "sub", path: it.path })),
               it.op.action !== "unchanged" ? h("span", { class: "tag", "data-a": it.op.action, text: word(it.op.action) }) : null)))
             : h("li", { class: "help empty", text: t("tree.none", { name: harnessName(view.harness) }) })) : null);
       })));
