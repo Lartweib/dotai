@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/Lartweib/dotai/compare/v0.1.2...v0.2.0) (2026-11-23)
+
+
+### Features
+
+* **harness:** promote OpenCode to supported ([c09765d](https://github.com/Lartweib/dotai/commit/c09765de3f51935dc774ba609ce1908608512ab6))
+
 ## [0.1.2](https://github.com/Lartweib/dotai/compare/v0.1.1...v0.1.2) (2026-11-22)
 
 
